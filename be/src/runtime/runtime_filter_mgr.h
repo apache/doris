@@ -69,8 +69,8 @@ public:
 
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
     // regist filter
-    Status regist_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                         const TQueryOptions& options, int node_id = -1);
+    Status register_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
+                           const TQueryOptions& options, int node_id = -1);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,

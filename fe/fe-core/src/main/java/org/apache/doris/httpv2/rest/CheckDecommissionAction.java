@@ -20,12 +20,12 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -70,19 +70,18 @@ public class CheckDecommissionAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No host:port specified");
         }
 
-        List<Pair<String, Integer>> hostPortPairs = Lists.newArrayList();
+        List<HostInfo> hostInfos = Lists.newArrayList();
         for (String hostPort : hostPortArr) {
-            Pair<String, Integer> pair;
             try {
-                pair = SystemInfoService.validateHostAndPort(hostPort);
+                HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+                hostInfos.add(hostInfo);
             } catch (AnalysisException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
-            hostPortPairs.add(pair);
         }
 
         try {
-            List<Backend> backends = SystemHandler.checkDecommission(hostPortPairs);
+            List<Backend> backends = SystemHandler.checkDecommission(hostInfos);
             List<String> backendsList = backends.stream().map(b -> b.getHost() + ":"
                     + b.getHeartbeatPort()).collect(Collectors.toList());
             return ResponseEntityBuilder.ok(backendsList);

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_state char(2),
     ca_zip char(10),
     ca_country varchar(20),
-    ca_gmt_offset decimal(5,2),
+    ca_gmt_offset decimalv3(5,2),
     ca_location_type char(20)
 )
 DUPLICATE KEY(ca_address_sk, ca_address_id)

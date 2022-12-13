@@ -28,11 +28,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -50,7 +48,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Resolve having clause to the aggregation.
+ * Resolve having clause to the aggregation/repeat.
  * need Top to Down to traverse plan,
  * because we need to process FILL_UP_SORT_HAVING_AGGREGATE before FILL_UP_HAVING_AGGREGATE.
  */
@@ -58,72 +56,75 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.FILL_UP_SORT_PROJECT.build(
-                        logicalSort(logicalProject())
-                                .when(this::checkSort)
-                                .then(sort -> {
-                                    final Builder<NamedExpression> projectionsBuilder = ImmutableList.builder();
-                                    projectionsBuilder.addAll(sort.child().getProjects());
-                                    Set<Slot> notExistedInProject = sort.getExpressions().stream()
-                                            .map(Expression::getInputSlots)
-                                            .flatMap(Set::stream)
-                                            .filter(s -> !sort.child().getOutputSet().contains(s))
-                                            .collect(Collectors.toSet());
-                                    projectionsBuilder.addAll(notExistedInProject);
-                                    return new LogicalProject(sort.child().getOutput(),
-                                            new LogicalSort<>(sort.getOrderKeys(),
-                                                    new LogicalProject<>(projectionsBuilder.build(),
-                                                            sort.child().child())));
-                                })
-                ),
-                RuleType.FILL_UP_SORT_AGGREGATE.build(
-                        logicalSort(logicalAggregate())
-                                .when(this::checkSort)
-                                .then(sort -> {
-                                    LogicalAggregate<GroupPlan> aggregate = sort.child();
-                                    Resolver resolver = new Resolver(aggregate);
-                                    sort.getExpressions().forEach(resolver::resolve);
-                                    return createPlan(resolver, sort.child(), (r, a) -> {
-                                        List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
-                                                .map(ok -> new OrderKey(
-                                                        ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
-                                                        ok.isAsc(),
-                                                        ok.isNullFirst()))
-                                                .collect(ImmutableList.toImmutableList());
-                                        return new LogicalSort<>(newOrderKeys, a);
-                                    });
-                                })
-                ),
-                RuleType.FILL_UP_SORT_HAVING_AGGREGATE.build(
-                        logicalSort(logicalHaving(logicalAggregate()))
-                                .when(this::checkSort)
-                                .then(sort -> {
-                                    LogicalAggregate<GroupPlan> aggregate = sort.child().child();
-                                    Resolver resolver = new Resolver(aggregate);
-                                    sort.getExpressions().forEach(resolver::resolve);
-                                    return createPlan(resolver, sort.child().child(), (r, a) -> {
-                                        List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
-                                                .map(ok -> new OrderKey(
-                                                        ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
-                                                        ok.isAsc(),
-                                                        ok.isNullFirst()))
-                                                .collect(ImmutableList.toImmutableList());
-                                        return new LogicalSort<>(newOrderKeys, sort.child().withChildren(a));
-                                    });
-                                })
-                ),
-                RuleType.FILL_UP_HAVING_AGGREGATE.build(
-                        logicalHaving(logicalAggregate()).then(having -> {
-                            LogicalAggregate<GroupPlan> aggregate = having.child();
-                            Resolver resolver = new Resolver(aggregate);
-                            resolver.resolve(having.getPredicates());
-                            return createPlan(resolver, having.child(), (r, a) -> {
-                                Expression newPredicates = ExpressionUtils.replace(
-                                        having.getPredicates(), r.getSubstitution());
-                                return new LogicalFilter<>(newPredicates, a);
-                            });
-                        })
-                )
+            RuleType.FILL_UP_SORT_PROJECT.build(
+                logicalSort(logicalProject())
+                    .when(this::checkSort)
+                    .then(sort -> {
+                        final Builder<NamedExpression> projectionsBuilder = ImmutableList.builder();
+                        projectionsBuilder.addAll(sort.child().getProjects());
+                        Set<Slot> notExistedInProject = sort.getExpressions().stream()
+                                .map(Expression::getInputSlots)
+                                .flatMap(Set::stream)
+                                .filter(s -> !sort.child().getOutputSet().contains(s))
+                                .collect(Collectors.toSet());
+                        projectionsBuilder.addAll(notExistedInProject);
+                        return new LogicalProject(sort.child().getOutput(),
+                                new LogicalSort<>(sort.getOrderKeys(),
+                                        new LogicalProject<>(projectionsBuilder.build(),
+                                                sort.child().child())));
+                    })
+            ),
+            RuleType.FILL_UP_SORT_AGGREGATE.build(
+                logicalSort(aggregate())
+                    .when(this::checkSort)
+                    .then(sort -> {
+                        Aggregate aggregate = sort.child();
+                        Resolver resolver = new Resolver(aggregate);
+                        sort.getExpressions().forEach(resolver::resolve);
+                        return createPlan(resolver, sort.child(), (r, a) -> {
+                            List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                                    .map(ok -> new OrderKey(
+                                            ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
+                                            ok.isAsc(),
+                                            ok.isNullFirst()))
+                                    .collect(ImmutableList.toImmutableList());
+                            return new LogicalSort<>(newOrderKeys, a);
+                        });
+                    })
+            ),
+            RuleType.FILL_UP_SORT_HAVING_AGGREGATE.build(
+                logicalSort(logicalHaving(aggregate()))
+                    .when(this::checkSort)
+                    .then(sort -> {
+                        Aggregate aggregate = sort.child().child();
+                        Resolver resolver = new Resolver(aggregate);
+                        sort.getExpressions().forEach(resolver::resolve);
+                        return createPlan(resolver, sort.child().child(), (r, a) -> {
+                            List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                                    .map(ok -> new OrderKey(
+                                            ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
+                                            ok.isAsc(),
+                                            ok.isNullFirst()))
+                                    .collect(ImmutableList.toImmutableList());
+                            return new LogicalSort<>(newOrderKeys, sort.child().withChildren(a));
+                        });
+                    })
+            ),
+            RuleType.FILL_UP_HAVING_AGGREGATE.build(
+                logicalHaving(aggregate()).then(having -> {
+                    Aggregate aggregate = having.child();
+                    Resolver resolver = new Resolver(aggregate);
+                    resolver.resolve(having.getPredicates());
+                    return createPlan(resolver, having.child(), (r, a) -> {
+                        Expression newPredicates = ExpressionUtils.replace(
+                                having.getPredicates(), r.getSubstitution());
+                        return new LogicalFilter<>(newPredicates, a);
+                    });
+                })),
+            RuleType.FILL_UP_HAVING_PROJECT.build(
+                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getPredicates(),
+                    having.child()))
+            )
         );
     }
 
@@ -134,7 +135,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
 
-        Resolver(LogicalAggregate<? extends Plan> aggregate) {
+        Resolver(Aggregate aggregate) {
             outputExpressions = aggregate.getOutputExpressions();
             groupByExpressions = aggregate.getGroupByExpressions();
         }
@@ -236,23 +237,22 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     interface PlanGenerator {
-        Plan apply(Resolver resolver, LogicalAggregate<Plan> aggregate);
+        Plan apply(Resolver resolver, Aggregate aggregate);
     }
 
-    private Plan createPlan(Resolver resolver, LogicalAggregate<? extends Plan> aggregate,
+    private Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate,
             PlanGenerator planGenerator) {
         List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
                 .map(NamedExpression::toSlot).collect(Collectors.toList());
         List<NamedExpression> newOutputExpressions = Streams.concat(
                 aggregate.getOutputExpressions().stream(), resolver.getNewOutputSlots().stream()
         ).collect(Collectors.toList());
-        LogicalAggregate<Plan> newAggregate = aggregate.withGroupByAndOutput(
-                aggregate.getGroupByExpressions(), newOutputExpressions);
+        Aggregate newAggregate = aggregate.withAggOutput(newOutputExpressions);
         Plan plan = planGenerator.apply(resolver, newAggregate);
         return new LogicalProject<>(projections, plan);
     }
 
-    private boolean checkSort(LogicalSort<? extends LogicalPlan> logicalSort) {
+    private boolean checkSort(LogicalSort<? extends Plan> logicalSort) {
         return logicalSort.getExpressions().stream()
                 .map(Expression::getInputSlots)
                 .flatMap(Set::stream)

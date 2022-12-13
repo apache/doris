@@ -47,7 +47,7 @@ public:
         st.to_protobuf(response->mutable_status());
         st = stream_mgr->transmit_block(request, &done);
         if (!st.ok()) {
-            LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
+            LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
         }
@@ -158,8 +158,9 @@ TEST_F(VDataStreamTest, BasicTest) {
     }
     int per_channel_buffer_size = 1024 * 1024;
     bool send_query_statistics_with_every_batch = false;
-    VDataStreamSender sender(&_object_pool, sender_id, row_desc, tsink.stream_sink, dests,
-                             per_channel_buffer_size, send_query_statistics_with_every_batch);
+    VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
+                             dests, per_channel_buffer_size,
+                             send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
     sender.init(tsink);
     sender.prepare(&runtime_stat);

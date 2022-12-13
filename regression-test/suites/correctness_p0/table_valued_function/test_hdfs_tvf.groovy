@@ -29,7 +29,7 @@ suite("test_hdfs_tvf") {
             sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
 
             // test csv foramt
-            uri = "${defaultFS}" + "/user/doris/csv_format_test/all_types.csv"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
             format = "csv"
             qt_csv_all_types """ select * from HDFS(
                         "uri" = "${uri}",
@@ -38,7 +38,7 @@ suite("test_hdfs_tvf") {
                         "format" = "${format}") order by c1; """
 
 
-            uri = "${defaultFS}" + "/user/doris/csv_format_test/student.csv"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/student.csv"
             format = "csv"
             qt_csv_student """ select cast(c1 as INT) as id, c2 as name, c3 as age from HDFS(
                         "uri" = "${uri}",
@@ -46,7 +46,7 @@ suite("test_hdfs_tvf") {
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}") order by id; """
 
-            uri = "${defaultFS}" + "/user/doris/csv_format_test/array_malformat.csv"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_malformat.csv"
             format = "csv"
             qt_csv_array_malformat """ select * from HDFS(
                                         "URI" = "${uri}",
@@ -55,7 +55,7 @@ suite("test_hdfs_tvf") {
                                         "format" = "csv",
                                         "column_separator" = "|") order by c1; """
 
-            uri = "${defaultFS}" + "/user/doris/csv_format_test/array_normal.csv"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_normal.csv"
             format = "csv"
             qt_csv_array_normal """ select * from HDFS("URI" = "${uri}",
                                     "fs.defaultFS"= "${defaultFS}",
@@ -64,7 +64,7 @@ suite("test_hdfs_tvf") {
                                     "column_separator" = "|") order by c1; """
 
             // test csv_with_names file format
-            uri = "${defaultFS}" + "/user/doris/csv_format_test/student_with_names.csv"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/student_with_names.csv"
             format = "csv_with_names"
             qt_csv_names """ select cast(id as INT) as id, name, age from HDFS(
                             "uri" = "${uri}",
@@ -73,7 +73,7 @@ suite("test_hdfs_tvf") {
                             "format" = "${format}") order by id; """
 
             // test csv_with_names_and_types file format
-            uri = "${defaultFS}" + "/user/doris/csv_format_test/student_with_names_and_types.csv"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/student_with_names_and_types.csv"
             format = "csv_with_names_and_types"
             qt_csv_names_types """ select cast(id as INT) as id, name, age from HDFS(
                                     "uri" = "${uri}",
@@ -83,7 +83,7 @@ suite("test_hdfs_tvf") {
 
 
             // test parquet
-            uri = "${defaultFS}" + "/user/doris/tpch1.db/hdfs_tvf/test_parquet.snappy.parquet"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet.snappy.parquet"
             format = "parquet"
             qt_parquet """ select * from HDFS(
                             "uri" = "${uri}",
@@ -92,7 +92,7 @@ suite("test_hdfs_tvf") {
                             "format" = "${format}") order by s_suppkey limit 20; """
 
             // test orc
-            uri = "${defaultFS}" + "/user/doris/tpch1.db/hdfs_tvf/test_orc.snappy.orc"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_orc.snappy.orc"
             format = "orc"
             qt_orc """ select * from HDFS(
                             "uri" = "${uri}",
@@ -102,7 +102,7 @@ suite("test_hdfs_tvf") {
 
 
             // test josn format
-            uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_json """ select * from HDFS(
                         "uri" = "${uri}",
@@ -113,7 +113,7 @@ suite("test_hdfs_tvf") {
                         "read_json_by_line" = "true") order by id; """
 
             // test json root
-            uri = "${defaultFS}" + "/user/doris/json_format_test/nest_json.json"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"
             qt_json_root """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
                         "uri" = "${uri}",
@@ -125,7 +125,7 @@ suite("test_hdfs_tvf") {
                         "json_root" = "\$.item") order by id; """
 
             // test json paths
-            uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_json_paths """ select cast(id as INT) as id, cast(code as INT) as code from HDFS(
                         "uri" = "${uri}",
@@ -137,7 +137,7 @@ suite("test_hdfs_tvf") {
                         "jsonpaths" = "[\\"\$.id\\", \\"\$.code\\"]") order by id; """
 
             // test non read_json_by_line
-            uri = "${defaultFS}" + "/user/doris/json_format_test/one_array_json.json"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/one_array_json.json"
             format = "json"
             qt_one_array """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
                             "uri" = "${uri}",
@@ -149,7 +149,7 @@ suite("test_hdfs_tvf") {
 
 
             // test cast to int
-            uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_cast """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
                         "uri" = "${uri}",
@@ -176,7 +176,7 @@ suite("test_hdfs_tvf") {
             assertTrue(result1[0].size() == 1)
             assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
 
-            uri = "${defaultFS}" + "/user/doris/json_format_test/nest_json.json"
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"
             def result2 = sql """ insert into ${testTable}(id,city,code)
                     select cast (id as INT) as id, city, cast (code as INT) as code

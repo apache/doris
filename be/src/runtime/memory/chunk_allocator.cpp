@@ -120,6 +120,19 @@ public:
         _chunk_lists[idx].push_back(ptr);
     }
 
+    void clear() {
+        std::lock_guard<SpinLock> l(_lock);
+        for (int i = 0; i < 64; ++i) {
+            if (_chunk_lists[i].empty()) {
+                continue;
+            }
+            for (auto ptr : _chunk_lists[i]) {
+                ::free(ptr);
+            }
+            std::vector<uint8_t*>().swap(_chunk_lists[i]);
+        }
+    }
+
 private:
     SpinLock _lock;
     std::vector<std::vector<uint8_t*>> _chunk_lists;
@@ -152,13 +165,19 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_GAUGE_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_reserved_bytes);
 }
 
-Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
-    CHECK((size > 0 && (size & (size - 1)) == 0));
-
+Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
+    CHECK(size > 0);
+    size = BitUtil::RoundUpToPowerOfTwo(size);
     // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
     chunk->size = size;
     chunk->core_id = core_id;
+
+    if (_reserve_bytes_limit < 1) {
+        // allocate from system allocator
+        chunk->data = SystemAllocator::allocate(size);
+        return Status::OK();
+    }
 
     if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
         DCHECK_GE(_reserved_bytes, 0);
@@ -205,7 +224,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 void ChunkAllocator::free(const Chunk& chunk) {
     DCHECK(chunk.core_id != -1);
     CHECK((chunk.size & (chunk.size - 1)) == 0);
-    if (config::disable_mem_pools) {
+    if (config::disable_mem_pools || _reserve_bytes_limit < 1) {
         SystemAllocator::free(chunk.data, chunk.size);
         return;
     }
@@ -242,16 +261,19 @@ void ChunkAllocator::free(const Chunk& chunk) {
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
-Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
-    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);
-}
-
 void ChunkAllocator::free(uint8_t* data, size_t size) {
     Chunk chunk;
     chunk.data = data;
     chunk.size = size;
     chunk.core_id = CpuInfo::get_current_core();
     free(chunk);
+}
+
+void ChunkAllocator::clear() {
+    for (int i = 0; i < _arenas.size(); ++i) {
+        _arenas[i]->clear();
+    }
+    THREAD_MEM_TRACKER_TRANSFER_FROM(_mem_tracker->consumption(), _mem_tracker.get());
 }
 
 } // namespace doris

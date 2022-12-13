@@ -24,6 +24,7 @@
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/descriptors.h"
+
 namespace doris {
 
 class RuntimeState;
@@ -45,7 +46,7 @@ public:
     Status open(RuntimeState* state) override;
 
     // Fill the next row batch by calling next() on the scanner,
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
         return Status::NotSupported("Not Implemented VBrokerScanNode::get_next.");
     }
 
@@ -56,6 +57,9 @@ public:
 
     // No use
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+
+    bool can_read() { return true; }
+    bool can_finish() const { return _num_running_scanners == 0; }
 
 private:
     // Write debug string of this into out.

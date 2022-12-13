@@ -17,7 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -25,6 +28,7 @@ import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.io.DataInput;
@@ -35,6 +39,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class RangePartitionInfo extends PartitionInfo {
 
@@ -70,6 +75,19 @@ public class RangePartitionInfo extends PartitionInfo {
         if (isTemp) {
             tmpMap = idToTempItem;
         }
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
+    }
+
+    public List<Map.Entry<Long, PartitionItem>> getAllPartitionItemEntryList(boolean isSorted) {
+        Map<Long, PartitionItem> tmpMap = Maps.newHashMap();
+
+        tmpMap.putAll(idToItem);
+        tmpMap.putAll(idToTempItem);
+
         List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
         if (isSorted) {
             Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
@@ -279,5 +297,34 @@ public class RangePartitionInfo extends PartitionInfo {
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    @Override
+    public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
+        List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+        List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
+
+        // sort range
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        for (Map.Entry<Long, PartitionItem> entry : entries) {
+            Partition partition = table.getPartition(entry.getKey());
+            String partitionName = partition.getName();
+
+            Range<PartitionKey> range = entry.getValue().getItems();
+            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
+                    PartitionInfo.toPartitionValue(range.lowerEndpoint()),
+                    PartitionInfo.toPartitionValue(range.upperEndpoint()));
+
+            Map<String, String> properties = Maps.newHashMap();
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    properties.put("STORAGE POLICY", p);
+                }
+            });
+
+            allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
+        }
+        return new RangePartitionDesc(partitionColumnNames, allPartitionDescs);
     }
 }

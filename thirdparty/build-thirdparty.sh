@@ -147,7 +147,8 @@ elif [[ "${CC}" == *clang ]]; then
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
 
-    if "${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 | grep 'unknown warning option'; then
+    test_warning_result="$("${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 || true)"
+    if echo "${test_warning_result}" | grep 'unknown warning option' >/dev/null; then
         warning_unused_but_set_variable=''
     fi
 fi
@@ -817,9 +818,11 @@ build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    CFLAGS="-fPIC -Wno-implicit-function-declaration" \
+        CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-shared=no --with-openssl="${TP_INSTALL_DIR}" --with-pic
+        LIBS="-lcrypto" \
+        ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-shared=no --with-openssl="${TP_INSTALL_DIR}" --with-pic --enable-gssapi="${TP_INSTALL_DIR}" --with-gss_impl=mit --with-dblib=none
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         make -j "${PARALLEL}"
@@ -835,6 +838,10 @@ build_librdkafka() {
     check_if_source_exist "${LIBRDKAFKA_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
+
+    # NOTE(amos): librdkafka uses a weird autoconf variant (mklove) which doesn't allow extending PKG_CONFIG with spaces in cmd.
+    # As a result, we use a patch to hard code "--static" into PKG_CONFIG instead.
+    # PKG_CONFIG="pkg-config --static"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
@@ -962,6 +969,23 @@ build_arrow() {
     strip_lib libparquet.a
 }
 
+# abseil
+build_abseil() {
+    check_if_source_exist "${ABSEIL_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+
+    CXXFLAGS="-O3" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DABSL_ENABLE_INSTALL=ON \
+        -DBUILD_DEPS=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CXX_STANDARD=11
+
+    cmake --build "${BUILD_DIR}"
+    cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
+}
+
 # s2
 build_s2() {
     check_if_source_exist "${S2_SOURCE}"
@@ -972,23 +996,12 @@ build_s2() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
-    else
-        ldflags="-L${TP_LIB_DIR}"
-    fi
-
     CXXFLAGS="-O3" \
-        LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
+        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -DBUILD_SHARED_LIBS=OFF \
-        -DGFLAGS_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DWITH_GFLAGS=ON \
-        -DGLOG_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" \
-        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DWITH_GLOG=ON ..
+        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1332,7 +1345,7 @@ build_krb5() {
         with_crypto_impl='--with-crypto-impl=openssl'
     fi
 
-    CFLAGS="-fcommon -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
+    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static ${with_crypto_impl:+${with_crypto_impl}}
 
     make -j "${PARALLEL}"
@@ -1545,11 +1558,13 @@ build_leveldb
 build_brpc
 build_jemalloc
 build_rocksdb
+build_krb5 # before cyrus_sasl
 build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
 build_orc
 build_arrow
+build_abseil
 build_s2
 build_bitshuffle
 build_croaringbitmap
@@ -1565,7 +1580,6 @@ build_js_and_css
 build_lzma
 build_xml2
 build_idn
-build_krb5
 build_gsasl
 build_hdfs3
 build_benchmark

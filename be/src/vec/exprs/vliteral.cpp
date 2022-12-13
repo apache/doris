@@ -129,7 +129,7 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
             DCHECK(node.__isset.json_literal);
             JsonBinaryValue value(node.json_literal.value);
-            field = JsonbField(value.value(), value.size());
+            field = String(value.value(), value.size());
             break;
         }
         case TYPE_DECIMALV2: {
@@ -168,10 +168,10 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
                                                   node.type.types[0].scalar_type.scale, false);
-            auto val = typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())
+            auto val = typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
                                ->parse_from_string(node.decimal_literal.value);
             auto scale =
-                    typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())->get_scale();
+                    typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())->get_scale();
             field = DecimalField<Decimal128I>(val, scale);
             break;
         }

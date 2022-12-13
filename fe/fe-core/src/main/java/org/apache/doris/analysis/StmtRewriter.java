@@ -725,7 +725,6 @@ public class StmtRewriter {
 
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // Join with InPredicate is actually an equal join, so we choose HashJoin.
-            Preconditions.checkArgument(!(expr instanceof InPredicate));
             if (expr instanceof ExistsPredicate) {
                 joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN
                         : JoinOperator.LEFT_SEMI_JOIN;
@@ -1113,6 +1112,12 @@ public class StmtRewriter {
         slotRef.analyze(analyzer);
         Expr subquerySubstitute = slotRef;
         if (exprWithSubquery instanceof InPredicate) {
+            if (slotRef.getType().isBitmapType()) {
+                Expr pred = new BitmapFilterPredicate(exprWithSubquery.getChild(0), slotRef,
+                        ((InPredicate) exprWithSubquery).isNotIn());
+                pred.analyze(analyzer);
+                return pred;
+            }
             BinaryPredicate pred = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                     exprWithSubquery.getChild(0), slotRef);
             pred.analyze(analyzer);

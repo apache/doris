@@ -38,6 +38,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class StorageEngine;
 
@@ -52,7 +53,7 @@ BetaRowsetWriter::BetaRowsetWriter()
           _total_index_size(0),
           _raw_num_rows_written(0),
           _is_doing_segcompaction(false) {
-    _segcompaction_status.store(OLAP_SUCCESS);
+    _segcompaction_status.store(OK);
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -176,7 +177,7 @@ std::unique_ptr<segment_v2::SegmentWriter> BetaRowsetWriter::_create_segcompacti
 Status BetaRowsetWriter::_delete_original_segments(uint32_t begin, uint32_t end) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     for (uint32_t i = begin; i <= end; ++i) {
         auto seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
@@ -199,7 +200,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
     if (ret) {
         LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
                      << ". ret:" << ret << " errno:" << errno;
-        return Status::OLAPInternalError(OLAP_ERR_ROWSET_RENAME_FILE_FAILED);
+        return Status::Error<ROWSET_RENAME_FILE_FAILED>();
     }
     return Status::OK();
 }
@@ -231,7 +232,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     if (ret) {
         LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
                      << ". ret:" << ret << " errno:" << errno;
-        return Status::OLAPInternalError(OLAP_ERR_ROWSET_RENAME_FILE_FAILED);
+        return Status::Error<ROWSET_RENAME_FILE_FAILED>();
     }
     return Status::OK();
 }
@@ -260,14 +261,14 @@ Status BetaRowsetWriter::_check_correctness(std::unique_ptr<OlapReaderStatistics
     if (sum_target_row != stat_read_row) {
         LOG(WARNING) << "read row_num does not match. expect read row:" << sum_target_row
                      << " actual read row:" << stat_read_row;
-        return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
+        return Status::Error<CHECK_LINES_ERROR>();
     }
 
     uint64_t total_row = row_count + merged_row_stat;
     if (stat_read_row != total_row) {
         LOG(WARNING) << "total row_num does not match. expect total row:" << total_row
                      << " actual total row:" << stat_read_row;
-        return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
+        return Status::Error<CHECK_LINES_ERROR>();
     }
     return Status::OK();
 }
@@ -277,12 +278,10 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
     // throttle segcompaction task if memory depleted.
     if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
         LOG(WARNING) << "skip segcompaction due to memory shortage";
-        return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
+        return Status::Error<FETCH_MEMORY_EXCEEDED>();
     }
     uint64_t begin = (*(segments->begin()))->id();
     uint64_t end = (*(segments->end() - 1))->id();
-    LOG(INFO) << "BetaRowsetWriter:" << this << " do segcompaction at " << segments->size()
-              << " segments. Begin:" << begin << " End:" << end;
     uint64_t begin_time = GetCurrentTimeMicros();
 
     auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(),
@@ -293,14 +292,14 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
             _get_segcompaction_reader(segments, schema, stat.get(), &merged_row_stat);
     if (UNLIKELY(reader == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction reader";
-        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_INIT_READER);
+        return Status::Error<SEGCOMPACTION_INIT_READER>();
     }
     std::unique_ptr<vectorized::VMergeIterator> reader_ptr;
     reader_ptr.reset(reader);
     auto writer = _create_segcompaction_writer(begin, end);
     if (UNLIKELY(writer == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction writer";
-        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_INIT_WRITER);
+        return Status::Error<SEGCOMPACTION_INIT_WRITER>();
     }
     uint64_t row_count = 0;
     vectorized::Block block = _context.tablet_schema->create_block();
@@ -308,7 +307,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         auto status = reader_ptr->next_batch(&block);
         row_count += block.rows();
         if (status != Status::OK()) {
-            if (LIKELY(status.is_end_of_file())) {
+            if (LIKELY(status.is<END_OF_FILE>())) {
                 RETURN_NOT_OK_LOG(_add_block_for_segcompaction(&block, &writer),
                                   "write block failed");
                 break;
@@ -340,7 +339,8 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         for (const auto& entry : std::filesystem::directory_iterator(_context.rowset_dir)) {
             fmt::format_to(vlog_buffer, "[{}]", string(entry.path()));
         }
-        VLOG_DEBUG << "_segcompacted_point:" << _segcompacted_point
+        VLOG_DEBUG << "tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
+                   << "_segcompacted_point:" << _segcompacted_point
                    << " _num_segment:" << _num_segment << " _num_segcompacted:" << _num_segcompacted
                    << " list directory:" << fmt::to_string(vlog_buffer);
     }
@@ -348,8 +348,10 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
     _segcompacted_point += (end - begin + 1);
 
     uint64_t elapsed = GetCurrentTimeMicros() - begin_time;
-    LOG(INFO) << "BetaRowsetWriter:" << this << " segcompaction completed. elapsed time:" << elapsed
-              << "us. _segcompacted_point update:" << _segcompacted_point;
+    LOG(INFO) << "segcompaction completed. tablet_id:" << _context.tablet_id
+              << " rowset_id:" << _context.rowset_id << " elapsed time:" << elapsed
+              << "us. update segcompacted_point:" << _segcompacted_point
+              << " segment num:" << segments->size() << " begin:" << begin << " end:" << end;
 
     return Status::OK();
 }
@@ -357,17 +359,19 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
 void BetaRowsetWriter::compact_segments(SegCompactionCandidatesSharedPtr segments) {
     Status status = _do_compact_segments(segments);
     if (!status.ok()) {
-        int16_t errcode = status.precise_code();
+        int16_t errcode = status.code();
         switch (errcode) {
-        case OLAP_ERR_FETCH_MEMORY_EXCEEDED:
-        case OLAP_ERR_SEGCOMPACTION_INIT_READER:
-        case OLAP_ERR_SEGCOMPACTION_INIT_WRITER:
+        case FETCH_MEMORY_EXCEEDED:
+        case SEGCOMPACTION_INIT_READER:
+        case SEGCOMPACTION_INIT_WRITER:
             LOG(WARNING) << "segcompaction failed, try next time:" << status;
             return;
         default:
-            LOG(WARNING) << "segcompaction fatal, terminating the write job:" << status;
+            LOG(WARNING) << "segcompaction fatal, terminating the write job."
+                         << " tablet_id:" << _context.tablet_id
+                         << " rowset_id:" << _context.rowset_id << " status:" << status;
             // status will be checked by the next trigger of segcompaction or the final wait
-            _segcompaction_status.store(OLAP_ERR_OTHER_ERROR);
+            _segcompaction_status.store(ErrorCode::INTERNAL_ERROR);
         }
     }
     DCHECK_EQ(_is_doing_segcompaction, true);
@@ -382,7 +386,7 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     for (int seg_id = _segcompacted_point; seg_id < _num_segment; ++seg_id) {
         auto seg_path =
@@ -394,7 +398,7 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
                                            _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
+            return Status::Error<ROWSET_LOAD_FAILED>();
         }
         segments->push_back(std::move(segment));
     }
@@ -496,14 +500,15 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
-    if (_segcompaction_status.load() != OLAP_SUCCESS) {
-        status = Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
+    if (_segcompaction_status.load() != OK) {
+        status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
                config::segcompaction_threshold_segment_num) {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
         status = _get_segcompaction_candidates(segments, false);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
-            LOG(INFO) << "submit segcompaction task, segment num:" << _num_segment
+            LOG(INFO) << "submit segcompaction task, tablet_id:" << _context.tablet_id
+                      << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
                       << ", segcompacted_point:" << _segcompacted_point;
             status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
             if (status.ok()) {
@@ -525,8 +530,8 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
         return Status::OK();
     }
-    if (_segcompaction_status.load() != OLAP_SUCCESS) {
-        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
+    if (_segcompaction_status.load() != OK) {
+        return Status::Error<SEGCOMPACTION_FAILED>();
     }
     if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
@@ -536,8 +541,9 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
     status = _get_segcompaction_candidates(segments, true);
     if (LIKELY(status.ok()) && (segments->size() > 0)) {
-        LOG(INFO) << "submit segcompaction remaining task, segment num:" << _num_segment
-                  << ", segcompacted_point:" << _segcompacted_point;
+        LOG(INFO) << "submit segcompaction remaining task, tablet_id:" << _context.tablet_id
+                  << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
+                  << " segcompacted_point:" << _segcompacted_point;
         status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
         if (status.ok()) {
             return status;
@@ -568,7 +574,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
         if (UNLIKELY(!s.ok())) {
             LOG(WARNING) << "failed to append block: " << s.to_string();
-            return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+            return Status::Error<WRITER_DATA_WRITE_ERROR>();
         }
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
@@ -583,7 +589,7 @@ Status BetaRowsetWriter::_add_block_for_segcompaction(
     auto s = (*segment_writer)->append_block(block, 0, block->rows());
     if (UNLIKELY(!s.ok())) {
         LOG(WARNING) << "failed to append block: " << s.to_string();
-        return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+        return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
     return Status::OK();
 }
@@ -597,7 +603,7 @@ Status BetaRowsetWriter::_add_row(const RowType& row) {
     auto s = _segment_writer->append_row(row);
     if (PREDICT_FALSE(!s.ok())) {
         LOG(WARNING) << "failed to append row: " << s.to_string();
-        return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+        return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
     if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
                       _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
@@ -656,7 +662,7 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
         auto s = writer->append_row(dst_row);
         if (PREDICT_FALSE(!s.ok())) {
             LOG(WARNING) << "failed to append row: " << s.to_string();
-            return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+            return Status::Error<WRITER_DATA_WRITE_ERROR>();
         }
 
         if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
@@ -705,10 +711,31 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
     if (elapsed >= MICROS_PER_SEC) {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
-    if (_segcompaction_status.load() != OLAP_SUCCESS) {
-        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
+    if (_segcompaction_status.load() != OK) {
+        return Status::Error<SEGCOMPACTION_FAILED>();
     }
     return Status::OK();
+}
+
+RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
+    if (_rowset_meta->oldest_write_timestamp() == -1) {
+        _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
+    }
+
+    if (_rowset_meta->newest_write_timestamp() == -1) {
+        _rowset_meta->set_newest_write_timestamp(UnixSeconds());
+    }
+
+    _build_rowset_meta_with_spec_field(_rowset_meta, spec_rowset_meta);
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
+                                               _rowset_meta, &rowset);
+    if (!status.ok()) {
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
+        return nullptr;
+    }
+    _already_built = true;
+    return rowset;
 }
 
 RowsetSharedPtr BetaRowsetWriter::build() {
@@ -765,6 +792,38 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
+bool BetaRowsetWriter::_is_segment_overlapping(
+        const std::vector<KeyBoundsPB>& segments_encoded_key_bounds) {
+    std::string last;
+    for (auto segment_encode_key : segments_encoded_key_bounds) {
+        auto cur_min = segment_encode_key.min_key();
+        auto cur_max = segment_encode_key.max_key();
+        if (cur_min < last) {
+            return true;
+        }
+        last = cur_max;
+    }
+    return false;
+}
+
+void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
+        RowsetMetaSharedPtr rowset_meta, const RowsetMetaSharedPtr& spec_rowset_meta) {
+    rowset_meta->set_num_rows(spec_rowset_meta->num_rows());
+    rowset_meta->set_total_disk_size(spec_rowset_meta->total_disk_size());
+    rowset_meta->set_data_disk_size(spec_rowset_meta->total_disk_size());
+    rowset_meta->set_index_disk_size(spec_rowset_meta->index_disk_size());
+    // TODO write zonemap to meta
+    rowset_meta->set_empty(spec_rowset_meta->num_rows() == 0);
+    rowset_meta->set_creation_time(time(nullptr));
+    rowset_meta->set_num_segments(spec_rowset_meta->num_segments());
+    rowset_meta->set_segments_overlap(spec_rowset_meta->segments_overlap());
+    rowset_meta->set_rowset_state(spec_rowset_meta->rowset_state());
+
+    std::vector<KeyBoundsPB> segments_key_bounds;
+    spec_rowset_meta->get_segments_key_bounds(&segments_key_bounds);
+    rowset_meta->set_segments_key_bounds(segments_key_bounds);
+}
+
 void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
     int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
     int64_t num_rows_written = 0;
@@ -782,16 +841,16 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
         }
     }
-    rowset_meta->set_num_segments(num_seg);
-    if (num_seg <= 1) {
-        rowset_meta->set_segments_overlap(NONOVERLAPPING);
-    }
-    _segment_num_rows = segment_num_rows;
     for (auto itr = _segments_encoded_key_bounds.begin(); itr != _segments_encoded_key_bounds.end();
          ++itr) {
         segments_encoded_key_bounds.push_back(*itr);
     }
+    if (!_is_segment_overlapping(segments_encoded_key_bounds)) {
+        rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    }
 
+    rowset_meta->set_num_segments(num_seg);
+    _segment_num_rows = segment_num_rows;
     // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
@@ -839,13 +898,12 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     }
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable file. path=" << path
-                     << ", err: " << st.get_error_msg();
+        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
     }
 
@@ -885,11 +943,12 @@ Status BetaRowsetWriter::_create_segment_writer(
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         LOG(ERROR) << "too many segments in rowset."
+                   << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
                    << " max:" << config::max_segment_num_per_rowset
                    << " _num_segment:" << _num_segment
                    << " _segcompacted_point:" << _segcompacted_point
                    << " _num_segcompacted:" << _num_segcompacted;
-        return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
+        return Status::Error<TOO_MANY_SEGMENTS>();
     } else {
         return _do_create_segment_writer(writer, false, -1, -1);
     }
@@ -913,7 +972,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     Status s = (*writer)->finalize(&segment_size, &index_size);
     if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
-        return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+        return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
     KeyBoundsPB key_bounds;
     Slice min_key = (*writer)->min_encoded_key();

@@ -26,6 +26,8 @@ under the License.
 
 # Java UDF
 
+<version since="1.2.0">
+
 Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言进行自定义函数的执行。相比于 Native 的 UDF 实现，Java UDF 有如下优势和限制：
 1. 优势
 * 兼容性：使用Java UDF可以兼容不同的Doris版本，所以在进行Doris版本升级时，Java UDF不需要进行额外的迁移操作。与此同时，Java UDF同样遵循了和Hive/Spark等引擎同样的编程规范，使得用户可以直接将Hive/Spark的UDF jar包迁移至Doris使用。
@@ -35,6 +37,8 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 2. 使用限制
 * 性能：相比于 Native UDF，Java UDF会带来额外的JNI开销，不过通过批式执行的方式，我们已经尽可能的将JNI开销降到最低。
 * 向量化引擎：Java UDF当前只支持向量化引擎。
+
+</version>
 
 ### 类型对应关系
 
@@ -88,6 +92,7 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 ```
 * "file"="http://IP:port/udf-code.jar", 当在多机环境时，也可以使用http的方式下载jar包
 * "always_nullable"可选属性, 如果在计算中对出现的NULL值有特殊处理，确定结果中不会返回NULL，可以设为false，这样在整个查询计算过程中性能可能更好些。
+* 如果你是**本地路径**方式，这里数据库驱动依赖的jar包，**FE、BE节点都要放置**
 
 ## 编写 UDAF 函数
 <br/>
@@ -162,6 +167,8 @@ CREATE AGGREGATE FUNCTION simple_sum(int) RETURNS int PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+* 实现的jar包可以放在本地也可以存放在远程服务端通过http下载，但必须让每个BE节点都能获取到jar包;
+否则将会返回错误状态信息"Couldn't open file ......".
 
 目前还暂不支持UDTF
 

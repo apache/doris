@@ -55,7 +55,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
@@ -89,6 +88,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -1134,6 +1134,10 @@ public class SingleNodePlanner {
         }
 
         if (analyzer.hasEmptySpjResultSet() && selectStmt.getAggInfo() != null) {
+            GroupByClause groupByClause = selectStmt.getGroupByClause();
+            if (Objects.nonNull(groupByClause) && groupByClause.isGroupByExtension()) {
+                rowTuples.add(selectStmt.getGroupingInfo().getVirtualTuple().getId());
+            }
             final PlanNode emptySetNode = new EmptySetNode(ctx.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
             emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
@@ -1937,7 +1941,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case JDBC:
-                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (JdbcTable) tblRef.getTable());
+                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
             case TABLE_VALUED_FUNCTION:
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
@@ -1947,6 +1951,9 @@ public class SingleNodePlanner {
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
+                break;
+            case JDBC_EXTERNAL_TABLE:
+                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             default:
                 break;
@@ -2060,14 +2067,9 @@ public class SingleNodePlanner {
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {
-            // construct cross join node
-            // LOG.debug("Join between {} and {} requires at least one conjunctive"
-            //        + " equality predicate between the two tables",
-            //        outerRef.getAliasAsName(), innerRef.getAliasAsName());
-            // TODO If there are eq join predicates then we should construct a hash join
             NestedLoopJoinNode result =
                     new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
-            result.addConjuncts(ojConjuncts);
+            result.setJoinConjuncts(ojConjuncts);
             result.init(analyzer);
             return result;
         }

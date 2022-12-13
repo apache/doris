@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_MIN Function",
+    "title": "array_min",
     "language": "en"
 }
 ---
@@ -24,11 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_MIN
+## array_min
 
-### Name
+<version since="1.2.0">
 
-ARRAY_MIN
+array_min
+
+</version>
 
 ### description
 
@@ -58,4 +60,3 @@ mysql> select k2, array_min(k2) from array_type_table;
 ### keywords
 
 ARRAY,MIN,ARRAY_MIN
-

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -86,7 +87,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                     // s3://buckets
                     fsName = fullPath.replace(filePath, "");
                 }
-                THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
+                THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);
                 context.params.setHdfsParams(tHdfsParams);
             } else if (locationType == TFileType.FILE_S3) {

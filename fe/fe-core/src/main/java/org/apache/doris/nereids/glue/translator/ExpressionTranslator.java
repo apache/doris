@@ -30,6 +30,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -59,12 +61,15 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -167,6 +172,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     equalTo.child(1).accept(this, context));
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
+        } else if (not.child() instanceof IsNull) {
+            return new IsNullPredicate(((IsNull) not.child()).child().accept(this, context), true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
                     not.child(0).accept(this, context), null);
@@ -284,8 +291,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
         boolean isAnalyticFunction = false;
+        String functionName = function.isDistinct() ? "MULTI_DISTINCT_" + function.getName() : function.getName();
+        if (function.getAggregateParam().aggPhase == AggPhase.DISTINCT_LOCAL
+                || function.getAggregateParam().aggPhase == AggPhase.DISTINCT_GLOBAL) {
+            if (function.getName().equalsIgnoreCase("count")) {
+                functionName = "SUM";
+            } else {
+                functionName = function.getName();
+            }
+        }
         org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
-                new FunctionName(function.getName()), argTypes,
+                new FunctionName(functionName), argTypes,
                 function.getDataType().toCatalogDataType(),
                 function.getIntermediateTypes().toCatalogDataType(),
                 function.hasVarArguments(),
@@ -332,6 +348,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, PlanTranslatorContext context) {
+        return new ArithmeticExpr(unaryArithmetic.getLegacyOperator(),
+                unaryArithmetic.child().accept(this, context), null);
+
+    }
+
+    @Override
     public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
         if (arithmetic.getFuncName() == null) {
             return new TimestampArithmeticExpr(arithmetic.getOp(), arithmetic.left().accept(this, context),
@@ -342,6 +365,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
                     arithmetic.getDataType().toCatalogDataType());
         }
+    }
+
+    @Override
+    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
+        return context.findSlotRef(virtualSlotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
+        return new IsNullPredicate(isNull.child().accept(this, context), false);
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(

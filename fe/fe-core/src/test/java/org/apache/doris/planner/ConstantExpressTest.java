@@ -159,18 +159,11 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select 1 * 10.0;",
-                "10.0");
+                "10");
 
         testConstantExpressResult(
                 "select 1 / 10.0;",
                 "0.1");
-    }
-
-    @Test
-    public void testMath() throws Exception {
-        testConstantExpressResult(
-                "select floor(2.3);",
-                "2");
     }
 
     @Test

@@ -35,7 +35,7 @@ struct MinusImpl {
     }
 
     template <typename Result = DecimalV2Value>
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
+    static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
         return DecimalV2Value(a.value() - b.value());
     }
 

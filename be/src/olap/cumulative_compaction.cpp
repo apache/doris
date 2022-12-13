@@ -22,6 +22,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
         : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
@@ -30,13 +31,13 @@ CumulativeCompaction::~CumulativeCompaction() {}
 
 Status CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
+        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>();
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
+        return Status::Error<TRY_LOCK_FAILED>();
     }
     TRACE("got cumulative compaction lock");
 
@@ -59,7 +60,7 @@ Status CumulativeCompaction::execute_compact_impl() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
+        return Status::Error<TRY_LOCK_FAILED>();
     }
     TRACE("got cumulative compaction lock");
 
@@ -67,7 +68,7 @@ Status CumulativeCompaction::execute_compact_impl() {
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_CLONE_OCCURRED);
+        return Status::Error<CUMULATIVE_CLONE_OCCURRED>();
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -100,7 +101,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
 
     if (candidate_rowsets.empty()) {
-        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
     }
 
     // candidate_rowsets may not be continuous
@@ -117,20 +118,19 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     size_t compaction_score = 0;
     int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets,
-            config::max_cumulative_compaction_num_singleton_deltas,
-            config::min_cumulative_compaction_num_singleton_deltas, &_input_rowsets,
-            &_last_delete_version, &compaction_score);
+            _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
+            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
+            &compaction_score);
 
     // Cumulative compaction will process with at least 1 rowset.
-    // So when there is no rowset being chosen, we should return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION):
+    // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():
     if (_input_rowsets.empty()) {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
-            return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
@@ -143,8 +143,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
         int64_t last_base = _tablet->last_base_compaction_success_time();
         if (last_cumu != 0 || last_base != 0) {
-            int64_t interval_threshold =
-                    config::base_compaction_interval_seconds_since_last_operation * 1000;
+            int64_t interval_threshold = 86400 * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
@@ -174,7 +173,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             }
         }
 
-        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
     }
 
     return Status::OK();

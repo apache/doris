@@ -133,6 +133,7 @@ suite ("test_dup_keys_schema_change") {
             }
             Thread.sleep(100)
         }
+        Thread.sleep(1000)
         qt_sc """ select * from ${tableName} where user_id = 3 order by new_column """
 
 

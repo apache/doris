@@ -420,11 +420,6 @@ public class Config extends ConfigBase {
     @ConfField public static int max_mysql_service_task_threads_num = 4096;
 
     /**
-     * Cluster name will be shown as the title of web page
-     */
-    @ConfField public static String cluster_name = "Baidu Palo";
-
-    /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
      * Cluster id is usually a random integer generated when master FE start at first time.
      * You can also specify one.
@@ -531,10 +526,6 @@ public class Config extends ConfigBase {
      * Do not change this if you know what you are doing.
      */
     @ConfField public static int load_etl_thread_num_normal_priority = 10;
-    /**
-     * Concurrency of delete jobs.
-     */
-    @ConfField public static int delete_thread_num = 10;
     /**
      * Not available.
      */
@@ -1683,6 +1674,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_vectorized_load = true;
 
+    @ConfField
+    public static boolean enable_pipeline_load = false;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
@@ -1698,13 +1692,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_num = 128;
-
-    /*
-     * If set to TRUE, the precision of decimal will be broaden to [1, 38].
-     * Decimalv3 of storage layer needs to be enabled first.
-     */
-    @ConfField
-    public static boolean enable_decimalv3 = false;
 
     /**
      * If set to TRUE, FE will:
@@ -1916,5 +1903,29 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean collect_external_table_stats_by_sql = false;
+
+    /**
+     * Max num of same name meta informatntion in catalog recycle bin.
+     * Default is 3.
+     * 0 means do not keep any meta obj with same name.
+     * < 0 means no limit
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_same_name_catalog_trash_num = 3;
+
+    /**
+     * The storage policy is still under developement.
+     * Disable it by default.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_storage_policy = false;
+
+    /**
+     * This config is mainly used in the k8s cluster environment.
+     * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
+     * after reconstruction, while the ip can be changed.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_fqdn_mode = false;
 }
 

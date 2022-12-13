@@ -18,11 +18,9 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.backup.RemoteFile;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
-import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -52,73 +50,27 @@ import org.apache.doris.thrift.TBrokerPWriteRequest;
 import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
-import org.apache.doris.thrift.THdfsConf;
-import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 public class BrokerUtil {
     private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
 
     private static final int READ_BUFFER_SIZE_B = 1024 * 1024;
-    public static String HADOOP_FS_NAME = "fs.defaultFS";
-    // simple or kerberos
-    public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-    public static String HADOOP_USER_NAME = "hadoop.username";
-    public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-    public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
-    public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
-
-    public static THdfsParams generateHdfsParam(Map<String, String> properties) {
-        THdfsParams tHdfsParams = new THdfsParams();
-        tHdfsParams.setHdfsConf(new ArrayList<>());
-        for (Map.Entry<String, String> property : properties.entrySet()) {
-            if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                tHdfsParams.setFsName(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
-                tHdfsParams.setUser(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
-                tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
-                tHdfsParams.setHdfsKerberosKeytab(property.getValue());
-            } else {
-                THdfsConf hdfsConf = new THdfsConf();
-                hdfsConf.setKey(property.getKey());
-                hdfsConf.setValue(property.getValue());
-                tHdfsParams.hdfs_conf.add(hdfsConf);
-            }
-        }
-        // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
-        // We should disable short circuit read if they are not both set because it will cause performance down.
-        if (!properties.containsKey(HADOOP_SHORT_CIRCUIT) || !properties.containsKey(HADOOP_SOCKET_PATH)) {
-            tHdfsParams.addToHdfsConf(new THdfsConf(HADOOP_SHORT_CIRCUIT, "false"));
-        }
-        return tHdfsParams;
-    }
 
     /**
      * Parse file status in path with broker, except directory
@@ -129,90 +81,23 @@ public class BrokerUtil {
      */
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
-            TNetworkAddress address = getAddress(brokerDesc);
-            TPaloBrokerService.Client client = borrowClient(address);
-            boolean failed = true;
-            try {
-                TBrokerListPathRequest request = new TBrokerListPathRequest(
-                        TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
-                TBrokerListResponse tBrokerListResponse = null;
-                try {
-                    tBrokerListResponse = client.listPath(request);
-                } catch (TException e) {
-                    reopenClient(client);
-                    tBrokerListResponse = client.listPath(request);
-                }
-                if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    throw new UserException("Broker list path failed. path=" + path
-                        + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
-                }
-                failed = false;
-                for (TBrokerFileStatus tBrokerFileStatus : tBrokerListResponse.getFiles()) {
-                    if (tBrokerFileStatus.isDir) {
-                        continue;
-                    }
-                    fileStatuses.add(tBrokerFileStatus);
-                }
-            } catch (TException e) {
-                LOG.warn("Broker list path exception, path={}, address={}", path, address, e);
-                throw new UserException("Broker list path exception. path=" + path + ", broker=" + address);
-            } finally {
-                returnClient(client, address, failed);
+        List<RemoteFile> rfiles = new ArrayList<>();
+        try {
+            BlobStorage storage = BlobStorage.create(
+                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+            Status st = storage.list(path, rfiles, false);
+            if (!st.ok()) {
+                throw new UserException(brokerDesc.getName() + " list path failed. path=" + path
+                        + ",msg=" + st.getErrMsg());
             }
-        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
-            S3Storage s3 = new S3Storage(brokerDesc.getProperties());
-            List<RemoteFile> rfiles = new ArrayList<>();
-            try {
-                Status st = s3.list(path, rfiles, false);
-                if (!st.ok()) {
-                    throw new UserException("S3 list path failed. path=" + path
-                            + ",msg=" + st.getErrMsg());
-                }
-            } catch (Exception e) {
-                LOG.warn("s3 list path exception, path={}", path, e);
-                throw new UserException("s3 list path exception. path=" + path + ", err: " + e.getMessage());
-            }
-            for (RemoteFile r : rfiles) {
-                if (r.isFile()) {
-                    fileStatuses.add(new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile()));
-                }
-            }
-        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
-            if (!brokerDesc.getProperties().containsKey(HADOOP_FS_NAME)
-                    || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
-                throw new UserException(String.format(
-                    "The properties of hdfs is invalid. %s and %s are needed", HADOOP_FS_NAME, HADOOP_USER_NAME));
-            }
-            String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
-            String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
-            Configuration conf = new HdfsConfiguration();
-            boolean isSecurityEnabled = false;
-            for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
-                conf.set(propEntry.getKey(), propEntry.getValue());
-                if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
-                        && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                    isSecurityEnabled = true;
-                }
-            }
-            try {
-                if (isSecurityEnabled) {
-                    UserGroupInformation.setConfiguration(conf);
-                    UserGroupInformation.loginUserFromKeytab(
-                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
-                }
-                FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
-                FileStatus[] statusList = fs.globStatus(new Path(path));
-                for (FileStatus status : statusList) {
-                    if (status.isFile()) {
-                        fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
-                                status.isDirectory(), status.getLen(), status.isFile()));
-                    }
-                }
-            } catch (IOException | InterruptedException | URISyntaxException e) {
-                LOG.warn("hdfs check error: ", e);
-                throw new UserException(e.getMessage());
+        } catch (Exception e) {
+            LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);
+            throw new UserException(brokerDesc.getName() +  " list path exception. path="
+                    + path + ", err: " + e.getMessage());
+        }
+        for (RemoteFile r : rfiles) {
+            if (r.isFile()) {
+                fileStatuses.add(new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile()));
             }
         }
     }
@@ -683,3 +568,4 @@ public class BrokerUtil {
 
     }
 }
+

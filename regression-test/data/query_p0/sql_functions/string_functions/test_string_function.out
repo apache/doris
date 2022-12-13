@@ -225,6 +225,39 @@ hello
 world
 
 -- !sql --
+\\N
+
+-- !sql --
+world
+
+-- !sql --
+hello
+
+-- !sql --
+\\N
+
+-- !sql --
+\\N
+
+-- !sql --
+abc
+
+-- !sql --
+#xyz
+
+-- !sql --
+\\N
+
+-- !sql --
+xyz
+
+-- !sql --
+123#
+
+-- !sql --
+\\N
+
+-- !sql --
 true
 
 -- !sql --
@@ -271,6 +304,24 @@ a
 
 -- !sql --
 
+
+-- !sql --
+tNEW-STRorigin str
+
+-- !sql --
+d***is
+
+-- !sql --
+\N
+
+-- !sql --
+hello
+
+-- !sql --
+doris
+
+-- !sql --
+\N
 
 -- !sql --
 tNEW-STRorigin str

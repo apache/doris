@@ -121,7 +121,7 @@ public:
         }
     }
 
-    uint16_t get_next_run(DataReadType* data_read_type);
+    size_t get_next_run(DataReadType* data_read_type);
 
     void set_run_length_null_map(const std::vector<uint16_t>& run_length_null_map,
                                  size_t num_values, NullMap* null_map = nullptr);
@@ -269,10 +269,10 @@ Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column,
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     size_t dict_index = 0;
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 column_data[data_index++] = *(Numeric*)buf_start;
                 _FIXED_SHIFT_DATA_OFFSET();
@@ -308,10 +308,10 @@ Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column,
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     size_t dict_index = 0;
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
                 auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
@@ -354,10 +354,10 @@ Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column,
     size_t dict_index = 0;
     int64_t scale_to_micro = _decode_params->scale_to_nano_factor / 1000;
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
                 auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
@@ -400,10 +400,10 @@ Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column,
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     size_t dict_index = 0;
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
                 auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
@@ -452,10 +452,10 @@ Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
 
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 // When Decimal in parquet is stored in byte arrays, binary and fixed,
                 // the unscaled number must be encoded as two's complement using big-endian byte order.
@@ -508,10 +508,10 @@ Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_colum
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
 
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 // we should use decimal128 to scale up/down
                 Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
@@ -586,10 +586,10 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
     size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start;
                 uint32_t length;
                 if (_has_dict) {

@@ -199,6 +199,16 @@ storage_root_path=/path/your/data_dir
 >1. The default directory is in the storage directory of the BE installation directory.
 >2. The storage directory for BE configuration must be created first
 
+3. Set JAVA_HOME environment variable
+
+  <version since="1.2.0"></version>  
+  Java UDF are supported since version 1.2, so BE are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to set the variable.
+
+4. Install Java UDF functions 
+
+  <version since="1.2.0">Install Java UDF functions</version>  
+  Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
+
 ### Start BE
 
 Execute the following command in the BE installation directory to complete the BE startup.

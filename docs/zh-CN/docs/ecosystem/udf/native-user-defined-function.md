@@ -26,6 +26,8 @@ under the License.
 
 # UDF
 
+<version deprecated="1.2" comment="请使用 JAVA UDF">
+
 UDF 主要适用于，用户需要的分析能力 Doris 并不具备的场景。用户可以自行根据自己的需求，实现自定义的函数，并且通过 UDF 框架注册到 Doris 中，来扩展 Doris 的能力，并解决用户分析需求。
 
 UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指的是二者的统称。
@@ -36,6 +38,8 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 这篇文档主要讲述了，如何编写自定义的 UDF 函数，以及如何在 Doris 中使用它。
 
 如果用户使用 UDF 功能并扩展了 Doris 的函数分析，并且希望将自己实现的 UDF 函数贡献回 Doris 社区给其他用户使用，这时候请看文档 [Contribute UDF](./contribute-udf.md)。
+
+</version>
 
 ## 编写 UDF 函数
 

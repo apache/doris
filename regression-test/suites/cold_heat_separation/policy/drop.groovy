@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
-
 suite("drop_policy") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
     def storage_exist = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;
@@ -41,15 +39,15 @@ suite("drop_policy") {
             CREATE RESOURCE "resouce_policy_drop"
             PROPERTIES(
                 "type"="s3",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_region" = "bj",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_access_key" = "bbba",
-                "s3_secret_key" = "aaaa",
-                "s3_max_connections" = "50",
-                "s3_request_timeout_ms" = "3000",
-                "s3_connection_timeout_ms" = "1000",
-                "s3_bucket" = "test-bucket"
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_REGION" = "bj",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_MAX_CONNECTIONS" = "50",
+                "AWS_REQUEST_TIMEOUT_MS" = "3000",
+                "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+                "AWS_BUCKET" = "test-bucket"
             );
             """
         }
@@ -64,15 +62,15 @@ suite("drop_policy") {
         CREATE RESOURCE "resouce_policy_drop"
         PROPERTIES(
             "type"="s3",
-            "s3_endpoint" = "http://bj.s3.comaaaa",
-            "s3_region" = "bj",
-            "s3_root_path" = "path/to/rootaaaa",
-            "s3_access_key" = "bbba",
-            "s3_secret_key" = "aaaa",
-            "s3_max_connections" = "50",
-            "s3_request_timeout_ms" = "3000",
-            "s3_connection_timeout_ms" = "1000",
-            "s3_bucket" = "test-bucket"
+            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_REGION" = "bj",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_MAX_CONNECTIONS" = "50",
+            "AWS_REQUEST_TIMEOUT_MS" = "3000",
+            "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+            "AWS_BUCKET" = "test-bucket"
         );
         """
 

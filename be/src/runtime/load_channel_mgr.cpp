@@ -220,7 +220,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    int64_t process_mem_limit = MemInfo::mem_limit() * config::soft_mem_limit_frac;
+    int64_t process_mem_limit = MemInfo::soft_mem_limit();
     if (_mem_tracker->consumption() < _load_soft_mem_limit &&
         MemInfo::proc_mem_no_allocator_cache() < process_mem_limit) {
         return;

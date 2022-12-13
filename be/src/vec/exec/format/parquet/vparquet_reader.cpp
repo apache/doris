@@ -34,11 +34,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
+          _batch_size(batch_size),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz) {
-    // ColumnSelectVector use uint16_t to save row index
-    _batch_size = std::min(batch_size, (size_t)USHRT_MAX);
     _init_profile();
 }
 
@@ -555,14 +554,18 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
     if (!_has_page_index(row_group.columns, page_index)) {
         return Status::OK();
     }
-    int64_t buffer_size = page_index._column_index_size + page_index._offset_index_size;
-    uint8_t buff[buffer_size];
+    //    int64_t buffer_size = page_index._column_index_size;
+    uint8_t col_index_buff[page_index._column_index_size];
     int64_t bytes_read = 0;
-    RETURN_IF_ERROR(
-            _file_reader->readat(page_index._column_index_start, buffer_size, &bytes_read, buff));
-
+    RETURN_IF_ERROR(_file_reader->readat(page_index._column_index_start,
+                                         page_index._column_index_size, &bytes_read,
+                                         col_index_buff));
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
+    uint8_t off_index_buff[page_index._offset_index_size];
+    RETURN_IF_ERROR(_file_reader->readat(page_index._offset_index_start,
+                                         page_index._offset_index_size, &bytes_read,
+                                         off_index_buff));
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {
@@ -573,7 +576,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(page_index.parse_column_index(chunk, buff, &column_index));
+        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff, &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
             break;
@@ -587,7 +590,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
             continue;
         }
         tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, buff, buffer_size, &offset_index));
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             page_index.create_skipped_row_range(offset_index, row_group.num_rows, page_id,

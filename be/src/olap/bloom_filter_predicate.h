@@ -84,7 +84,9 @@ private:
             }
         } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
             new_size = _specific_filter->find_fixed_len_olap_engine(
-                    (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                    (char*)reinterpret_cast<
+                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                            &column)
                             ->get_data()
                             .data(),
                     null_map, sel, size);
@@ -101,7 +103,9 @@ private:
             };
 
             auto pred_col_data =
-                    reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                    reinterpret_cast<
+                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                            &column)
                             ->get_data()
                             .data();
             for (uint16_t i = 0; i < size; i++) {
@@ -120,7 +124,7 @@ private:
         return new_size;
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) + ")";
         return info;
     }

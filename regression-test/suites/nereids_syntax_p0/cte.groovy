@@ -216,6 +216,25 @@ suite("cte") {
         ON cte1.sk = cte2.sk
     """
 
+    order_qt_cte12 """
+            WITH t1 AS (
+                WITH t AS (
+                    SELECT 
+                        s_suppkey
+                    FROM 
+                        supplier
+                ) 
+                    SELECT 
+                        s_suppkey
+                    FROM
+                    t
+            )
+            SELECT 
+              *
+            FROM t1;
+     
+    """
+
     test {
         sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier) SELECT * FROM cte1"
 

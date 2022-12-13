@@ -50,7 +50,6 @@ class Config {
     public String suitePath
     public String dataPath
     public String realDataPath
-    public String sf1DataPath
     public String cacheDataPath
     public String pluginPath
 
@@ -88,7 +87,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
-           String suitePath, String dataPath, String realDataPath, String sf1DataPath, String cacheDataPath,
+           String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath) {
         this.defaultDb = defaultDb
@@ -102,7 +101,6 @@ class Config {
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
-        this.sf1DataPath = sf1DataPath
         this.cacheDataPath = cacheDataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
@@ -123,16 +121,12 @@ class Config {
             def systemProperties = Maps.newLinkedHashMap(System.getProperties())
             configSlurper.setBinding(systemProperties)
             ConfigObject configObj = configSlurper.parse(new File(confFilePath).toURI().toURL())
-            config = Config.fromConfigObject(configObj)
-        }
-        String customConfFilePath = confFile.getParentFile().getPath() + "/regression-conf-custom.groovy"
-        File custFile = new File(customConfFilePath)
-        if (custFile.exists() && custFile.isFile()) {
-            log.info("Load custom config file ${customConfFilePath}".toString())
-            def configSlurper = new ConfigSlurper()
-            def systemProperties = Maps.newLinkedHashMap(System.getProperties())
-            configSlurper.setBinding(systemProperties)
-            ConfigObject configObj = configSlurper.parse(new File(customConfFilePath).toURI().toURL())
+            String customConfFilePath = confFile.getParentFile().getPath() + "/regression-conf-custom.groovy"
+            File custFile = new File(customConfFilePath)
+            if (custFile.exists() && custFile.isFile()) {
+                ConfigObject custConfigObj = configSlurper.parse(new File(customConfFilePath).toURI().toURL())
+                configObj.merge(custConfigObj)
+            }
             config = Config.fromConfigObject(configObj)
         }
         fillDefaultConfig(config)
@@ -140,7 +134,6 @@ class Config {
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
-        config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
@@ -243,7 +236,6 @@ class Config {
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
-            configToString(obj.sf1DataPath),
             configToString(obj.cacheDataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
@@ -274,7 +266,8 @@ class Config {
         }
 
         if (config.jdbcUrl == null) {
-            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030"
+            //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
+            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
 
@@ -321,11 +314,6 @@ class Config {
         if (config.realDataPath == null) {
             config.realDataPath = "regression-test/realData"
             log.info("Set realDataPath to '${config.realDataPath}' because not specify.".toString())
-        }
-
-        if (config.sf1DataPath == null) {
-            config.sf1DataPath = "regression-test/sf1Data"
-            log.info("Set sf1DataPath to '${config.sf1DataPath}' because not specify.".toString())
         }
 
         if (config.cacheDataPath == null) {
@@ -436,6 +424,7 @@ class Config {
         }
 
         dir = dir.replace('-', '_')
+        dir = dir.replace('.', '_')
 
         return defaultDb + '_' + dir.replace(File.separator, '_')
     }

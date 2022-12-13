@@ -54,15 +54,14 @@ namespace accurate {
 
 // Case 1. Is pair of floats or pair of ints or pair of uints
 template <typename A, typename B>
-constexpr bool is_safe_conversion = (std::is_floating_point_v<A> && std::is_floating_point_v<B>) ||
-                                    (std::is_integral_v<A> && std::is_integral_v<B> &&
-                                     !(std::is_signed_v<A> ^ std::is_signed_v<B>)) ||
-                                    (std::is_same_v<A, doris::vectorized::Int128> &&
-                                     std::is_same_v<B, doris::vectorized::Int128>) ||
-                                    (std::is_integral_v<A> &&
-                                     std::is_same_v<B, doris::vectorized::Int128>) ||
-                                    (std::is_same_v<A, doris::vectorized::Int128> &&
-                                     std::is_integral_v<B>);
+constexpr bool is_safe_conversion =
+        (std::is_floating_point_v<A> && std::is_floating_point_v<B>) ||
+        (std::is_integral_v<A> && std::is_integral_v<B> &&
+         !(std::is_signed_v<A> ^ std::is_signed_v<B>)) ||
+        (std::is_same_v<A, doris::vectorized::Int128> &&
+         std::is_same_v<B, doris::vectorized::Int128>) ||
+        (std::is_integral_v<A> && std::is_same_v<B, doris::vectorized::Int128>) ||
+        (std::is_same_v<A, doris::vectorized::Int128> && std::is_integral_v<B>);
 template <typename A, typename B>
 using bool_if_safe_conversion = std::enable_if_t<is_safe_conversion<A, B>, bool>;
 template <typename A, typename B>
@@ -70,13 +69,13 @@ using bool_if_not_safe_conversion = std::enable_if_t<!is_safe_conversion<A, B>, 
 
 /// Case 2. Are params IntXX and UIntYY ?
 template <typename TInt, typename TUInt>
-constexpr bool is_any_int_vs_uint = std::is_integral_v<TInt>&& std::is_integral_v<TUInt>&&
-        std::is_signed_v<TInt>&& std::is_unsigned_v<TUInt>;
+constexpr bool is_any_int_vs_uint = std::is_integral_v<TInt> && std::is_integral_v<TUInt> &&
+                                    std::is_signed_v<TInt> && std::is_unsigned_v<TUInt>;
 
 // Case 2a. Are params IntXX and UIntYY and sizeof(IntXX) >= sizeof(UIntYY) (in such case will use accurate compare)
 template <typename TInt, typename TUInt>
-constexpr bool is_le_int_vs_uint = is_any_int_vs_uint<TInt, TUInt> &&
-                                   (sizeof(TInt) <= sizeof(TUInt));
+constexpr bool is_le_int_vs_uint =
+        is_any_int_vs_uint<TInt, TUInt> && (sizeof(TInt) <= sizeof(TUInt));
 
 template <typename TInt, typename TUInt>
 using bool_if_le_int_vs_uint_t = std::enable_if_t<is_le_int_vs_uint<TInt, TUInt>, bool>;
@@ -107,8 +106,8 @@ inline bool_if_le_int_vs_uint_t<TInt, TUInt> equalsOpTmpl(TUInt a, TInt b) {
 
 // Case 2b. Are params IntXX and UIntYY and sizeof(IntXX) > sizeof(UIntYY) (in such case will cast UIntYY to IntXX and compare)
 template <typename TInt, typename TUInt>
-constexpr bool is_gt_int_vs_uint = is_any_int_vs_uint<TInt, TUInt> &&
-                                   (sizeof(TInt) > sizeof(TUInt));
+constexpr bool is_gt_int_vs_uint =
+        is_any_int_vs_uint<TInt, TUInt> && (sizeof(TInt) > sizeof(TUInt));
 
 template <typename TInt, typename TUInt>
 using bool_if_gt_int_vs_uint = std::enable_if_t<is_gt_int_vs_uint<TInt, TUInt>, bool>;
@@ -489,6 +488,11 @@ struct EqualsOp {
 template <>
 struct EqualsOp<DecimalV2Value, DecimalV2Value> {
     static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
+};
+
+template <>
+struct EqualsOp<StringRef, StringRef> {
+    static UInt8 apply(const StringRef& a, const StringRef& b) { return a == b; }
 };
 
 template <typename A, typename B>

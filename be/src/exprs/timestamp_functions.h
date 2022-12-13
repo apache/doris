@@ -43,8 +43,11 @@ struct FormatCtx {
 struct ConvertTzCtx {
     // false means the format is invalid, and the function always return null
     bool is_valid = false;
+    bool constant_from = false;
+    bool constant_to = false;
     cctz::time_zone from_tz;
     cctz::time_zone to_tz;
+    std::map<std::string, cctz::time_zone> time_zone_cache;
 };
 
 class TimestampFunctions {

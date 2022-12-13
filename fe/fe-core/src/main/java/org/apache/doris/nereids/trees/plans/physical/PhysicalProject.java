@@ -122,4 +122,20 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         return new PhysicalProject<>(projects, Optional.empty(), getLogicalProperties(), physicalProperties,
                 statsDeriveResult, child());
     }
+
+    /**
+     * replace projections and child, it is used for merge consecutive projections.
+     * @param projections new projections
+     * @param child new child
+     * @return new project
+     */
+    public PhysicalProject<Plan> withProjectionsAndChild(List<NamedExpression> projections, Plan child) {
+        return new PhysicalProject<Plan>(ImmutableList.copyOf(projections),
+                groupExpression,
+                getLogicalProperties(),
+                physicalProperties,
+                statsDeriveResult,
+                child
+                );
+    }
 }

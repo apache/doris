@@ -96,10 +96,12 @@ OrcReader::~OrcReader() {
 void OrcReader::close() {
     if (!_closed) {
         if (_profile != nullptr) {
-            auto& fst = _file_reader->statistics();
-            COUNTER_UPDATE(_orc_profile.read_time, fst.read_time);
-            COUNTER_UPDATE(_orc_profile.read_calls, fst.read_calls);
-            COUNTER_UPDATE(_orc_profile.read_bytes, fst.read_bytes);
+            if (_file_reader != nullptr) {
+                auto& fst = _file_reader->statistics();
+                COUNTER_UPDATE(_orc_profile.read_time, fst.read_time);
+                COUNTER_UPDATE(_orc_profile.read_calls, fst.read_calls);
+                COUNTER_UPDATE(_orc_profile.read_bytes, fst.read_bytes);
+            }
             COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
             COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
@@ -692,8 +694,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         return _decode_decimal_column<Int128>(col_name, data_column, data_type,
                                               _decimal_scale_params, cvb, num_values);
     case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128I>(col_name, data_column, data_type,
-                                               _decimal_scale_params, cvb, num_values);
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
+                                              _decimal_scale_params, cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch>(
                 col_name, data_column, cvb, num_values);

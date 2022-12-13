@@ -22,11 +22,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.PooledHiveMetaStoreClient;
-import org.apache.doris.statistics.AnalysisJob;
-import org.apache.doris.statistics.AnalysisJobInfo;
-import org.apache.doris.statistics.AnalysisJobScheduler;
-import org.apache.doris.statistics.HiveAnalysisJob;
-import org.apache.doris.statistics.IcebergAnalysisJob;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.HiveAnalysisTask;
+import org.apache.doris.statistics.IcebergAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -113,8 +113,8 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private void initPartitionColumns() {
-        Set<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
-                .collect(Collectors.toSet());
+        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+                .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
@@ -251,13 +251,6 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * get database name of hms table.
-     */
-    public String getDbName() {
-        return dbName;
-    }
-
-    /**
      * get the dla type for scan node to get right information.
      */
     public DLAType getDlaType() {
@@ -275,13 +268,13 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
-                return new HiveAnalysisJob(scheduler, info);
+                return new HiveAnalysisTask(scheduler, info);
             case ICEBERG:
-                return new IcebergAnalysisJob(scheduler, info);
+                return new IcebergAnalysisTask(scheduler, info);
             default:
                 throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
         }
@@ -291,8 +284,8 @@ public class HMSExternalTable extends ExternalTable {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
 
-    public Map<String, String> getDfsProperties() {
-        return catalog.getCatalogProperty().getDfsProperties();
+    public Map<String, String> getHdfsProperties() {
+        return catalog.getCatalogProperty().getHdfsProperties();
     }
 
     public Map<String, String> getS3Properties() {

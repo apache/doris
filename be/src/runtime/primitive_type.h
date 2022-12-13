@@ -28,7 +28,6 @@ namespace doris {
 
 namespace vectorized {
 class ColumnString;
-class ColumnJsonb;
 } // namespace vectorized
 
 class DateTimeValue;
@@ -112,6 +111,9 @@ std::string type_to_string(PrimitiveType t);
 std::string type_to_odbc_string(PrimitiveType t);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
+
+template <PrimitiveType type>
+constexpr PrimitiveType PredicateEvaluateType = is_string_type(type) ? TYPE_STRING : type;
 
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
@@ -232,7 +234,7 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonBinaryValue;
-    using ColumnType = vectorized::ColumnJsonb;
+    using ColumnType = vectorized::ColumnString;
 };
 
 // only for adapt get_predicate_column_ptr
