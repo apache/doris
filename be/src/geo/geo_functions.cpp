@@ -22,10 +22,9 @@
 
 #include "geo/geo_types.h"
 
+bool fLB::FLAGS_s2debug = false;
+
 namespace doris {
-
-void GeoFunctions::init() {}
-
 DoubleVal GeoFunctions::st_distance_sphere(FunctionContext* ctx, const DoubleVal& x_lng,
                                            const DoubleVal& x_lat, const DoubleVal& y_lng,
                                            const DoubleVal& y_lat) {
