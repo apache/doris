@@ -30,7 +30,6 @@ StreamLoadPipeReader::StreamLoadPipeReader(size_t max_buffered_bytes, size_t min
           _proto_buffered_bytes(0),
           _max_buffered_bytes(max_buffered_bytes),
           _min_chunk_size(min_chunk_size),
-          _total_length(total_length),
           _use_proto(use_proto) {}
 
 StreamLoadPipeReader::~StreamLoadPipeReader() {
