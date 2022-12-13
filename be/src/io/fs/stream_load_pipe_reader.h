@@ -82,7 +82,7 @@ private:
     // The default is -1, which means that the data arrives in a stream
     // and the length is unknown.
     // size_t is unsigned, so use int64_t
-    int64_t _total_length = -1;
+    // int64_t _total_length = -1;
     bool _use_proto = false;
     std::deque<ByteBufferPtr> _buf_queue;
     std::condition_variable _put_cond;
