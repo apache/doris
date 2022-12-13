@@ -73,6 +73,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
+    _child_could_closed_idxs.resize(_children.size(), false);
     return Status::OK();
 }
 
@@ -157,7 +158,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
-            mblock.merge(materialize_block(&child_block));
+            mblock.merge(materialize_block(&child_block, _child_idx));
         }
         // It shouldn't be the case that we reached the limit because we shouldn't have
         // incremented '_num_rows_returned' yet.
@@ -219,6 +220,22 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     }
     return Status::OK();
 }
+
+//for pipeline operator
+Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
+                                           vectorized::Block* input_block,
+                                           vectorized::Block* output_block) {
+    DCHECK_LT(child_id, _children.size());
+    DCHECK(!is_child_passthrough(child_id));
+    MutableBlock mblock = MutableBlock(
+            Block(VectorizedUtils::create_columns_with_type_and_name(_row_descriptor)));
+    if (input_block->rows() > 0) {
+        mblock.merge(materialize_block(input_block, child_id));
+        output_block->swap(mblock.to_block());
+    }
+    return Status::OK();
+}
+
 Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VUnionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -285,8 +302,8 @@ void VUnionNode::debug_string(int indentation_level, std::stringstream* out) con
     *out << ")" << std::endl;
 }
 
-Block VUnionNode::materialize_block(Block* src_block) {
-    const std::vector<VExprContext*>& child_exprs = _child_expr_lists[_child_idx];
+Block VUnionNode::materialize_block(Block* src_block, int child_idx) {
+    const std::vector<VExprContext*>& child_exprs = _child_expr_lists[child_idx];
     ColumnsWithTypeAndName colunms;
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_column_id = -1;

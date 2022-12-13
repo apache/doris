@@ -36,8 +36,37 @@ public:
 
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
+    Status materialize_child_block(RuntimeState* state, int child_id,
+                                   vectorized::Block* input_block, vectorized::Block* output_block);
 
     size_t children_count() const { return _children.size(); }
+
+    int get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
+
+    void set_child_close(int idx) { _child_could_closed_idxs[idx] = true; }
+
+    // check all child could have data, if not set to close, maybe could hava data
+    bool child_have_data() {
+        for (auto flag : _child_could_closed_idxs) {
+            if (!flag) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Returns true if there are still rows to be returned from constant expressions.
+    bool has_more_const(const RuntimeState* state) const {
+        return state->per_fragment_instance_idx() == 0 &&
+               _const_expr_list_idx < _const_expr_lists.size();
+    }
+
+    bool check_node_eos(const RuntimeState* state) {
+        return (!child_have_data() && !has_more_const(state));
+    }
+
+    /// GetNext() for the constant expression case.
+    Status get_next_const(RuntimeState* state, Block* block);
 
 private:
     /// Const exprs materialized by this node. These exprs don't refer to any children.
@@ -65,6 +94,7 @@ private:
     /// Index of the child that needs to be closed on the next GetNext() call. Should be set
     /// to -1 if no child needs to be closed.
     int _to_close_child_idx;
+    std::vector<bool> _child_could_closed_idxs;
 
     // Time spent to evaluates exprs and materializes the results
     RuntimeProfile::Counter* _materialize_exprs_evaluate_timer = nullptr;
@@ -76,13 +106,10 @@ private:
     /// non-passthrough child.
     Status get_next_materialized(RuntimeState* state, Block* block);
 
-    /// GetNext() for the constant expression case.
-    Status get_next_const(RuntimeState* state, Block* block);
-
     /// Evaluates exprs for the current child and materializes the results into 'tuple_buf',
     /// which is attached to 'dst_block'. Runs until 'dst_block' is at capacity, or all rows
     /// have been consumed from the current child block. Updates '_child_row_idx'.
-    Block materialize_block(Block* dst_block);
+    Block materialize_block(Block* dst_block, int child_idx);
 
     Status get_error_msg(const std::vector<VExprContext*>& exprs);
 
@@ -99,12 +126,6 @@ private:
     /// materialization.
     bool has_more_materialized() const {
         return _first_materialized_child_idx != _children.size() && _child_idx < _children.size();
-    }
-
-    /// Returns true if there are still rows to be returned from constant expressions.
-    bool has_more_const(const RuntimeState* state) const {
-        return state->per_fragment_instance_idx() == 0 &&
-               _const_expr_list_idx < _const_expr_lists.size();
     }
 
     void debug_string(int indentation_level, std::stringstream* out) const override;

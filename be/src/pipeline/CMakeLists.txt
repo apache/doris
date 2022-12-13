@@ -54,6 +54,9 @@ set(PIPELINE_FILES
         exec/set_sink_operator.cpp
         exec/set_source_operator.cpp
         exec/set_probe_sink_operator.cpp
+        exec/union_sink_operator.cpp
+        exec/union_source_operator.cpp
+        exec/data_queue.cpp
         exec/select_operator.cpp)
 
 add_library(Pipeline STATIC

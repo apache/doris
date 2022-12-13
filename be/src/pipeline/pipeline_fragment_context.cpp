@@ -52,11 +52,14 @@
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/broker_scan_operator.h"
 #include "pipeline/exec/const_value_operator.h"
+#include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/union_sink_operator.h"
+#include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
@@ -346,14 +349,24 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     }
     case TPlanNodeType::UNION_NODE: {
         auto* union_node = assert_cast<vectorized::VUnionNode*>(node);
-        if (union_node->children_count() == 0) {
+        if (union_node->children_count() == 0 &&
+            union_node->get_first_materialized_child_idx() == 0) { // only have const expr
             OperatorBuilderPtr builder =
                     std::make_shared<ConstValueOperatorBuilder>(next_operator_builder_id(), node);
             RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         } else {
-            return Status::InternalError(
-                    "Unsupported exec type in pipeline: {}, later will be support.",
-                    print_plan_node_type(node_type));
+            int child_count = union_node->children_count();
+            auto data_queue = std::make_shared<DataQueue>(child_count);
+            for (int child_id = 0; child_id < child_count; ++child_id) {
+                auto new_child_pipeline = add_pipeline();
+                RETURN_IF_ERROR(_build_pipelines(union_node->child(child_id), new_child_pipeline));
+                OperatorBuilderPtr child_sink_builder = std::make_shared<UnionSinkOperatorBuilder>(
+                        next_operator_builder_id(), child_id, union_node, data_queue);
+                RETURN_IF_ERROR(new_child_pipeline->set_sink(child_sink_builder));
+            }
+            OperatorBuilderPtr source_builder = std::make_shared<UnionSourceOperatorBuilder>(
+                    next_operator_builder_id(), union_node, data_queue);
+            RETURN_IF_ERROR(cur_pipe->add_operator(source_builder));
         }
         break;
     }
