@@ -278,10 +278,10 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
-        if (UNLIKELY(!in_block || in_block->rows() == 0)) {
-            return Status::OK();
+        if (in_block->rows() > 0) {
+            return _sink->send(state, in_block, source_state == SourceState::FINISHED);
         }
-        return _sink->send(state, in_block, source_state == SourceState::FINISHED);
+        return Status::OK();
     }
 
     Status close(RuntimeState* state) override {
