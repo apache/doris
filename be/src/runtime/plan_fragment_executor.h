@@ -188,7 +188,6 @@ private:
     // Created in prepare (if required), owned by this object.
     std::unique_ptr<DataSink> _sink;
     std::unique_ptr<RowBatch> _row_batch;
-    std::unique_ptr<doris::vectorized::Block> _block;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
@@ -236,7 +235,7 @@ private:
 
     // Executes get_next() logic and returns resulting status.
     Status get_next_internal(RowBatch** batch);
-    Status get_vectorized_internal(::doris::vectorized::Block** block);
+    Status get_vectorized_internal(::doris::vectorized::Block* block, bool* eos);
 
     // Stops report thread, if one is running. Blocks until report thread terminates.
     // Idempotent.
