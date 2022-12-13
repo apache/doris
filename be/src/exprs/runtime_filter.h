@@ -120,6 +120,12 @@ struct MergeRuntimeFilterParams {
     butil::IOBufAsZeroCopyInputStream* data;
 };
 
+enum RuntimeFilterState {
+    READY,
+    NOT_READY,
+    TIME_OUT,
+};
+
 /// The runtimefilter is built in the join node.
 /// The main purpose is to reduce the scanning amount of the
 /// left table data according to the scanning results of the right table during the join process.
@@ -135,7 +141,7 @@ public:
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
-              _is_ready(false),
+              _rf_state(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               _always_true(false),
@@ -188,7 +194,9 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
-    bool is_ready() const { return _is_ready; }
+    bool is_ready() const { return _rf_state == RuntimeFilterState::READY; }
+    RuntimeFilterState current_state() const { return _rf_state; }
+    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
@@ -277,9 +285,13 @@ protected:
 
     std::string _format_status() {
         return fmt::format(
-                "[IsPushDown = {}, IsEffective = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+                "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
                 "HasLocalTarget = {}]",
-                _is_push_down, _is_ready, _is_ignored, _has_remote_target, _has_local_target);
+                _is_push_down,
+                _rf_state == RuntimeFilterState::READY ? "READY"
+                : RuntimeFilterState::TIME_OUT         ? "TIME_OUT"
+                                                       : "NOT_READY",
+                _is_ignored, _has_remote_target, _has_local_target);
     }
 
     RuntimeState* _state;
@@ -298,7 +310,7 @@ protected:
     // will apply to local node
     bool _has_local_target;
     // filter is ready for consumer
-    bool _is_ready;
+    RuntimeFilterState _rf_state;
     // role consumer or producer
     RuntimeFilterRole _role;
     // expr index

@@ -246,6 +246,7 @@ E(ROWSET_RENAME_FILE_FAILED, -3116);
 E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
+E(PIP_WAIT_FOR_RF, -3120);
 #undef E
 }; // namespace ErrorCode
 
@@ -367,6 +368,7 @@ public:
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
     ERROR_CTOR(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
+    ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
     ERROR_CTOR(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
@@ -385,6 +387,8 @@ public:
     }
 
     bool ok() const { return _code == ErrorCode::OK; }
+
+    bool is_blocked_by_rf() const { return _code == ErrorCode::PIP_WAIT_FOR_RF; }
 
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||

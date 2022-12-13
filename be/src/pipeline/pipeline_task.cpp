@@ -47,21 +47,11 @@ Status PipelineTask::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(o->prepare(state));
     }
     _block.reset(new doris::vectorized::Block());
-    _init_state();
+
+    // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
+    set_state(RUNNABLE);
     _prepared = true;
     return Status::OK();
-}
-
-void PipelineTask::_init_state() {
-    if (has_dependency()) {
-        set_state(BLOCKED_FOR_DEPENDENCY);
-    } else if (!(_source->can_read())) {
-        set_state(BLOCKED_FOR_SOURCE);
-    } else if (!(_sink->can_write())) {
-        set_state(BLOCKED_FOR_SINK);
-    } else {
-        set_state(RUNNABLE);
-    }
 }
 
 bool PipelineTask::has_dependency() {
@@ -89,11 +79,18 @@ Status PipelineTask::open() {
     if (_sink) {
         RETURN_IF_ERROR(_sink->open(_state));
     }
+    auto st = Status::OK();
     for (auto& o : _operators) {
-        RETURN_IF_ERROR(o->open(_state));
+        if (st.is_blocked_by_rf()) {
+            o->open(_state);
+        } else {
+            st = o->open(_state);
+        }
     }
-    _opened = true;
-    return Status::OK();
+    if (st.ok()) {
+        _opened = true;
+    }
+    return st;
 }
 
 Status PipelineTask::execute(bool* eos) {
@@ -103,6 +100,19 @@ Status PipelineTask::execute(bool* eos) {
     // The status must be runnable
     *eos = false;
     if (!_opened) {
+        {
+            SCOPED_RAW_TIMER(&time_spent);
+            auto st = open();
+            if (st.is_blocked_by_rf()) {
+                set_state(BLOCKED_FOR_RF);
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(st);
+        }
+        if (has_dependency()) {
+            set_state(BLOCKED_FOR_DEPENDENCY);
+            return Status::OK();
+        }
         if (!_source->can_read()) {
             set_state(BLOCKED_FOR_SOURCE);
             return Status::OK();
@@ -111,8 +121,6 @@ Status PipelineTask::execute(bool* eos) {
             set_state(BLOCKED_FOR_SINK);
             return Status::OK();
         }
-        SCOPED_RAW_TIMER(&time_spent);
-        RETURN_IF_ERROR(open());
     }
 
     while (!_fragment_context->is_canceled()) {
@@ -168,7 +176,6 @@ Status PipelineTask::close() {
         COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
     }
-    _pipeline->close(_state);
     return s;
 }
 

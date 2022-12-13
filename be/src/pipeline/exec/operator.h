@@ -87,10 +87,6 @@ public:
     virtual bool is_sink() const { return false; }
     virtual bool is_source() const { return false; }
 
-    virtual Status prepare(RuntimeState* state);
-
-    virtual void close(RuntimeState* state);
-
     std::string get_name() const { return _name; }
 
     RuntimeState* runtime_state() { return _state; }
@@ -183,6 +179,8 @@ public:
     }
 
     virtual bool can_read() { return false; } // for source
+
+    virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
 
     virtual bool can_write() { return false; } // for sink
 
