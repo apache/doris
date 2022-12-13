@@ -41,7 +41,6 @@ public:
         _init_profile();
     }
 
-
     void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
         pipeline->_parents.push_back(shared_from_this());
         _dependencies.push_back(pipeline);

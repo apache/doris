@@ -36,7 +36,6 @@
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
@@ -1205,7 +1204,9 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
     if (_is_ignored) {
         return Status::OK();
     }
-    DCHECK(_rf_state == RuntimeFilterState::READY);
+    DCHECK((!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
+           (_state->enable_pipeline_exec() &&
+            _rf_state_atomic.load() == RuntimeFilterState::READY));
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
 
@@ -1225,7 +1226,9 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*
     if (_is_ignored) {
         return Status::OK();
     }
-    DCHECK(_rf_state == RuntimeFilterState::READY);
+    DCHECK((!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
+           (_state->enable_pipeline_exec() &&
+            _rf_state_atomic.load() == RuntimeFilterState::READY));
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
 
@@ -1243,10 +1246,10 @@ bool IRuntimeFilter::await() {
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
                                     ? _state->query_options().query_timeout
                                     : _state->runtime_filter_wait_time_ms();
-    if (_state->enable_pipeline_exec() && _rf_state != RuntimeFilterState::READY) {
-        _rf_state = MonotonicMillis() - registration_time_ >= wait_times_ms
-                            ? RuntimeFilterState::TIME_OUT
-                            : RuntimeFilterState::NOT_READY;
+    if (_state->enable_pipeline_exec() && _rf_state_atomic.load() != RuntimeFilterState::READY) {
+        _rf_state_atomic.store(MonotonicMillis() - registration_time_ >= wait_times_ms
+                                       ? RuntimeFilterState::TIME_OUT
+                                       : RuntimeFilterState::NOT_READY);
         return false;
     } else if (!_state->enable_pipeline_exec()) {
         SCOPED_TIMER(_await_time_cost);
@@ -1267,40 +1270,43 @@ bool IRuntimeFilter::await() {
 
 bool IRuntimeFilter::is_ready_or_timeout() {
     DCHECK(is_consumer());
-    auto cur_state = _rf_state;
+    auto cur_state = _rf_state_atomic.load();
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
                                     ? _state->query_options().query_timeout
                                     : _state->runtime_filter_wait_time_ms();
     int64_t ms_since_registration = MonotonicMillis() - registration_time_;
-    std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_state->enable_pipeline_exec()) {
         _rf_state = RuntimeFilterState::TIME_OUT;
         return true;
     } else if (is_ready()) {
         if (cur_state == RuntimeFilterState::NOT_READY) {
-            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration));
+            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration) + " ms");
         }
         return true;
     } else {
         if (cur_state == RuntimeFilterState::NOT_READY) {
-            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration));
+            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration) + " ms");
         }
         bool timeout = wait_times_ms <= ms_since_registration;
         if (timeout) {
-            _rf_state = RuntimeFilterState::TIME_OUT;
+            _rf_state_atomic.store(RuntimeFilterState::TIME_OUT);
             return true;
         }
-        _rf_state = RuntimeFilterState::NOT_READY;
+        _rf_state_atomic.store(RuntimeFilterState::NOT_READY);
         return false;
     }
 }
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
-    std::unique_lock<std::mutex> lock(_inner_mutex);
-    _rf_state = RuntimeFilterState::READY;
-    _inner_cv.notify_all();
+    if (_state->enable_pipeline_exec()) {
+        _rf_state_atomic.store(RuntimeFilterState::READY);
+    } else {
+        std::unique_lock<std::mutex> lock(_inner_mutex);
+        _rf_state = RuntimeFilterState::READY;
+        _inner_cv.notify_all();
+    }
 
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER) {
         _profile->add_info_string("InFilterSize", std::to_string(_wrapper->get_in_filter_size()));
@@ -1451,7 +1457,9 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     _profile.reset(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                                   ::doris::to_string(_runtime_filter_type))));
     parent_profile->add_child(_profile.get(), true, nullptr);
-    _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
+    if (!_state->enable_pipeline_exec()) {
+        _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
+    }
     _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
