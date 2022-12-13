@@ -107,6 +107,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
+          _stopped(false),
           _mem_tracker(std::make_shared<MemTracker>("StorageEngine")),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
           _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
@@ -569,6 +570,7 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
+    _stopped = true;
 }
 
 void StorageEngine::_clear() {
