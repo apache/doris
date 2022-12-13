@@ -182,7 +182,7 @@ TEST_F(GeoFunctionsTest, st_line) {
         GeoFunctions::st_from_wkt_close(ctx, FunctionContext::FRAGMENT_LOCAL);
     }
 }
-
+/*
 TEST_F(GeoFunctionsTest, st_polygon) {
     FunctionUtils utils;
     FunctionContext* ctx = utils.get_fn_ctx();
@@ -216,7 +216,7 @@ TEST_F(GeoFunctionsTest, st_polygon) {
         GeoFunctions::st_from_wkt_close(ctx, FunctionContext::FRAGMENT_LOCAL);
     }
 }
-
+*/
 TEST_F(GeoFunctionsTest, st_circle) {
     FunctionUtils utils;
     FunctionContext* ctx = utils.get_fn_ctx();
@@ -275,7 +275,7 @@ TEST_F(GeoFunctionsTest, st_poly_line_fail) {
         GeoFunctions::st_from_wkt_close(ctx, FunctionContext::FRAGMENT_LOCAL);
     }
 }
-
+/*
 TEST_F(GeoFunctionsTest, st_contains) {
     FunctionUtils utils;
     FunctionContext* ctx = utils.get_fn_ctx();
@@ -298,7 +298,7 @@ TEST_F(GeoFunctionsTest, st_contains) {
     EXPECT_TRUE(res.val);
     GeoFunctions::st_contains_close(ctx, FunctionContext::FRAGMENT_LOCAL);
 }
-
+*/
 TEST_F(GeoFunctionsTest, st_contains_cached) {
     FunctionUtils utils;
     FunctionContext* ctx = utils.get_fn_ctx();

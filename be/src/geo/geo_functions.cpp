@@ -276,8 +276,7 @@ doris_udf::BooleanVal GeoFunctions::st_contains(doris_udf::FunctionContext* ctx,
             }
         }
     }
-    return true;
-    //return shapes[0]->contains(shapes[1].get());
+    return shapes[0]->contains(shapes[1].get());
 }
 
 } // namespace doris
