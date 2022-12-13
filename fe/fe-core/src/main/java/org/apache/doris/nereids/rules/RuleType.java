@@ -73,6 +73,8 @@ public enum RuleType {
     CHECK_ROW_POLICY(RuleTypeClass.REWRITE),
 
     ELIMINATE_EXCEPT(RuleTypeClass.REWRITE),
+    RESOLVE_ORDINAL_IN_ORDER_BY(RuleTypeClass.REWRITE),
+    RESOLVE_ORDINAL_IN_GROUP_BY(RuleTypeClass.REWRITE),
 
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
@@ -86,6 +88,7 @@ public enum RuleType {
     ELIMINATE_UNNECESSARY_PROJECT(RuleTypeClass.REWRITE),
     LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT(RuleTypeClass.REWRITE),
     ELIMINATE_GROUP_BY_CONSTANT(RuleTypeClass.REWRITE),
+    ELIMINATE_ORDER_BY_CONSTANT(RuleTypeClass.REWRITE),
 
     // subquery analyze
     ANALYZE_FILTER_SUBQUERY(RuleTypeClass.REWRITE),
