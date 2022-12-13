@@ -72,26 +72,47 @@ public class FunctionCallExpr extends Expr {
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
-    public static final Map<String, java.util.function.BiFunction<Type[], Type, Type>> PRECISION_INFER_RULE;
-    public static final java.util.function.BiFunction<Type[], Type, Type> DEFAULT_PRECISION_INFER_RULE;
+    public static final Map<String, java.util.function.BiFunction<ArrayList<Expr>, Type, Type>> PRECISION_INFER_RULE;
+    public static final java.util.function.BiFunction<ArrayList<Expr>, Type, Type> DEFAULT_PRECISION_INFER_RULE;
 
     static {
-        java.util.function.BiFunction<Type[], Type, Type> sumRule = (childrenType, returnType) -> {
-            Preconditions.checkArgument(childrenType != null && childrenType.length > 0);
-            if (childrenType[0].isDecimalV3()) {
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) childrenType[0]).getScalarScale());
+                        ((ScalarType) children.get(0).getType()).getScalarScale());
             } else {
                 return returnType;
             }
         };
-        DEFAULT_PRECISION_INFER_RULE = (childrenType, returnType) -> {
-            if (childrenType != null && childrenType.length > 0
-                    && childrenType[0].isDecimalV3() && returnType.isDecimalV3()) {
-                return childrenType[0];
-            } else if (childrenType != null && childrenType.length > 0 && childrenType[0].isDatetimeV2()
+        DEFAULT_PRECISION_INFER_RULE = (children, returnType) -> {
+            if (children != null && children.size() > 0
+                    && children.get(0).getType().isDecimalV3() && returnType.isDecimalV3()) {
+                return children.get(0).getType();
+            } else if (children != null && children.size() > 0 && children.get(0).getType().isDatetimeV2()
                     && returnType.isDatetimeV2()) {
-                return childrenType[0];
+                return children.get(0).getType();
+            } else {
+                return returnType;
+            }
+        };
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
+            } else if (children.size() == 2) {
+                Preconditions.checkArgument(children.get(1) instanceof IntLiteral
+                                || (children.get(1) instanceof CastExpr
+                                && children.get(1).getChild(0) instanceof IntLiteral),
+                        "2nd argument of function round/floor/ceil/truncate must be literal");
+                if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
+                    children.get(1).getChild(0).setType(children.get(1).getType());
+                    children.set(1, children.get(1).getChild(0));
+                } else {
+                    children.get(1).setType(Type.INT);
+                }
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                        ((ScalarType) children.get(0).getType()).decimalScale());
             } else {
                 return returnType;
             }
@@ -99,31 +120,40 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE = new HashMap<>();
         PRECISION_INFER_RULE.put("sum", sumRule);
         PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
-        PRECISION_INFER_RULE.put("avg", (childrenType, returnType) -> {
+        PRECISION_INFER_RULE.put("avg", (children, returnType) -> {
             // TODO: how to set scale?
-            Preconditions.checkArgument(childrenType != null && childrenType.length > 0);
-            if (childrenType[0].isDecimalV3()) {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) childrenType[0]).getScalarScale());
+                        ((ScalarType) children.get(0).getType()).getScalarScale());
             } else {
                 return returnType;
             }
         });
-        PRECISION_INFER_RULE.put("if", (childrenType, returnType) -> {
-            Preconditions.checkArgument(childrenType != null && childrenType.length == 3);
-            if (childrenType[1].isDecimalV3() && childrenType[2].isDecimalV3()) {
+        PRECISION_INFER_RULE.put("if", (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() == 3);
+            if (children.get(1).getType().isDecimalV3() && children.get(2).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(
-                        Math.max(((ScalarType) childrenType[1]).decimalPrecision(),
-                                ((ScalarType) childrenType[2]).decimalPrecision()),
-                        Math.max(((ScalarType) childrenType[1]).decimalScale(),
-                                ((ScalarType) childrenType[2]).decimalScale()));
-            } else if (childrenType[1].isDatetimeV2() && childrenType[2].isDatetimeV2()) {
-                return ((ScalarType) childrenType[1]).decimalScale() > ((ScalarType) childrenType[2]).decimalScale()
-                        ? childrenType[1] : childrenType[2];
+                        Math.max(((ScalarType) children.get(1).getType()).decimalPrecision(),
+                                ((ScalarType) children.get(2).getType()).decimalPrecision()),
+                        Math.max(((ScalarType) children.get(1).getType()).decimalScale(),
+                                ((ScalarType) children.get(2).getType()).decimalScale()));
+            } else if (children.get(1).getType().isDatetimeV2() && children.get(2).getType().isDatetimeV2()) {
+                return ((ScalarType) children.get(1).getType()).decimalScale()
+                        > ((ScalarType) children.get(2).getType()).decimalScale()
+                        ? children.get(1).getType() : children.get(2).getType();
             } else {
                 return returnType;
             }
         });
+
+        PRECISION_INFER_RULE.put("round", roundRule);
+        PRECISION_INFER_RULE.put("ceil", roundRule);
+        PRECISION_INFER_RULE.put("floor", roundRule);
+        PRECISION_INFER_RULE.put("dround", roundRule);
+        PRECISION_INFER_RULE.put("dceil", roundRule);
+        PRECISION_INFER_RULE.put("dfloor", roundRule);
+        PRECISION_INFER_RULE.put("truncate", roundRule);
     }
 
     public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
@@ -1374,7 +1404,7 @@ public class FunctionCallExpr extends Expr {
                 && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
             // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change it to a double function
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
-                    .apply(collectChildReturnTypes(), this.type);
+                    .apply(children, this.type);
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
