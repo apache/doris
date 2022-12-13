@@ -222,6 +222,11 @@ See the section on `lower_case_table_names` variables in [Variables](../../advan
 
 	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
 
+* Set JAVA_HOME environment variable
+
+  <version since="1.2.0"></version>  
+  Java UDF are supported since version 1.2, so BE are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to set the variable.
+
 * Install Java UDF functions 
 
   <version since="1.2.0">Install Java UDF functions</version>
