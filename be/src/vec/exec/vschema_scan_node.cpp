@@ -50,10 +50,10 @@ VSchemaScanNode::~VSchemaScanNode() {
     _src_tuple = nullptr;
 
     delete[] reinterpret_cast<char*>(_src_single_tuple);
-    _src_single_tuple = NULL;
+    _src_single_tuple = nullptr;
 
     delete[] reinterpret_cast<char*>(_dest_single_tuple);
-    _dest_single_tuple = NULL;
+    _dest_single_tuple = nullptr;
 }
 
 Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -92,6 +92,11 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.schema_scan_node.__isset.thread_id) {
         _scanner_param.thread_id = tnode.schema_scan_node.thread_id;
     }
+
+    if (tnode.schema_scan_node.__isset.table_structure) {
+        _scanner_param.table_structure = _pool->add(
+                new std::vector<TSchemaTableStructure>(tnode.schema_scan_node.table_structure));
+    }
     return Status::OK();
 }
 
@@ -108,9 +113,9 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_scanner_param.user) {
         TSetSessionParams param;
@@ -133,12 +138,12 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
 
-    if (nullptr == _tuple_pool.get()) {
+    if (nullptr == _tuple_pool) {
         return Status::InternalError("Allocate MemPool failed.");
     }
 
@@ -161,7 +166,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     // new one scanner
     _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
 
-    if (nullptr == _schema_scanner.get()) {
+    if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
@@ -221,13 +226,13 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
 
     _src_single_tuple =
             reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
-    if (NULL == _src_single_tuple) {
+    if (nullptr == _src_single_tuple) {
         return Status::InternalError("new src single tuple failed.");
     }
 
     _dest_single_tuple =
             reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_dest_tuple_desc->byte_size()]);
-    if (NULL == _dest_single_tuple) {
+    if (nullptr == _dest_single_tuple) {
         return Status::InternalError("new desc single tuple failed.");
     }
 
@@ -239,9 +244,12 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
-    if (state == NULL || block == NULL || eos == NULL)
+    if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
-    if (!_is_init) return Status::InternalError("used before initialize.");
+    }
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
     RETURN_IF_CANCELLED(state);
     std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
     bool schema_eos = false;
@@ -359,15 +367,13 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
-    case TYPE_INT:
-    case TYPE_DECIMAL32: {
+    case TYPE_INT: {
         int32_t num = *reinterpret_cast<int32_t*>(slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
         break;
     }
 
-    case TYPE_BIGINT:
-    case TYPE_DECIMAL64: {
+    case TYPE_BIGINT: {
         int64_t num = *reinterpret_cast<int64_t*>(slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
         break;
@@ -424,10 +430,30 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128: {
-        Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
-        reinterpret_cast<vectorized::ColumnVector<Int128>*>(col_ptr)->insert_value(num);
+    case TYPE_DECIMALV2: {
+        const Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
+        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        const Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
+        reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+
+    case TYPE_DECIMAL32: {
+        const int32_t num = *reinterpret_cast<int32_t*>(slot);
+        reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+
+    case TYPE_DECIMAL64: {
+        const int64_t num = *reinterpret_cast<int64_t*>(slot);
+        reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
         break;
     }
 
@@ -474,7 +500,6 @@ Status VSchemaScanNode::close(RuntimeState* state) {
 
     _tuple_pool.reset();
     return ExecNode::close(state);
-    ;
 }
 
 void VSchemaScanNode::debug_string(int indentation_level, std::stringstream* out) const {

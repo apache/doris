@@ -26,7 +26,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
     set (ARCH_AMD64 1)
 endif ()
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*)")
     set (ARCH_AARCH64 1)
 endif ()
 if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
@@ -58,11 +58,29 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif ()
 
 # Set boost/stacktrace use backtrace api to unwind
-add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
-#add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
+if (NOT OS_MACOSX)
+    add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
+    #add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
+else()
+    add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
+endif()
 
-option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+# Options
+if (NOT OS_MACOSX)
+    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+    option(USE_LIBCPP "Use libc++" OFF)
+    option(USE_MEM_TRACKER, "Use memory tracker" ON)
+else()
+    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." OFF)
+    option(USE_LIBCPP "Use libc++" ON)
+    option(USE_MEM_TRACKER, "Use memory tracker" OFF)
+endif()
+option(USE_JEMALLOC "Use jemalloc" ON)
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
+message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
+message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
+message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -82,19 +100,19 @@ message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{DORIS_HOME} "${BASE_DIR}/../")
+set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed/")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
-
-if (APPLE)
-    set(MAKE_TEST "ON")
-else()
-    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
+if (NOT DEFINED ENV{DORIS_THIRDPARTY})
+    set(ENV{DORIS_THIRDPARTY} "$ENV{DORIS_HOME}/thirdparty")
 endif()
+set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
+message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
+
+option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
 
@@ -120,13 +138,15 @@ endif()
 # Set Boost
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
-set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
+set(BOOST_VERSION "1.73.0")
 
 if (NOT APPLE)
-    find_package(Boost 1.73.0 REQUIRED COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
 else()
-    find_package(Boost 1.73.0 COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
 endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
@@ -325,8 +345,10 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-c-s3 STATIC IMPORTED)
 set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
 
-add_library(aws-s2n STATIC IMPORTED)
-set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+if (NOT OS_MACOSX)
+    add_library(aws-s2n STATIC IMPORTED)
+    set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+endif()
 
 add_library(minizip STATIC IMPORTED)
 set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
@@ -399,6 +421,17 @@ set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/l
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
+if (OS_MACOSX)
+    add_library(bfd STATIC IMPORTED)
+    set_target_properties(bfd PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libbfd.a")
+
+    add_library(iberty STATIC IMPORTED)
+    set_target_properties(iberty PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libiberty.a")
+
+    add_library(intl STATIC IMPORTED)
+    set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
+endif()
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -447,7 +480,10 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
 endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
+    if (NOT OS_MACOSX)
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -lstdc++")
+    endif()
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -494,7 +530,7 @@ if (USE_MEM_TRACKER)
 endif()
 
 # Compile with jemalloc.
-# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc 
+# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
@@ -506,6 +542,9 @@ endif()
 # ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
 if (STRICT_MEMORY_USE)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DSTRICT_MEMORY_USE")
+endif()
+if (ENABLE_STACKTRACE)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_STACKTRACE")
 endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
@@ -522,7 +561,12 @@ if (USE_DWARF)
 endif()
 
 # For CMAKE_BUILD_TYPE=Debug
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
+if (OS_MACOSX AND ARCH_ARM)
+    # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
+    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
+else()
+    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
+endif()
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -533,7 +577,7 @@ SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined")
+SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
@@ -578,28 +622,17 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
-
-if (BUILD_JAVA_UDF)
-    execute_process(COMMAND sh ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
-    FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
-    if(${LIB_JVM} STREQUAL "")
-        message(STATUS "Disable JAVA UDF because there is no libjvm found!")
-    else()
-        set(DORIS_DEPENDENCIES
-            ${DORIS_DEPENDENCIES}
-            jvm
-        )
-        add_library(jvm SHARED IMPORTED)
-        set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
-        include_directories($ENV{JAVA_HOME}/include)
-        include_directories($ENV{JAVA_HOME}/include/linux)
-        add_definitions("-DLIBJVM")
-    endif()
+include_directories($ENV{JAVA_HOME}/include)
+if (NOT OS_MACOSX)
+    include_directories($ENV{JAVA_HOME}/include/linux)
+else()
+    include_directories($ENV{JAVA_HOME}/include/darwin)
 endif()
 
-set(WL_START_GROUP "-Wl,--start-group")
-set(WL_END_GROUP "-Wl,--end-group")
-
+if (NOT OS_MACOSX)
+    set(WL_START_GROUP "-Wl,--start-group")
+    set(WL_END_GROUP "-Wl,--end-group")
+endif()
 
 set(KRB5_LIBS
     krb5support
@@ -626,6 +659,10 @@ set(AWS_LIBS
     aws-c-mqtt
     aws-sdk-s3-crt)
 
+if (OS_MACOSX)
+    list(REMOVE_ITEM AWS_LIBS aws-s2n)
+endif()
+
 # Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
@@ -646,9 +683,9 @@ set(DORIS_LINK_LIBS
     Webserver
     Geo
     Vec
+    Pipeline
     ${WL_END_GROUP}
 )
-
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -716,6 +753,16 @@ set(COMMON_THIRDPARTY
     simdjson
 )
 
+if (OS_MACOSX)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        Boost::container
+        bfd
+        iberty
+        intl
+    )
+endif()
+
 if (${MAKE_TEST} STREQUAL "ON")
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
@@ -731,15 +778,11 @@ set(DORIS_DEPENDENCIES
 )
 
 if(WITH_LZO)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        lzo
-    )
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} lzo)
 endif()
 
 if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        mysql
-        )
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
@@ -748,22 +791,23 @@ message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${DORIS_DEPENDENCIES}
-    -static-libstdc++
-    -static-libgcc
-    -lstdc++fs
-    -lresolv
-)
-
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    set(ASAN_LIBS -static-libasan)
-    set(LSAN_LIBS -static-liblsan)
-    set(UBSAN_LIBS -static-libubsan tcmalloc)
-    set(TSAN_LIBS -static-libtsan)
-else ()
-    set(UBSAN_LIBS -rtlib=compiler-rt tcmalloc)
-endif ()
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        ${DORIS_DEPENDENCIES}
+        -static-libstdc++
+        -static-libgcc
+        -lstdc++fs
+        -lresolv
+    )
+else()
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        ${DORIS_DEPENDENCIES}
+        -lapple_nghttp2
+        -lresolv
+        -liconv
+    )
+endif()
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
@@ -771,7 +815,16 @@ else ()
     set(MALLOCLIB tcmalloc)
 endif()
 
-# Add sanitize static link flags or tcmalloc
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    set(ASAN_LIBS -static-libasan)
+    set(LSAN_LIBS -static-liblsan)
+    set(UBSAN_LIBS -static-libubsan ${MALLOCLIB})
+    set(TSAN_LIBS -static-libtsan)
+else ()
+    set(UBSAN_LIBS -rtlib=compiler-rt ${MALLOCLIB})
+endif ()
+
+# Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
@@ -793,9 +846,26 @@ if (GLIBC_COMPATIBILITY)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
 endif()
 
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+    )
+else()
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Foundation"
+        "-framework SystemConfiguration"
+        "-framework Security"
+    )
+    if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
+        set(DORIS_LINK_LIBS
+            ${DORIS_LINK_LIBS}
+            "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
+        )
+    endif()
+endif()
 
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
@@ -805,12 +875,21 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_END_GROUP}
 )
 
+if (NOT MAKE_TEST)
+    message(STATUS "Link Flags: ${DORIS_LINK_LIBS}")
+else()
+    message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
+endif()
+
 # Only build static libs
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
-    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+    if (NOT OS_MACOSX)
+        SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+    endif()
     add_definitions(-DBE_TEST)
 endif ()
 
@@ -835,6 +914,7 @@ endif()
 
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
+add_subdirectory(${SRC_DIR}/pipeline)
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})

@@ -23,6 +23,7 @@
 #include <iostream>
 #include <string>
 
+#include "agent/be_exec_version_manager.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/row_batch.h"
@@ -186,7 +187,8 @@ void block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, compression_type);
+    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
+                                &uncompressed_bytes, &compressed_bytes, compression_type);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
@@ -285,7 +287,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     }
     // decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
+        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
         auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
                               decimal_column.get())
@@ -355,7 +357,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     }
     // nullable decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
+        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
@@ -437,7 +439,7 @@ TEST(BlockTest, dump_data) {
     vectorized::DataTypePtr string_type(std::make_shared<vectorized::DataTypeString>());
     vectorized::ColumnWithTypeAndName test_string(strcol->get_ptr(), string_type, "test_string");
 
-    vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
+    vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
     auto decimal_column = decimal_data_type->create_column();
     auto& decimal_data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
                                   decimal_column.get())

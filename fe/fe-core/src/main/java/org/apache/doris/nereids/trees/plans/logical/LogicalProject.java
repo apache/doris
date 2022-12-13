@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -40,10 +41,15 @@ import java.util.Optional;
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
 
-    private final List<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> excepts;
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child) {
+        this(projects, excepts, Optional.empty(), Optional.empty(), child);
+    }
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, Optional.empty(), Optional.empty(), child);
+        this(projects, Collections.emptyList(), child);
     }
 
     /**
@@ -51,10 +57,12 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      *
      * @param projects project list
      */
-    public LogicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.excepts = ImmutableList.copyOf(excepts);
     }
 
     /**
@@ -67,6 +75,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return projects;
     }
 
+    public List<NamedExpression> getExcepts() {
+        return excepts;
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return projects.stream()
@@ -77,7 +89,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalProject",
-                "projects", projects
+                "projects", projects,
+                "excepts", excepts
         );
     }
 
@@ -111,16 +124,16 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, children.get(0));
+        return new LogicalProject<>(projects, excepts, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalProject<>(projects, excepts, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalProject<>(projects, Optional.empty(), logicalProperties, child());
+        return new LogicalProject<>(projects, excepts, Optional.empty(), logicalProperties, child());
     }
 }

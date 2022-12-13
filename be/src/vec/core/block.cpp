@@ -23,7 +23,7 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
-#include "agent/heartbeat_server.h"
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
@@ -31,6 +31,7 @@
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
+#include "util/exception.h"
 #include "util/faststring.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -64,7 +65,8 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
 }
 
 Block::Block(const PBlock& pblock) {
-    CHECK(HeartbeatServer::check_be_exec_version(pblock.be_exec_version()));
+    int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
+    CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -318,6 +320,18 @@ size_t Block::rows() const {
     return 0;
 }
 
+std::string Block::each_col_size() {
+    std::stringstream ss;
+    for (const auto& elem : data) {
+        if (elem.column) {
+            ss << elem.column->size() << " | ";
+        } else {
+            ss << "-1 | ";
+        }
+    }
+    return ss.str();
+}
+
 void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
@@ -477,7 +491,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+        columns[i] = data[i].column ? (*std::move(data[i].column)).assume_mutable()
                                     : data[i].type->create_column();
     }
     return columns;
@@ -614,21 +628,31 @@ void Block::update_hash(SipHash& hash) const {
     }
 }
 
-void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
-                                  uint32_t column_to_keep) {
+void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
+                                  const IColumn::Filter& filter) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
-        for (size_t i = 0; i < column_to_keep; ++i) {
-            std::move(*block->get_by_position(i).column).assume_mutable()->clear();
+        for (auto& col : columns_to_filter) {
+            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
-        if (count != block->rows()) {
-            for (size_t i = 0; i < column_to_keep; ++i) {
-                block->get_by_position(i).column =
-                        block->get_by_position(i).column->filter(filter, count);
+        for (auto& col : columns_to_filter) {
+            if (block->get_by_position(col).column->size() != count) {
+                block->get_by_position(col).column =
+                        block->get_by_position(col).column->filter(filter, count);
             }
         }
     }
+}
+
+void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
+                                  uint32_t column_to_keep) {
+    std::vector<uint32_t> columns_to_filter;
+    columns_to_filter.resize(column_to_keep);
+    for (uint32_t i = 0; i < column_to_keep; ++i) {
+        columns_to_filter[i] = i;
+    }
+    filter_block_internal(block, columns_to_filter, filter);
 }
 
 Block Block::copy_block(const std::vector<int>& column_offset) const {
@@ -648,7 +672,8 @@ void Block::append_block_by_selector(MutableColumns& columns,
     }
 }
 
-Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
+Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
+                           int filter_column_id, int column_to_keep) {
     ColumnPtr filter_column = block->get_by_position(filter_column_id).column;
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
@@ -672,30 +697,39 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
         for (size_t i = 0; i < size; ++i) {
             filter_data[i] &= !null_map[i];
         }
-        filter_block_internal(block, filter, column_to_keep);
+        filter_block_internal(block, columns_to_filter, filter);
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
-            for (size_t i = 0; i < column_to_keep; ++i) {
-                std::move(*block->get_by_position(i).column).assume_mutable()->clear();
+            for (auto& col : columns_to_filter) {
+                std::move(*block->get_by_position(col).column).assume_mutable()->clear();
             }
         }
     } else {
         const IColumn::Filter& filter =
                 assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
                         .get_data();
-        filter_block_internal(block, filter, column_to_keep);
+        filter_block_internal(block, columns_to_filter, filter);
     }
 
     erase_useless_column(block, column_to_keep);
     return Status::OK();
 }
 
-Status Block::serialize(PBlock* pblock,
+Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
+    std::vector<uint32_t> columns_to_filter;
+    columns_to_filter.resize(column_to_keep);
+    for (uint32_t i = 0; i < column_to_keep; ++i) {
+        columns_to_filter[i] = i;
+    }
+    return filter_block(block, columns_to_filter, filter_column_id, column_to_keep);
+}
+
+Status Block::serialize(int be_exec_version, PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
-    pblock->set_be_exec_version(HeartbeatServer::be_exec_version);
+    pblock->set_be_exec_version(be_exec_version);
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
@@ -714,9 +748,9 @@ Status Block::serialize(PBlock* pblock,
         column_values.resize(content_uncompressed_size);
     } catch (...) {
         std::exception_ptr p = std::current_exception();
-        std::string msg = fmt::format(
-                "Try to alloc {} bytes for pblock column values failed. reason {}",
-                content_uncompressed_size, p ? p.__cxa_exception_type()->name() : "null");
+        std::string msg =
+                fmt::format("Try to alloc {} bytes for pblock column values failed. reason {}",
+                            content_uncompressed_size, get_current_exception_type_name(p));
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
@@ -854,7 +888,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                     DateTimeVal datetime_val;
                     datetime_value.to_datetime_val(&datetime_val);
                     iterator.set(&datetime_val);
-                } else if (item_type_desc.is_decimal_type()) {
+                } else if (item_type_desc.is_decimal_v2_type()) {
                     // In CollectionValue, decimal type data is stored as decimal12_t.
                     DecimalV2Value decimal_value;
                     deep_copy_slot(&decimal_value, pool, item_type_desc, data_ref, item_column,

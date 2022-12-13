@@ -47,7 +47,7 @@ namespace doris {
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
                                   const TPlanFragmentExecParams& params,
-                                  const RowDescriptor& row_desc, bool is_vec,
+                                  const RowDescriptor& row_desc, RuntimeState* state,
                                   std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl) {
     DataSink* tmp_sink = nullptr;
 
@@ -61,10 +61,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                         ? params.send_query_statistics_with_every_batch
                         : false;
         // TODO: figure out good buffer size based on size of output row
-        if (is_vec) {
-            tmp_sink = new doris::vectorized::VDataStreamSender(
-                    pool, params.sender_id, row_desc, thrift_sink.stream_sink, params.destinations,
-                    16 * 1024, send_query_statistics_with_every_batch);
+        if (state->enable_vectorized_exec()) {
+            tmp_sink = new vectorized::VDataStreamSender(
+                    state, pool, params.sender_id, row_desc, thrift_sink.stream_sink,
+                    params.destinations, 16 * 1024, send_query_statistics_with_every_batch);
         } else {
             tmp_sink = new DataStreamSender(pool, params.sender_id, row_desc,
                                             thrift_sink.stream_sink, params.destinations, 16 * 1024,
@@ -80,7 +80,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        if (is_vec) {
+        if (state->enable_vectorized_exec()) {
             tmp_sink = new doris::vectorized::VResultSink(row_desc, output_exprs,
                                                           thrift_sink.result_sink, 4096);
         } else {
@@ -95,7 +95,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        if (is_vec) {
+        if (state->enable_vectorized_exec()) {
             bool send_query_statistics_with_every_batch =
                     params.__isset.send_query_statistics_with_every_batch
                             ? params.send_query_statistics_with_every_batch
@@ -139,7 +139,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        if (is_vec) {
+        if (state->enable_vectorized_exec()) {
             doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
                     new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
             sink->reset(vmysql_tbl_sink);
@@ -158,7 +158,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.odbc_table_sink) {
             return Status::InternalError("Missing data odbc sink.");
         }
-        if (is_vec) {
+        if (state->enable_vectorized_exec()) {
             sink->reset(new vectorized::VOdbcTableSink(pool, row_desc, output_exprs));
         } else {
             sink->reset(new OdbcTableSink(pool, row_desc, output_exprs));
@@ -170,12 +170,14 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.jdbc_table_sink) {
             return Status::InternalError("Missing data jdbc sink.");
         }
-        if (is_vec) {
-#ifdef LIBJVM
-            sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
-#else
-            return Status::InternalError("Jdbc table sink is disabled since no libjvm is found!");
-#endif
+        if (state->enable_vectorized_exec()) {
+            if (config::enable_java_support) {
+                sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
+            } else {
+                return Status::InternalError(
+                        "Jdbc table sink is not enabled, you can change be config "
+                        "enable_java_support to true and restart be.");
+            }
         } else {
             return Status::InternalError("only support jdbc sink in vectorized engine.");
         }
@@ -194,7 +196,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (is_vec) {
+        if (state->enable_vectorized_exec()) {
             sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
@@ -218,7 +220,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     }
     }
 
-    if (sink->get() != nullptr) {
+    if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
     }
 

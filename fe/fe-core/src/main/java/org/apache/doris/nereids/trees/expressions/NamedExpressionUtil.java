@@ -17,23 +17,25 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-
-import java.lang.reflect.Field;
 
 /**
  * The util of named expression.
  */
 public class NamedExpressionUtil {
-    /**
-     * Tool class for generate next ExprId.
-     */
-    private static final IdGenerator<ExprId> ID_GENERATOR = ExprId.createGenerator();
+
+    // for test only
+    private static StatementContext statementContext = new StatementContext();
 
     public static ExprId newExprId() {
-        return ID_GENERATOR.getNextId();
+        // this branch is for test only
+        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
+            return statementContext.getNextExprId();
+        }
+        return ConnectContext.get().getStatementContext().getNextExprId();
     }
 
     /**
@@ -41,8 +43,9 @@ public class NamedExpressionUtil {
      */
     @VisibleForTesting
     public static void clear() throws Exception {
-        Field nextId = ID_GENERATOR.getClass().getSuperclass().getDeclaredField("nextId");
-        nextId.setAccessible(true);
-        nextId.setInt(ID_GENERATOR, 0);
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().setStatementContext(new StatementContext());
+        }
+        statementContext = new StatementContext();
     }
 }

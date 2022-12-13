@@ -51,4 +51,9 @@ public class NullLiteral extends Literal {
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.NullLiteral();
     }
+
+    @Override
+    public double getDouble() {
+        return 0;
+    }
 }

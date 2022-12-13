@@ -21,6 +21,7 @@
 #include "olap/wrapper_field.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 ColumnStatistics::ColumnStatistics()
         : _minimum(nullptr), _maximum(nullptr), _ignored(true), _null_supported(false) {}
@@ -106,7 +107,7 @@ Status ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
     }
 
     if (size < this->size()) {
-        return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+        return Status::Error<BUFFER_OVERFLOW>();
     }
 
     // TODO(zc): too ugly

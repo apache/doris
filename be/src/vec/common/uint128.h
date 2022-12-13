@@ -40,12 +40,6 @@ namespace doris::vectorized {
 
 /// For aggregation by SipHash, UUID type or concatenation of several fields.
 struct UInt128 {
-/// Suppress gcc7 warnings: 'prev_key.doris::vectorized::UInt128::low' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     /// This naming assumes little endian.
     UInt64 low;
     UInt64 high;
@@ -98,10 +92,6 @@ struct UInt128 {
     explicit operator T() const {
         return static_cast<T>(low);
     }
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
 
     UInt128& operator=(const UInt64 rhs) {
         low = rhs;
@@ -175,12 +165,6 @@ struct UInt128TrivialHash {
 /** Used for aggregation, for putting a large number of constant-length keys in a hash table.
   */
 struct UInt256 {
-/// Suppress gcc7 warnings: 'prev_key.doris::vectorized::UInt256::a' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     UInt64 a;
     UInt64 b;
     UInt64 c;
@@ -194,10 +178,6 @@ struct UInt256 {
 
     bool operator==(const UInt64 rhs) const { return a == rhs && b == 0 && c == 0 && d == 0; }
     bool operator!=(const UInt64 rhs) const { return !operator==(rhs); }
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
 
     UInt256& operator=(const UInt64 rhs) {
         a = rhs;

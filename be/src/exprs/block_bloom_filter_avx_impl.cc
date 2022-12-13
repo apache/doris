@@ -23,6 +23,7 @@
 #include <immintrin.h>
 
 #include "exprs/block_bloom_filter.hpp"
+#include "gutil/macros.h"
 
 namespace doris {
 static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(

@@ -31,20 +31,35 @@ namespace doris {
 
 namespace vectorized {
 
-class VSetOperationNode : public ExecNode {
+template <bool is_intersect>
+class VSetOperationNode final : public ExecNode {
 public:
     VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-        return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* /*state*/, RowBatch* /*row_batch*/, bool* /*eos*/) override {
+        return Status::NotSupported("Not implemented get RowBatch in vectorized execution.");
     }
-    virtual Status close(RuntimeState* state);
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
-protected:
+    Status get_next(RuntimeState* state, Block* output_block, bool* eos) override;
+
+    Status close(RuntimeState* state) override;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+
+    Status sink(RuntimeState* state, Block* block, bool eos) override;
+    Status pull(RuntimeState* state, Block* output_block, bool* eos) override;
+
+    Status sink_probe(RuntimeState* state, int child_id, Block* block, bool eos);
+    Status finalize_probe(RuntimeState* state, int child_id);
+
+    bool is_child_finished(int child_id) const;
+
+private:
     //Todo: In build process of hashtable, It's same as join node.
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
@@ -52,20 +67,24 @@ protected:
     Status process_build_block(Block& block, uint8_t offset);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
-    template <bool keep_matched>
     void refresh_hash_table();
-    Status process_probe_block(RuntimeState* state, int child_id, bool* eos);
-    void create_mutable_cols(Block* output_block);
 
-protected:
-    HashTableVariants _hash_table_variants;
+    template <typename HashTableContext>
+    Status get_data_in_hashtable(HashTableContext& hash_table_ctx, Block* output_block,
+                                 const int batch_size, bool* eos);
+
+    void add_result_columns(RowRefListWithFlags& value, int& block_size);
+
+    void create_mutable_cols(Block* output_block);
+    void release_mem();
+
+    std::unique_ptr<HashTableVariants> _hash_table_variants;
 
     std::vector<size_t> _probe_key_sz;
     std::vector<size_t> _build_key_sz;
     std::vector<bool> _build_not_ignore_null;
 
-    Arena _arena;
-    AcquireList<Block> _acquire_list;
+    std::unique_ptr<Arena> _arena;
     //record element size in hashtable
     int64_t _valid_element_in_hash_tbl;
 
@@ -85,176 +104,21 @@ protected:
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     std::vector<MutableColumnPtr> _mutable_cols;
-    int _probe_index;
-    size_t _probe_rows;
+    int _build_block_index;
+    bool _build_finished;
+    std::vector<bool> _probe_finished_children_index;
+    MutableBlock _mutable_block;
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
 
-    template <class HashTableContext>
+    template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableProbe;
 };
 
-template <bool keep_matched>
-void VSetOperationNode::refresh_hash_table() {
-    std::visit(
-            [&](auto&& arg) {
-                using HashTableCtxType = std::decay_t<decltype(arg)>;
-                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableCtxType tmp_hash_table;
-                    bool is_need_shrink =
-                            arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
-                    if (is_need_shrink) {
-                        tmp_hash_table.hash_table.init_buf_size(
-                                _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
-                    }
-
-                    arg.init_once();
-                    auto& iter = arg.iter;
-                    auto iter_end = arg.hash_table.end();
-                    while (iter != iter_end) {
-                        auto& mapped = iter->get_second();
-                        auto it = mapped.begin();
-
-                        if constexpr (keep_matched) { //intersected
-                            if (it->visited) {
-                                it->visited = false;
-                                if (is_need_shrink) {
-                                    tmp_hash_table.hash_table.insert(iter->get_value());
-                                }
-                                ++iter;
-                            } else {
-                                if (!is_need_shrink) {
-                                    arg.hash_table.delete_zero_key(iter->get_first());
-                                    // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
-                                    // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
-                                    auto iter_prev = iter;
-                                    ++iter;
-                                    iter_prev->set_zero();
-                                } else {
-                                    ++iter;
-                                }
-                            }
-                        } else { //except
-                            if (!it->visited && is_need_shrink) {
-                                tmp_hash_table.hash_table.insert(iter->get_value());
-                            }
-                            ++iter;
-                        }
-                    }
-
-                    arg.inited = false;
-                    if (is_need_shrink) {
-                        arg.hash_table = std::move(tmp_hash_table.hash_table);
-                    }
-
-                } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                }
-            },
-            _hash_table_variants);
-}
-
-template <class HashTableContext, bool is_intersected>
-struct HashTableProbe {
-    HashTableProbe(VSetOperationNode* operation_node, int batch_size, int probe_rows)
-            : _operation_node(operation_node),
-              _left_table_data_types(operation_node->_left_table_data_types),
-              _batch_size(batch_size),
-              _probe_rows(probe_rows),
-              _build_blocks(operation_node->_build_blocks),
-              _probe_block(operation_node->_probe_block),
-              _probe_index(operation_node->_probe_index),
-              _num_rows_returned(operation_node->_num_rows_returned),
-              _probe_raw_ptrs(operation_node->_probe_columns),
-              _arena(operation_node->_arena),
-              _rows_returned_counter(operation_node->_rows_returned_counter),
-              _build_col_idx(operation_node->_build_col_idx),
-              _mutable_cols(operation_node->_mutable_cols) {}
-
-    Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
-        using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
-
-        KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
-
-        for (; _probe_index < _probe_rows;) {
-            auto find_result = key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
-            if (find_result.is_found()) { //if found, marked visited
-                auto it = find_result.get_mapped().begin();
-                if (!(it->visited)) {
-                    it->visited = true;
-                    if constexpr (is_intersected) //intersected
-                        _operation_node->_valid_element_in_hash_tbl++;
-                    else
-                        _operation_node->_valid_element_in_hash_tbl--; //except
-                }
-            }
-            _probe_index++;
-        }
-        return Status::OK();
-    }
-
-    void add_result_columns(RowRefList& value, int& block_size) {
-        auto it = value.begin();
-        for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
-            auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-            _mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
-        block_size++;
-    }
-
-    Status get_data_in_hashtable(HashTableContext& hash_table_ctx,
-                                 std::vector<MutableColumnPtr>& mutable_cols, Block* output_block,
-                                 bool* eos) {
-        hash_table_ctx.init_once();
-        int left_col_len = _left_table_data_types.size();
-        auto& iter = hash_table_ctx.iter;
-        auto block_size = 0;
-
-        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
-            auto& value = iter->get_second();
-            auto it = value.begin();
-            if constexpr (is_intersected) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
-                    add_result_columns(value, block_size);
-                }
-            } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
-                    add_result_columns(value, block_size);
-                }
-            }
-        }
-
-        *eos = iter == hash_table_ctx.hash_table.end();
-        if (!output_block->mem_reuse()) {
-            for (int i = 0; i < left_col_len; ++i) {
-                output_block->insert(ColumnWithTypeAndName(std::move(_mutable_cols[i]),
-                                                           _left_table_data_types[i], ""));
-            }
-        } else {
-            _mutable_cols.clear();
-        }
-
-        return Status::OK();
-    }
-
-private:
-    VSetOperationNode* _operation_node;
-    const DataTypes& _left_table_data_types;
-    const int _batch_size;
-    const size_t _probe_rows;
-    const std::vector<Block>& _build_blocks;
-    const Block& _probe_block;
-    int& _probe_index;
-    int64_t& _num_rows_returned;
-    ColumnRawPtrs& _probe_raw_ptrs;
-    Arena& _arena;
-    RuntimeProfile::Counter* _rows_returned_counter;
-    std::unordered_map<int, int>& _build_col_idx;
-    std::vector<MutableColumnPtr>& _mutable_cols;
-};
+using VIntersectNode = VSetOperationNode<true>;
+using VExceptNode = VSetOperationNode<false>;
 
 } // namespace vectorized
 } // namespace doris

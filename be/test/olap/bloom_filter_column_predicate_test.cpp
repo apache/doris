@@ -19,17 +19,15 @@
 #include <gtest/gtest.h>
 #include <time.h>
 
+#include "agent/be_exec_version_manager.h"
 #include "exprs/create_predicate_function.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
-#include "olap/field.h"
+#include "olap/predicate_creator.h"
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.hpp"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/core/block.h"
 
 using namespace doris::vectorized;
 
@@ -89,8 +87,8 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     bloom_filter->insert(reinterpret_cast<void*>(&value));
     value = 6.1;
     bloom_filter->insert(reinterpret_cast<void*>(&value));
-    ColumnPredicate* pred = BloomFilterColumnPredicateFactory::create_column_predicate(
-            0, bloom_filter, OLAP_FIELD_TYPE_FLOAT);
+    ColumnPredicate* pred = create_column_predicate(0, bloom_filter, OLAP_FIELD_TYPE_FLOAT,
+                                                    BeExecVersionManager::get_newest_version());
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -144,8 +142,8 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN_VEC) {
     int offsets[3] = {0, 1, 2};
 
     bloom_filter->insert_fixed_len((char*)values, offsets, 3);
-    ColumnPredicate* pred = BloomFilterColumnPredicateFactory::create_column_predicate(
-            0, bloom_filter, OLAP_FIELD_TYPE_FLOAT);
+    ColumnPredicate* pred = create_column_predicate(0, bloom_filter, OLAP_FIELD_TYPE_FLOAT,
+                                                    BeExecVersionManager::get_newest_version());
     auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
 
     // for vectorized::Block no null

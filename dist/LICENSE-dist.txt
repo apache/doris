@@ -882,7 +882,7 @@ The Apache Software License, Version 2.0
     * Hibernate Validator Engine:
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
-        - com.zaxxer:HikariCP:4.0.3 (https://github.com/brettwooldridge/HikariCP)
+        - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
     * Hive Common:
         - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
@@ -1282,6 +1282,8 @@ The Apache Software License, Version 2.0
         - org.apache.zookeeper:zookeeper:3.4.6 (no url defined)
     * commons-beanutils:
         - commons-beanutils:commons-beanutils:1.7.0 (no url defined)
+    * commons-text:
+        - corg.apache.commons:commons-text:1.10.0 (no url defined) 
     * oro:
         - oro:oro:2.0.8 (no url defined)
     * je:
@@ -1518,7 +1520,7 @@ The Apache Software License, Version 2.0
     * arrow: 7.0.0
     * S2: 0.9.0
     * croaringbitmap: 0.4.0
-    * parallel-hashmap: 1.33
+    * parallel-hashmap: 1.3.8
     * orc: 1.7.2
     * cctz: 2.3
     * aws sdk: 1.9.211
@@ -1530,8 +1532,9 @@ The Apache Software License, Version 2.0
     * opentelemetry-cpp: 1.4.0
 
 The MIT License -- licenses/LICENSE-MIT.txt
-    * datatables: 1.10.25
-    * bootstrap: 1.17.1
+    * datatables: 1.12.1
+    * bootstrap: 3.3.7
+    * jquery: 3.6.0
     * libxml2: 2.9.10
     * krb5: 1.19
     * nlohmann/json 3.10.1
@@ -1560,7 +1563,7 @@ Other dependencies:
     * leveldb: 1.23 -- license/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
     * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
-    * zstd: 1.5.0 -- license/LICENSE-zstd.txt
+    * zstd: 1.5.2 -- license/LICENSE-zstd.txt
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
     * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
     * fmt: 7.1.3 -- license/LICENSE-fmt.txt
@@ -1571,3 +1574,4 @@ Other dependencies:
     * breakpad@38ee0be -- license/LICENSE-breakpod.txt
     * xsimd: xmid@e9234cd6  -- license/LICENSE-xsimd.txt
     * xxhash: 0.8.1  -- license/LICENSE-xxhash.txt
+    * concurrentqueue: 1.0.3  -- license/LICENSE-concurrentqueue.txt

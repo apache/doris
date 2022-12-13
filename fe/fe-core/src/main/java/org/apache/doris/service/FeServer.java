@@ -18,6 +18,7 @@
 package org.apache.doris.service;
 
 import org.apache.doris.common.ThriftServer;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.FrontendService;
 
 import org.apache.logging.log4j.LogManager;
@@ -25,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 
 /**
  * Doris frontend thrift server
@@ -40,9 +42,21 @@ public class FeServer {
     }
 
     public void start() throws IOException {
+        FrontendServiceImpl service = new FrontendServiceImpl(ExecuteEnv.getInstance());
+        FrontendService.Iface instance = (FrontendService.Iface) Proxy.newProxyInstance(
+                FrontendServiceImpl.class.getClassLoader(),
+                FrontendServiceImpl.class.getInterfaces(),
+                (proxy, method, args) -> {
+                    long begin = System.currentTimeMillis();
+                    String name = method.getName();
+                    MetricRepo.THRIFT_COUNTER_RPC_ALL.getOrAdd(name).increase(1L);
+                    Object r = method.invoke(service, args);
+                    long end = System.currentTimeMillis();
+                    MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name).increase(end - begin);
+                    return r;
+                });
         // setup frontend server
-        TProcessor tprocessor = new FrontendService.Processor<FrontendService.Iface>(
-                new FrontendServiceImpl(ExecuteEnv.getInstance()));
+        TProcessor tprocessor = new FrontendService.Processor<>(instance);
         server = new ThriftServer(port, tprocessor);
         server.start();
         LOG.info("thrift server started.");

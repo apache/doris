@@ -18,12 +18,13 @@
 suite("test_nereids_having") {
 
     sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=true"
     sql "SET enable_vectorized_engine=true"
 
-    sql "DROP TABLE IF EXISTS t1"
+    sql "DROP TABLE IF EXISTS test_nereids_having_tbl"
 
     sql """
-        CREATE TABLE t1 (
+        CREATE TABLE IF NOT EXISTS test_nereids_having_tbl (
             pk INT,
             a1 INT,
             a2 INT
@@ -32,7 +33,7 @@ suite("test_nereids_having") {
     """
 
     sql """
-        INSERT INTO t1 VALUES
+        INSERT INTO test_nereids_having_tbl VALUES
             (1, 1, 1),
             (1, 1, 2),
             (1, 1, 3),
@@ -46,15 +47,26 @@ suite("test_nereids_having") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
-    order_qt_select "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
-    order_qt_select "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
-    order_qt_select "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
-    order_qt_select "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-    order_qt_select "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-    order_qt_select "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-    order_qt_select "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
-    order_qt_select "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
-    order_qt_select "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2) > 0";
-    order_qt_select "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
-    order_qt_select "SELECT a1 FROM t1 GROUP BY a1 HAVING COUNT(*) > 0";
+    order_qt_select "SELECT a1 as value FROM test_nereids_having_tbl GROUP BY a1 HAVING a1 > 0";
+    order_qt_select "SELECT a1 as value FROM test_nereids_having_tbl GROUP BY a1 HAVING value > 0";
+    order_qt_select "SELECT SUM(a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING a1 > 0";
+    order_qt_select "SELECT a1 FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a2) > 0";
+    order_qt_select "SELECT a1, SUM(a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a2) > 0";
+    order_qt_select "SELECT a1, SUM(a2) as value FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a2) > 0";
+    order_qt_select "SELECT a1, SUM(a2) as value FROM test_nereids_having_tbl GROUP BY a1 HAVING value > 0";
+    order_qt_select "SELECT a1, SUM(a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING MIN(pk) > 0";
+    order_qt_select "SELECT a1, SUM(a1 + a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a1 + a2) > 0";
+    order_qt_select "SELECT a1, SUM(a1 + a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
+    order_qt_select "SELECT a1 FROM test_nereids_having_tbl GROUP BY a1 HAVING COUNT(*) > 0";
+    order_qt_select "SELECT COUNT(*) FROM test_nereids_having_tbl HAVING COUNT(*) > 0";
+
+    order_qt_select "SELECT a1 as value FROM test_nereids_having_tbl HAVING a1 > 0";
+    order_qt_select "SELECT a1 as value FROM test_nereids_having_tbl HAVING value > 0";
+    order_qt_select "SELECT SUM(a2) FROM test_nereids_having_tbl HAVING SUM(a2) > 0";
+    order_qt_select "SELECT SUM(a2) as value FROM test_nereids_having_tbl HAVING SUM(a2) > 0";
+    order_qt_select "SELECT SUM(a2) as value FROM test_nereids_having_tbl HAVING value > 0";
+    order_qt_select "SELECT SUM(a2) FROM test_nereids_having_tbl HAVING MIN(pk) > 0";
+    order_qt_select "SELECT SUM(a1 + a2) FROM test_nereids_having_tbl HAVING SUM(a1 + a2) > 0";
+    order_qt_select "SELECT SUM(a1 + a2) FROM test_nereids_having_tbl HAVING SUM(a1 + a2 + 3) > 0";
+    order_qt_select "SELECT COUNT(*) FROM test_nereids_having_tbl HAVING COUNT(*) > 0";
 }

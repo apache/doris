@@ -23,6 +23,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/tuple.h"
 #include "util/doris_metrics.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -30,19 +31,20 @@
 #include "vec/core/field.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
                    const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
-                   const std::shared_ptr<MemTrackerLimiter>& tracker, bool support_vec)
+                   const std::shared_ptr<MemTracker>& insert_mem_tracker,
+                   const std::shared_ptr<MemTracker>& flush_mem_tracker, bool support_vec)
         : _tablet(std::move(tablet)),
           _schema(schema),
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
-          _mem_tracker_hook(std::make_shared<MemTrackerLimiter>(
-                  -1, fmt::format("MemTableHook:tabletId={}", std::to_string(tablet_id())),
-                  tracker)),
+          _insert_mem_tracker(insert_mem_tracker),
+          _flush_mem_tracker(flush_mem_tracker),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer),
           _is_first_insertion(true),
@@ -53,12 +55,16 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _delete_bitmap(delete_bitmap),
           _rowset_ids(rowset_ids),
           _cur_max_version(cur_max_version) {
-    _mem_tracker_hook->enable_reset_zero();
-    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
-    _mem_tracker_manual = std::make_unique<MemTracker>(
-            fmt::format("MemTableManual:tabletId={}", std::to_string(tablet_id())));
-    _buffer_mem_pool = std::make_unique<MemPool>(_mem_tracker_manual.get());
-    _table_mem_pool = std::make_unique<MemPool>(_mem_tracker_manual.get());
+#ifndef BE_TEST
+    _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
+            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())), nullptr,
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+#else
+    _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
+            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())));
+#endif
+    _buffer_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
+    _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     if (support_vec) {
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
@@ -142,7 +148,7 @@ MemTable::~MemTable() {
     if (_vec_skip_list != nullptr && keys_type() != KeysType::DUP_KEYS) {
         VecTable::Iterator it(_vec_skip_list.get());
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            // We should release agg_places here, because they are not relesed when a
+            // We should release agg_places here, because they are not released when a
             // load is canceled.
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
@@ -153,12 +159,14 @@ MemTable::~MemTable() {
         }
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
-    _mem_tracker_manual->release(_mem_usage);
+    _insert_mem_tracker->release(_mem_usage);
     _buffer_mem_pool->free_all();
     _table_mem_pool->free_all();
-    DCHECK_EQ(_mem_tracker_manual->consumption(), 0)
+    _flush_mem_tracker->set_consumption(0);
+    DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
             << std::endl
-            << MemTracker::log_usage(_mem_tracker_manual->make_snapshot(0));
+            << MemTracker::log_usage(_insert_mem_tracker->make_snapshot());
+    DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -176,7 +184,7 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 }
 
 void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
-    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
+    SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     auto target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
         _is_first_insertion = false;
@@ -193,8 +201,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
-    _mem_tracker_manual->consume(input_size);
-
+    _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
         _insert_one_row_from_block(_row_in_blocks.back());
@@ -374,7 +381,8 @@ void MemTable::_collect_vskiplist_results() {
         if constexpr (!is_final) {
             // if is not final, we collect the agg results to input_block and then continue to insert
             size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-            _mem_tracker_manual->consume(shrunked_after_agg - _mem_usage);
+            // flush will not run here, so will not duplicate `_flush_mem_tracker`
+            _insert_mem_tracker->consume(shrunked_after_agg - _mem_usage);
             _mem_usage = shrunked_after_agg;
             _input_mutable_block.swap(_output_mutable_block);
             //TODO(weixang):opt here.
@@ -392,7 +400,7 @@ void MemTable::_collect_vskiplist_results() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
+    SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     if (keys_type() == KeysType::DUP_KEYS) {
         return;
     }
@@ -434,7 +442,7 @@ Status MemTable::_generate_delete_bitmap() {
 }
 
 Status MemTable::flush() {
-    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
+    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
@@ -452,7 +460,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     if (_skip_list) {
         Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
-        if (st.precise_code() == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
+        if (st.is<NOT_IMPLEMENTED_ERROR>()) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
             Table::Iterator it(_skip_list.get());

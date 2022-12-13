@@ -29,7 +29,7 @@ suite("test_outer_join_with_order_by") {
     """
 
     sql """
-        create table test_outer_join_with_order_by_outer_join_A ( a int not null )
+        create table if not exists test_outer_join_with_order_by_outer_join_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -40,7 +40,7 @@ suite("test_outer_join_with_order_by") {
     """
 
     sql """
-        create table test_outer_join_with_order_by_outer_join_B ( a int not null )
+        create table if not exists test_outer_join_with_order_by_outer_join_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -51,7 +51,7 @@ suite("test_outer_join_with_order_by") {
     """
 
     sql """
-        create table test_outer_join_with_order_by_outer_join_C ( a int not null )
+        create table if not exists test_outer_join_with_order_by_outer_join_C ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (

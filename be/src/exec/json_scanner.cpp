@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
@@ -36,6 +37,8 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_file_reader(nullptr),
+          _cur_file_reader_s(nullptr),
+          _real_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_json_reader(nullptr),
           _cur_reader_eof(false),
@@ -61,7 +64,7 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool*
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
-        if (!_cur_file_reader || _cur_reader_eof) {
+        if (!_real_reader || _cur_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
             // If there isn't any more reader, break this
             if (_scanner_eof) {
@@ -127,11 +130,17 @@ Status JsonScanner::open_file_reader() {
         _read_json_by_line = range.read_json_by_line;
     }
 
-    RETURN_IF_ERROR(FileFactory::create_file_reader(range.file_type, _state->exec_env(), _profile,
-                                                    _broker_addresses, _params.properties, range,
-                                                    start_offset, _cur_file_reader));
+    if (range.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(range.load_id, _cur_file_reader_s));
+        _real_reader = _cur_file_reader_s.get();
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, start_offset, _cur_file_reader));
+        _real_reader = _cur_file_reader.get();
+    }
     _cur_reader_eof = false;
-    return _cur_file_reader->open();
+    return _real_reader->open();
 }
 
 Status JsonScanner::open_line_reader() {
@@ -148,7 +157,7 @@ Status JsonScanner::open_line_reader() {
     } else {
         _skip_next_line = false;
     }
-    _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader.get(), nullptr, size,
+    _cur_line_reader = new PlainTextLineReader(_profile, _real_reader, nullptr, size,
                                                _line_delimiter, _line_delimiter_length);
     _cur_reader_eof = false;
     return Status::OK();
@@ -173,9 +182,8 @@ Status JsonScanner::open_json_reader() {
                 new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
                                fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader);
     } else {
-        _cur_json_reader =
-                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                               fuzzy_parse, &_scanner_eof, _cur_file_reader.get());
+        _cur_json_reader = new JsonReader(_state, _counter, _profile, strip_outer_array,
+                                          num_as_string, fuzzy_parse, &_scanner_eof, _real_reader);
     }
 
     RETURN_IF_ERROR(_cur_json_reader->init(jsonpath, json_root));
@@ -322,7 +330,7 @@ void JsonReader::_close() {
 
 // read one json string from line reader or file reader and parse it to json doc.
 // return Status::DataQualityError() if data has quality error.
-// return other error if encounter other problemes.
+// return other error if encounter other problems.
 // return Status::OK() if parse succeed or reach EOF.
 Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
@@ -347,7 +355,8 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
     }
 
     // clear memory here.
-    _origin_json_doc.GetAllocator().Clear();
+    _value_allocator.Clear();
+    _parse_allocator.Clear();
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
 
@@ -477,19 +486,19 @@ Status JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator val
         break;
     case rapidjson::Type::kNumberType:
         if (value->IsUint()) {
-            wbytes = sprintf((char*)tmp_buf, "%u", value->GetUint());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%u", value->GetUint());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsInt()) {
-            wbytes = sprintf((char*)tmp_buf, "%d", value->GetInt());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value->GetInt());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsUint64()) {
-            wbytes = sprintf((char*)tmp_buf, "%lu", value->GetUint64());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsInt64()) {
-            wbytes = sprintf((char*)tmp_buf, "%ld", value->GetInt64());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else {
-            wbytes = sprintf((char*)tmp_buf, "%f", value->GetDouble());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%f", value->GetDouble());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         }
         break;
@@ -615,7 +624,7 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
         if (_next_line >= _total_lines) { // parse json and generic document
             size_t size = 0;
             Status st = _parse_json_doc(&size, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);     // terminate if encounter other errors
@@ -757,7 +766,7 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple,
     while (true) {
         size_t size = 0;
         Status st = _parse_json_doc(&size, eof);
-        if (st.is_data_quality_error()) {
+        if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
@@ -796,7 +805,7 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple,
         if (_next_line >= _total_lines) {
             size_t size = 0;
             Status st = _parse_json_doc(&size, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);     // terminate if encounter other errors

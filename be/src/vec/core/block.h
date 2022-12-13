@@ -180,6 +180,8 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
+    std::string each_col_size();
+
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
 
@@ -256,8 +258,14 @@ public:
 
     void append_block_by_selector(MutableColumns& columns, const IColumn::Selector& selector) const;
 
+    static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
+                                      const IColumn::Filter& filter);
+
     static void filter_block_internal(Block* block, const IColumn::Filter& filter,
                                       uint32_t column_to_keep);
+
+    static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
+                               int filter_column_id, int column_to_keep);
 
     static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
 
@@ -268,8 +276,8 @@ public:
     }
 
     // serialize block to PBlock
-    Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
-                     segment_v2::CompressionTypePB compression_type,
+    Status serialize(int be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
+                     size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
     // serialize block to PRowbatch

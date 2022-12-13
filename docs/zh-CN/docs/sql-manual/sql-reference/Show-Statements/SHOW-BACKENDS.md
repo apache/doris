@@ -52,6 +52,8 @@ SHOW BACKENDS
        10. UsedPct 表示磁盘已使用量百分比。
        11. ErrMsg 用于显示心跳失败时的错误信息。
        12. Status 用于以 JSON 格式显示BE的一些状态信息, 目前包括最后一次BE汇报其tablet的时间信息。
+       13. HeartbeatFailureCounter：现在当前连续失败的心跳次数，如果次数超过 `max_backend_heartbeat_failure_tolerance_count` 配置，则 isAlive 字段会置为 false。
+       14. NodeRole用于展示节点角色, 现在有两种类型: Mix代表原来的节点类型, computation代表只做计算的节点类型.
 
 ### Example
 

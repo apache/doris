@@ -1207,6 +1207,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public Expr getRealSlotRef() {
+        return this;
+    }
+
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {
@@ -1253,6 +1257,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         return true;
+    }
+
+    protected void compactForLiteral(Type type) throws AnalysisException {
+        for (Expr expr : children) {
+            expr.compactForLiteral(type);
+        }
     }
 
     /**
@@ -1369,8 +1379,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
-            throw new AnalysisException("type not match, originType=" + this.type
-                    + ", targeType=" + targetType);
+            throw new AnalysisException("can not cast from origin type " + this.type
+                    + " to target type=" + targetType);
 
         }
         return uncheckedCastTo(targetType);
@@ -1483,6 +1493,24 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return null;
         }
         return sourceExpr.get(0).getSrcSlotRef();
+    }
+
+    // same as getSrcSlotRef, but choose first expr if has multiple src exprs
+    // only used in RewriteInPredicateRule
+    public SlotRef tryGetSrcSlotRef() {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null) {
+            return null;
+        }
+        List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
+        if (sourceExpr == null || sourceExpr.isEmpty()) {
+            return unwrapSloRef;
+        }
+        return sourceExpr.get(0).tryGetSrcSlotRef();
     }
 
     public boolean comeFrom(Expr srcExpr) {
@@ -1627,7 +1655,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
         Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
@@ -1739,7 +1767,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FUNCTION_CALL(12),
         ARRAY_LITERAL(13),
         CAST_EXPR(14),
-        JSON_LITERAL(15);
+        JSON_LITERAL(15),
+        ARITHMETIC_EXPR(16);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1793,8 +1822,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else if (expr instanceof CastExpr) {
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
+        } else if (expr instanceof ArithmeticExpr) {
+            output.writeInt(ExprSerCode.ARITHMETIC_EXPR.getCode());
         } else {
-            throw new IOException("Unknown class " + expr.getClass().getName());
+            throw new IOException("Unsupported writable expr class: " + expr.getClass().getName());
         }
         expr.write(output);
     }
@@ -1840,8 +1871,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return ArrayLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
+            case ARITHMETIC_EXPR:
+                return ArithmeticExpr.read(in);
             default:
-                throw new IOException("Unknown code: " + code);
+                throw new IOException("Unknown wriable expr code: " + code);
         }
     }
 
@@ -1875,10 +1908,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String getStringValue() {
-        if (this instanceof LiteralExpr) {
-            return ((LiteralExpr) this).getStringValue();
-        }
         return "";
+    }
+
+    // A special method only for array literal, all primitive type in array
+    // will be wrapped by double quote. eg:
+    // ["1", "2", "3"]
+    // ["a", "b", "c"]
+    // [["1", "2", "3"], ["1"], ["3"]]
+    public String getStringValueForArray() {
+        return null;
     }
 
     public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
@@ -2012,4 +2051,36 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             child.materializeSrcExpr();
         }
     }
+
+    // This is only for transactional insert operation,
+    // to check it the given value in insert stmt is LiteralExpr.
+    // And if we write "1" to a boolean column, there will be a cast(1 as boolean) expr,
+    // which is also accepted.
+    public boolean isLiteralOrCastExpr() {
+        if (this instanceof CastExpr) {
+            return children.get(0) instanceof LiteralExpr;
+        } else {
+            return this instanceof LiteralExpr;
+        }
+    }
+
+    protected Type[] getActualArgTypes(Type[] originType) {
+        return Arrays.stream(originType).map(
+                (Type type) -> {
+                    if (type == null) {
+                        return null;
+                    }
+                    if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+                        return Type.DECIMAL32;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+                        return Type.DECIMAL64;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+                        return Type.DECIMAL128;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                        return Type.DATETIMEV2;
+                    }
+                    return type;
+                }).toArray(Type[]::new);
+    }
 }
+

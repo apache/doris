@@ -52,6 +52,8 @@ illustrate:
        10. UsedPct Indicates the percentage of disk used.
        11. ErrMsg is used to display the error message when the heartbeat fails.
        12. Status is used to display some status information of BE in JSON format, including the time information of the last time BE reported its tablet.
+       13. HeartbeatFailureCounter: The current number of heartbeats that have failed consecutively. If the number exceeds the `max_backend_heartbeat_failure_tolerance_count` configuration, the isAlive will be set to false.
+       14. NodeRole is used to display the role of Backend node. Now there are two roles: mix and computation. Mix node represent the origin Backend node and computation Node represent the compute only node.
 
 ### Example
 

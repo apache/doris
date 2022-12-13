@@ -1,4 +1,4 @@
-CREATE TABLE `table_2` (
+CREATE TABLE IF NOT EXISTS `table_2` (
   `abcd` varchar(150) NULL COMMENT "",
   `create_time` datetime NULL COMMENT ""
 ) ENGINE=OLAP

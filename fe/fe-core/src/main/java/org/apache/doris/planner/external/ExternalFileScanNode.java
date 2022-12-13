@@ -32,6 +32,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -44,14 +45,18 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -117,26 +122,37 @@ public class ExternalFileScanNode extends ExternalScanNode {
     // For explain
     private long inputSplitsNum = 0;
     private long totalFileSize = 0;
+    private long totalPartitionNum = 0;
+    private long readPartitionNum = 0;
 
     /**
      * External file scan node for:
      * 1. Query hms table
      * 2. Load from file
      */
-    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, StatisticalType.FILE_SCAN_NODE);
+    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc) {
+        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE);
     }
 
-    // Only for load job.
+    // Only for broker load job.
     public void setLoadInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             List<BrokerFileGroup> fileGroups, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded,
             boolean strictMode, int loadParallelism, UserIdentity userIdentity) {
         Preconditions.checkState(fileGroups.size() == fileStatusesList.size());
         for (int i = 0; i < fileGroups.size(); ++i) {
             FileGroupInfo fileGroupInfo = new FileGroupInfo(loadJobId, txnId, targetTable, brokerDesc,
-                    fileGroups.get(i), fileStatusesList.get(i), filesAdded, strictMode, loadParallelism, userIdentity);
+                    fileGroups.get(i), fileStatusesList.get(i), filesAdded, strictMode, loadParallelism);
             fileGroupInfos.add(fileGroupInfo);
         }
+        this.type = Type.LOAD;
+    }
+
+    // Only for stream load/routine load job.
+    public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+        FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
+                fileGroup, fileStatus, strictMode, fileType);
+        fileGroupInfos.add(fileGroupInfo);
         this.type = Type.LOAD;
     }
 
@@ -151,30 +167,15 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         switch (type) {
             case QUERY:
-                HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
-                Preconditions.checkNotNull(hmsTable);
-
-                if (hmsTable.isView()) {
-                    throw new AnalysisException(
-                            String.format("Querying external view '[%s].%s.%s' is not supported", hmsTable.getDlaType(),
-                                    hmsTable.getDbName(), hmsTable.getName()));
+                // prepare for partition prune
+                computeColumnFilter();
+                if (this.desc.getTable() instanceof HMSExternalTable) {
+                    HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
+                    initHMSExternalTable(hmsTable);
+                } else if (this.desc.getTable() instanceof FunctionGenTable) {
+                    FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
+                    initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
                 }
-
-                FileScanProviderIf scanProvider;
-                switch (hmsTable.getDlaType()) {
-                    case HUDI:
-                        scanProvider = new HudiScanProvider(hmsTable, desc);
-                        break;
-                    case ICEBERG:
-                        scanProvider = new IcebergScanProvider(hmsTable, desc);
-                        break;
-                    case HIVE:
-                        scanProvider = new HiveScanProvider(hmsTable, desc);
-                        break;
-                    default:
-                        throw new UserException("Unknown table type: " + hmsTable.getDlaType());
-                }
-                this.scanProviders.add(scanProvider);
                 break;
             case LOAD:
                 for (FileGroupInfo fileGroupInfo : fileGroupInfos) {
@@ -189,6 +190,38 @@ public class ExternalFileScanNode extends ExternalScanNode {
         numNodes = backendPolicy.numBackends();
 
         initParamCreateContexts(analyzer);
+    }
+
+    private void initHMSExternalTable(HMSExternalTable hmsTable) throws UserException {
+        Preconditions.checkNotNull(hmsTable);
+
+        if (hmsTable.isView()) {
+            throw new AnalysisException(
+                    String.format("Querying external view '[%s].%s.%s' is not supported", hmsTable.getDlaType(),
+                            hmsTable.getDbName(), hmsTable.getName()));
+        }
+
+        FileScanProviderIf scanProvider;
+        switch (hmsTable.getDlaType()) {
+            case HUDI:
+                scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
+                break;
+            case ICEBERG:
+                scanProvider = new IcebergScanProvider(hmsTable, desc, columnNameToRange);
+                break;
+            case HIVE:
+                scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
+                break;
+            default:
+                throw new UserException("Unknown table type: " + hmsTable.getDlaType());
+        }
+        this.scanProviders.add(scanProvider);
+    }
+
+    private void initFunctionGenTable(FunctionGenTable table, ExternalFileTableValuedFunction tvf) {
+        Preconditions.checkNotNull(table);
+        FileScanProviderIf scanProvider = new TVFScanProvider(table, desc, tvf);
+        this.scanProviders.add(scanProvider);
     }
 
     // For each scan provider, create a corresponding ParamCreateContext
@@ -267,11 +300,39 @@ public class ExternalFileScanNode extends ExternalScanNode {
             ParamCreateContext context = contexts.get(i);
             FileScanProviderIf scanProvider = scanProviders.get(i);
             setDefaultValueExprs(scanProvider, context);
+            setColumnPositionMappingForTextFile(scanProvider, context);
             finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+            if (scanProvider instanceof HiveScanProvider) {
+                this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
+                this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
+            }
         }
+    }
+
+    private void setColumnPositionMappingForTextFile(FileScanProviderIf scanProvider, ParamCreateContext context)
+            throws UserException {
+        if (type != Type.QUERY) {
+            return;
+        }
+        TableIf tbl = scanProvider.getTargetTable();
+        List<Integer> columnIdxs = Lists.newArrayList();
+
+        for (TFileScanSlotInfo slot : context.params.getRequiredSlots()) {
+            if (!slot.isIsFileSlot()) {
+                continue;
+            }
+            SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
+            String colName = slotDesc.getColumn().getName();
+            int idx = tbl.getBaseColumnIdxByName(colName);
+            if (idx == -1) {
+                throw new UserException("Column " + colName + " not found in table " + tbl.getName());
+            }
+            columnIdxs.add(idx);
+        }
+        context.params.setColumnIdxs(columnIdxs);
     }
 
     protected void setDefaultValueExprs(FileScanProviderIf scanProvider, ParamCreateContext context)
@@ -309,7 +370,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 default:
                     Preconditions.checkState(false, type);
             }
-            // if slot desc is null, which mean it is a unrelated slot, just skip.
+            // if slot desc is null, which mean it is an unrelated slot, just skip.
             // eg:
             // (a, b, c) set (x=a, y=b, z=c)
             // c does not exist in file, the z will be filled with null, even if z has default value.
@@ -461,9 +522,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        StringBuilder output = new StringBuilder(prefix);
-        // output.append(fileTable.getExplainString(prefix));
-
+        StringBuilder output = new StringBuilder();
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
@@ -474,6 +533,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
                 .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
+        output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
+                .append("\n");
 
         output.append(prefix);
         if (cardinality > 0) {
@@ -487,6 +548,5 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
-
 
 

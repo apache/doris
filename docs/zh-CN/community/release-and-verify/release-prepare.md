@@ -83,7 +83,7 @@ Apache 项目的版本发布主要有以下三种形式：
 ### 准备gpg key
 
 Release manager 在发布前需要先生成自己的签名公钥，并上传到公钥服务器，之后就可以用这个公钥对准备发布的软件包进行签名。
-如果在[KEY](https://downloads.apache.org/incubator/doris/KEYS)里已经存在了你的KEY，那么你可以跳过这个步骤了。
+如果在[KEY](https://downloads.apache.org/doris/KEYS)里已经存在了你的KEY，那么你可以跳过这个步骤了。
 
 #### 签名软件 GnuPG 的安装配置
 

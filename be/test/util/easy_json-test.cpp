@@ -38,24 +38,6 @@ TEST_F(EasyJsonTest, TestNull) {
     EXPECT_TRUE(ej.value().IsNull());
 }
 
-TEST_F(EasyJsonTest, TestBasic) {
-    EasyJson ej;
-    ej.SetObject();
-    ej.Set("1", true);
-    ej.Set("2", kint32min);
-    ej.Set("4", kint64min);
-    ej.Set("6", 1.0);
-    ej.Set("7", "string");
-
-    Value& v = ej.value();
-
-    EXPECT_EQ(v["1"].GetBool(), true);
-    EXPECT_EQ(v["2"].GetInt(), kint32min);
-    EXPECT_EQ(v["4"].GetInt64(), kint64min);
-    EXPECT_EQ(v["6"].GetDouble(), 1.0);
-    EXPECT_EQ(string(v["7"].GetString()), "string");
-}
-
 TEST_F(EasyJsonTest, TestNested) {
     EasyJson ej;
     ej.SetObject();

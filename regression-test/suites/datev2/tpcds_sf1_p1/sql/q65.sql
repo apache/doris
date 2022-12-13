@@ -40,7 +40,7 @@ FROM
    GROUP BY ss_store_sk, ss_item_sk
 )  sc
 WHERE (sb.ss_store_sk = sc.ss_store_sk)
-   AND (sc.revenue <= (CAST('0.1' AS DECIMAL) * sb.ave))
+   AND (sc.revenue <= (0.1 * sb.ave))
    AND (s_store_sk = sc.ss_store_sk)
    AND (i_item_sk = sc.ss_item_sk)
 ORDER BY s_store_name ASC, i_item_desc ASC

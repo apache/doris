@@ -28,6 +28,7 @@
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
 #include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -61,16 +62,18 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
-                       uint32_t segment_id, TabletSchemaSPtr tablet_schema,
-                       std::shared_ptr<Segment>* output);
+    static Status open(io::FileSystemSPtr fs, const std::string& path,
+                       const std::string& cache_path, uint32_t segment_id, RowsetId rowset_id,
+                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
 
     ~Segment();
 
     Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
-    uint64_t id() const { return _segment_id; }
+    uint32_t id() const { return _segment_id; }
+
+    RowsetId rowset_id() const { return _rowset_id; }
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
@@ -108,7 +111,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema);
+    Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -120,6 +123,7 @@ private:
     io::FileReaderSPtr _file_reader;
 
     uint32_t _segment_id;
+    RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;
 
     int64_t _meta_mem_usage;
@@ -146,6 +150,8 @@ private:
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
+    // Segment may be destructed after StorageEngine, in order to exit gracefully.
+    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 };
 
 } // namespace segment_v2

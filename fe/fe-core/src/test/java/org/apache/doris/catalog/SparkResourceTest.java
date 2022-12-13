@@ -80,7 +80,7 @@ public class SparkResourceTest {
         };
 
         // master: spark, deploy_mode: cluster
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
@@ -94,7 +94,7 @@ public class SparkResourceTest {
 
         // master: spark, deploy_mode: client
         properties.put("spark.submit.deployMode", "client");
-        stmt = new CreateResourceStmt(true, name, properties);
+        stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertEquals("client", resource.getDeployMode().name().toLowerCase());
@@ -107,7 +107,7 @@ public class SparkResourceTest {
         properties.put("spark.driver.memory", "1g");
         properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
-        stmt = new CreateResourceStmt(true, name, properties);
+        stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertTrue(resource.isYarnMaster());
@@ -140,7 +140,7 @@ public class SparkResourceTest {
         properties.put("spark.driver.memory", "1g");
         properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
         SparkResource copiedResource = resource.getCopiedResource();
@@ -172,7 +172,7 @@ public class SparkResourceTest {
             }
         };
 
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         Resource.fromStmt(stmt);
     }

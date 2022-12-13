@@ -46,37 +46,6 @@
 #include <sse2neon.h>
 #endif
 
-/// The thing to avoid creating strings to find substrings in the hash table.
-struct StringRef {
-    const char* data = nullptr;
-    size_t size = 0;
-
-    StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
-    StringRef(const unsigned char* data_, size_t size_)
-            : data(reinterpret_cast<const char*>(data_)), size(size_) {}
-    StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
-    StringRef() = default;
-
-    std::string to_string() const { return std::string(data, size); }
-    std::string_view to_string_view() const { return std::string_view(data, size); }
-    doris::Slice to_slice() const { return doris::Slice(data, size); }
-
-    // this is just for show, eg. print data to error log, to avoid print large string.
-    std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
-
-    explicit operator std::string() const { return to_string(); }
-
-    StringVal to_string_val() {
-        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
-    }
-
-    static StringRef from_string_val(StringVal sv) {
-        return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
-    }
-};
-
-using StringRefs = std::vector<StringRef>;
-
 #if defined(__SSE2__) || defined(__aarch64__)
 
 /** Compare strings for equality.
@@ -162,6 +131,64 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 }
 
 #endif
+
+/// The thing to avoid creating strings to find substrings in the hash table.
+struct StringRef {
+    const char* data = nullptr;
+    size_t size = 0;
+
+    StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
+    StringRef(const unsigned char* data_, size_t size_)
+            : data(reinterpret_cast<const char*>(data_)), size(size_) {}
+    StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
+    StringRef() = default;
+
+    std::string to_string() const { return std::string(data, size); }
+    std::string_view to_string_view() const { return std::string_view(data, size); }
+    doris::Slice to_slice() const { return doris::Slice(data, size); }
+
+    // this is just for show, eg. print data to error log, to avoid print large string.
+    std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
+
+    explicit operator std::string() const { return to_string(); }
+
+    StringRef substring(int start_pos, int new_len) const {
+        return StringRef(data + start_pos, (new_len < 0) ? (size - start_pos) : new_len);
+    }
+
+    StringVal to_string_val() {
+        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    }
+
+    static StringRef from_string_val(StringVal sv) {
+        return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
+    }
+
+    bool start_with(StringRef& search_string) const {
+        DCHECK(size >= search_string.size);
+        if (search_string.size == 0) return true;
+
+#if defined(__SSE2__) || defined(__aarch64__)
+        return memequalSSE2Wide(data, search_string.data, search_string.size);
+#else
+        return 0 == memcmp(data, search_string.data, search_string.size);
+#endif
+    }
+    bool end_with(StringRef& search_string) const {
+        DCHECK(size >= search_string.size);
+        if (search_string.size == 0) return true;
+
+#if defined(__SSE2__) || defined(__aarch64__)
+        return memequalSSE2Wide(data + size - search_string.size, search_string.data,
+                                search_string.size);
+#else
+        return 0 ==
+               memcmp(data + size - search_string.size, search_string.data, search_string.size);
+#endif
+    }
+};
+
+using StringRefs = std::vector<StringRef>;
 
 inline bool operator==(StringRef lhs, StringRef rhs) {
     if (lhs.size != rhs.size) return false;

@@ -26,6 +26,8 @@
 #include <mm_malloc.h>
 #endif
 
+#include <butil/iobuf.h>
+
 #include <algorithm>
 #include <climits>
 #include <cmath>
@@ -87,17 +89,26 @@ Status BlockBloomFilter::init(const int log_space_bytes, uint32_t hash_seed) {
     return Status::OK();
 }
 
-Status BlockBloomFilter::init_from_directory(int log_space_bytes, const Slice& directory,
-                                             bool always_false, uint32_t hash_seed) {
+Status BlockBloomFilter::init_from_directory(int log_space_bytes,
+                                             butil::IOBufAsZeroCopyInputStream* data,
+                                             const size_t data_size, bool always_false,
+                                             uint32_t hash_seed) {
     RETURN_IF_ERROR(init_internal(log_space_bytes, hash_seed));
     DCHECK(_directory);
 
-    if (directory_size() != directory.size) {
-        return Status::InvalidArgument(
+    if (directory_size() != data_size) {
+        return Status::InvalidArgument(fmt::format(
                 "Mismatch in BlockBloomFilter source directory size {} and expected size {}",
-                directory.size, directory_size());
+                data_size, directory_size()));
     }
-    memcpy(_directory, directory.data, directory.size);
+    int size = 0;
+    char* tmp;
+    const void** ptr = (const void**)&tmp;
+    char* data_ptr = reinterpret_cast<char*>(_directory);
+    while (data->Next(ptr, &size)) {
+        memcpy(data_ptr, *ptr, size);
+        data_ptr += size;
+    }
     _always_false = always_false;
     return Status::OK();
 }
@@ -240,8 +251,8 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
         return Status::OK();
     }
 
-    or_equal_array_internal(directory_size(), reinterpret_cast<const uint8*>(other._directory),
-                            reinterpret_cast<uint8*>(_directory));
+    or_equal_array_internal(directory_size(), reinterpret_cast<const uint8_t*>(other._directory),
+                            reinterpret_cast<uint8_t*>(_directory));
 
     _always_false = false;
     return Status::OK();

@@ -53,8 +53,14 @@ public:
     }
 
     bool is_page_full() override {
-        // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        bool ret = false;
+        if (_options.is_dict_page) {
+            // dict_page_size is 0, do not limit the page size
+            ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
+        } else {
+            ret = _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        }
+        return ret;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -104,7 +110,9 @@ public:
     void reset() override {
         _offsets.clear();
         _buffer.clear();
-        _buffer.reserve(_options.data_page_size == 0 ? 1024 : _options.data_page_size);
+        _buffer.reserve(_options.data_page_size == 0
+                                ? 1024
+                                : std::min(_options.data_page_size, _options.dict_page_size));
         _size_estimate = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
@@ -248,16 +256,14 @@ public:
             return Status::OK();
         }
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
-        uint32_t len_array[max_fetch];
-        uint32_t start_offset_array[max_fetch];
 
         uint32_t last_offset = guarded_offset(_cur_idx);
+        uint32_t offsets[max_fetch + 1];
+        offsets[0] = last_offset;
         for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
             const uint32_t start_offset = last_offset;
             last_offset = guarded_offset(_cur_idx + 1);
-            uint32_t len = last_offset - start_offset;
-            len_array[i] = len;
-            start_offset_array[i] = start_offset;
+            offsets[i + 1] = last_offset;
             if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
@@ -265,15 +271,13 @@ public:
             }
         }
         _cur_idx++;
-        len_array[max_fetch - 1] = offset(_cur_idx) - last_offset;
-        start_offset_array[max_fetch - 1] = last_offset;
+        offsets[max_fetch] = offset(_cur_idx);
         if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
             if (_options.need_check_bitmap) {
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
         }
-        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
-                                     max_fetch);
+        dst->insert_many_continuous_binary_data(_data.data, offsets, max_fetch);
 
         *n = max_fetch;
         return Status::OK();

@@ -59,6 +59,14 @@ public:
         }
     }
 
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (_is_null) {
+            return statistic.first->is_null() && statistic.second->is_null();
+        } else {
+            return !statistic.first->is_null() && !statistic.second->is_null();
+        }
+    }
+
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if (_is_null) {
             return bf->test_bytes(nullptr, 0);
@@ -73,6 +81,11 @@ public:
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
 private:
+    std::string _debug_string() const override {
+        std::string info = "NullPredicate(" + std::string(_is_null ? "is_null" : "not_null") + ")";
+        return info;
+    }
+
     bool _is_null; //true for null, false for not null
 };
 

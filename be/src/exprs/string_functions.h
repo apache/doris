@@ -60,6 +60,8 @@ public:
                                            const doris_udf::StringVal& suffix);
     static doris_udf::BooleanVal null_or_empty(doris_udf::FunctionContext* context,
                                                const doris_udf::StringVal& str);
+    static doris_udf::BooleanVal not_null_or_empty(doris_udf::FunctionContext* context,
+                                                   const doris_udf::StringVal& str);
     static doris_udf::StringVal space(doris_udf::FunctionContext* context,
                                       const doris_udf::IntVal& len);
     static doris_udf::StringVal repeat(doris_udf::FunctionContext* context,
@@ -188,6 +190,9 @@ public:
 
     static doris_udf::IntVal bit_length(doris_udf::FunctionContext* context,
                                         const doris_udf::StringVal& str);
+
+    static doris_udf::StringVal uuid(doris_udf::FunctionContext*);
+
     // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
     static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
                                    const StringVal& match_parameter);

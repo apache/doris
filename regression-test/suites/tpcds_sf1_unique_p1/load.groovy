@@ -115,9 +115,10 @@ suite("load") {
             set "columns", columnsMap[tableName]
             }
 
+
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${context.sf1DataPath}/tpcds/sf1/${tableName}.dat.gz"""
+            file """${getS3Url()}/tpcds/sf1/${tableName}.dat.gz"""
 
             time 10000 // limit inflight 10s
 
@@ -140,12 +141,12 @@ suite("load") {
 
     // CREATE-TABLE-AS-SELECT
     sql "drop table if exists t;"
-    sql "create table t properties('replication_num'='1') as select * from item;"
+    sql "create table if not exists t properties('replication_num'='1') as select * from item;"
     def origin_count = sql "select count(*) from item"
     def new_count = sql "select count(*) from t"
     assertEquals(origin_count, new_count)
     sql "drop table if exists tt;"
-    sql "create table tt like item"
+    sql "create table if not exists tt like item"
     sql "insert into tt select * from t"
     new_count = sql "select count(*) from tt"
     assertEquals(origin_count, new_count)

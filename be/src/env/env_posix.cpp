@@ -38,6 +38,7 @@
 #include "util/slice.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using std::string;
 using strings::Substitute;
@@ -82,9 +83,15 @@ static Status io_error(const std::string& context, int err_number) {
 }
 
 static Status do_sync(int fd, const string& filename) {
+#ifdef __APPLE__
+    if (fcntl(fd, F_FULLFSYNC) < 0) {
+        return io_error(filename, errno);
+    }
+#else
     if (fdatasync(fd) < 0) {
         return io_error(filename, errno);
     }
+#endif
     return Status::OK();
 }
 
@@ -306,6 +313,9 @@ public:
     }
 
     Status pre_allocate(uint64_t size) override {
+#ifdef __APPLE__
+        return io_error(_filename, ENOSYS);
+#else
         uint64_t offset = std::max(_filesize, _pre_allocated_size);
         int ret;
         RETRY_ON_EINTR(ret, fallocate(_fd, 0, offset, size));
@@ -320,6 +330,7 @@ public:
         }
         _pre_allocated_size = offset + size;
         return Status::OK();
+#endif
     }
 
     Status close() override {
@@ -342,7 +353,7 @@ public:
         if (_sync_on_close) {
             Status sync_status = sync();
             if (!sync_status.ok()) {
-                LOG(ERROR) << "Unable to Sync " << _filename << ": " << sync_status.to_string();
+                LOG(ERROR) << "Unable to Sync " << _filename << ": " << sync_status;
                 if (s.ok()) {
                     s = sync_status;
                 }
@@ -451,7 +462,7 @@ public:
         if (_sync_on_close) {
             s = sync();
             if (!s.ok()) {
-                LOG(ERROR) << "Unable to Sync " << _filename << ": " << s.to_string();
+                LOG(ERROR) << "Unable to Sync " << _filename << ": " << s;
             }
         }
 
@@ -590,7 +601,7 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
     }
 
     // Check that dirname is actually a directory.
-    if (s.is_already_exist()) {
+    if (s.is<ALREADY_EXIST>()) {
         bool is_dir = false;
         RETURN_IF_ERROR(is_directory(dirname, &is_dir));
         if (is_dir) {
@@ -679,7 +690,7 @@ Status PosixEnv::is_directory(const std::string& path, bool* is_dir) {
 }
 
 Status PosixEnv::canonicalize(const std::string& path, std::string* result) {
-    // NOTE: we must use free() to release the buffer retruned by realpath(),
+    // NOTE: we must use free() to release the buffer returned by realpath(),
     // because the buffer is allocated by malloc(), see `man 3 realpath`.
     std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
     if (r == nullptr) {

@@ -21,7 +21,7 @@ suite("rollup") {
         DROP TABLE IF EXISTS `rollup_t1`
     """
     sql """
-        CREATE TABLE `rollup_t1` (
+        CREATE TABLE IF NOT EXISTS `rollup_t1` (
           `k1` int(11) NULL,
           `k2` int(11) NULL,
           `k3` int(11) NULL,
@@ -59,7 +59,7 @@ suite("rollup") {
             }
         }
     }
-    Thread.sleep(200)
+    Thread.sleep(2000)
 
     sql "insert into rollup_t1 values(1, 2, 3, 4)"
     sql "insert into rollup_t1 values(1, 2, 3, 2)"

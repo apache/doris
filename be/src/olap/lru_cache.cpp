@@ -436,7 +436,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
           _num_shards(num_shards),
           _shards(nullptr),
           _last_id(1) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, name);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
             << "num_shards should be power of two, but got " << num_shards;
@@ -521,6 +521,10 @@ int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
         num_prune += _shards[s]->prune_if(pred);
     }
     return num_prune;
+}
+
+int64_t ShardedLRUCache::mem_consumption() {
+    return _mem_tracker->consumption();
 }
 
 void ShardedLRUCache::update_cache_metrics() const {

@@ -42,6 +42,7 @@ public class EmptySetNode extends PlanNode {
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
         super(id, tupleIds, "EMPTYSET", StatisticalType.EMPTY_SET_NODE);
+        cardinality = 0L;
         Preconditions.checkArgument(tupleIds.size() > 0);
     }
 

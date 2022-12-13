@@ -20,20 +20,32 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -41,11 +53,19 @@ import javax.annotation.Nullable;
  */
 public class Memo {
     // generate group id in memo is better for test, since we can reproduce exactly same Memo.
+    private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
+    private static long stateId = 0;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private final Group root;
+
+    // FOR TEST ONLY
+    public Memo() {
+        root = null;
+    }
 
     public Memo(Plan plan) {
         root = init(plan);
@@ -63,9 +83,12 @@ public class Memo {
         return groupExpressions;
     }
 
+    public static long getStateId() {
+        return stateId;
+    }
+
     /**
      * Add plan to Memo.
-     * TODO: add ut later
      *
      * @param plan {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
@@ -75,10 +98,61 @@ public class Memo {
      *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
+        CopyInResult result;
         if (rewrite) {
-            return doRewrite(plan, target);
+            result = doRewrite(plan, target);
         } else {
-            return doCopyIn(plan, target);
+            result = doCopyIn(plan, target);
+        }
+        maybeAddStateId(result);
+        return result;
+    }
+
+    private void maybeAddStateId(CopyInResult result) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                && result.generateNewExpression) {
+            stateId++;
+        }
+    }
+
+    public List<Plan> copyOutAll() {
+        return copyOutAll(root);
+    }
+
+    public List<Plan> copyOutAll(Group group) {
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        List<Plan> plans = logicalExpressions.stream()
+                .flatMap(groupExpr -> copyOutAll(groupExpr).stream())
+                .collect(Collectors.toList());
+        return plans;
+    }
+
+    private List<Plan> copyOutAll(GroupExpression logicalExpression) {
+        if (logicalExpression.arity() == 0) {
+            return Lists.newArrayList(logicalExpression.getPlan().withChildren(ImmutableList.of()));
+        } else if (logicalExpression.arity() == 1) {
+            List<Plan> multiChild = copyOutAll(logicalExpression.child(0));
+            return multiChild.stream()
+                    .map(children -> logicalExpression.getPlan().withChildren(children))
+                    .collect(Collectors.toList());
+        } else if (logicalExpression.arity() == 2) {
+            int leftCount = logicalExpression.child(0).getLogicalExpressions().size();
+            int rightCount = logicalExpression.child(1).getLogicalExpressions().size();
+            int count = leftCount * rightCount;
+
+            List<Plan> leftChildren = copyOutAll(logicalExpression.child(0));
+            List<Plan> rightChildren = copyOutAll(logicalExpression.child(1));
+
+            List<Plan> result = new ArrayList<>(count);
+            for (Plan leftChild : leftChildren) {
+                for (Plan rightChild : rightChildren) {
+                    result.add(logicalExpression.getPlan().withChildren(leftChild, rightChild));
+                }
+            }
+            return result;
+        } else {
+            throw new RuntimeException("arity > 2");
         }
     }
 
@@ -128,6 +202,10 @@ public class Memo {
         return new CascadesContext(this, statementContext);
     }
 
+    public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
+        return new CascadesContext(this, statementContext, cteContext);
+    }
+
     /**
      * init memo by a first plan.
      * @param plan first plan
@@ -156,7 +234,7 @@ public class Memo {
 
     /**
      * add or replace the plan into the target group.
-     *
+     * <p>
      * the result truth table:
      * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
@@ -229,6 +307,20 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+        // TODO: this is same with EliminateUnnecessaryProject,
+        //   we need a infra to rewrite plan after every exploration job
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            if (targetGroup != root) {
+                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
+                    return doCopyIn(logicalProject.child(), targetGroup);
+                }
+            } else {
+                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
+                    return doCopyIn(logicalProject.child(), targetGroup);
+                }
+            }
+        }
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
@@ -249,8 +341,7 @@ public class Memo {
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan);
-        newGroupExpression.setChildren(childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
@@ -268,7 +359,7 @@ public class Memo {
                 validateRewriteChildGroup(childGroup, targetGroup);
                 childrenGroups.add(childGroup);
             } else {
-                childrenGroups.add(doRewrite(child, null).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(copyIn(child, null, true).correspondingExpression.getOwnerGroup());
             }
         }
         return childrenGroups;
@@ -325,29 +416,32 @@ public class Memo {
      * @param destination destination group
      * @return merged group
      */
-    private Group mergeGroup(Group source, Group destination) {
+    public Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
             return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        groupExpressions.values().forEach(groupExpression -> {
+        for (GroupExpression groupExpression : groupExpressions.values()) {
             if (groupExpression.children().contains(source)) {
                 if (groupExpression.getOwnerGroup().equals(destination)) {
                     // cycle, we should not merge
-                    return;
+                    return null;
                 }
                 needReplaceChild.add(groupExpression);
             }
-        });
+        }
+        GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
         for (GroupExpression groupExpression : needReplaceChild) {
+            // After change GroupExpression children, the hashcode will change,
+            // so need to reinsert into map.
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
-            // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
                 }
             }
+
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
@@ -388,6 +482,16 @@ public class Memo {
             eliminateFromGroupAndMoveToTargetGroup(existedGroup, targetGroup, existedPlan.getLogicalProperties());
         }
         return CopyInResult.of(false, existedLogicalExpression);
+    }
+
+    // This function is used to copy new group expression
+    // It's used in DPHyp after construct new group expression
+    public Group copyInGroupExpression(GroupExpression newGroupExpression) {
+        Group newGroup = new Group(groupIdGenerator.getNextId(), newGroupExpression,
+                newGroupExpression.getPlan().getLogicalProperties());
+        groups.put(newGroup.getGroupId(), newGroup);
+        groupExpressions.put(newGroupExpression, newGroupExpression);
+        return newGroup;
     }
 
     private CopyInResult rewriteByNewGroupExpression(Group targetGroup, Plan newPlan,
@@ -433,6 +537,7 @@ public class Memo {
             // case 5:
             // if targetGroup is null or targetGroup equal to the existedExpression's ownerGroup,
             // then recycle the temporary new group expression
+            // No ownerGroup, don't need ownerGroup.removeChild()
             recycleExpression(newExpression);
             return CopyInResult.of(false, existedExpression);
         }
@@ -440,14 +545,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     *
+     * <p>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     *
+     * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -465,8 +570,7 @@ public class Memo {
         List<GroupExpression> logicalExpressions = fromGroup.clearLogicalExpressions();
         recycleGroup(fromGroup);
 
-        recycleLogicalExpressions(targetGroup);
-        recyclePhysicalExpressions(targetGroup);
+        recycleLogicalAndPhysicalExpressions(targetGroup);
 
         for (GroupExpression logicalExpression : logicalExpressions) {
             targetGroup.addLogicalExpression(logicalExpression);
@@ -475,8 +579,7 @@ public class Memo {
     }
 
     private void reInitGroup(Group group, GroupExpression initLogicalExpression, LogicalProperties logicalProperties) {
-        recycleLogicalExpressions(group);
-        recyclePhysicalExpressions(group);
+        recycleLogicalAndPhysicalExpressions(group);
 
         group.setLogicalProperties(logicalProperties);
         group.addLogicalExpression(initLogicalExpression);
@@ -515,42 +618,45 @@ public class Memo {
         }
     }
 
+    /**
+     * Notice: this func don't replace { Parent GroupExpressions -> this Group }.
+     */
     private void recycleGroup(Group group) {
+        // recycle in memo.
         if (groups.get(group.getGroupId()) == group) {
             groups.remove(group.getGroupId());
         }
-        recycleLogicalExpressions(group);
-        recyclePhysicalExpressions(group);
+
+        // recycle children GroupExpression
+        recycleLogicalAndPhysicalExpressions(group);
     }
 
-    private void recycleLogicalExpressions(Group group) {
-        if (!group.getLogicalExpressions().isEmpty()) {
-            for (GroupExpression logicalExpression : group.getLogicalExpressions()) {
-                recycleExpression(logicalExpression);
-            }
-            group.clearLogicalExpressions();
-        }
+    private void recycleLogicalAndPhysicalExpressions(Group group) {
+        group.getLogicalExpressions().forEach(this::recycleExpression);
+        group.clearLogicalExpressions();
+
+        group.getPhysicalExpressions().forEach(this::recycleExpression);
+        group.clearPhysicalExpressions();
     }
 
-    private void recyclePhysicalExpressions(Group group) {
-        if (!group.getPhysicalExpressions().isEmpty()) {
-            for (GroupExpression physicalExpression : group.getPhysicalExpressions()) {
-                recycleExpression(physicalExpression);
-            }
-            group.clearPhysicalExpressions();
-        }
-    }
-
+    /**
+     * Notice: this func don't clear { OwnerGroup() -> this GroupExpression }.
+     */
     private void recycleExpression(GroupExpression groupExpression) {
+        // recycle in memo.
         if (groupExpressions.get(groupExpression) == groupExpression) {
             groupExpressions.remove(groupExpression);
         }
-        for (Group childGroup : groupExpression.children()) {
+
+        // recycle parentGroupExpr in childGroup
+        groupExpression.children().forEach(childGroup -> {
             // if not any groupExpression reference child group, then recycle the child group
             if (childGroup.removeParentExpression(groupExpression) == 0) {
                 recycleGroup(childGroup);
             }
-        }
+        });
+
+        groupExpression.setOwnerGroup(null);
     }
 
     @Override
@@ -558,7 +664,17 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group.toString()).append("\n");
+            builder.append(group).append("\n");
+            builder.append("  stats=").append(group.getStatistics()).append("\n");
+            StatsDeriveResult stats = group.getStatistics();
+            if (stats != null && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+                for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
+                    builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+                }
+            }
+            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
+                builder.append("  ").append(groupExpression.toString()).append("\n");
+            }
             for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
                 builder.append("  ").append(groupExpression.toString()).append("\n");
             }

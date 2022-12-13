@@ -1,4 +1,4 @@
-CREATE TABLE `test_basic_agg` (
+CREATE TABLE IF NOT EXISTS `test_basic_agg` (
   `k1` tinyint(4) NULL COMMENT "",
   `k2` smallint(6) NULL COMMENT "",
   `k3` int(11) NULL COMMENT "",

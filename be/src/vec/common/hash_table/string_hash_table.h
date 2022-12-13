@@ -234,9 +234,6 @@ protected:
 
     using Cell = typename Ts::cell_type;
 
-    friend class const_iterator;
-    friend class iterator;
-
     template <typename Derived, bool is_const>
     class iterator_base {
         using Container = std::conditional_t<is_const, const Self, Self>;

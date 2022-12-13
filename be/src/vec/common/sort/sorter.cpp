@@ -17,6 +17,8 @@
 
 #include "vec/common/sort/sorter.h"
 
+#include "runtime/thread_context.h"
+
 namespace doris::vectorized {
 
 void MergeSorterState::build_merge_tree(SortDescription& sort_description) {
@@ -82,8 +84,17 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         }
 
         Block new_block;
+        int i = 0;
+        const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
-            new_block.insert(src_block.get_by_position(column_id));
+            if (convert_nullable_flags[i]) {
+                auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
+                new_block.insert(
+                        {column_ptr, make_nullable(src_block.get_by_position(column_id).type), ""});
+            } else {
+                new_block.insert(src_block.get_by_position(column_id));
+            }
+            i++;
         }
         dest_block.swap(new_block);
     }
@@ -127,8 +138,8 @@ Status FullSorter::append_block(Block* block) {
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)));
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz);
+            RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz));
         }
         block->clear_column_data();
     }
@@ -168,7 +179,7 @@ Status FullSorter::_do_sort() {
 
     // dispose TOP-N logic
     if (_limit != -1) {
-        // Here is a little opt to reduce the mem uasge, we build a max heap
+        // Here is a little opt to reduce the mem usage, we build a max heap
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
@@ -190,6 +201,13 @@ Status FullSorter::_do_sort() {
         _state->sorted_blocks.emplace_back(std::move(desc_block));
     }
     return Status::OK();
+}
+size_t FullSorter::data_size() const {
+    size_t size = _state->unsorted_block->allocated_bytes();
+    for (const auto& block : _state->sorted_blocks) {
+        size += block.allocated_bytes();
+    }
+    return size;
 }
 
 } // namespace doris::vectorized

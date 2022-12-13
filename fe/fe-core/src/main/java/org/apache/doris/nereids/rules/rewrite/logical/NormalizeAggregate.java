@@ -44,21 +44,21 @@ import java.util.stream.Collectors;
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
  * and generate a LogicalProject top on LogicalAggregate to hold to order of aggregate output,
  * since aggregate output's order could change when we do translate.
- *
+ * <p>
  * Apply this rule could simplify the processing of enforce and translate.
- *
+ * <pre>
  * Original Plan:
  * Aggregate(
  *   keys:[k1#1, K2#2 + 1],
  *   outputs:[k1#1, Alias(K2# + 1)#4, Alias(k1#1 + 1)#5, Alias(SUM(v1#3))#6,
  *            Alias(SUM(v1#3 + 1))#7, Alias(SUM(v1#3) + 1)#8])
- *
+ * </pre>
  * After rule:
  * Project(k1#1, Alias(SR#9)#4, Alias(k1#1 + 1)#5, Alias(SR#10))#6, Alias(SR#11))#7, Alias(SR#10 + 1)#8)
  * +-- Aggregate(keys:[k1#1, SR#9], outputs:[k1#1, SR#9, Alias(SUM(v1#3))#10, Alias(SUM(v1#3 + 1))#11])
- *     +-- Project(k1#1, Alias(K2#2 + 1)#9, v1#3)
- *
- * More example could get from UT {@link NormalizeAggregateTest}
+ * +-- Project(k1#1, Alias(K2#2 + 1)#9, v1#3)
+ * <p>
+ * More example could get from UT {NormalizeAggregateTest}
  */
 public class NormalizeAggregate extends OneRewriteRuleFactory {
     @Override
@@ -141,7 +141,8 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                 root = new LogicalProject<>(bottomProjections, root);
             }
             root = new LogicalAggregate<>(newKeys, newOutputs, aggregate.isDisassembled(),
-                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(), root);
+                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(),
+                    aggregate.getSourceRepeat(), root);
             List<NamedExpression> projections = outputs.stream()
                     .map(e -> ExpressionUtils.replace(e, substitutionMap))
                     .map(NamedExpression.class::cast)

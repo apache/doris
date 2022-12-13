@@ -98,7 +98,7 @@ public class ColumnTypeTest {
         TypeDef type = TypeDef.createDecimal(12, 5);
         type.analyze(null);
         Assert.assertEquals("decimal(12, 5)", type.toString());
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             Assert.assertEquals(PrimitiveType.DECIMAL64, type.getType().getPrimitiveType());
         } else {
             Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
@@ -194,7 +194,7 @@ public class ColumnTypeTest {
     @Test(expected = AnalysisException.class)
     public void testDecimalPreFail() throws AnalysisException {
         TypeDef type;
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             type = TypeDef.createDecimal(39, 3);
         } else {
             type = TypeDef.createDecimal(28, 3);
@@ -205,7 +205,7 @@ public class ColumnTypeTest {
     @Test(expected = AnalysisException.class)
     public void testDecimalScaleFail() throws AnalysisException {
         TypeDef type;
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             type = TypeDef.createDecimal(27, 28);
         } else {
             type = TypeDef.createDecimal(27, 10);

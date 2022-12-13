@@ -26,6 +26,7 @@
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VArrowScanner::VArrowScanner(RuntimeState* state, RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,
@@ -83,12 +84,11 @@ Status VArrowScanner::_open_next_reader() {
         Status status =
                 _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
 
-        if (status.is_end_of_file()) {
+        if (status.is<END_OF_FILE>()) {
             continue;
         } else {
             if (!status.ok()) {
-                return Status::InternalError(" file: {} error:{}", range.path,
-                                             status.get_error_msg());
+                return Status::InternalError(" file: {} error:{}", range.path, status.to_string());
             } else {
                 update_profile(_cur_file_reader->statistics());
                 return status;
@@ -153,6 +153,12 @@ Status VArrowScanner::_init_arrow_batch_if_necessary() {
 Status VArrowScanner::_init_src_block() {
     size_t batch_pos = 0;
     _src_block.clear();
+    if (_batch->num_columns() < _num_of_columns_from_file) {
+        LOG(WARNING) << "some columns not found in the file, num_columns_obtained: "
+                     << _batch->num_columns()
+                     << " num_columns_required: " << _num_of_columns_from_file;
+        return Status::InvalidArgument("some columns not found in the file");
+    }
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
@@ -194,7 +200,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     {
         Status st = _init_arrow_batch_if_necessary();
         if (!st.ok()) {
-            if (!st.is_end_of_file()) {
+            if (!st.is<END_OF_FILE>()) {
                 return st;
             }
             *eof = true;
@@ -218,7 +224,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
             continue;
         }
         // return error if not EOF
-        if (!status.is_end_of_file()) {
+        if (!status.is<END_OF_FILE>()) {
             return status;
         }
         _cur_file_eof = true;

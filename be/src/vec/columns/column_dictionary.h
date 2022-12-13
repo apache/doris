@@ -111,10 +111,7 @@ public:
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
     }
 
-    void reserve(size_t n) override {
-        _reserve_size = n;
-        _codes.reserve(n);
-    }
+    void reserve(size_t n) override { _codes.reserve(n); }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
@@ -134,7 +131,7 @@ public:
 
     const Container& get_data() const { return _codes; }
 
-    // it's impossable to use ComplexType as key , so we don't have to implemnt them
+    // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in ColumnDictionary";
@@ -192,14 +189,17 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
-        res_col->get_offsets().reserve(sel_size);
-        res_col->get_chars().reserve(_dict.avg_str_len() * sel_size);
-        for (size_t i = 0; i < sel_size; i++) {
-            uint16_t n = sel[i];
-            auto& code = reinterpret_cast<T&>(_codes[n]);
-            auto value = _dict.get_value(code);
-            res_col->insert_data_without_reserve(value.ptr, value.len);
+        StringRef strings[sel_size];
+        size_t length = 0;
+        for (size_t i = 0; i != sel_size; ++i) {
+            auto& value = _dict.get_value(_codes[sel[i]]);
+            strings[i].data = value.ptr;
+            strings[i].size = value.len;
+            length += value.len;
         }
+        res_col->get_offsets().reserve(sel_size + res_col->get_offsets().size());
+        res_col->get_chars().reserve(length + res_col->get_chars().size());
+        res_col->insert_many_strings_without_reserve(strings, sel_size);
         return Status::OK();
     }
 
@@ -259,6 +259,14 @@ public:
         return _dict.find_codes(values, selected);
     }
 
+    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
+        _rowset_segment_id = rowset_segment_id;
+    }
+
+    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
+        return _rowset_segment_id;
+    }
+
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
@@ -268,7 +276,7 @@ public:
             convert_dict_codes_if_necessary();
         }
         auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
-        res->reserve(_reserve_size);
+        res->reserve(_codes.size());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
             auto value = _dict.get_value(code);
@@ -288,6 +296,10 @@ public:
         }
         return result;
     }
+
+    size_t dict_size() const { return _dict.size(); }
+
+    std::string dict_debug_string() const { return _dict.debug_string(); }
 
     class Dictionary {
     public:
@@ -425,6 +437,27 @@ public:
 
         size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
 
+        size_t size() const {
+            if (!_dict_data) {
+                return 0;
+            }
+            return _dict_data->size();
+        }
+
+        std::string debug_string() const {
+            std::string str = "[";
+            if (_dict_data) {
+                for (size_t i = 0; i < _dict_data->size(); i++) {
+                    if (i) {
+                        str += ',';
+                    }
+                    str += (*_dict_data)[i].to_string();
+                }
+            }
+            str += ']';
+            return str;
+        }
+
     private:
         StringValue _null_value = StringValue();
         StringValue::Comparator _comparator;
@@ -448,6 +481,7 @@ private:
     Dictionary _dict;
     Container _codes;
     FieldType _type;
+    std::pair<RowsetId, uint32_t> _rowset_segment_id;
 };
 
 template class ColumnDictionary<int32_t>;

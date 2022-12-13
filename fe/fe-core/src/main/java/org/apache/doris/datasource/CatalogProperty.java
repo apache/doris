@@ -17,7 +17,8 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -43,51 +44,55 @@ public class CatalogProperty implements Writable {
         return properties.getOrDefault(key, defaultVal);
     }
 
+    // todo: remove and use HdfsResource
     public Map<String, String> getDfsProperties() {
         Map<String, String> dfsProperties = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(HiveTable.HIVE_HDFS_PREFIX)) {
+            if (entry.getKey().startsWith(HdfsResource.HADOOP_FS_PREFIX)
+                    || entry.getKey().equals(HdfsResource.HADOOP_USER_NAME)) {
+                // todo: still missing properties like hadoop.xxx
                 dfsProperties.put(entry.getKey(), entry.getValue());
             }
         }
         return dfsProperties;
     }
 
+    // todo: remove and use S3Resource
     public Map<String, String> getS3Properties() {
         Map<String, String> s3Properties = Maps.newHashMap();
-        if (properties.containsKey(HiveTable.S3_AK)) {
-            s3Properties.put("fs.s3a.access.key", properties.get(HiveTable.S3_AK));
-            s3Properties.put(HiveTable.S3_AK, properties.get(HiveTable.S3_AK));
+        if (properties.containsKey(S3Resource.S3_ACCESS_KEY)) {
+            s3Properties.put("fs.s3a.access.key", properties.get(S3Resource.S3_ACCESS_KEY));
+            s3Properties.put(S3Resource.S3_ACCESS_KEY, properties.get(S3Resource.S3_ACCESS_KEY));
         }
-        if (properties.containsKey(HiveTable.S3_SK)) {
-            s3Properties.put("fs.s3a.secret.key", properties.get(HiveTable.S3_SK));
-            s3Properties.put(HiveTable.S3_SK, properties.get(HiveTable.S3_SK));
+        if (properties.containsKey(S3Resource.S3_SECRET_KEY)) {
+            s3Properties.put("fs.s3a.secret.key", properties.get(S3Resource.S3_SECRET_KEY));
+            s3Properties.put(S3Resource.S3_SECRET_KEY, properties.get(S3Resource.S3_SECRET_KEY));
         }
-        if (properties.containsKey(HiveTable.S3_ENDPOINT)) {
-            s3Properties.put("fs.s3a.endpoint", properties.get(HiveTable.S3_ENDPOINT));
-            s3Properties.put(HiveTable.S3_ENDPOINT, properties.get(HiveTable.S3_ENDPOINT));
+        if (properties.containsKey(S3Resource.S3_ENDPOINT)) {
+            s3Properties.put("fs.s3a.endpoint", properties.get(S3Resource.S3_ENDPOINT));
+            s3Properties.put(S3Resource.S3_ENDPOINT, properties.get(S3Resource.S3_ENDPOINT));
         }
-        if (properties.containsKey(HiveTable.AWS_REGION)) {
-            s3Properties.put("fs.s3a.endpoint.region", properties.get(HiveTable.AWS_REGION));
-            s3Properties.put(HiveTable.AWS_REGION, properties.get(HiveTable.AWS_REGION));
+        if (properties.containsKey(S3Resource.S3_REGION)) {
+            s3Properties.put("fs.s3a.endpoint.region", properties.get(S3Resource.S3_REGION));
+            s3Properties.put(S3Resource.S3_REGION, properties.get(S3Resource.S3_REGION));
         }
-        if (properties.containsKey(HiveTable.AWS_MAX_CONN_SIZE)) {
-            s3Properties.put("fs.s3a.connection.maximum", properties.get(HiveTable.AWS_MAX_CONN_SIZE));
-            s3Properties.put(HiveTable.AWS_MAX_CONN_SIZE, properties.get(HiveTable.AWS_MAX_CONN_SIZE));
+        if (properties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
+            s3Properties.put("fs.s3a.connection.maximum", properties.get(S3Resource.S3_MAX_CONNECTIONS));
+            s3Properties.put(S3Resource.S3_MAX_CONNECTIONS, properties.get(S3Resource.S3_MAX_CONNECTIONS));
         }
-        if (properties.containsKey(HiveTable.AWS_REQUEST_TIMEOUT_MS)) {
-            s3Properties.put("fs.s3a.connection.request.timeout", properties.get(HiveTable.AWS_REQUEST_TIMEOUT_MS));
-            s3Properties.put(HiveTable.AWS_REQUEST_TIMEOUT_MS, properties.get(HiveTable.AWS_REQUEST_TIMEOUT_MS));
+        if (properties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
+            s3Properties.put("fs.s3a.connection.request.timeout", properties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
+            s3Properties.put(S3Resource.S3_REQUEST_TIMEOUT_MS, properties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
         }
-        if (properties.containsKey(HiveTable.AWS_CONN_TIMEOUT_MS)) {
-            s3Properties.put("fs.s3a.connection.timeout", properties.get(HiveTable.AWS_CONN_TIMEOUT_MS));
-            s3Properties.put(HiveTable.AWS_CONN_TIMEOUT_MS, properties.get(HiveTable.AWS_CONN_TIMEOUT_MS));
+        if (properties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
+            s3Properties.put("fs.s3a.connection.timeout", properties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
+            s3Properties.put(S3Resource.S3_CONNECTION_TIMEOUT_MS, properties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
         }
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         s3Properties.put("fs.s3a.attempts.maximum", "2");
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(HiveTable.S3_FS_PREFIX)) {
+            if (entry.getKey().startsWith(S3Resource.S3_FS_PREFIX)) {
                 s3Properties.put(entry.getKey(), entry.getValue());
             }
         }

@@ -152,18 +152,10 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
-
-    public boolean isInlineView() {
-        return isInlineView;
-    }
-
-    public void setInlineView(boolean inlineView) {
-        isInlineView = inlineView;
-    }
-
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
+    private String explicitViewAlias;
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
 
@@ -247,6 +239,59 @@ public class Analyzer {
         return globalState.autoBroadcastJoinThreshold;
     }
 
+    private static class InferPredicateState {
+        // map from two table tuple ids to JoinOperator between two tables.
+        // NOTE: first tupleId's position in front of the second tupleId.
+        public final Map<Pair<TupleId, TupleId>, JoinOperator> anyTwoTalesJoinOperator = Maps.newHashMap();
+
+        // slotEqSlotExpr: Record existing and infer equivalent connections
+        private final List<Expr> onSlotEqSlotExpr = new ArrayList<>();
+
+        // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
+        private final Set<Pair<Expr, Expr>> onSlotEqSlotDeDuplication = Sets.newHashSet();
+
+        // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
+        private final List<Expr> onSlotToLiteralExpr = new ArrayList<>();
+
+        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
+        private final Set<Pair<Expr, Expr>> onSlotToLiteralDeDuplication = Sets.newHashSet();
+
+        // inExpr: Recoud existing and infer expr which in predicate
+        private final List<Expr> onInExpr = new ArrayList<>();
+
+        // inExprDeDuplication: De-Duplication for inExpr
+        private final Set<Expr> onInDeDuplication = Sets.newHashSet();
+
+        // isNullExpr: Record existing and infer not null predicate
+        private final List<Expr> onIsNullExpr = new ArrayList<>();
+
+        //isNullDeDuplication: De-Duplication for isNullExpr
+        private final Set<Expr> onIsNullDeDuplication = Sets.newHashSet();
+
+        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr. Contain on and where.
+        private final Set<Pair<Expr, Expr>> globalSlotToLiteralDeDuplication = Sets.newHashSet();
+
+        // inExprDeDuplication: De-Duplication for inExpr. Contain on and where
+        private final Set<Expr> globalInDeDuplication = Sets.newHashSet();
+
+        public InferPredicateState() {
+        }
+
+        public InferPredicateState(InferPredicateState that) {
+            anyTwoTalesJoinOperator.putAll(that.anyTwoTalesJoinOperator);
+            onSlotEqSlotExpr.addAll(that.onSlotEqSlotExpr);
+            onSlotEqSlotDeDuplication.addAll(that.onSlotEqSlotDeDuplication);
+            onSlotToLiteralExpr.addAll(that.onSlotToLiteralExpr);
+            onSlotToLiteralDeDuplication.addAll(that.onSlotToLiteralDeDuplication);
+            onInExpr.addAll(that.onInExpr);
+            onInDeDuplication.addAll(that.onInDeDuplication);
+            onIsNullExpr.addAll(that.onIsNullExpr);
+            onIsNullDeDuplication.addAll(that.onIsNullDeDuplication);
+            globalSlotToLiteralDeDuplication.addAll(that.globalSlotToLiteralDeDuplication);
+            globalInDeDuplication.addAll(that.globalInDeDuplication);
+        }
+    }
+
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
     // a tuple is outer/semi joined, etc. Remove the maps in favor of making
@@ -312,6 +357,8 @@ public class Analyzer {
         // corresponding value could be an empty list. There is no entry for non-outer joins.
         public final Map<TupleId, List<ExprId>> conjunctsByOjClause = Maps.newHashMap();
 
+        public final Map<TupleId, List<ExprId>> conjunctsByAntiJoinClause = Maps.newHashMap();
+
         // map from registered conjunct to its containing outer join On clause (represented
         // by its right-hand side table ref); only conjuncts that can only be correctly
         // evaluated by the originating outer join are registered here
@@ -327,40 +374,6 @@ public class Analyzer {
 
         // TODO chenhao16, to save conjuncts, which children are constant
         public final Map<TupleId, Set<Expr>> constantConjunct = Maps.newHashMap();
-
-        // map from two table tuple ids to JoinOperator between two tables.
-        // NOTE: first tupleId's position in front of the second tupleId.
-        public final Map<Pair<TupleId, TupleId>, JoinOperator> anyTwoTalesJoinOperator = Maps.newHashMap();
-
-        // slotEqSlotExpr: Record existing and infer equivalent connections
-        private final List<Expr> onSlotEqSlotExpr = new ArrayList<>();
-
-        // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
-        private final Set<Pair<Expr, Expr>> onSlotEqSlotDeDuplication = Sets.newHashSet();
-
-        // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
-        private final List<Expr> onSlotToLiteralExpr = new ArrayList<>();
-
-        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
-        private final Set<Pair<Expr, Expr>> onSlotToLiteralDeDuplication = Sets.newHashSet();
-
-        // inExpr: Recoud existing and infer expr which in predicate
-        private final List<Expr> onInExpr = new ArrayList<>();
-
-        // inExprDeDuplication: De-Duplication for inExpr
-        private final Set<Expr> onInDeDuplication = Sets.newHashSet();
-
-        // isNullExpr: Record existing and infer not null predicate
-        private final List<Expr> onIsNullExpr = new ArrayList<>();
-
-        //isNullDeDuplication: De-Duplication for isNullExpr
-        private final Set<Expr> onIsNullDeDuplication = Sets.newHashSet();
-
-        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr. Contain on and where.
-        private final Set<Pair<Expr, Expr>> globalSlotToLiteralDeDuplication = Sets.newHashSet();
-
-        // inExprDeDuplication: De-Duplication for inExpr. Contain on and where
-        private final Set<Expr> globalInDeDuplication = Sets.newHashSet();
 
         // map from slot id to the analyzer/block in which it was registered
         private final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
@@ -432,6 +445,8 @@ public class Analyzer {
 
     private final GlobalState globalState;
 
+    private final InferPredicateState inferPredicateState;
+
     // An analyzer stores analysis state for a single select block. A select block can be
     // a top level select statement, or an inline view select block.
     // ancestors contains the Analyzers of the enclosing select blocks of 'this'
@@ -466,6 +481,7 @@ public class Analyzer {
     public Analyzer(Env env, ConnectContext context) {
         ancestors = Lists.newArrayList();
         globalState = new GlobalState(env, context);
+        inferPredicateState = new InferPredicateState();
     }
 
     /**
@@ -475,7 +491,7 @@ public class Analyzer {
      * @param parentAnalyzer the analyzer of the enclosing select block
      */
     public Analyzer(Analyzer parentAnalyzer) {
-        this(parentAnalyzer, parentAnalyzer.globalState);
+        this(parentAnalyzer, parentAnalyzer.globalState, parentAnalyzer.inferPredicateState);
         if (parentAnalyzer.isSubquery) {
             this.isSubquery = true;
         }
@@ -484,10 +500,11 @@ public class Analyzer {
     /**
      * Analyzer constructor for nested select block with the specified global state.
      */
-    private Analyzer(Analyzer parentAnalyzer, GlobalState globalState) {
+    private Analyzer(Analyzer parentAnalyzer, GlobalState globalState, InferPredicateState inferPredicateState) {
         ancestors =  Lists.newArrayList(parentAnalyzer);
         ancestors.addAll(parentAnalyzer.ancestors);
         this.globalState = globalState;
+        this.inferPredicateState = new InferPredicateState(inferPredicateState);
     }
 
     /**
@@ -496,7 +513,7 @@ public class Analyzer {
      */
     public static Analyzer createWithNewGlobalState(Analyzer parentAnalyzer) {
         GlobalState globalState = new GlobalState(parentAnalyzer.globalState.env, parentAnalyzer.getContext());
-        return new Analyzer(parentAnalyzer, globalState);
+        return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
     }
 
     public void setIsExplain() {
@@ -517,6 +534,18 @@ public class Analyzer {
 
     public int getCallDepth() {
         return callDepth;
+    }
+
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    public void setExplicitViewAlias(String alias) {
+        explicitViewAlias = alias;
+    }
+
+    public String getExplicitViewAlias() {
+        return explicitViewAlias;
     }
 
     /**
@@ -806,7 +835,7 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView) {
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
                 d = resolveColumnRef(colName);
             }
         }
@@ -1032,47 +1061,47 @@ public class Analyzer {
         if (joinOperator == null) {
             joinOperator = JoinOperator.INNER_JOIN;
         }
-        globalState.anyTwoTalesJoinOperator.put(tids, joinOperator);
+        inferPredicateState.anyTwoTalesJoinOperator.put(tids, joinOperator);
     }
 
     public void registerOnSlotEqSlotExpr(Expr expr) {
-        globalState.onSlotEqSlotExpr.add(expr);
+        inferPredicateState.onSlotEqSlotExpr.add(expr);
     }
 
     public void registerOnSlotEqSlotDeDuplication(Pair<Expr, Expr> pair) {
-        globalState.onSlotEqSlotDeDuplication.add(pair);
+        inferPredicateState.onSlotEqSlotDeDuplication.add(pair);
     }
 
     public void registerOnSlotToLiteralExpr(Expr expr) {
-        globalState.onSlotToLiteralExpr.add(expr);
+        inferPredicateState.onSlotToLiteralExpr.add(expr);
     }
 
     public void registerOnSlotToLiteralDeDuplication(Pair<Expr, Expr> pair) {
-        globalState.onSlotToLiteralDeDuplication.add(pair);
+        inferPredicateState.onSlotToLiteralDeDuplication.add(pair);
     }
 
     public void registerInExpr(Expr expr) {
-        globalState.onInExpr.add(expr);
+        inferPredicateState.onInExpr.add(expr);
     }
 
     public void registerInDeDuplication(Expr expr) {
-        globalState.onInDeDuplication.add(expr);
+        inferPredicateState.onInDeDuplication.add(expr);
     }
 
     public void registerOnIsNullExpr(Expr expr) {
-        globalState.onIsNullExpr.add(expr);
+        inferPredicateState.onIsNullExpr.add(expr);
     }
 
     public void registerOnIsNullDeDuplication(Expr expr) {
-        globalState.onIsNullDeDuplication.add(expr);
+        inferPredicateState.onIsNullDeDuplication.add(expr);
     }
 
     public void registerGlobalSlotToLiteralDeDuplication(Pair<Expr, Expr> pair) {
-        globalState.globalSlotToLiteralDeDuplication.add(pair);
+        inferPredicateState.globalSlotToLiteralDeDuplication.add(pair);
     }
 
     public void registerGlobalInDeDuplication(Expr expr) {
-        globalState.globalInDeDuplication.add(expr);
+        inferPredicateState.globalInDeDuplication.add(expr);
     }
 
     public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
@@ -1342,6 +1371,27 @@ public class Analyzer {
     }
 
     /**
+     * Return all unassigned conjuncts of the anti join referenced by
+     * right-hand side table ref.
+     */
+    public List<Expr> getUnassignedAntiJoinConjuncts(TableRef ref) {
+        Preconditions.checkState(ref.getJoinOp().isAntiJoin());
+        List<Expr> result = Lists.newArrayList();
+        List<ExprId> candidates = globalState.conjunctsByAntiJoinClause.get(ref.getId());
+        if (candidates == null) {
+            return result;
+        }
+        for (ExprId conjunctId : candidates) {
+            if (!globalState.assignedConjuncts.contains(conjunctId)) {
+                Expr e = globalState.conjuncts.get(conjunctId);
+                Preconditions.checkState(e != null);
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns true if 'e' must be evaluated after or by a join node. Note that it may
      * still be safe to evaluate 'e' elsewhere as well, but in any case 'e' must be
      * evaluated again by or after a join.
@@ -1390,11 +1440,11 @@ public class Analyzer {
      * Return JoinOperator between two tables
      */
     public JoinOperator getAnyTwoTablesJoinOp(Pair<TupleId, TupleId> tids) {
-        return globalState.anyTwoTalesJoinOperator.get(tids);
+        return inferPredicateState.anyTwoTalesJoinOperator.get(tids);
     }
 
     public boolean isContainTupleIds(Pair<TupleId, TupleId> tids) {
-        return globalState.anyTwoTalesJoinOperator.containsKey(tids);
+        return inferPredicateState.anyTwoTalesJoinOperator.containsKey(tids);
     }
 
     public boolean isWhereClauseConjunct(Expr e) {
@@ -1491,43 +1541,43 @@ public class Analyzer {
     }
 
     public List<Expr> getOnSlotEqSlotExpr() {
-        return new ArrayList<>(globalState.onSlotEqSlotExpr);
+        return new ArrayList<>(inferPredicateState.onSlotEqSlotExpr);
     }
 
     public Set<Pair<Expr, Expr>> getOnSlotEqSlotDeDuplication() {
-        return Sets.newHashSet(globalState.onSlotEqSlotDeDuplication);
+        return Sets.newHashSet(inferPredicateState.onSlotEqSlotDeDuplication);
     }
 
     public List<Expr> getOnSlotToLiteralExpr() {
-        return new ArrayList<>(globalState.onSlotToLiteralExpr);
+        return new ArrayList<>(inferPredicateState.onSlotToLiteralExpr);
     }
 
     public Set<Pair<Expr, Expr>> getOnSlotToLiteralDeDuplication() {
-        return Sets.newHashSet(globalState.onSlotToLiteralDeDuplication);
+        return Sets.newHashSet(inferPredicateState.onSlotToLiteralDeDuplication);
     }
 
     public List<Expr> getInExpr() {
-        return new ArrayList<>(globalState.onInExpr);
+        return new ArrayList<>(inferPredicateState.onInExpr);
     }
 
     public Set<Expr> getInDeDuplication() {
-        return Sets.newHashSet(globalState.onInDeDuplication);
+        return Sets.newHashSet(inferPredicateState.onInDeDuplication);
     }
 
     public List<Expr> getOnIsNullExpr() {
-        return new ArrayList<>(globalState.onIsNullExpr);
+        return new ArrayList<>(inferPredicateState.onIsNullExpr);
     }
 
     public Set<Expr> getOnIsNullDeDuplication() {
-        return Sets.newHashSet(globalState.onIsNullDeDuplication);
+        return Sets.newHashSet(inferPredicateState.onIsNullDeDuplication);
     }
 
     public Set<Pair<Expr, Expr>> getGlobalSlotToLiteralDeDuplication() {
-        return Sets.newHashSet(globalState.globalSlotToLiteralDeDuplication);
+        return Sets.newHashSet(inferPredicateState.globalSlotToLiteralDeDuplication);
     }
 
     public Set<Expr> getGlobalInDeDuplication() {
-        return Sets.newHashSet(globalState.globalInDeDuplication);
+        return Sets.newHashSet(inferPredicateState.globalInDeDuplication);
     }
 
     /**
@@ -1606,6 +1656,10 @@ public class Analyzer {
             }
             if (rhsRef.getJoinOp().isSemiJoin()) {
                 globalState.sjClauseByConjunct.put(conjunct.getId(), rhsRef);
+                if (rhsRef.getJoinOp().isAntiJoin()) {
+                    globalState.conjunctsByAntiJoinClause.computeIfAbsent(rhsRef.getId(), k -> Lists.newArrayList())
+                            .add(conjunct.getId());
+                }
             }
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
@@ -1624,7 +1678,7 @@ public class Analyzer {
      */
     private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
             throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || isAntiJoinedConjunct(conjunct)) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet)
@@ -1882,6 +1936,9 @@ public class Analyzer {
                     && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
+            } else if (exprs.get(i).isConstantImpl()) {
+                exprs.get(i).compactForLiteral(compatibleType);
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
             } else {
                 compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
             }

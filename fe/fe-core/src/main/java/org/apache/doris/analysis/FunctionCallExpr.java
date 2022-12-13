@@ -59,34 +59,77 @@ import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
-    private static final ImmutableSet<String> STDDEV_FUNCTION_SET =
+    public static final ImmutableSet<String> STDDEV_FUNCTION_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
-    private static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
-            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-                    .add("min").add("max").add("lead").add("lag")
-                    .add("first_value").add("last_value").add("abs")
-                    .add("positive").add("negative").build();
-    private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
-            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-                    .add("sum").add("avg").add("multi_distinct_sum").build();
-    private static final  ImmutableSet<String> DECIMAL_FUNCTION_SET =
-            new ImmutableSortedSet.Builder<>(String.CASE_INSENSITIVE_ORDER)
-                    .addAll(DECIMAL_SAME_TYPE_SET)
-                    .addAll(DECIMAL_WIDER_TYPE_SET)
-                    .addAll(STDDEV_FUNCTION_SET).build();
+    public static final Map<String, java.util.function.BiFunction<Type[], Type, Type>> PRECISION_INFER_RULE;
+    public static final java.util.function.BiFunction<Type[], Type, Type> DEFAULT_PRECISION_INFER_RULE;
 
-    private static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
+    static {
+        java.util.function.BiFunction<Type[], Type, Type> sumRule = (childrenType, returnType) -> {
+            Preconditions.checkArgument(childrenType != null && childrenType.length > 0);
+            if (childrenType[0].isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                        ((ScalarType) childrenType[0]).getScalarScale());
+            } else {
+                return returnType;
+            }
+        };
+        DEFAULT_PRECISION_INFER_RULE = (childrenType, returnType) -> {
+            if (childrenType != null && childrenType.length > 0
+                    && childrenType[0].isDecimalV3() && returnType.isDecimalV3()) {
+                return childrenType[0];
+            } else if (childrenType != null && childrenType.length > 0 && childrenType[0].isDatetimeV2()
+                    && returnType.isDatetimeV2()) {
+                return childrenType[0];
+            } else {
+                return returnType;
+            }
+        };
+        PRECISION_INFER_RULE = new HashMap<>();
+        PRECISION_INFER_RULE.put("sum", sumRule);
+        PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
+        PRECISION_INFER_RULE.put("avg", (childrenType, returnType) -> {
+            // TODO: how to set scale?
+            Preconditions.checkArgument(childrenType != null && childrenType.length > 0);
+            if (childrenType[0].isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                        ((ScalarType) childrenType[0]).getScalarScale());
+            } else {
+                return returnType;
+            }
+        });
+        PRECISION_INFER_RULE.put("if", (childrenType, returnType) -> {
+            Preconditions.checkArgument(childrenType != null && childrenType.length == 3);
+            if (childrenType[1].isDecimalV3() && childrenType[2].isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(
+                        Math.max(((ScalarType) childrenType[1]).decimalPrecision(),
+                                ((ScalarType) childrenType[2]).decimalPrecision()),
+                        Math.max(((ScalarType) childrenType[1]).decimalScale(),
+                                ((ScalarType) childrenType[2]).decimalScale()));
+            } else if (childrenType[1].isDatetimeV2() && childrenType[2].isDatetimeV2()) {
+                return ((ScalarType) childrenType[1]).decimalScale() > ((ScalarType) childrenType[2]).decimalScale()
+                        ? childrenType[1] : childrenType[2];
+            } else {
+                return returnType;
+            }
+        });
+    }
+
+    public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("now").add("current_timestamp").add("localtime").add("localtimestamp").build();
-    private static final int STDDEV_DECIMAL_SCALE = 9;
+    public static final int STDDEV_DECIMAL_SCALE = 9;
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
@@ -116,6 +159,12 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
+    // TODO: this field will be removed when we support analyze aggregate function in the nereids framework.
+    private boolean shouldFinalizeForNereids = true;
+
+    // this field is set by nereids, so we would not get arg types by the children.
+    private Optional<List<Type>> argTypesForNereids = Optional.empty();
+
     public void setAggFnParams(FunctionParams aggFnParams) {
         this.aggFnParams = aggFnParams;
     }
@@ -126,6 +175,10 @@ public class FunctionCallExpr extends Expr {
 
     public void setTableFnCall(boolean tableFnCall) {
         isTableFnCall = tableFnCall;
+    }
+
+    public void setFnName(FunctionName fnName) {
+        this.fnName = fnName;
     }
 
     public Function getFn() {
@@ -173,14 +226,15 @@ public class FunctionCallExpr extends Expr {
         if (!orderByElements.isEmpty()) {
             if (!VectorizedUtil.isVectorized()) {
                 throw new AnalysisException(
-                    "ORDER BY for arguments only support in vec exec engine");
+                        "ORDER BY for arguments only support in vec exec engine");
             } else if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                     fnName.getFunction().toLowerCase())) {
                 throw new AnalysisException(
-                    "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
+                        "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
             }
         }
         setChildren();
+        originChildSize = children.size();
     }
 
     private FunctionCallExpr(
@@ -193,6 +247,38 @@ public class FunctionCallExpr extends Expr {
             children.addAll(params.exprs());
         }
         originChildSize = children.size();
+    }
+
+    public FunctionCallExpr(String functionName, FunctionParams params, FunctionParams aggFnParams,
+            Optional<List<Type>> argTypes) {
+        this.fnName = new FunctionName(functionName);
+        this.fnParams = params;
+        this.isMergeAggFn = false;
+        this.aggFnParams = aggFnParams;
+        if (fnParams.exprs() != null) {
+            children.addAll(fnParams.exprs());
+        }
+        this.originChildSize = children.size();
+        this.argTypesForNereids = argTypes;
+    }
+
+    // nereids scalar function call expr constructor without finalize/analyze
+    public FunctionCallExpr(Function function, FunctionParams functionParams) {
+        this(function, functionParams, null, false, functionParams.exprs());
+    }
+
+    // nereids aggregate function call expr constructor without finalize/analyze
+    public FunctionCallExpr(Function function, FunctionParams functionParams, FunctionParams aggFnParams,
+            boolean isMergeAggFn, List<Expr> children) {
+        this.fnName = function.getFunctionName();
+        this.fn = function;
+        this.type = function.getReturnType();
+        this.fnParams = functionParams;
+        this.aggFnParams = aggFnParams;
+        this.children.addAll(children);
+        this.originChildSize = children.size();
+        this.isMergeAggFn = isMergeAggFn;
+        this.shouldFinalizeForNereids = false;
     }
 
     // Constructs the same agg function with new params.
@@ -210,6 +296,7 @@ public class FunctionCallExpr extends Expr {
         if (params.exprs() != null) {
             children.addAll(params.exprs());
         }
+        this.originChildSize = children.size();
     }
 
     protected FunctionCallExpr(FunctionCallExpr other) {
@@ -222,6 +309,7 @@ public class FunctionCallExpr extends Expr {
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
         fnParams = other.fnParams.clone(children);
+        originChildSize = other.originChildSize;
         aggFnParams = other.aggFnParams;
 
         this.isMergeAggFn = other.isMergeAggFn;
@@ -317,6 +405,19 @@ public class FunctionCallExpr extends Expr {
         }
         int len = children.size();
         List<String> result = Lists.newArrayList();
+        //XXX_diff are used by nereids only
+        if (fnName.getFunction().equalsIgnoreCase("years_diff")
+                || fnName.getFunction().equalsIgnoreCase("months_diff")
+                || fnName.getFunction().equalsIgnoreCase("days_diff")
+                || fnName.getFunction().equalsIgnoreCase("hours_diff")
+                || fnName.getFunction().equalsIgnoreCase("minutes_diff")
+                || fnName.getFunction().equalsIgnoreCase("seconds_diff")) {
+            sb.append(children.get(1).toSql()).append(", ");
+            sb.append(children.get(0).toSql()).append(")");
+            return sb.toString();
+        }
+        //used by nereids END
+
         if (fnName.getFunction().equalsIgnoreCase("json_array")
                 || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
@@ -530,7 +631,6 @@ public class FunctionCallExpr extends Expr {
             }
             return;
         }
-
         if (fnName.getFunction().equalsIgnoreCase("group_concat")) {
             if (children.size() - orderByElements.size() > 2 || children.isEmpty()) {
                 throw new AnalysisException(
@@ -553,7 +653,18 @@ public class FunctionCallExpr extends Expr {
 
             return;
         }
-
+        if (fnName.getFunction().equalsIgnoreCase("field")) {
+            if (children.size() < 2) {
+                throw new AnalysisException(fnName.getFunction() + " function parameter size is less than 2.");
+            } else {
+                for (int i = 1; i < children.size(); ++i) {
+                    if (!getChild(i).isConstant()) {
+                        throw new AnalysisException(fnName.getFunction()
+                                + " function except for the first argument, other parameter must be a constant.");
+                    }
+                }
+            }
+        }
         if (fnName.getFunction().equalsIgnoreCase("lag")
                 || fnName.getFunction().equalsIgnoreCase("lead")) {
             if (!isAnalyticFnCall) {
@@ -808,6 +919,35 @@ public class FunctionCallExpr extends Expr {
 
     }
 
+    private void analyzeArrayFunction(Analyzer analyzer) throws AnalysisException {
+        if (fnName.getFunction().equalsIgnoreCase("array_distinct")
+                || fnName.getFunction().equalsIgnoreCase("array_max")
+                || fnName.getFunction().equalsIgnoreCase("array_min")
+                || fnName.getFunction().equalsIgnoreCase("array_sum")
+                || fnName.getFunction().equalsIgnoreCase("array_avg")
+                || fnName.getFunction().equalsIgnoreCase("array_product")
+                || fnName.getFunction().equalsIgnoreCase("array_union")
+                || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_intersect")
+                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")) {
+            Type[] childTypes = collectChildReturnTypes();
+            Type compatibleType = childTypes[0];
+            for (int i = 1; i < childTypes.length; ++i) {
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                if (compatibleType == Type.INVALID) {
+                    throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+                }
+            }
+            // Make sure BE doesn't see any TYPE_NULL exprs
+            if (compatibleType.isNull()) {
+                compatibleType = Type.BOOLEAN;
+            }
+            for (int i = 0; i < childTypes.length; i++) {
+                uncheckedCastChild(compatibleType, i);
+            }
+        }
+    }
+
     // Provide better error message for some aggregate builtins. These can be
     // a bit more user friendly than a generic function not found.
     // TODO: should we bother to do this? We could also improve the general
@@ -845,6 +985,7 @@ public class FunctionCallExpr extends Expr {
     /**
      * This analyzeImp used for DefaultValueExprDef
      * to generate a builtinFunction.
+     *
      * @throws AnalysisException
      */
     public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
@@ -898,6 +1039,8 @@ public class FunctionCallExpr extends Expr {
 
         analyzeBuiltinAggFunction(analyzer);
 
+        analyzeArrayFunction(analyzer);
+
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             if (this.children.isEmpty()) {
                 throw new AnalysisException("The " + fnName + " function must has one input param");
@@ -907,7 +1050,7 @@ public class FunctionCallExpr extends Expr {
             if (!VectorizedUtil.isVectorized()) {
                 type = getChild(0).type.getMaxResolutionType();
             }
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{type},
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {type},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
             Type compatibleType = this.children.get(0).getType();
@@ -920,7 +1063,7 @@ public class FunctionCallExpr extends Expr {
                 }
             }
 
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{compatibleType},
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.WINDOW_FUNNEL)) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
@@ -931,7 +1074,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("The window params of " + fnName + " function must be integer");
             }
             if (!children.get(1).type.isStringType()) {
-                throw new AnalysisException("The mode params of " + fnName + " function must be integer");
+                throw new AnalysisException("The mode params of " + fnName + " function must be string");
             }
             if (!children.get(2).type.isDateType()) {
                 throw new AnalysisException("The 3rd param of " + fnName + " function must be DATE or DATETIME");
@@ -950,11 +1093,6 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDatetimeV2()) {
-                fn.setArgType(childTypes[2], 2);
-            } else if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDateV2()) {
-                fn.setArgType(ScalarType.DATETIMEV2, 2);
-            }
             if (fn != null && childTypes[2].isDate()) {
                 // cast date to datetime
                 uncheckedCastChild(ScalarType.DATETIME, 2);
@@ -962,6 +1100,52 @@ public class FunctionCallExpr extends Expr {
                 // cast date to datetime
                 uncheckedCastChild(ScalarType.DATETIMEV2, 2);
             }
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.RETENTION)) {
+            if (this.children.isEmpty()) {
+                throw new AnalysisException("The " + fnName + " function must have at least one param");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("All params of "
+                        + fnName + " function must be boolean");
+                }
+                childTypes[i] = children.get(i).type;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
+                throw new AnalysisException("The " + fnName + " function must have at least four params");
+            }
+            if (!children.get(0).type.isStringType()) {
+                throw new AnalysisException("The pattern params of " + fnName + " function must be string");
+            }
+            if (!children.get(1).type.isDateType()) {
+                throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
+            }
+            String pattern = children.get(0).toSql();
+            int patternLength = pattern.length();
+            pattern = pattern.substring(1, patternLength - 1);
+            if (!parsePattern(pattern)) {
+                throw new AnalysisException("The format of pattern params is wrong");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < 2; i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            for (int i = 2; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("The 3th and subsequent params of "
+                        + fnName + " function must be boolean");
+                }
+                childTypes[i] = children.get(i).type;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
@@ -980,7 +1164,11 @@ public class FunctionCallExpr extends Expr {
             Type[] newChildTypes = new Type[children.size() - orderByElements.size()];
             System.arraycopy(childTypes, 0, newChildTypes, 0, newChildTypes.length);
             fn = getBuiltinFunction(fnName.getFunction(), newChildTypes,
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction().toLowerCase()) && children.size() == 1
+                && collectChildReturnTypes()[0].isDecimalV3()) {
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {Type.DOUBLE},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -1031,7 +1219,10 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
-        applyAutoTypeConversionForDatetimeV2();
+        if (fnName.getFunction().equalsIgnoreCase("collect_list")
+                || fnName.getFunction().equalsIgnoreCase("collect_set")) {
+            fn.setReturnType(new ArrayType(getChild(0).type));
+        }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
                 || fnName.getFunction().equalsIgnoreCase("date_format")) {
@@ -1047,7 +1238,13 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
-
+        if (fnName.getFunction().equalsIgnoreCase("convert_to")) {
+            if (children.size() < 2 || !getChild(1).isConstant()) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a constant: " + this
+                                .toSql());
+            }
+        }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
         }
@@ -1087,13 +1284,15 @@ public class FunctionCallExpr extends Expr {
                     if (!argTypes[i].matchesType(args[ix]) && Config.enable_date_conversion
                             && !argTypes[i].isDateType() && (args[ix].isDate() || args[ix].isDatetime())) {
                         uncheckedCastChild(ScalarType.getDefaultDateType(args[ix]), i);
-                    } else if (!argTypes[i].matchesType(args[ix]) && Config.enable_decimalv3
+                    } else if (!argTypes[i].matchesType(args[ix])
                             && Config.enable_decimal_conversion
                             && argTypes[i].isDecimalV3() && args[ix].isDecimalV2()) {
                         uncheckedCastChild(ScalarType.createDecimalV3Type(argTypes[i].getPrecision(),
                                 ((ScalarType) argTypes[i]).getScalarScale()), i);
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
-                            argTypes[i].isDateType() && args[ix].isDateType())) {
+                            argTypes[i].isDateType() && args[ix].isDateType())
+                            && (!fn.getReturnType().isDecimalV3()
+                            || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                         uncheckedCastChild(args[ix], i);
                     }
                 }
@@ -1136,6 +1335,13 @@ public class FunctionCallExpr extends Expr {
             } else {
                 this.type = ScalarType.getDefaultDateType(Type.DATETIME);
             }
+        } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
+                && fn.getReturnType().isDatetimeV2()) {
+            if (children.size() == 1 && children.get(0) instanceof IntLiteral) {
+                this.type = ScalarType.createDatetimeV2Type((int) ((IntLiteral) children.get(0)).getLongValue());
+            } else if (children.size() == 1) {
+                this.type = ScalarType.createDatetimeV2Type(6);
+            }
         } else {
             this.type = fn.getReturnType();
         }
@@ -1156,7 +1362,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (this.type.isDecimalV2() && Config.enable_decimal_conversion && Config.enable_decimalv3
+        if (this.type.isDecimalV2() && Config.enable_decimal_conversion
                 && fn.getArgs().length == childTypes.length) {
             boolean implicitCastToDecimalV3 = false;
             for (int i = 0; i < fn.getArgs().length; i++) {
@@ -1172,51 +1378,19 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (this.type.isDecimalV3()) {
-            // DECIMAL need to pass precision and scale to be
-            if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
-                    && (this.type.isDecimalV2() || this.type.isDecimalV3())) {
-                if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
-                    this.type = argTypes[0];
-                    fn.setReturnType(this.type);
-                } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
-                    this.type = ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                            ((ScalarType) argTypes[0]).getScalarScale());
-                    fn.setReturnType(this.type);
-                } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
-                    // for all stddev function, use decimal(38,9) as computing result
-                    this.type = ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                            STDDEV_DECIMAL_SCALE);
-                    fn.setReturnType(this.type);
-                }
-            }
+        if (this.type.isDecimalV2()) {
+            this.type = Type.MAX_DECIMALV2_TYPE;
+            fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
+        }
+
+        if (this.type.isDecimalV3() || (this.type.isDatetimeV2()
+                && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
+            // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change it to a double function
+            this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
+                    .apply(collectChildReturnTypes(), this.type);
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
-    }
-
-    private void applyAutoTypeConversionForDatetimeV2() {
-        // Rule1: Now we treat datetimev2 with different precisions as different types and we only register functions
-        // for datetimev2(0). So we must apply an automatic type conversion from datetimev2(0) to the real type.
-        if (fn.getArgs().length == children.size() && fn.getArgs().length > 0) {
-            if (fn.getArgs()[0].isDatetimeV2() && children.get(0).getType().isDatetimeV2()) {
-                fn.setArgType(children.get(0).getType(), 0);
-                if (fn.getReturnType().isDatetimeV2()) {
-                    fn.setReturnType(children.get(0).getType());
-                }
-            }
-        }
-
-        // Rule2: For functions in TIME_FUNCTIONS_WITH_PRECISION, we can't figure out which function should be use when
-        // searching in FunctionSet. So we adjust the return type by hand here.
-        if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
-                && fn != null && fn.getReturnType().isDatetimeV2()) {
-            if (children.size() == 1 && children.get(0) instanceof IntLiteral) {
-                fn.setReturnType(ScalarType.createDatetimeV2Type((int) ((IntLiteral) children.get(0)).getLongValue()));
-            } else if (children.size() == 1) {
-                fn.setReturnType(ScalarType.createDatetimeV2Type(6));
-            }
-        }
     }
 
     // if return type is nested type, need to be determined the sub-element type
@@ -1230,7 +1404,7 @@ public class FunctionCallExpr extends Expr {
 
         if (this.type instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) type;
-            // Now Array type do not support ARRAY<NOT_NULL>, set it too true temporarily
+            // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
             boolean containsNull = true;
             for (Expr child : children) {
                 Type childType = child.getType();
@@ -1240,6 +1414,73 @@ public class FunctionCallExpr extends Expr {
             }
             arrayType.setContainsNull(containsNull);
         }
+    }
+
+    private static boolean match(String pattern, int pos, String value) {
+        int length = value.length();
+        int end = pattern.length();
+        return pos + length <= end && pattern.substring(pos, pos + length).equals(value);
+    }
+
+    private static int parseNumber(String s) {
+
+        String[] n = s.split(""); //array of strings
+        int num = 0;
+        for (String value : n) {
+            // validating numbers
+            if ((value.matches("[0-9]+"))) {
+                num++;
+            } else {
+                return num;
+            }
+        }
+        return num;
+    }
+
+    private static boolean parsePattern(String pattern) {
+        int pos = 0;
+        int len = pattern.length();
+        while (pos < len) {
+            if (match(pattern, pos, "(?")) {
+                pos += 2;
+                if (match(pattern, pos, "t")) {
+                    pos += 1;
+                    if (match(pattern, pos, "<=") || match(pattern, pos, "==")
+                            || match(pattern, pos, ">=")) {
+                        pos += 2;
+                    } else if (match(pattern, pos, ">") || match(pattern, pos, "<")) {
+                        pos += 1;
+                    } else {
+                        return false;
+                    }
+
+                    int numLen = parseNumber(pattern.substring(pos));
+                    if (numLen == 0) {
+                        return false;
+                    } else {
+                        pos += numLen;
+                    }
+                } else {
+                    int numLen = parseNumber(pattern.substring(pos));
+                    if (numLen == 0) {
+                        return false;
+                    } else {
+                        pos += numLen;
+                    }
+                }
+                if (!match(pattern, pos, ")")) {
+                    return false;
+                }
+                pos += 1;
+            } else if (match(pattern, pos, ".*")) {
+                pos += 2;
+            } else if (match(pattern, pos, ".")) {
+                pos += 1;
+            } else {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -1435,11 +1676,17 @@ public class FunctionCallExpr extends Expr {
     }
 
     public void finalizeImplForNereids() throws AnalysisException {
+        // return if nereids already analyzed out of the FunctionCallExpr.
+        if (!shouldFinalizeForNereids) {
+            return;
+        }
+
+        List<Type> argTypes = getArgTypesForNereids();
         // TODO: support other functions
         // TODO: Supports type conversion to match the type of the function's parameters
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
-            Type childType = getChild(0).type.getMaxResolutionType();
+            Type childType = argTypes.get(0).getMaxResolutionType();
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
@@ -1448,7 +1695,7 @@ public class FunctionCallExpr extends Expr {
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("substring")
                 || fnName.getFunction().equalsIgnoreCase("cast")) {
-            Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
+            Type[] childTypes = argTypes.stream().toArray(Type[]::new);
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("year")
@@ -1456,10 +1703,23 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("min")
                 || fnName.getFunction().equalsIgnoreCase("avg")
                 || fnName.getFunction().equalsIgnoreCase("weekOfYear")) {
-            Type childType = getChild(0).type;
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
+            Type childType = argTypes.get(0);
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
+        } else {
+            Type[] inputTypes = argTypes.stream().toArray(Type[]::new);
+            // nereids already compute the correct signature, so we can find the
+            fn = getBuiltinFunction(fnName.getFunction(), inputTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        }
+    }
+
+    private List<Type> getArgTypesForNereids() {
+        if (argTypesForNereids.isPresent()) {
+            return argTypesForNereids.get();
+        } else {
+            return Lists.newArrayList(collectChildReturnTypes());
         }
     }
 

@@ -280,6 +280,7 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.write.fields               | --                 | 指定写入Doris表的字段或者字段顺序，多列之间使用逗号分隔。<br />默认写入时要按照Doris表字段顺序写入全部字段。 |
 | sink.batch.size | 10000 | 单次写BE的最大行数 |
 | sink.max-retries | 1 | 写BE失败之后的重试次数 |
+| sink.properties.*                | --                 | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' |
 
 ### SQL 和 Dataframe 专有配置
 

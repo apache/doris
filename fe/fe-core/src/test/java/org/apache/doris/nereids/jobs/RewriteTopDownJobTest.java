@@ -29,10 +29,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -71,7 +71,7 @@ public class RewriteTopDownJobTest {
 
     @Test
     public void testSimplestScene() {
-        Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test"));
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
@@ -105,12 +105,12 @@ public class RewriteTopDownJobTest {
     private static class LogicalBoundRelation extends LogicalRelation {
 
         public LogicalBoundRelation(Table table, List<String> qualifier) {
-            super(RelationId.createGenerator().getNextId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
+            super(RelationUtil.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
         }
 
         public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(RelationId.createGenerator().getNextId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+            super(RelationUtil.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
                     groupExpression, logicalProperties, Collections.emptyList());
         }
 

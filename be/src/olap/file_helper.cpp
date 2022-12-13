@@ -34,6 +34,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 FileHandler::FileHandler() : _fd(-1), _wr_length(0), _file_name("") {}
 
@@ -47,7 +48,7 @@ Status FileHandler::open(const string& file_name, int flag) {
     }
 
     if (!this->close()) {
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     _fd = ::open(file_name.c_str(), flag);
@@ -57,9 +58,9 @@ Status FileHandler::open(const string& file_name, int flag) {
         LOG(WARNING) << "failed to open file. [err=" << strerror_r(errno, errmsg, 64)
                      << ", file_name='" << file_name << "' flag=" << flag << "]";
         if (errno == EEXIST) {
-            return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
+            return Status::Error<FILE_ALREADY_EXIST>();
         }
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << flag
@@ -74,7 +75,7 @@ Status FileHandler::open_with_mode(const string& file_name, int flag, int mode) 
     }
 
     if (!this->close()) {
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     _fd = ::open(file_name.c_str(), flag, mode);
@@ -84,9 +85,9 @@ Status FileHandler::open_with_mode(const string& file_name, int flag, int mode) 
         LOG(WARNING) << "failed to open file. [err=" << strerror_r(errno, err_buf, 64)
                      << " file_name='" << file_name << "' flag=" << flag << " mode=" << mode << "]";
         if (errno == EEXIST) {
-            return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
+            return Status::Error<FILE_ALREADY_EXIST>();
         }
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << mode
@@ -104,6 +105,7 @@ Status FileHandler::close() {
         return Status::OK();
     }
 
+#ifndef __APPLE__
     // try to sync page cache if have written some bytes
     if (_wr_length > 0) {
         posix_fadvise(_fd, 0, 0, POSIX_FADV_DONTNEED);
@@ -111,13 +113,14 @@ Status FileHandler::close() {
         sync_file_range(_fd, 0, 0, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
         _wr_length = 0;
     }
+#endif
 
     // In some extreme cases (fd is available, but fsync fails) can cause handle leaks
     if (::close(_fd) < 0) {
         char errmsg[64];
         LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' fd=" << _fd << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "finished to close file. "
@@ -139,13 +142,13 @@ Status FileHandler::pread(void* buf, size_t size, size_t offset) {
             LOG(WARNING) << "failed to pread from file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << size
                          << " offset=" << offset << "]";
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<IO_ERROR>();
         } else if (0 == rd_size) {
             char errmsg[64];
             LOG(WARNING) << "read unenough from file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << size
                          << " offset=" << offset << "]";
-            return Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH);
+            return Status::Error<READ_UNENOUGH>();
         }
 
         size -= rd_size;
@@ -167,19 +170,21 @@ Status FileHandler::write(const void* buf, size_t buf_size) {
             LOG(WARNING) << "failed to write to file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << "]";
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<IO_ERROR>();
         } else if (0 == wr_size) {
             char errmsg[64];
             LOG(WARNING) << "write unenough to file. [err=" << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << "]";
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<IO_ERROR>();
         }
 
         buf_size -= wr_size;
         ptr += wr_size;
     }
     _wr_length += org_buf_size;
+
+#ifndef __APPLE__
     // try to sync page cache if cache size is bigger than threshold
     if (_wr_length >= _cache_threshold) {
         posix_fadvise(_fd, 0, 0, POSIX_FADV_DONTNEED);
@@ -187,6 +192,8 @@ Status FileHandler::write(const void* buf, size_t buf_size) {
         sync_file_range(_fd, 0, 0, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
         _wr_length = 0;
     }
+#endif
+
     return Status::OK();
 }
 
@@ -202,13 +209,13 @@ Status FileHandler::pwrite(const void* buf, size_t buf_size, size_t offset) {
             LOG(WARNING) << "failed to pwrite to file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << " offset=" << offset << "]";
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<IO_ERROR>();
         } else if (0 == wr_size) {
             char errmsg[64];
             LOG(WARNING) << "pwrite unenough to file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << " offset=" << offset << "]";
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<IO_ERROR>();
         }
 
         buf_size -= wr_size;
@@ -243,7 +250,7 @@ Status FileHandlerWithBuf::open(const string& file_name, const char* mode) {
     }
 
     if (!this->close()) {
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     _fp = ::fopen(file_name.c_str(), mode);
@@ -253,9 +260,9 @@ Status FileHandlerWithBuf::open(const string& file_name, const char* mode) {
         LOG(WARNING) << "failed to open file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << file_name << "' flag='" << mode << "']";
         if (errno == EEXIST) {
-            return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
+            return Status::Error<FILE_ALREADY_EXIST>();
         }
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "success to open file. "
@@ -278,7 +285,7 @@ Status FileHandlerWithBuf::close() {
         char errmsg[64];
         LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "']";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     _fp = nullptr;
@@ -289,7 +296,7 @@ Status FileHandlerWithBuf::close() {
 Status FileHandlerWithBuf::read(void* buf, size_t size) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
+        return Status::Error<UNINITIALIZED>();
     }
 
     size_t rd_size = ::fread(buf, 1, size, _fp);
@@ -301,19 +308,19 @@ Status FileHandlerWithBuf::read(void* buf, size_t size) {
         LOG(WARNING) << "read unenough from file. [err=" << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << size << " rd_size=" << rd_size
                      << "]";
-        return Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH);
+        return Status::Error<READ_UNENOUGH>();
     } else {
         char errmsg[64];
         LOG(WARNING) << "failed to read from file. [err=" << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << size << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 }
 
 Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
+        return Status::Error<UNINITIALIZED>();
     }
 
     if (0 != ::fseek(_fp, offset, SEEK_SET)) {
@@ -321,7 +328,7 @@ Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
         LOG(WARNING) << "failed to seek file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << size << " offset=" << offset
                      << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     return this->read(buf, size);
@@ -330,7 +337,7 @@ Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
 Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
+        return Status::Error<UNINITIALIZED>();
     }
 
     size_t wr_size = ::fwrite(buf, 1, buf_size, _fp);
@@ -339,7 +346,7 @@ Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
         char errmsg[64];
         LOG(WARNING) << "failed to write to file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << buf_size << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     return Status::OK();
@@ -348,7 +355,7 @@ Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
 Status FileHandlerWithBuf::pwrite(const void* buf, size_t buf_size, size_t offset) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
+        return Status::Error<UNINITIALIZED>();
     }
 
     if (0 != ::fseek(_fp, offset, SEEK_SET)) {
@@ -356,7 +363,7 @@ Status FileHandlerWithBuf::pwrite(const void* buf, size_t buf_size, size_t offse
         LOG(WARNING) << "failed to seek file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << buf_size
                      << " offset=" << offset << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     return this->write(buf, buf_size);

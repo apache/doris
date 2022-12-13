@@ -74,7 +74,9 @@ public class ExprRewriter {
                 case FULL_OUTER_JOIN: return FULL_OUTER_JOIN_CLAUSE;
                 case LEFT_SEMI_JOIN: return LEFT_SEMI_JOIN_CLAUSE;
                 case RIGHT_SEMI_JOIN: return RIGHT_SEMI_JOIN_CLAUSE;
-                case LEFT_ANTI_JOIN: return LEFT_ANTI_JOIN_CLAUSE;
+                case NULL_AWARE_LEFT_ANTI_JOIN:
+                case LEFT_ANTI_JOIN:
+                    return LEFT_ANTI_JOIN_CLAUSE;
                 case RIGHT_ANTI_JOIN: return RIGHT_ANTI_JOIN_CLAUSE;
                 case CROSS_JOIN: return CROSS_JOIN_CLAUSE;
                 default: return OTHER_CLAUSE;

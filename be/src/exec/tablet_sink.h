@@ -96,7 +96,7 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
     }
 
@@ -124,7 +124,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
         cid = cntl.call_id();
     }
@@ -187,6 +187,8 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
+    Status add_row(const BlockRow& block_row, int64_t tablet_id);
+
     virtual Status add_block(vectorized::Block* block,
                              const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
                                              std::vector<int64_t>>& payload) {
@@ -236,7 +238,7 @@ public:
 
     void clear_all_batches();
 
-    virtual void clear_all_blocks() { LOG(FATAL) << "NodeChannel::clear_all_blocks not supported"; }
+    virtual void clear_all_blocks() {}
 
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
@@ -258,7 +260,7 @@ protected:
     std::string _load_info;
     std::string _name;
 
-    std::unique_ptr<MemTracker> _node_channel_tracker;
+    std::shared_ptr<MemTracker> _node_channel_tracker;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -407,7 +409,7 @@ void IndexChannel::add_row(const Row& tuple, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
+            mark_as_failed(channel->node_id(), channel->host(), st.to_string(), tablet_id);
             // continue add row to other node, the error will be checked for every batch outside
         }
     }
@@ -464,7 +466,7 @@ protected:
 
     bool _is_vectorized = false;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;

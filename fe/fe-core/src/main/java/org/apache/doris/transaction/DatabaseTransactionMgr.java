@@ -128,6 +128,7 @@ public class DatabaseTransactionMgr {
 
     // count the number of running txns of database, except for the routine load txn
     private volatile int runningTxnNums = 0;
+    private volatile int runningTxnReplicaNums = 0;
 
     // count only the number of running routine load txns of database
     private volatile int runningRoutineLoadTxnNums = 0;
@@ -416,7 +417,8 @@ public class DatabaseTransactionMgr {
     private void checkCommitStatus(List<Table> tableList, TransactionState transactionState,
                                    List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
                                    Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
-                                    Set<Long> totalInvolvedBackends) throws UserException {
+                                   Set<Long> totalInvolvedBackends) throws UserException {
+
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         // update transaction state extra if exists
@@ -524,6 +526,7 @@ public class DatabaseTransactionMgr {
                         // save the error replica ids for current tablet
                         // this param is used for log
                         Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
+                        String errorReplicaInfo = new String();
                         for (long tabletBackend : tabletBackends) {
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
@@ -540,21 +543,28 @@ public class DatabaseTransactionMgr {
                                 // for example, a replica is in clone state
                                 if (replica.getLastFailedVersion() < 0) {
                                     ++successReplicaNum;
+                                } else {
+                                    errorReplicaInfo += " replica [" + replica.getId() + "], lastFailedVersion ["
+                                                        + replica.getLastFailedVersion() + "]";
                                 }
                             } else {
                                 errorBackendIdsForTablet.add(tabletBackend);
                                 errorReplicaIds.add(replica.getId());
                                 // not remove rollup task here, because the commit maybe failed
                                 // remove rollup task when commit successfully
+                                errorReplicaInfo += " replica [" + replica.getId() + "] commitBackends null or "
+                                                    + "tabletBackend [" + tabletBackend + "] does not "
+                                                    + "in commitBackends";
                             }
                         }
 
                         if (successReplicaNum < quorumReplicaNum) {
                             LOG.warn("Failed to commit txn [{}]. "
                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
-                                            + "while error backends {}", transactionState.getTransactionId(),
-                                    tablet.getId(), successReplicaNum, quorumReplicaNum,
-                                    Joiner.on(",").join(errorBackendIdsForTablet));
+                                            + "while error backends {} error replica info {}",
+                                    transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
+                                    quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
+                                    errorReplicaInfo);
                             throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
                                     successReplicaNum, quorumReplicaNum,
                                     errorBackendIdsForTablet);
@@ -934,12 +944,21 @@ public class DatabaseTransactionMgr {
                 LOG.debug("after set transaction {} to visible", transactionState);
             } finally {
                 writeUnlock();
-                transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
+                try {
+                    transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
+                } catch (UserException e) {
+                    LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
+                }
             }
             updateCatalogAfterVisible(transactionState, db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+        // The visible latch should only be counted down after all things are done
+        // (finish transaction, write edit log, etc).
+        // Otherwise, there is no way for stream load to query the result right after loading finished,
+        // even if we call "sync" before querying.
+        transactionState.countdownVisibleLatch();
         LOG.info("finish transaction {} successfully", transactionState);
     }
 
@@ -980,7 +999,11 @@ public class DatabaseTransactionMgr {
             return;
         }
         // update transaction state version
-        transactionState.setCommitTime(System.currentTimeMillis());
+        long commitTime = System.currentTimeMillis();
+        transactionState.setCommitTime(commitTime);
+        if (MetricRepo.isInit) {
+            MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
+        }
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
@@ -1089,6 +1112,38 @@ public class DatabaseTransactionMgr {
             }
         }
         updateTxnLabels(transactionState);
+    }
+
+    public void registerTxnReplicas(long txnId, int replicaNum) throws UserException {
+        writeLock();
+        try {
+            TransactionState transactionState = idToRunningTransactionState.get(txnId);
+            if (transactionState == null) {
+                throw new UserException("running transaction not found, txnId=" + txnId);
+            }
+            transactionState.setReplicaNum(replicaNum);
+            runningTxnReplicaNums += replicaNum;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public int getRunningTxnNum() {
+        readLock();
+        try {
+            return runningTxnNums;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getRunningTxnReplicaNum() {
+        readLock();
+        try {
+            return runningTxnReplicaNums;
+        } finally {
+            readUnlock();
+        }
     }
 
     private void updateTxnLabels(TransactionState transactionState) {

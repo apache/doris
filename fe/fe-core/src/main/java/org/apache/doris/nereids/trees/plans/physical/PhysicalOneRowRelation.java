@@ -41,7 +41,7 @@ import java.util.Optional;
  * e.g. select 100, 'value'
  */
 public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelation {
-    private final List<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> projects;
 
     public PhysicalOneRowRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
         this(projects, Optional.empty(), logicalProperties, null, null);

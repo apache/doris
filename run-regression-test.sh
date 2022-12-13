@@ -151,6 +151,16 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
 fi
 
+# build jar needed by java-udf case
+JAVAUDF_JAR="${DORIS_HOME}/regression-test/java-udf-src/target/java-udf-case-jar-with-dependencies.jar"
+if ! test -f ${JAVAUDF_JAR:+${JAVAUDF_JAR}}; then
+    mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
+    cd "${DORIS_HOME}"/regression-test/java-udf-src
+    "${MVN_CMD}" package
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
+    cd "${DORIS_HOME}"
+fi
+
 # check java home
 if [[ -z "${JAVA_HOME}" ]]; then
     echo "Error: JAVA_HOME is not set"
@@ -177,6 +187,7 @@ fi
 
 "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
     -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+    -Dfile.encoding="UTF-8" \
     -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
     ${JAVA_OPTS:+${JAVA_OPTS}} \
     -jar ${RUN_JAR:+${RUN_JAR}} \

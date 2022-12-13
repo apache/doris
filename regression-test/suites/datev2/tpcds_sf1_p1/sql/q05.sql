@@ -13,15 +13,15 @@ WITH
       , ss_sold_date_sk date_sk
       , ss_ext_sales_price sales_price
       , ss_net_profit profit
-      , CAST(0 AS DECIMAL(7,2)) return_amt
-      , CAST(0 AS DECIMAL(7,2)) net_loss
+      , CAST(0 AS DECIMALV3(7,2)) return_amt
+      , CAST(0 AS DECIMALV3(7,2)) net_loss
       FROM
         store_sales
 UNION ALL       SELECT
         sr_store_sk store_sk
       , sr_returned_date_sk date_sk
-      , CAST(0 AS DECIMAL(7,2)) sales_price
-      , CAST(0 AS DECIMAL(7,2)) profit
+      , CAST(0 AS DECIMALV3(7,2)) sales_price
+      , CAST(0 AS DECIMALV3(7,2)) profit
       , sr_return_amt return_amt
       , sr_net_loss net_loss
       FROM
@@ -48,15 +48,15 @@ UNION ALL       SELECT
       , cs_sold_date_sk date_sk
       , cs_ext_sales_price sales_price
       , cs_net_profit profit
-      , CAST(0 AS DECIMAL(7,2)) return_amt
-      , CAST(0 AS DECIMAL(7,2)) net_loss
+      , CAST(0 AS DECIMALV3(7,2)) return_amt
+      , CAST(0 AS DECIMALV3(7,2)) net_loss
       FROM
         catalog_sales
 UNION ALL       SELECT
         cr_catalog_page_sk page_sk
       , cr_returned_date_sk date_sk
-      , CAST(0 AS DECIMAL(7,2)) sales_price
-      , CAST(0 AS DECIMAL(7,2)) profit
+      , CAST(0 AS DECIMALV3(7,2)) sales_price
+      , CAST(0 AS DECIMALV3(7,2)) profit
       , cr_return_amount return_amt
       , cr_net_loss net_loss
       FROM
@@ -83,15 +83,15 @@ UNION ALL       SELECT
       , ws_sold_date_sk date_sk
       , ws_ext_sales_price sales_price
       , ws_net_profit profit
-      , CAST(0 AS DECIMAL(7,2)) return_amt
-      , CAST(0 AS DECIMAL(7,2)) net_loss
+      , CAST(0 AS DECIMALV3(7,2)) return_amt
+      , CAST(0 AS DECIMALV3(7,2)) net_loss
       FROM
         web_sales
 UNION ALL       SELECT
         ws_web_site_sk wsr_web_site_sk
       , wr_returned_date_sk date_sk
-      , CAST(0 AS DECIMAL(7,2)) sales_price
-      , CAST(0 AS DECIMAL(7,2)) profit
+      , CAST(0 AS DECIMALV3(7,2)) sales_price
+      , CAST(0 AS DECIMALV3(7,2)) profit
       , wr_return_amt return_amt
       , wr_net_loss net_loss
       FROM

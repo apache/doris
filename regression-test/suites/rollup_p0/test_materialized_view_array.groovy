@@ -18,8 +18,6 @@ suite("test_materialized_view_array", "rollup") {
     def tableName = "tbl_test_materialized_view_array"
 
     def create_test_table = {testTable ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

@@ -24,10 +24,8 @@
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -47,10 +45,12 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
     }
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
 
-    auto& param_types = desc.agg_expr.param_types;
-    for (int i = 0; i < param_types.size(); i++) {
-        _argument_types_with_sort.push_back(
-                DataTypeFactory::instance().create_data_type(param_types[i]));
+    if (desc.agg_expr.__isset.param_types) {
+        auto& param_types = desc.agg_expr.param_types;
+        for (int i = 0; i < param_types.size(); i++) {
+            _argument_types_with_sort.push_back(
+                    DataTypeFactory::instance().create_data_type(param_types[i]));
+        }
     }
 }
 
@@ -70,7 +70,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
 
     auto sort_size = sort_info.ordering_exprs.size();
     auto real_arguments_size = agg_fn_evaluator->_argument_types_with_sort.size() - sort_size;
-    // Child arguments conatins [real arguments, order by arguments], we pass the arguments
+    // Child arguments contains [real arguments, order by arguments], we pass the arguments
     // to the order by functions
     for (int i = 0; i < sort_size; ++i) {
         agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,
@@ -86,10 +86,9 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     return Status::OK();
 }
 
-Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
+Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                const SlotDescriptor* intermediate_slot_desc,
                                const SlotDescriptor* output_slot_desc) {
-    DCHECK(pool != nullptr);
     DCHECK(intermediate_slot_desc != nullptr);
     DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
@@ -98,24 +97,35 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     Status status = VExpr::prepare(_input_exprs_ctxs, state, desc);
     RETURN_IF_ERROR(status);
 
+    DataTypes tmp_argument_types;
+    tmp_argument_types.reserve(_input_exprs_ctxs.size());
+
     std::vector<std::string_view> child_expr_name;
 
     // prepare for argument
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
+        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
+        tmp_argument_types.emplace_back(data_type);
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
+    const DataTypes& argument_types =
+            _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
+
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
-#ifdef LIBJVM
-        _function = AggregateJavaUdaf::create(_fn, _real_argument_types, {}, _data_type);
-#else
-        return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
-#endif
+        if (config::enable_java_support) {
+            _function = AggregateJavaUdaf::create(_fn, argument_types, {}, _data_type);
+            RETURN_IF_ERROR(static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(_fn));
+        } else {
+            return Status::InternalError(
+                    "Java UDAF is not enabled, you can change be config enable_java_support to "
+                    "true and restart be.");
+        }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
-        _function = AggregateRpcUdaf::create(_fn, _real_argument_types, {}, _data_type);
+        _function = AggregateRpcUdaf::create(_fn, argument_types, {}, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, _real_argument_types, {}, _data_type->is_nullable());
+                _fn.name.function_name, argument_types, {}, _data_type->is_nullable());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.name.function_name);
@@ -123,7 +133,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
 
     if (!_sort_description.empty()) {
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
-                                                   _sort_description);
+                                                   _sort_description, state);
     }
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     return Status::OK();

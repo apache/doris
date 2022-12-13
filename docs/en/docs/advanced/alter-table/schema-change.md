@@ -283,5 +283,5 @@ SHOW ALTER TABLE COLUMN\G;
 
 ## More Help
 
-For more detailed syntax and best practices used by Schema Change, see [ALTER TABLE COLUMN](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) command manual, you can also enter `HELP ALTER TABLE COLUMN` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by Schema Change, see [ALTER TABLE COLUMN](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) command manual, you can also enter `HELP ALTER TABLE COLUMN` in the MySql client command line for more help information.
 

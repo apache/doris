@@ -38,21 +38,25 @@ public class DorisStreamLoader {
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
     private String hostPort;
     private String db;
-    private String tbl;
+    private String auditLogTbl;
+    private String slowLogTbl;
     private String user;
     private String passwd;
-    private String loadUrlStr;
+    private String auditLogLoadUrlStr;
+    private String slowLogLoadUrlStr;
     private String authEncoding;
     private String feIdentity;
 
     public DorisStreamLoader(AuditLoaderPlugin.AuditLoaderConf conf) {
         this.hostPort = conf.frontendHostPort;
         this.db = conf.database;
-        this.tbl = conf.table;
+        this.auditLogTbl = conf.auditLogTable;
+        this.slowLogTbl = conf.slowLogTable;
         this.user = conf.user;
         this.passwd = conf.password;
 
-        this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
+        this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
+        this.slowLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, slowLogTbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
         this.feIdentity = conf.feIdentity.replaceAll("\\.", "_");
@@ -112,9 +116,9 @@ public class DorisStreamLoader {
         return response.toString();
     }
 
-    public LoadResponse loadBatch(StringBuilder sb) {
+    public LoadResponse loadBatch(StringBuilder sb, boolean slowLog) {
         Calendar calendar = Calendar.getInstance();
-        String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
+        String label = String.format("_log_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
                 feIdentity);
@@ -123,7 +127,13 @@ public class DorisStreamLoader {
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
-            feConn = getConnection(loadUrlStr, label);
+            if (slowLog) {
+                label = "slow" + label;
+                feConn = getConnection(slowLogLoadUrlStr, label);
+            } else {
+                label = "audit" + label;
+                feConn = getConnection(auditLogLoadUrlStr, label);
+            }
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {

@@ -713,7 +713,8 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()) {
+            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
+                    && be.isMixNode()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
             }
@@ -979,7 +980,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> allocMap = tabletCtx.getReplicaAlloc().getAllocMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (!allocMap.containsKey(be.getLocationTag())) {
+            if (be.isMixNode() && !allocMap.containsKey(be.getLocationTag())) {
                 deleteReplicaInternal(tabletCtx, replica, "not in valid tag", force);
                 return true;
             }
@@ -1313,8 +1314,8 @@ public class TabletScheduler extends MasterDaemon {
                 continue;
             }
 
-            // exclude host which already has replica of this tablet
-            if (tabletCtx.containsBE(bes.getBeId())) {
+            // exclude BE which already has replica of this tablet or another BE at same host has this replica
+            if (tabletCtx.filterDestBE(bes.getBeId())) {
                 continue;
             }
 
@@ -1583,7 +1584,7 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         // 2. release ctx
-        timeoutTablets.stream().forEach(t -> {
+        timeoutTablets.forEach(t -> {
             // Set "resetReplicaState" to true because
             // the timeout task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
@@ -1609,7 +1610,7 @@ public class TabletScheduler extends MasterDaemon {
 
     private List<List<String>> collectTabletCtx(List<TabletSchedCtx> tabletCtxs) {
         List<List<String>> result = Lists.newArrayList();
-        tabletCtxs.stream().forEach(t -> {
+        tabletCtxs.forEach(t -> {
             result.add(t.getBrief());
         });
         return result;

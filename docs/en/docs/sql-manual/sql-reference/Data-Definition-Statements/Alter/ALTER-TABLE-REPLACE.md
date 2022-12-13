@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-REPLACE-COLUMN",
+    "title": "ALTER-TABLE-REPLACE",
     "language": "en"
 }
 ---
@@ -83,4 +83,4 @@ ALTER, TABLE, REPLACE, ALTER TABLE
 ### Best Practice
 1. Atomic overlay write operations
 
-   In some cases, the user wants to be able to rewrite the data of a table, but if the deletion and then import method is used, the data cannot be viewed for a period of time. In this case, you can use the `CREATE TABLE LIKE` statement to CREATE a new TABLE with the same structure. After importing the new data into the new TABLE, you can replace the old TABLE atomic to achieve the purpose.
+  In some cases, the user wants to be able to rewrite the data of a certain table, but if the data is deleted first and then imported, the data cannot be viewed for a period of time in between. At this time, the user can first use the `CREATE TABLE LIKE` statement to create a new table with the same structure, import the new data into the new table, and use the replacement operation to atomically replace the old table to achieve the goal. Atomic overwrite write operations at the partition level, see [temp partition documentation](../../../../../advanced/partition/table-temp-partition).

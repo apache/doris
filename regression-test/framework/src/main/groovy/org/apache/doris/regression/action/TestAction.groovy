@@ -38,6 +38,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.junit.Assert
 
 import java.util.function.Consumer
+import java.util.Random
 
 @Slf4j
 @CompileStatic
@@ -53,9 +54,11 @@ class TestAction implements SuiteAction {
     private String exception
     private Closure check
     SuiteContext context
+    private Random rd
 
     TestAction(SuiteContext context) {
         this.context = context
+        this.rd = new Random()
     }
 
     @Override
@@ -189,7 +192,17 @@ class TestAction implements SuiteAction {
         return new ActionResult(result, ex, startTime, endTime, meta)
     }
 
-    void sql(String sql) {
+    void sql(String sql, boolean setRandomParallel = true) {
+        if (setRandomParallel && (! sql.contains('SET_VAR')) && sql.containsIgnoreCase('select')) {
+            def num = rd.nextInt(16)
+            def replace_str = 'select /*+SET_VAR(parallel_fragment_exec_instance_num=' + num.toString() + ')*/'
+            if(sql.contains('SELECT')) {
+                sql = sql.replaceFirst('SELECT', replace_str)
+            }
+            else if (sql.contains('select')) {
+                sql = sql.replaceFirst('select', replace_str)
+            }
+        }
         this.sql = sql
     }
 

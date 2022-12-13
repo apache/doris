@@ -35,8 +35,9 @@ namespace doris {
 struct JsonBinaryValue {
     static const int MAX_LENGTH = (1 << 30);
 
-    const char* ptr;
-    size_t len;
+    // default nullprt and size 0 for invalid or NULL value
+    const char* ptr = nullptr;
+    size_t len = 0;
     JsonbParser parser;
 
     JsonBinaryValue() : ptr(nullptr), len(0) {}
@@ -97,7 +98,7 @@ struct JsonBinaryValue {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
     }
 
-    JsonbErrType from_json_string(const char* s, int len);
+    Status from_json_string(const char* s, int len);
 
     std::string to_json_string() const;
 

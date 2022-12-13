@@ -19,7 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -28,9 +30,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -45,7 +47,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -287,8 +288,7 @@ public class OutFileClause {
                     break;
                 case DECIMALV2:
                     if (!expr.getType().isWildcardDecimal()) {
-                        type = String.format("decimal(%d, %d)", ScalarType.MAX_DECIMAL128_PRECISION,
-                                ((ScalarType) expr.getType()).decimalScale());
+                        type = String.format("decimal(%d, 9)", ScalarType.MAX_DECIMAL128_PRECISION);
                     } else {
                         throw new AnalysisException("currently ORC writer do not support WildcardDecimal!");
                     }
@@ -563,7 +563,7 @@ public class OutFileClause {
         analyzeBrokerDesc(processedPropKeys);
 
         if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
-            if (!isCsvFormat()) {
+            if (!Util.isCsvFormat(fileFormatType)) {
                 throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
             }
             columnSeparator = Separator.convertSeparator(properties.get(PROP_COLUMN_SEPARATOR));
@@ -571,7 +571,7 @@ public class OutFileClause {
         }
 
         if (properties.containsKey(PROP_LINE_DELIMITER)) {
-            if (!isCsvFormat()) {
+            if (!Util.isCsvFormat(fileFormatType)) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
             lineDelimiter = Separator.convertSeparator(properties.get(PROP_LINE_DELIMITER));
@@ -630,16 +630,14 @@ public class OutFileClause {
         }
 
         Map<String, String> brokerProps = Maps.newHashMap();
-        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<String, String> entry = iter.next();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toUpperCase().startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().contains(BrokerUtil.HADOOP_FS_NAME)
+            } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
                     && storageType == StorageBackend.StorageType.HDFS) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
@@ -651,9 +649,9 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
-            S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
+            S3Storage.checkS3(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HdfsStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
+            HdfsStorage.checkHDFS(brokerProps);
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
@@ -772,16 +770,6 @@ public class OutFileClause {
         processedPropKeys.add(SCHEMA);
     }
 
-    private boolean isCsvFormat() {
-        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
-                || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
-                || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
-                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
-    }
-
     private boolean isParquetFormat() {
         return fileFormatType == TFileFormatType.FORMAT_PARQUET;
     }
@@ -817,7 +805,7 @@ public class OutFileClause {
 
     public TResultFileSinkOptions toSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
-        if (isCsvFormat()) {
+        if (Util.isCsvFormat(fileFormatType)) {
             sinkOptions.setColumnSeparator(columnSeparator);
             sinkOptions.setLineDelimiter(lineDelimiter);
         }

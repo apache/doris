@@ -33,6 +33,7 @@ import java.util.List;
 
 /**
  * Swap the order of project and filter under agg in correlated subqueries.
+ * <pre>
  * before:
  *              apply
  *         /              \
@@ -54,6 +55,7 @@ import java.util.List;
  *                  Project(output:a,this.f, Unapply predicate(slots))
  *                          |
  *                         child
+ * </pre>
  */
 public class ApplyPullFilterOnProjectUnderAgg extends OneRewriteRuleFactory {
     @Override
@@ -66,12 +68,11 @@ public class ApplyPullFilterOnProjectUnderAgg extends OneRewriteRuleFactory {
                     LogicalFilter<GroupPlan> filter = project.child();
                     List<NamedExpression> newProjects = Lists.newArrayList();
                     newProjects.addAll(project.getProjects());
-                    filter.child().getOutput()
-                            .stream().forEach(slot -> {
-                                if (!newProjects.contains(slot)) {
-                                    newProjects.add(slot);
-                                }
-                            });
+                    filter.child().getOutput().forEach(slot -> {
+                        if (!newProjects.contains(slot)) {
+                            newProjects.add(slot);
+                        }
+                    });
 
                     LogicalProject newProject = new LogicalProject<>(newProjects, filter.child());
                     LogicalFilter newFilter = new LogicalFilter<>(filter.getPredicates(), newProject);

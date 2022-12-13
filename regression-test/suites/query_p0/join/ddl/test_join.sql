@@ -1,4 +1,4 @@
-CREATE TABLE test_join (
+CREATE TABLE IF NOT EXISTS test_join (
   `k1` int NOT NULL COMMENT ""
 ) ENGINE=OLAP
 UNIQUE KEY(`k1`)

@@ -188,7 +188,7 @@ private:
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(src_column.size());
 
-        size_t prev_src_offset = 0;
+        ColumnArray::Offset64 prev_src_offset = 0;
         IColumn::Permutation permutation(src_column.size());
         for (size_t i = 0; i < src_column.size(); ++i) {
             permutation[i] = i;

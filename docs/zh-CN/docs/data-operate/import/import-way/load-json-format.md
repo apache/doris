@@ -510,6 +510,47 @@ curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\
 105     {"order1":["guangzhou"]}    7
 ```
 
+6. 使用json导入Array类型
+由于Rapidjson处理decimal和largeint数值会导致精度问题，所以我们建议使用json字符串来导入数据到`array<decimal>` 或 `array<largeint>`列。
+
+```json
+{"k1": 39, "k2": ["-818.2173181"]}
+```
+
+```json
+{"k1": 40, "k2": ["10000000000000000000.1111111222222222"]}
+```
+
+```bash
+curl --location-trusted -u root:  -H "max_filter_ration:0.01" -H "format:json" -H "timeout:300" -T test_decimal.json http://localhost:8035/api/example_db/array_test_decimal/_stream_load
+```
+
+导入结果:
+MySQL > select * from array_test_decimal;
++------+----------------------------------+
+| k1   | k2                               |
++------+----------------------------------+
+|   39 | [-818.2173181]                   |
+|   40 | [100000000000000000.001111111]   |
++------+----------------------------------+
+
+
+```json
+{"k1": 999, "k2": ["76959836937749932879763573681792701709", "26017042825937891692910431521038521227"]}
+```
+
+```bash
+curl --location-trusted -u root:  -H "max_filter_ration:0.01" -H "format:json" -H "timeout:300" -T test_largeint.json http://localhost:8035/api/example_db/array_test_largeint/_stream_load
+```
+
+导入结果:
+MySQL > select * from array_test_largeint;
++------+------------------------------------------------------------------------------------+
+| k1   | k2                                                                                 |
++------+------------------------------------------------------------------------------------+
+|  999 | [76959836937749932879763573681792701709, 26017042825937891692910431521038521227]   |
++------+------------------------------------------------------------------------------------+
+
 ### Routine Load
 
 Routine Load 对 Json 数据的处理原理和 Stream Load 相同。在此不再赘述。

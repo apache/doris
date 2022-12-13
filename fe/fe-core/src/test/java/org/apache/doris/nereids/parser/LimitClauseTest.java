@@ -54,7 +54,7 @@ public class LimitClauseTest extends ParserTestBase {
         parsePlan("SELECT b FROM test limit 3 offset 100")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("\n"
-                        + "OFFSET requires an ORDER BY clause(line 1, pos19)\n"
+                        + "OFFSET requires an ORDER BY clause(line 1, pos 19)\n"
                         + "\n"
                         + "== SQL ==\n"
                         + "SELECT b FROM test limit 3 offset 100\n"
@@ -63,7 +63,7 @@ public class LimitClauseTest extends ParserTestBase {
         parsePlan("SELECT b FROM test limit 100, 3")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("\n"
-                        + "OFFSET requires an ORDER BY clause(line 1, pos19)\n"
+                        + "OFFSET requires an ORDER BY clause(line 1, pos 19)\n"
                         + "\n"
                         + "== SQL ==\n"
                         + "SELECT b FROM test limit 100, 3\n"
@@ -80,7 +80,9 @@ public class LimitClauseTest extends ParserTestBase {
         parsePlan("select a from tbl")
                 .matchesFromRoot(
                         logicalProject(
-                                unboundRelation()
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
                         )
                 );
     }

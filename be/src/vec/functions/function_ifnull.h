@@ -62,7 +62,7 @@ public:
     // ifnull(col_left, col_right) == if(isnull(col_left), col_right, col_left)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
+        ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         if (col_left.column->only_null()) {
             block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
             return Status::OK();
@@ -70,6 +70,8 @@ public:
 
         ColumnWithTypeAndName null_column_arg0 {nullptr, std::make_shared<DataTypeUInt8>(), ""};
         ColumnWithTypeAndName nested_column_arg0 {nullptr, col_left.type, ""};
+
+        col_left.column = col_left.column->convert_to_full_column_if_const();
 
         /// implement isnull(col_left) logic
         if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {

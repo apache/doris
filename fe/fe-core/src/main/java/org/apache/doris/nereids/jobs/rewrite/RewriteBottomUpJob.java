@@ -24,21 +24,27 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Bottom up job for rewrite, use pattern match.
  */
 public class RewriteBottomUpJob extends Job {
+    private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
+            TransformEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final Group group;
     private final List<Rule> rules;
     private final boolean childrenOptimized;
@@ -62,33 +68,38 @@ public class RewriteBottomUpJob extends Job {
     }
 
     @Override
+    public EventProducer getEventTracer() {
+        return RULE_TRANSFORM_TRACER;
+    }
+
+    @Override
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
             pushJob(new RewriteBottomUpJob(group, rules, context, true));
-            for (Group childGroup : logicalExpression.children()) {
-                pushJob(new RewriteBottomUpJob(childGroup, rules, context, false));
+            List<Group> children = logicalExpression.children();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                pushJob(new RewriteBottomUpJob(children.get(i), rules, context, false));
             }
             return;
         }
 
+        countJobExecutionTimesOfGroupExpressions(logicalExpression);
         List<Rule> validRules = getValidRules(logicalExpression, rules);
         for (Rule rule : validRules) {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
-                context.onInvokeRule(rule.getRuleType());
-                List<Plan> afters = rule.transform(before, context.getCascadesContext());
-                Preconditions.checkArgument(afters.size() == 1);
-                Plan after = afters.get(0);
-                if (after != before) {
-                    CopyInResult result = context.getCascadesContext()
-                            .getMemo()
-                            .copyIn(after, group, rule.isRewrite());
-                    if (result.generateNewExpression) {
-                        pushJob(new RewriteBottomUpJob(group, rules, context, false));
-                        return;
-                    }
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                Group correspondingGroup = copyInResult.get().correspondingExpression.getOwnerGroup();
+                if (copyInResult.get().generateNewExpression
+                        || correspondingGroup != group
+                        || logicalExpression.getOwnerGroup() == null) {
+                    pushJob(new RewriteBottomUpJob(correspondingGroup, rules, context, false));
+                    return;
                 }
             }
         }

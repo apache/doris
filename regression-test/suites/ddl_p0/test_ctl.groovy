@@ -32,7 +32,7 @@ suite("test_ctl") {
     )
     """
 
-        sql """ 
+        sql """
     CREATE TABLE IF NOT EXISTS `test_ctl1` LIKE `test_ctl`
     """
 

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
@@ -35,12 +36,43 @@ import java.util.stream.Collectors;
 public class FunctionBuilder {
     public final int arity;
 
+    public final boolean isVariableLength;
+
     // Concrete BoundFunction's constructor
     private final Constructor<BoundFunction> builderMethod;
 
     public FunctionBuilder(Constructor<BoundFunction> builderMethod) {
         this.builderMethod = Objects.requireNonNull(builderMethod, "builderMethod can not be null");
         this.arity = builderMethod.getParameterCount();
+        this.isVariableLength = arity > 0 && builderMethod.getParameterTypes()[arity - 1].isArray();
+    }
+
+    /** check whether arguments can apply to the constructor */
+    public boolean canApply(List<? extends Object> arguments) {
+        if (isVariableLength && arity > arguments.size() + 1) {
+            return false;
+        }
+        if (!isVariableLength && arguments.size() != arity) {
+            return false;
+        }
+        for (int i = 0; i < arguments.size(); i++) {
+            Class constructorArgumentType = getConstructorArgumentType(i);
+            if (!constructorArgumentType.isInstance(arguments.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public Class getConstructorArgumentType(int index) {
+        if (isVariableLength && index + 1 >= arity) {
+            return builderMethod.getParameterTypes()[arity - 1].getComponentType();
+        }
+        return builderMethod.getParameterTypes()[index];
+    }
+
+    public BoundFunction build(String name, Object argument) {
+        return build(name, ImmutableList.of(argument));
     }
 
     /**
@@ -49,16 +81,47 @@ public class FunctionBuilder {
      * @param arguments the function's argument expressions
      * @return the concrete bound function instance
      */
-    public BoundFunction build(String name, List<Expression> arguments) {
+    public BoundFunction build(String name, List<? extends Object> arguments) {
         try {
-            return builderMethod.newInstance(arguments.toArray(new Expression[0]));
+            if (isVariableLength) {
+                return builderMethod.newInstance(toVariableLengthArguments(arguments));
+            } else {
+                return builderMethod.newInstance(arguments.stream().toArray(Object[]::new));
+            }
         } catch (Throwable t) {
             String argString = arguments.stream()
-                    .map(arg -> arg == null ? "null" : arg.toSql())
+                    .map(arg -> {
+                        if (arg == null) {
+                            return "null";
+                        } else if (arg instanceof Expression) {
+                            return ((Expression) arg).toSql();
+                        } else {
+                            return arg.toString();
+                        }
+                    })
                     .collect(Collectors.joining(", ", "(", ")"));
             throw new IllegalStateException("Can not build function: '" + name
                     + "', expression: " + name + argString, t);
         }
+    }
+
+    private Object[] toVariableLengthArguments(List<? extends Object> arguments) {
+        Object[] constructorArguments = new Object[arity];
+
+        List<?> nonVarArgs = arguments.subList(0, arity - 1);
+        for (int i = 0; i < nonVarArgs.size(); i++) {
+            constructorArguments[i] = nonVarArgs.get(i);
+        }
+
+        List<?> varArgs = arguments.subList(arity - 1, arguments.size());
+        Class constructorArgumentType = getConstructorArgumentType(arity);
+        Object varArg = Array.newInstance(constructorArgumentType, varArgs.size());
+        for (int i = 0; i < varArgs.size(); i++) {
+            Array.set(varArg, i, varArgs.get(i));
+        }
+        constructorArguments[arity - 1] = varArg;
+
+        return constructorArguments;
     }
 
     @Override
@@ -79,11 +142,6 @@ public class FunctionBuilder {
                         + functionClass.getSimpleName());
         return Arrays.stream(functionClass.getConstructors())
                 .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
-                .filter(constructor ->
-                        // all arguments must be Expression
-                        Arrays.stream(constructor.getParameterTypes())
-                                .allMatch(Expression.class::isAssignableFrom)
-                )
                 .map(constructor -> new FunctionBuilder((Constructor<BoundFunction>) constructor))
                 .collect(ImmutableList.toImmutableList());
     }

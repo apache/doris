@@ -21,7 +21,7 @@ suite("test_null_predicate") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
             `id` INT,
             `name` STRING NULL
             ) ENGINE=OLAP

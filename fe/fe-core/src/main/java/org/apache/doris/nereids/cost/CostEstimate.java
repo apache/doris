@@ -24,17 +24,24 @@ import com.google.common.base.Preconditions;
  */
 public final class CostEstimate {
     private static final CostEstimate INFINITE =
-            new CostEstimate(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY);
-    private static final CostEstimate ZERO = new CostEstimate(0, 0, 0);
+            new CostEstimate(Double.POSITIVE_INFINITY,
+                    Double.POSITIVE_INFINITY,
+                    Double.POSITIVE_INFINITY,
+                    Double.POSITIVE_INFINITY);
+    private static final CostEstimate ZERO = new CostEstimate(0, 0, 0, 0);
 
     private final double cpuCost;
     private final double memoryCost;
     private final double networkCost;
+    //penalty for
+    // 1. right deep tree
+    // 2. right XXX join
+    private final double penalty;
 
     /**
      * Constructor of CostEstimate.
      */
-    public CostEstimate(double cpuCost, double memoryCost, double networkCost) {
+    public CostEstimate(double cpuCost, double memoryCost, double networkCost, double penaltiy) {
         // TODO: fix stats
         if (cpuCost < 0) {
             cpuCost = 0;
@@ -51,6 +58,7 @@ public final class CostEstimate {
         this.cpuCost = cpuCost;
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
+        this.penalty = penaltiy;
     }
 
     public static CostEstimate infinite() {
@@ -73,16 +81,24 @@ public final class CostEstimate {
         return networkCost;
     }
 
+    public double getPenalty() {
+        return penalty;
+    }
+
+    public static CostEstimate of(double cpuCost, double maxMemory, double networkCost, double rightDeepPenaltiy) {
+        return new CostEstimate(cpuCost, maxMemory, networkCost, rightDeepPenaltiy);
+    }
+
     public static CostEstimate of(double cpuCost, double maxMemory, double networkCost) {
-        return new CostEstimate(cpuCost, maxMemory, networkCost);
+        return new CostEstimate(cpuCost, maxMemory, networkCost, 0);
     }
 
     public static CostEstimate ofCpu(double cpuCost) {
-        return new CostEstimate(cpuCost, 0, 0);
+        return new CostEstimate(cpuCost, 0, 0, 0);
     }
 
     public static CostEstimate ofMemory(double memoryCost) {
-        return new CostEstimate(0, memoryCost, 0);
+        return new CostEstimate(0, memoryCost, 0, 0);
     }
 
     /**
@@ -97,6 +113,16 @@ public final class CostEstimate {
             memoryCostSum += costEstimate.memoryCost;
             networkCostSum += costEstimate.networkCost;
         }
-        return new CostEstimate(cpuCostSum, memoryCostSum, networkCostSum);
+        return CostEstimate.of(cpuCostSum, memoryCostSum, networkCostSum);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append((long) cpuCost)
+                .append("/").append((long) memoryCost)
+                .append("/").append((long) networkCost)
+                .append("/").append((long) penalty);
+        return sb.toString();
     }
 }

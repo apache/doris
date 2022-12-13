@@ -89,7 +89,7 @@ TEST(AggTest, topn_test) {
         agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
     }
 
-    std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place)->get();
+    std::string result = reinterpret_cast<AggregateFunctionTopNData<std::string>*>(place)->get();
     std::string expect_result =
             "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
             "46,\"10\":37}";

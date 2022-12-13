@@ -32,6 +32,7 @@
 #include "util/file_utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
@@ -63,7 +64,7 @@ Status LoadPathMgr::init() {
     RETURN_IF_ERROR(FileUtils::create_dir(_error_log_dir));
 
     _idx = 0;
-    _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
+    _reserved_hours = std::max<int64_t>(config::load_data_reserve_hours, 1L);
     RETURN_IF_ERROR(Thread::create(
             "LoadPathMgr", "clean_expired_temp_path",
             [this]() {
@@ -98,8 +99,7 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
             *prefix = path;
             return Status::OK();
         } else {
-            LOG(WARNING) << "create dir failed:" << path
-                         << ", error msg:" << status.get_error_msg();
+            LOG(WARNING) << "create dir failed:" << path << ", error msg:" << status;
         }
     }
 
@@ -179,7 +179,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
     std::vector<std::string> dbs;
     Status status = FileUtils::list_files(env, path, &dbs);
     // path may not exist
-    if (!status.ok() && !status.is_not_found()) {
+    if (!status.ok() && !status.is<NOT_FOUND>()) {
         LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
         return;
     }

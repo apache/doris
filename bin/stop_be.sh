@@ -54,7 +54,7 @@ if [[ -f "${pidfile}" ]]; then
         exit 1
     fi
 
-    pidcomm="$(ps -p "${pid}" -o comm=)"
+    pidcomm="$(basename "$(ps -p "${pid}" -o comm=)")"
     # check if pid process is backend process
     if [[ "doris_be" != "${pidcomm}" ]]; then
         echo "ERROR: pid process may not be be. "

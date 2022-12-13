@@ -19,7 +19,7 @@ suite("test_select_stddev_variance_window") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE `${tableName}` (
+            CREATE TABLE IF NOT EXISTS `${tableName}` (
             `k1` tinyint(4) NULL COMMENT "",
             `k2` smallint(6) NULL COMMENT "",
             `k3` int(11) NULL COMMENT "",
@@ -78,6 +78,8 @@ suite("test_select_stddev_variance_window") {
     }
     // Not Vectorized
     sql """ set enable_vectorized_engine = false """
+
+    sql "sync"
 
     qt_select_default  "select k1, stddev_pop(k2) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from  ${tableName} order by k1;"
     qt_select_default  "select k1, stddev_pop(k2) over (partition by k6 order by k1 rows between 3 preceding and 1 preceding) from   ${tableName} order by k1;"
@@ -145,12 +147,12 @@ suite("test_select_stddev_variance_window") {
     qt_select_default  "select k1, percentile(k2,0.8) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
     qt_select_default  "select k1, percentile(k2,0.8) over (partition by k6 order by k1) from ${tableName} order by k1;"
 
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 preceding) from  ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 following) from  ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between current row and current row) from  ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1) from ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 preceding) from  ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 following) from  ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between current row and current row) from  ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1) from ${tableName} order by k1;"
 }
 
 

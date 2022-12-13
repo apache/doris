@@ -96,7 +96,7 @@ public class TableFunctionNode extends PlanNode {
         }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
-        List<Expr> baseTblResultExprs = selectStmt.getBaseTblResultExprs();
+        List<Expr> baseTblResultExprs = selectStmt.getResultExprs();
         for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
@@ -155,25 +155,26 @@ public class TableFunctionNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "table function: ");
+        output.append(prefix).append("table function: ");
         for (Expr fnExpr : fnCallExprList) {
-            output.append(fnExpr.toSql() + " ");
+            output.append(fnExpr.toSql()).append(" ");
         }
         output.append("\n");
 
-        output.append(prefix + "lateral view tuple id: ");
+        output.append(prefix).append("lateral view tuple id: ");
         for (TupleId tupleId : lateralViewTupleIds) {
-            output.append(tupleId.asInt() + " ");
+            output.append(tupleId.asInt()).append(" ");
         }
         output.append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
             return output.toString();
         }
 
-        output.append(prefix + "output slot id: ");
+        output.append(prefix).append("output slot id: ");
         for (SlotId slotId : outputSlotIds) {
-            output.append(slotId.asInt() + " ");
+            output.append(slotId.asInt()).append(" ");
         }
         output.append("\n");
 
@@ -181,7 +182,7 @@ public class TableFunctionNode extends PlanNode {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
         }
-        output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         return output.toString();
     }
 

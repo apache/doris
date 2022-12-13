@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -254,6 +255,10 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
+                }
+                if (MetricRepo.isInit) {
+                    long publishTime = transactionState.getPublishVersionTime() - transactionState.getCommitTime();
+                    MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
                 }
             }
         } // end for readyTransactionStates

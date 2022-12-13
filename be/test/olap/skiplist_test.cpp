@@ -390,7 +390,7 @@ static void run_concurrent(int run) {
     Random rnd(seed);
     const int N = LOOP_LESS_OR_MORE(10, 1000);
     const int kSize = 1000;
-    PriorityThreadPool thread_pool(10, 100);
+    PriorityThreadPool thread_pool(10, 100, "ut");
     for (int i = 0; i < N; i++) {
         if ((i % 100) == 0) {
             fprintf(stderr, "Run %d of %d\n", i, N);

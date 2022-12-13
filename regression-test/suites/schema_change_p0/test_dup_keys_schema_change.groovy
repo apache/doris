@@ -59,7 +59,7 @@ suite ("test_dup_keys_schema_change") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
 
         sql """
-                CREATE TABLE ${tableName} (
+                CREATE TABLE IF NOT EXISTS ${tableName} (
                     `user_id` LARGEINT NOT NULL COMMENT "用户id",
                     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                     `city` VARCHAR(20) COMMENT "用户所在城市",
@@ -133,6 +133,7 @@ suite ("test_dup_keys_schema_change") {
             }
             Thread.sleep(100)
         }
+        Thread.sleep(1000)
         qt_sc """ select * from ${tableName} where user_id = 3 order by new_column """
 
 

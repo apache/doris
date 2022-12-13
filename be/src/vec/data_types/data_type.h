@@ -100,7 +100,7 @@ public:
     virtual DataTypePtr promote_numeric_type() const;
 
     /** Directly insert default value into a column. Default implementation use method IColumn::insert_default.
-      * This should be overriden if data type default value differs from column default value (example: Enum data types).
+      * This should be overridden if data type default value differs from column default value (example: Enum data types).
       */
     virtual void insert_default_into(IColumn& column) const;
 
@@ -285,7 +285,10 @@ struct WhichDataType {
     bool is_decimal32() const { return idx == TypeIndex::Decimal32; }
     bool is_decimal64() const { return idx == TypeIndex::Decimal64; }
     bool is_decimal128() const { return idx == TypeIndex::Decimal128; }
-    bool is_decimal() const { return is_decimal32() || is_decimal64() || is_decimal128(); }
+    bool is_decimal128i() const { return idx == TypeIndex::Decimal128I; }
+    bool is_decimal() const {
+        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i();
+    }
 
     bool is_float32() const { return idx == TypeIndex::Float32; }
     bool is_float64() const { return idx == TypeIndex::Float64; }
@@ -342,6 +345,9 @@ inline bool is_enum(const DataTypePtr& data_type) {
 }
 inline bool is_decimal(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_decimal();
+}
+inline bool is_decimal_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_decimal128();
 }
 inline bool is_tuple(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_tuple();

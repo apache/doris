@@ -133,7 +133,7 @@ public class DropDbTest {
         String recoverDbSql = "recover database test2";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test2'",
+                "Unknown database 'default_cluster:test2' or database id '-1'",
                 () -> Env.getCurrentEnv().recoverDatabase(recoverDbStmt));
 
         dropDbSql = "drop schema test3 force";

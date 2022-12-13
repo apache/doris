@@ -91,6 +91,12 @@ public:
         return _get_page_cache(page_type) != nullptr;
     }
 
+    void prune(segment_v2::PageTypePB page_type);
+
+    int64_t get_page_cache_mem_consumption(segment_v2::PageTypePB page_type) {
+        return _get_page_cache(page_type)->mem_consumption();
+    }
+
 private:
     StoragePageCache();
     static StoragePageCache* _s_instance;

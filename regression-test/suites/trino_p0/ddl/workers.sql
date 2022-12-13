@@ -1,4 +1,4 @@
-CREATE TABLE `workers` (
+CREATE TABLE IF NOT EXISTS `workers` (
   id_employee INT,
   first_name VARCHAR(32),
   last_name VARCHAR(32),

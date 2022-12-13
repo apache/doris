@@ -55,6 +55,13 @@ illustrate:
 - After a table is created, data is imported. If the import fails, the table is deleted
 - You can specify the key type. The default key type is `Duplicate Key`
 
+<version since='1.2'>
+
+- All columns of type string (varchar/var/string) are created as type "string".
+- If the created source is an external table and the first column is of type String, the first column is automatically set to VARCHAR(65533). Because of Doris internal table, String column is not allowed as first column.
+
+</version>
+
 ### Example
 
 1. Using the field names in the SELECT statement

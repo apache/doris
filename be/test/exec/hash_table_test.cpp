@@ -49,7 +49,7 @@ public:
     HashTableTest() {
         _mem_pool.reset(new MemPool());
         _state = _pool.add(new RuntimeState(TQueryGlobals()));
-        _state->init_instance_mem_tracker();
+        _state->init_mem_trackers();
         _state->_exec_env = ExecEnv::GetInstance();
     }
 
@@ -309,7 +309,7 @@ TEST_F(HashTableTest, GrowTableTest) {
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
                          num_buckets);
-    EXPECT_FALSE(hash_table.mem_tracker()->limit_exceeded(mem_limit));
+    EXPECT_FALSE(hash_table.mem_tracker()->consumption() > mem_limit);
 
     for (int i = 0; i < LOOP_LESS_OR_MORE(1, 20); ++i) {
         for (int j = 0; j < num_to_add; ++build_row_val, ++j) {
@@ -323,7 +323,7 @@ TEST_F(HashTableTest, GrowTableTest) {
     LOG(INFO) << "consume:" << hash_table.mem_tracker()->consumption()
               << ",expected_size:" << expected_size;
 
-    EXPECT_EQ(LOOP_LESS_OR_MORE(0, 1), hash_table.mem_tracker()->limit_exceeded(mem_limit));
+    EXPECT_EQ(LOOP_LESS_OR_MORE(0, 1), hash_table.mem_tracker()->consumption() > mem_limit);
 
     // Validate that we can find the entries
     for (int i = 0; i < expected_size * 5; i += 100000) {

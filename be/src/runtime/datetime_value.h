@@ -495,26 +495,37 @@ public:
 
     const char* day_name() const;
 
-    DateTimeValue& operator++() {
+    DateTimeValue& operator+=(int64_t count) {
+        bool is_neg = false;
+        if (count < 0) {
+            is_neg = true;
+            count = -count;
+        }
         switch (_type) {
         case TIME_DATE: {
-            TimeInterval interval(DAY, 1, false);
+            TimeInterval interval(DAY, count, is_neg);
             date_add_interval(interval, DAY);
             break;
         }
         case TIME_DATETIME: {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval(interval, SECOND);
             break;
         }
         case TIME_TIME: {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval(interval, SECOND);
             break;
         }
         }
         return *this;
     }
+
+    DateTimeValue& operator-=(int64_t count) { return *this += -count; }
+
+    DateTimeValue& operator++() { return *this += 1; }
+
+    DateTimeValue& operator--() { return *this += -1; }
 
     void to_datetime_val(doris_udf::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();

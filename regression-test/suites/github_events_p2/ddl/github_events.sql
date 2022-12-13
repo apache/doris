@@ -1,4 +1,4 @@
-CREATE TABLE github_events
+CREATE TABLE IF NOT EXISTS github_events
 (
   repo_name STRING NOT NULL,
   created_at DATETIME NOT NULL,

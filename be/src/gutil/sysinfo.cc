@@ -99,6 +99,9 @@ void SleepForMilliseconds(int64_t milliseconds) {
     SleepForNanoseconds(milliseconds * 1000 * 1000);
 }
 
+// ReadIntFromFile is only called on linux and cygwin platforms.
+#if defined(__linux__) || defined(__CYGWIN__) || defined(__CYGWIN32__)
+
 // Helper function estimates cycles/sec by observing cycles elapsed during
 // sleep(). Using small sleep time decreases accuracy significantly.
 static int64 EstimateCyclesPerSecond(const int estimate_time_ms) {
@@ -111,9 +114,6 @@ static int64 EstimateCyclesPerSecond(const int estimate_time_ms) {
     const int64 guess = int64(multiplier * (CycleClock::Now() - start_ticks));
     return guess;
 }
-
-// ReadIntFromFile is only called on linux and cygwin platforms.
-#if defined(__linux__) || defined(__CYGWIN__) || defined(__CYGWIN32__)
 
 // Slurp a file with a single read() call into 'buf'. This is only safe to use on small
 // files in places like /proc where we are guaranteed not to get a partial read.
@@ -233,6 +233,7 @@ static void InitializeSystemInfo() {
     if (already_called) return;
     already_called = true;
 
+#if defined(__linux__) || defined(__CYGWIN__) || defined(__CYGWIN32__)
     bool saw_mhz = false;
 
     if (RunningOnValgrind()) {
@@ -243,7 +244,6 @@ static void InitializeSystemInfo() {
         saw_mhz = true;
     }
 
-#if defined(__linux__) || defined(__CYGWIN__) || defined(__CYGWIN32__)
     char line[1024];
     char* err;
     int freq;

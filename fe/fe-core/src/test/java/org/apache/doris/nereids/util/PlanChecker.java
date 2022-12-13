@@ -23,6 +23,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -68,6 +70,19 @@ public class PlanChecker {
     public PlanChecker(CascadesContext cascadesContext) {
         this.connectContext = cascadesContext.getConnectContext();
         this.cascadesContext = cascadesContext;
+    }
+
+    public static PlanChecker from(ConnectContext connectContext) {
+        return new PlanChecker(connectContext);
+    }
+
+    public static PlanChecker from(ConnectContext connectContext, Plan initPlan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, initPlan);
+        return new PlanChecker(cascadesContext);
+    }
+
+    public static PlanChecker from(CascadesContext cascadesContext) {
+        return new PlanChecker(cascadesContext);
     }
 
     public PlanChecker checkParse(String sql, Consumer<PlanParseChecker> consumer) {
@@ -245,6 +260,21 @@ public class PlanChecker {
         }
     }
 
+    public PlanChecker deriveStats() {
+        cascadesContext.pushJob(
+                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
+                        cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker orderJoin() {
+        cascadesContext.pushJob(
+                new JoinOrderJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        return this;
+    }
+
     public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
@@ -340,19 +370,6 @@ public class PlanChecker {
         });
     }
 
-    public static PlanChecker from(ConnectContext connectContext) {
-        return new PlanChecker(connectContext);
-    }
-
-    public static PlanChecker from(ConnectContext connectContext, Plan initPlan) {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, initPlan);
-        return new PlanChecker(cascadesContext);
-    }
-
-    public static PlanChecker from(CascadesContext cascadesContext) {
-        return new PlanChecker(cascadesContext);
-    }
-
     public CascadesContext getCascadesContext() {
         return cascadesContext;
     }
@@ -363,7 +380,21 @@ public class PlanChecker {
 
     public PlanChecker printlnTree() {
         System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        System.out.println("-----------------------------");
         return this;
+    }
+
+    public PlanChecker printlnAllTree() {
+        System.out.println("--------------------------------");
+        for (Plan plan : cascadesContext.getMemo().copyOutAll()) {
+            System.out.println(plan.treeString());
+            System.out.println("--------------------------------");
+        }
+        return this;
+    }
+
+    public int plansNumber() {
+        return cascadesContext.getMemo().copyOutAll().size();
     }
 
     public PlanChecker printlnExploration() {

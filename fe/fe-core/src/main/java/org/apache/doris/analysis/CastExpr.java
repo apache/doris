@@ -150,8 +150,7 @@ public class CastExpr extends Expr {
 
     private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
         // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDecimalV3()
-                || toType.isDateType())) {
+        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDateType())) {
             return true;
         }
 
@@ -160,7 +159,7 @@ public class CastExpr extends Expr {
             return true;
         }
         // Disable no-op casting
-        return fromType.equals(toType);
+        return fromType.equals(toType) && !fromType.isDecimalV3();
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -284,6 +283,11 @@ public class CastExpr extends Expr {
         noOp = Type.matchExactType(childType, type);
 
         if (noOp) {
+            // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
+            // set the target type as the child's type.
+            if (type.isDecimalV2() && childType.isDecimalV2()) {
+                getChild(0).setType(type);
+            }
             return;
         }
 
@@ -291,7 +295,7 @@ public class CastExpr extends Expr {
         // it is necessary to check if it is castable before creating fn.
         // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
         if (type.isArrayType() || childType.isArrayType()) {
-            if (!Type.canCastTo(childType, type)) {
+            if (childType.isNull() || !Type.canCastTo(childType, type)) {
                 throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                         + " from " + childType + " to " + type);
             }
@@ -299,7 +303,8 @@ public class CastExpr extends Expr {
 
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(collectChildReturnTypes())),
+                Type.INVALID, false);
         if (type.isScalarType()) {
             if (isImplicit) {
                 fn = Env.getCurrentEnv().getFunction(
@@ -316,12 +321,17 @@ public class CastExpr extends Expr {
         }
 
         if (fn == null) {
-            throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+            if (childType.isNull() && Type.canCastTo(childType, type)) {
+                return;
+            } else {
+                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                     + " from " + childType + " to " + type);
+            }
         }
 
         if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
-            Preconditions.checkState(type.getPrimitiveType() == fn.getReturnType().getPrimitiveType(),
+            Preconditions.checkState(type.isDecimalV3() == fn.getReturnType().isDecimalV3()
+                            || type.isDatetimeV2() == fn.getReturnType().isDatetimeV2(),
                     type + " != " + fn.getReturnType());
         } else {
             Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
@@ -412,7 +422,12 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            return new DecimalLiteral(value.getStringValue());
+            if (targetTypeDef != null) {
+                return new DecimalLiteral(value.getStringValue(),
+                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
+            } else {
+                return new DecimalLiteral(value.getStringValue());
+            }
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
@@ -568,4 +583,10 @@ public class CastExpr extends Expr {
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
     }
+
+    @Override
+    public String getStringValueForArray() {
+        return children.get(0).getStringValueForArray();
+    }
 }
+

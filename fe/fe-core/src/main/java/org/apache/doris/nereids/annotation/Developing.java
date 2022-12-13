@@ -27,6 +27,10 @@ import java.lang.annotation.Target;
  * and tend to have bugs.
  */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.TYPE, ElementType.METHOD})
+@Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD})
 public @interface Developing {
+    /**
+     * note string
+     */
+    String value() default "";
 }

@@ -21,7 +21,6 @@
 #pragma once
 
 #include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
 
@@ -91,7 +90,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return DateTimeTransformImpl<typename Transform::ARG_TYPE, typename ToDataType::FieldType,
+        return DateTimeTransformImpl<typename Transform::OpArgType, typename ToDataType::FieldType,
                                      Transform>::execute(block, arguments, result,
                                                          input_rows_count);
     }

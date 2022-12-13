@@ -19,10 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -31,19 +32,18 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,199 +70,69 @@ public class AnalyzeStmt extends DdlStmt {
 
     private static final Predicate<Long> DESIRED_TASK_TIMEOUT_SEC = (v) -> v > 0L;
 
-    private final TableName optTableName;
+    public final boolean wholeTbl;
+
+    private final TableName tableName;
+
+    private TableIf table;
+
     private final PartitionNames optPartitionNames;
-    private final List<String> optColumnNames;
+    private List<String> optColumnNames;
     private Map<String, String> optProperties;
 
     // after analyzed
     private long dbId;
-    private final Set<Long> tblIds = Sets.newHashSet();
+
     private final List<String> partitionNames = Lists.newArrayList();
 
-    // TODO(wzt): support multiple tables
-    public AnalyzeStmt(TableName optTableName,
+    public AnalyzeStmt(TableName tableName,
             List<String> optColumnNames,
             PartitionNames optPartitionNames,
             Map<String, String> optProperties) {
-        this.optTableName = optTableName;
+        this.tableName = tableName;
         this.optColumnNames = optColumnNames;
         this.optPartitionNames = optPartitionNames;
+        wholeTbl = CollectionUtils.isEmpty(optColumnNames);
         this.optProperties = optProperties;
-    }
-
-    public long getDbId() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The dbId must be obtained after the parsing is complete");
-        return dbId;
-    }
-
-    public Set<Long> getTblIds() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The tblIds must be obtained after the parsing is complete");
-        return tblIds;
-    }
-
-    public Database getDb() throws AnalysisException {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The db must be obtained after the parsing is complete");
-        return analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbId);
-    }
-
-    public List<Table> getTables() throws AnalysisException {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The tables must be obtained after the parsing is complete");
-        Database db = getDb();
-        List<Table> tables = Lists.newArrayList();
-
-        db.readLock();
-        try {
-            for (Long tblId : tblIds) {
-                Table table = db.getTableOrAnalysisException(tblId);
-                tables.add(table);
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        return tables;
-    }
-
-    public List<String> getPartitionNames() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The partitionNames must be obtained after the parsing is complete");
-        return partitionNames;
-    }
-
-    /**
-     * The statistics task obtains partitions and then collects partition statistics,
-     * we need to filter out partitions that do not have data.
-     *
-     * @return map of tableId and partitionName
-     * @throws AnalysisException not analyzed
-     */
-    public Map<Long, List<String>> getTableIdToPartitionName() throws AnalysisException {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The partitionIds must be obtained after the parsing is complete");
-        Map<Long, List<String>> tableIdToPartitionName = Maps.newHashMap();
-
-        for (Table table : getTables()) {
-            table.readLock();
-            try {
-                OlapTable olapTable = (OlapTable) table;
-                List<String> partitionNames = getPartitionNames();
-                List<String> newPartitionNames = new ArrayList<>(partitionNames);
-                if (newPartitionNames.isEmpty() && olapTable.isPartitioned()) {
-                    newPartitionNames.addAll(olapTable.getPartitionNames());
-                }
-                tableIdToPartitionName.put(table.getId(), newPartitionNames);
-            } finally {
-                table.readUnlock();
-            }
-        }
-        return tableIdToPartitionName;
-    }
-
-    public Map<Long, List<String>> getTableIdToColumnName() throws AnalysisException {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The db name must be obtained after the parsing is complete");
-        Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
-        List<Table> tables = getTables();
-        if (optColumnNames == null || optColumnNames.isEmpty()) {
-            for (Table table : tables) {
-                table.readLock();
-                try {
-                    long tblId = table.getId();
-                    List<Column> baseSchema = table.getBaseSchema();
-                    List<String> colNames = Lists.newArrayList();
-                    baseSchema.stream().map(Column::getName).forEach(colNames::add);
-                    tableIdToColumnName.put(tblId, colNames);
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        } else {
-            for (Long tblId : tblIds) {
-                tableIdToColumnName.put(tblId, optColumnNames);
-            }
-        }
-
-        return tableIdToColumnName;
-    }
-
-    public Map<String, String> getProperties() {
-        return optProperties;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        // step1: analyze db, table and column
-        if (optTableName != null) {
-            optTableName.analyze(analyzer);
+        tableName.analyze(analyzer);
 
-            // disallow external catalog
-            Util.prohibitExternalCatalog(optTableName.getCtl(),
-                    this.getClass().getSimpleName());
+        String catalogName = tableName.getCtl();
+        String dbName = tableName.getDb();
+        String tblName = tableName.getTbl();
+        CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(catalogName);
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
+        table = db.getTableOrAnalysisException(tblName);
 
-            String dbName = optTableName.getDb();
-            String tblName = optTableName.getTbl();
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-            Table table = db.getTableOrAnalysisException(tblName);
+        checkAnalyzePriv(dbName, tblName);
 
-            // external table is not supported
-            checkAnalyzeType(table);
-            checkAnalyzePriv(dbName, tblName);
-
-            if (optColumnNames != null && !optColumnNames.isEmpty()) {
-                table.readLock();
-                try {
-                    List<String> baseSchema = table.getBaseSchema(false)
-                            .stream().map(Column::getName).collect(Collectors.toList());
-                    Optional<String> optional = optColumnNames.stream()
-                            .filter(entity -> !baseSchema.contains(entity)).findFirst();
-                    if (optional.isPresent()) {
-                        String columnName = optional.get();
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                                columnName, FeNameFormat.getColumnNameRegex());
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-
-            dbId = db.getId();
-            tblIds.add(table.getId());
-        } else {
-            // analyze the current default db
-            String dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-
-            db.readLock();
+        if (optColumnNames != null && !optColumnNames.isEmpty()) {
+            table.readLock();
             try {
-                List<Table> tables = db.getTables();
-                for (Table table : tables) {
-                    checkAnalyzeType(table);
-                    checkAnalyzePriv(dbName, table.getName());
-                }
-
-                dbId = db.getId();
-                for (Table table : tables) {
-                    long tblId = table.getId();
-                    tblIds.add(tblId);
+                List<String> baseSchema = table.getBaseSchema(false)
+                        .stream().map(Column::getName).collect(Collectors.toList());
+                Optional<String> optional = optColumnNames.stream()
+                        .filter(entity -> !baseSchema.contains(entity)).findFirst();
+                if (optional.isPresent()) {
+                    String columnName = optional.get();
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                            columnName, FeNameFormat.getColumnNameRegex());
                 }
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
+        } else {
+            optColumnNames = table.getBaseSchema(false)
+                    .stream().map(Column::getName).collect(Collectors.toList());
         }
-
+        dbId = db.getId();
         // step2: analyze partition
         checkPartitionNames();
-
         // step3: analyze properties
         checkProperties();
     }
@@ -284,18 +154,12 @@ public class AnalyzeStmt extends DdlStmt {
         }
     }
 
-    private void checkAnalyzeType(Table table) throws AnalysisException {
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only OLAP table statistics are supported");
-        }
-    }
-
     private void checkPartitionNames() throws AnalysisException {
         if (optPartitionNames != null) {
             optPartitionNames.analyze(analyzer);
-            if (optTableName != null) {
-                Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(optTableName.getDb());
-                OlapTable olapTable = (OlapTable) db.getTableOrAnalysisException(optTableName.getTbl());
+            if (tableName != null) {
+                Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
+                OlapTable olapTable = (OlapTable) db.getTableOrAnalysisException(tableName.getTbl());
                 if (!olapTable.isPartitioned()) {
                     throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
                 }
@@ -338,9 +202,9 @@ public class AnalyzeStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("ANALYZE");
 
-        if (optTableName != null) {
+        if (tableName != null) {
             sb.append(" ");
-            sb.append(optTableName.toSql());
+            sb.append(tableName.toSql());
         }
 
         if (optColumnNames != null) {
@@ -365,4 +229,48 @@ public class AnalyzeStmt extends DdlStmt {
 
         return sb.toString();
     }
+
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
+    public String getDBName() {
+        return tableName.getDb();
+    }
+
+    public TableName getTblName() {
+        return tableName;
+    }
+
+    public List<String> getOptColumnNames() {
+        return optColumnNames;
+    }
+
+
+    public long getDbId() {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The dbId must be obtained after the parsing is complete");
+        return dbId;
+    }
+
+    public Database getDb() throws AnalysisException {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The db must be obtained after the parsing is complete");
+        return analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbId);
+    }
+
+    public TableIf getTable() {
+        return table;
+    }
+
+    public List<String> getPartitionNames() {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The partitionNames must be obtained after the parsing is complete");
+        return partitionNames;
+    }
+
+    public Map<String, String> getProperties() {
+        return optProperties;
+    }
+
 }

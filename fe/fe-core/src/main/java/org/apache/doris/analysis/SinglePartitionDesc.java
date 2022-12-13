@@ -32,7 +32,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.Map;
 
-public class SinglePartitionDesc {
+public class SinglePartitionDesc implements AllPartitionDesc {
     private boolean isAnalyzed;
 
     private boolean ifNotExists;

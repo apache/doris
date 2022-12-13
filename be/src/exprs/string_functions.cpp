@@ -37,7 +37,7 @@ void StringFunctions::init() {}
 size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -65,7 +65,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
     size_t byte_pos = 0;
     std::vector<size_t> index;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         index.push_back(i);
         if (pos.val > 0 && index.size() > pos.val + len.val) {
             break;
@@ -140,6 +140,14 @@ BooleanVal StringFunctions::null_or_empty(FunctionContext* context, const String
         return 1;
     } else {
         return 0;
+    }
+}
+
+BooleanVal StringFunctions::not_null_or_empty(FunctionContext* context, const StringVal& str) {
+    if (str.is_null || str.len == 0) {
+        return 0;
+    } else {
+        return 1;
     }
 }
 
@@ -320,7 +328,7 @@ IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringV
     }
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         ++char_len;
     }
     return IntVal(char_len);
@@ -421,7 +429,7 @@ IntVal StringFunctions::instr(FunctionContext* context, const StringVal& str,
     if (loc > 0) {
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
-            char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
             ++char_len;
         }
         loc = char_len;
@@ -469,7 +477,7 @@ IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& su
         // Hive returns the position in the original string starting from 1.
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < match_pos; i += char_size) {
-            char_size = get_utf8_byte_length((unsigned)(adjusted_str.ptr)[i]);
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(adjusted_str.ptr)[i]];
             ++char_len;
         }
         match_pos = char_len;
@@ -912,35 +920,98 @@ static int index_of(const uint8_t* source, int source_offset, int source_count,
     return -1;
 }
 
-StringVal StringFunctions::split_part(FunctionContext* context, const StringVal& content,
-                                      const StringVal& delimiter, const IntVal& field) {
-    if (content.is_null || delimiter.is_null || field.is_null || field.val <= 0) {
-        return StringVal::null();
+static int last_index_of(const uint8_t* source, int source_len, const uint8_t* target,
+                         int target_len, int to_index) {
+    if (to_index < 0) {
+        return -1;
     }
-    std::vector<int> find(field.val, -1); //store substring position
-    int from = 0;
-    for (int i = 1; i <= field.val; i++) { // find
-        int last_index = i - 1;
-        find[last_index] =
-                index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
-        from = find[last_index] + delimiter.len;
-        if (find[last_index] == -1) {
-            break;
+    if (to_index >= source_len) {
+        to_index = source_len - 1;
+    }
+    if (target_len == 0) {
+        return to_index;
+    }
+    const uint8_t last = target[target_len - 1];
+    int min = target_len;
+    for (int i = to_index; i >= min; i--) {
+        while (i >= min && source[i] != last) {
+            i--; // Look for last character
+        }
+        if (i >= min) { // Found first character, now look at the rest of v2
+            int j = i - 1;
+            int end = j - target_len + 1;
+            for (int k = target_len - 2; j > end && source[j] == target[k];) {
+                j--;
+                k--;
+            }
+            if (j == end) {
+                return i - target_len + 1;
+            }
         }
     }
-    if ((field.val > 1 && find[field.val - 2] == -1) ||
-        (field.val == 1 && find[field.val - 1] == -1)) {
-        // field not find return null
+    return -1;
+}
+
+StringVal StringFunctions::split_part(FunctionContext* context, const StringVal& content,
+                                      const StringVal& delimiter, const IntVal& field) {
+    if (content.is_null || delimiter.is_null || field.is_null || field.val == 0) {
         return StringVal::null();
     }
-    int start_pos;
-    if (field.val == 1) { // find need split first part
-        start_pos = 0;
+
+    if (field.val > 0) {
+        int from = 0;
+        std::vector<int> find(field.val, -1);  //store substring position
+        for (int i = 1; i <= field.val; i++) { // find
+            int last_index = i - 1;
+            find[last_index] =
+                    index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
+            from = find[last_index] + delimiter.len;
+            if (find[last_index] == -1) {
+                break;
+            }
+        }
+        if ((field.val > 1 && find[field.val - 2] == -1) ||
+            (field.val == 1 && find[field.val - 1] == -1)) {
+            // field not find return null
+            return StringVal::null();
+        }
+        int start_pos;
+        if (field.val == 1) { // find need split first part
+            start_pos = 0;
+        } else {
+            start_pos = find[field.val - 2] + delimiter.len;
+        }
+        int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
+        return StringVal(content.ptr + start_pos, len);
     } else {
-        start_pos = find[field.val - 2] + delimiter.len;
+        int to = content.len;
+        int abs_field = -field.val;
+        std::vector<int> find(abs_field, -1);  //store substring position
+        for (int i = 1; i <= abs_field; i++) { // find
+            int last_index = i - 1;
+            find[last_index] =
+                    last_index_of(content.ptr, content.len, delimiter.ptr, delimiter.len, to);
+            to = find[last_index] - delimiter.len;
+            if (find[last_index] == -1) {
+                break;
+            }
+        }
+        if ((abs_field > 1 && find[abs_field - 2] == -1) ||
+            (abs_field == 1 && find[abs_field - 1] == -1)) {
+            // field not find return null
+            return StringVal::null();
+        }
+        int end_pos;
+        if (abs_field == 1) { // find need split first part
+            end_pos = content.len - 1;
+        } else {
+            end_pos = find[abs_field - 2] - 1;
+        }
+        int len =
+                end_pos - (find[abs_field - 1] == -1 ? 0 : find[abs_field - 1] + delimiter.len) + 1;
+
+        return StringVal(content.ptr + end_pos - len + 1, len);
     }
-    int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
-    return StringVal(content.ptr + start_pos, len);
 }
 
 StringVal StringFunctions::replace(FunctionContext* context, const StringVal& origStr,
@@ -975,5 +1046,12 @@ IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& st
         return IntVal::null();
     }
     return IntVal(str.len * 8);
+}
+
+StringVal StringFunctions::uuid(FunctionContext* ctx) {
+    boost::uuids::random_generator generator;
+    std::string uuid = boost::uuids::to_string(generator());
+
+    return AnyValUtil::from_string_temp(ctx, uuid);
 }
 } // namespace doris

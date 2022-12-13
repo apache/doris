@@ -74,7 +74,7 @@ suite('load') {
     def table = "lineorder_flat"
     def table_rows = 600037902
     sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
-    rowCount = sql "select count(*) from ${table}"
+    def rowCount = sql "select count(*) from ${table}"
     if (rowCount[0][0] != table_rows) {
         sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
         sql "set global query_timeout=3600"

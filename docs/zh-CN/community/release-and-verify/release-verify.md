@@ -72,6 +72,8 @@ gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
 sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 ```
+> 注意： gpg --import 如果报错 **no valid user IDs**, 此时可能是gpg版本不匹配，可升级版本至2.2.x或以上
+
 
 ## 3. 验证源码协议头
 
@@ -97,6 +99,6 @@ INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 
 
 请参阅各组件的编译文档验证编译。
 
-* Doris 主代码编译，请参阅 [编译文档](../../docs/install/source-install/compilation)
-* Flink Doris Connector 编译，请参阅 [编译文档](../../docs/ecosystem/flink-doris-connector)
-* Spark Doris Connector 编译，请参阅 [编译文档](../../docs/ecosystem/spark-doris-connector)
+* Doris 主代码编译，请参阅 [编译文档](/docs/install/source-install/compilation)
+* Flink Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/flink-doris-connector)
+* Spark Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/spark-doris-connector)

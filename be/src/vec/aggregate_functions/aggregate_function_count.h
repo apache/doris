@@ -95,7 +95,7 @@ public:
                                            const size_t num_rows, Arena* arena) const override {
         auto& col = assert_cast<ColumnUInt64&>(*dst);
         col.resize(num_rows);
-        col.get_data().assign(num_rows, 1UL);
+        col.get_data().assign(num_rows, static_cast<UInt64>(1UL));
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,

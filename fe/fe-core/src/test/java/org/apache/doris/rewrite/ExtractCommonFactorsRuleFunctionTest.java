@@ -72,7 +72,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     public void testWithoutRewritten() throws Exception {
         String query = "select * from tb1, tb2 where (tb1.k1 =1) or (tb2.k2=1)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -83,13 +83,21 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertEquals(1, StringUtils.countMatches(planString, "`tb1`.`k1` = `tb2`.`k1`"));
     }
 
+
+    @Test
+    public void testWideCommonFactorsWithOrPredicate() throws Exception {
+        String query = "select * from tb1 where tb1.k1 > 1000 or tb1.k1 < 200 or tb1.k1 = 300";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertTrue(planString.contains("PREDICATES: (`tb1`.`k1` > 1000 OR `tb1`.`k1` < 200 OR `tb1`.`k1` = 300)"));
+    }
+
     @Test
     public void testWideCommonFactorsWithEqualPredicate() throws Exception {
         String query = "select * from tb1, tb2 where (tb1.k1=1 and tb2.k1=1) or (tb1.k1 =2 and tb2.k1=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("(`tb1`.`k1` = 1 OR `tb1`.`k1` = 2)"));
         Assert.assertTrue(planString.contains("(`tb2`.`k1` = 1 OR `tb2`.`k1` = 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -97,7 +105,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1>1 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertFalse(planString.contains("(`tb1`.`k1` > 1 OR `tb1`.`k1` < 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -105,7 +113,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` <= 3"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -113,8 +121,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1 >1 and tb1.k1 <3 and tb1.k1 <5 and tb2.k1=1) "
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -123,7 +130,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -133,7 +140,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2)"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -143,7 +150,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2, 3)"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -154,7 +161,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertTrue(planString.contains("`tb1`.`k1` >= 1"));
         Assert.assertTrue(planString.contains("`tb1`.`k1` <= 4"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2, 3)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test

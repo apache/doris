@@ -18,15 +18,19 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -70,13 +74,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition().child(0)).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) firstSubstring.getLength().get().child(0)).getValue());
+                            Assertions.assertEquals(1, ((Literal) firstSubstring.getPosition()).getValue());
+                            Assertions.assertEquals(2, ((Literal) firstSubstring.getLength().get()).getValue());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
                             Assertions.assertTrue(secondSubstring.getSource() instanceof Substring);
-                            Assertions.assertEquals((byte) 1, ((Literal) secondSubstring.getPosition().child(0)).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getLength().get().child(0)).getValue());
+                            Assertions.assertEquals(1, ((Literal) secondSubstring.getPosition()).getValue());
+                            Assertions.assertEquals(2, ((Literal) secondSubstring.getLength().get()).getValue());
                             return true;
                         })
                 );
@@ -93,13 +97,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition().child(0)).getValue());
+                            Assertions.assertEquals(1, ((Literal) firstSubstring.getPosition()).getValue());
                             Assertions.assertTrue(firstSubstring.getLength().isPresent());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
                             Assertions.assertEquals("def", ((Literal) secondSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getPosition().child(0)).getValue());
-                            Assertions.assertEquals((byte) 3, ((Literal) secondSubstring.getLength().get().child(0)).getValue());
+                            Assertions.assertEquals(2, ((Literal) secondSubstring.getPosition()).getValue());
+                            Assertions.assertEquals(3, ((Literal) secondSubstring.getLength().get()).getValue());
                             return true;
                         })
                 );
@@ -136,19 +140,45 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         });
     }
 
-    public static class ExtendFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
+    public static class ExtendFunction extends BoundFunction implements UnaryExpression, PropagateNullable,
+            ExplicitlyCastableSignature {
         public ExtendFunction(Expression a1) {
             super("foo", a1);
         }
+
+        @Override
+        public List<FunctionSignature> getSignatures() {
+            return ImmutableList.of(
+                    FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE)
+            );
+        }
+
+        @Override
+        public boolean hasVarArguments() {
+            return false;
+        }
     }
 
-    public static class AmbiguousFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
+    public static class AmbiguousFunction extends ScalarFunction implements UnaryExpression, PropagateNullable,
+            ExplicitlyCastableSignature {
         public AmbiguousFunction(Expression a1) {
             super("abc", a1);
         }
 
         public AmbiguousFunction(Literal a1) {
             super("abc", a1);
+        }
+
+        @Override
+        public List<FunctionSignature> getSignatures() {
+            return ImmutableList.of(
+                    FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE)
+            );
+        }
+
+        @Override
+        public boolean hasVarArguments() {
+            return false;
         }
     }
 }

@@ -77,7 +77,7 @@ BooleanVal BloomFilterPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row
     }
     _filtered_rows++;
 
-    if (!_has_calculate_filter && _scan_rows % _loop_size == 0) {
+    if (!_has_calculate_filter && _scan_rows >= config::bloom_filter_predicate_check_row_num) {
         double rate = (double)_filtered_rows / _scan_rows;
         if (rate < _expect_filter_rate) {
             _always_true = true;

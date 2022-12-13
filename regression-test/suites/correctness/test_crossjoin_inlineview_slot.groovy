@@ -22,11 +22,11 @@ suite("test_crossjoin_inlineview_slot") {
     sql "DROP TABLE IF EXISTS t3;"
     sql "DROP TABLE IF EXISTS t4;"
     
-    sql """create table t0 (id0 int) engine=olap distributed by hash(id0) buckets 1 properties("replication_num"="1");"""
-    sql """create table t1 (id1 int) engine=olap distributed by hash(id1) buckets 1 properties("replication_num"="1");"""
-    sql """create table t2 (id2 tinyint(4), status tinyint(4)) engine=olap distributed by hash(id2) buckets 1 properties("replication_num"="1");"""
-    sql """create table t3 (id3 int) engine=olap distributed by hash(id3) buckets 1 properties("replication_num"="1");"""
-    sql """create table t4 (id4 int) engine=olap distributed by hash(id4) buckets 1 properties("replication_num"="1");"""
+    sql """create table if not exists t0 (id0 int) engine=olap distributed by hash(id0) buckets 1 properties("replication_num"="1");"""
+    sql """create table if not exists t1 (id1 int) engine=olap distributed by hash(id1) buckets 1 properties("replication_num"="1");"""
+    sql """create table if not exists t2 (id2 tinyint(4), status tinyint(4)) engine=olap distributed by hash(id2) buckets 1 properties("replication_num"="1");"""
+    sql """create table if not exists t3 (id3 int) engine=olap distributed by hash(id3) buckets 1 properties("replication_num"="1");"""
+    sql """create table if not exists t4 (id4 int) engine=olap distributed by hash(id4) buckets 1 properties("replication_num"="1");"""
     
     sql "insert into t0 values (1);"
     sql "insert into t1 values (1);"

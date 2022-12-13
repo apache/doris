@@ -17,23 +17,21 @@
 
 #include "vec/aggregate_functions/aggregate_function_sort.h"
 
-#include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/common/typeid_cast.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
 AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,
                                                     const DataTypes& arguments,
-                                                    const SortDescription& sort_desc) {
+                                                    const SortDescription& sort_desc,
+                                                    RuntimeState* state) {
     DCHECK(nested_function != nullptr);
     if (nested_function == nullptr) {
         return nullptr;
     }
 
-    return std::make_shared<AggregateFunctionSort<AggregateFunctionSortData>>(nested_function,
-                                                                              arguments, sort_desc);
+    return std::make_shared<AggregateFunctionSort<AggregateFunctionSortData>>(
+            nested_function, arguments, sort_desc, state);
 };
 
 } // namespace doris::vectorized

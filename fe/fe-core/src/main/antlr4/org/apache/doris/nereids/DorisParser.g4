@@ -49,14 +49,30 @@ singleStatement
     ;
 
 statement
-    : query                                                            #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)?
-        query                                                          #explain
+    : explain? query                           #statementDefault
+    | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
+        ON table=multipartIdentifier
+        AS type=(RESTRICTIVE | PERMISSIVE)
+        TO user=identifier
+        USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    ;
+
+explain
+    : (EXPLAIN planType? | DESC | DESCRIBE)
+          level=(VERBOSE | GRAPH | PLAN)?
+    ;
+
+planType
+    : PARSED
+    | ANALYZED
+    | REWRITTEN | LOGICAL  // same type
+    | OPTIMIZED | PHYSICAL   // same type
+    | ALL // default type
     ;
 
 //  -----------------Query-----------------
 query
-    : queryTerm queryOrganization
+    : cte? queryTerm queryOrganization
     ;
 
 queryTerm
@@ -77,8 +93,25 @@ querySpecification
       havingClause?                                                         #regularQuerySpecification
     ;
 
+cte
+    : WITH aliasQuery (COMMA aliasQuery)*
+    ;
+
+aliasQuery
+    : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
+    ;
+
+columnAliases
+    : LEFT_PAREN identifier (COMMA identifier)* RIGHT_PAREN
+    ;
+
 selectClause
-    : SELECT selectHint? namedExpressionSeq
+    : SELECT selectHint? selectColumnClause
+    ;
+
+selectColumnClause
+    : namedExpressionSeq
+    | ASTERISK EXCEPT LEFT_PAREN namedExpressionSeq RIGHT_PAREN
     ;
 
 whereClause
@@ -98,11 +131,18 @@ joinRelation
     ;
 
 aggClause
-    : GROUP BY groupByItem?
+    : GROUP BY groupingElement?
     ;
 
-groupByItem
-    : expression (',' expression)*
+groupingElement
+    : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
+    | expression (COMMA expression)*
+    ;
+
+groupingSet
+    : LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     ;
 
 havingClause
@@ -124,7 +164,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (',' sortItem)*)
+    : (ORDER BY sortItem (COMMA sortItem)*)
     ;
 
 sortItem
@@ -163,10 +203,18 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias       #aliasedQuery
-    | LEFT_PAREN relation RIGHT_PAREN tableAlias    #aliasedRelation
+    : multipartIdentifier tableAlias                                            #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
+    | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
+    | tvfName=identifier LEFT_PAREN
+      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
     ;
+
+tvfProperty
+    : key=tvfPropertyItem EQ value=tvfPropertyItem
+    ;
+
+tvfPropertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -193,6 +241,7 @@ expression
 booleanExpression
     : NOT booleanExpression                                         #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
+    | ISNULL LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
     | valueExpression predicate?                                    #predicated
     | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
@@ -214,8 +263,32 @@ valueExpression
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
+datetimeUnit
+    : YEAR | MONTH
+    | WEEK | DAY
+    | HOUR | MINUTE | SECOND
+    ;
+
 primaryExpression
-    : CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
+    : name=(TIMESTAMPDIFF | DATEDIFF)
+            LEFT_PAREN
+                unit=datetimeUnit COMMA
+                startTimestamp=valueExpression COMMA
+                endTimestamp=valueExpression
+            RIGHT_PAREN                                                                        #timestampdiff
+    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_add
+    | name=(SUBDATE | DAYS_SUB | DATE_SUB)
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_sub
+    | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
     | constant                                                                                 #constantDefault
@@ -298,8 +371,6 @@ number
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
-
-
 // When `SQL_standard_keyword_behavior=true`, there are 2 kinds of keywords in Spark SQL.
 // - Reserved keywords:
 //     Keywords that are reserved and can't be used as identifiers for table, view, column,
@@ -313,9 +384,11 @@ number
 ansiNonReserved
 //--ANSI-NON-RESERVED-START
     : ADD
+    | ADDDATE
     | AFTER
     | ALTER
     | ANALYZE
+    | ANALYZED
     | ANTI
     | ARCHIVE
     | ARRAY
@@ -350,11 +423,14 @@ ansiNonReserved
     | DATABASE
     | DATABASES
     | DATE
-    | DATEADD
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
     | DAY
+    | DAYS_ADD
+    | DAYS_SUB
+    | DATE_ADD
+    | DATE_SUB
     | DBPROPERTIES
     | DEFINED
     | DELETE
@@ -394,6 +470,7 @@ ansiNonReserved
     | INPUTFORMAT
     | INSERT
     | INTERVAL
+    | ISNULL
     | ITEMS
     | KEYS
     | LAST
@@ -422,6 +499,7 @@ ansiNonReserved
     | NO
     | NULLS
     | OF
+    | OPTIMIZED
     | OPTION
     | OPTIONS
     | OUT
@@ -429,12 +507,15 @@ ansiNonReserved
     | OVER
     | OVERLAY
     | OVERWRITE
+    | PARSED
     | PARTITION
     | PARTITIONED
     | PARTITIONS
     | PERCENTLIT
+    | PHYSICAL
     | PIVOT
     | PLACING
+    | PLAN
     | POSITION
     | PRECEDING
     | PRINCIPALS
@@ -455,6 +536,7 @@ ansiNonReserved
     | RESPECT
     | RESTRICT
     | REVOKE
+    | REWRITTEN
     | RLIKE
     | ROLE
     | ROLES
@@ -481,6 +563,7 @@ ansiNonReserved
     | STORED
     | STRATIFY
     | STRUCT
+    | SUBDATE
     | SUBSTR
     | SUBSTRING
     | SUM
@@ -556,6 +639,7 @@ nonReserved
     | ALL
     | ALTER
     | ANALYZE
+    | ANALYZED
     | AND
     | ANY
     | ARCHIVE
@@ -605,7 +689,6 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
-    | DATEADD
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
@@ -697,6 +780,7 @@ nonReserved
     | NULLS
     | OF
     | ONLY
+    | OPTIMIZED
     | OPTION
     | OPTIONS
     | OR
@@ -708,13 +792,17 @@ nonReserved
     | OVERLAPS
     | OVERLAY
     | OVERWRITE
+    | PARSED
     | PARTITION
     | PARTITIONED
     | PARTITIONS
     | PERCENTILE_CONT
     | PERCENTLIT
+    | PHYSICAL
     | PIVOT
     | PLACING
+    | PLAN
+    | POLICY
     | POSITION
     | PRECEDING
     | PRIMARY
@@ -737,6 +825,7 @@ nonReserved
     | RESPECT
     | RESTRICT
     | REVOKE
+    | REWRITTEN
     | RLIKE
     | ROLE
     | ROLES

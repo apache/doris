@@ -75,6 +75,8 @@ public:
 
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
+    virtual size_t data_size() const = 0;
+
 protected:
     Status partial_sort(Block& src_block, Block& dest_block);
 
@@ -106,6 +108,8 @@ public:
     Status prepare_for_read() override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+    size_t data_size() const override;
 
 private:
     bool _reach_limit() {

@@ -43,8 +43,11 @@ struct FormatCtx {
 struct ConvertTzCtx {
     // false means the format is invalid, and the function always return null
     bool is_valid = false;
+    bool constant_from = false;
+    bool constant_to = false;
     cctz::time_zone from_tz;
     cctz::time_zone to_tz;
+    std::map<std::string, cctz::time_zone> time_zone_cache;
 };
 
 class TimestampFunctions {
@@ -150,6 +153,8 @@ public:
                                             const doris_udf::StringVal& format);
     static doris_udf::DateTimeVal from_days(doris_udf::FunctionContext* ctx,
                                             const doris_udf::IntVal& days);
+    static doris_udf::DateTimeVal last_day(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal to_days(doris_udf::FunctionContext* ctx,
                                      const doris_udf::DateTimeVal& ts_val);
     static doris_udf::DateTimeVal str_to_date(doris_udf::FunctionContext* ctx,

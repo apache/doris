@@ -25,7 +25,6 @@
 #include <memory>
 #include <vector>
 
-#include "common/logging.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -33,22 +32,19 @@
 #include "olap/data_dir.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
-#include "util/debug_util.h"
 #include "util/file_utils.h"
 #include "util/key_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 using std::string;
@@ -151,31 +147,24 @@ protected:
         EXPECT_TRUE(st.ok());
         EXPECT_TRUE(file_writer->close().ok());
         // Check min/max key generation
-        if (build_schema->keys_type() == UNIQUE_KEYS && opts.enable_unique_key_merge_on_write) {
-            // Create min row
-            for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
-                RowCursorCell cell = row.cell(cid);
-                generator(0, cid, 0 / opts.num_rows_per_block, cell);
-            }
-            std::string min_encoded_key;
-            encode_key<RowCursor, true, true>(&min_encoded_key, row,
-                                              build_schema->num_key_columns());
-            EXPECT_EQ(min_encoded_key, writer.min_encoded_key().to_string());
-            // Create max row
-            for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
-                RowCursorCell cell = row.cell(cid);
-                generator(nrows - 1, cid, (nrows - 1) / opts.num_rows_per_block, cell);
-            }
-            std::string max_encoded_key;
-            encode_key<RowCursor, true, true>(&max_encoded_key, row,
-                                              build_schema->num_key_columns());
-            EXPECT_EQ(max_encoded_key, writer.max_encoded_key().to_string());
-        } else {
-            EXPECT_EQ("", writer.min_encoded_key().to_string());
-            EXPECT_EQ("", writer.max_encoded_key().to_string());
+        // Create min row
+        for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            generator(0, cid, 0 / opts.num_rows_per_block, cell);
         }
+        std::string min_encoded_key;
+        encode_key<RowCursor, true, true>(&min_encoded_key, row, build_schema->num_key_columns());
+        EXPECT_EQ(min_encoded_key, writer.min_encoded_key().to_string());
+        // Create max row
+        for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            generator(nrows - 1, cid, (nrows - 1) / opts.num_rows_per_block, cell);
+        }
+        std::string max_encoded_key;
+        encode_key<RowCursor, true, true>(&max_encoded_key, row, build_schema->num_key_columns());
+        EXPECT_EQ(max_encoded_key, writer.max_encoded_key().to_string());
 
-        st = Segment::open(fs, path, "", 0, query_schema, res);
+        st = Segment::open(fs, path, "", 0, {}, query_schema, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
@@ -360,7 +349,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
                     RowBlockV2 block(schema, 100);
-                    EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+                    EXPECT_TRUE(iter->next_batch(&block).is<END_OF_FILE>());
                     EXPECT_EQ(0, block.num_rows());
                 }
                 // test seek, key (-2, -1)
@@ -391,7 +380,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
                     RowBlockV2 block(schema, 100);
-                    EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+                    EXPECT_TRUE(iter->next_batch(&block).is<END_OF_FILE>());
                     EXPECT_EQ(0, block.num_rows());
                 }
             }
@@ -774,7 +763,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     {
         std::shared_ptr<Segment> segment;
-        st = Segment::open(fs, fname, "", 0, tablet_schema, &segment);
+        st = Segment::open(fs, fname, "", 0, {}, tablet_schema, &segment);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(4096, segment->num_rows());
         Schema schema(tablet_schema);
@@ -843,7 +832,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
-            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_TRUE(st.is<END_OF_FILE>());
             EXPECT_EQ(0, block.num_rows());
         }
 
@@ -877,7 +866,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
-            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_TRUE(st.is<END_OF_FILE>());
             EXPECT_EQ(0, block.num_rows());
         }
     }
@@ -976,8 +965,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(20);
             values.insert(1);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST>(0,
-                                                                              std::move(values)));
+                    new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST>(0, values));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -1001,8 +989,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(10);
             values.insert(20);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new InListPredicateBase<TYPE_INT, PredicateType::NOT_IN_LIST>(
-                            0, std::move(values)));
+                    new InListPredicateBase<TYPE_INT, PredicateType::NOT_IN_LIST>(0, values));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -1090,7 +1077,7 @@ TEST_F(SegmentReaderWriterTest, TestLookupRowKey) {
             encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
             RowLocation row_location;
             Status st = segment->lookup_row_key(encoded_key, &row_location);
-            EXPECT_EQ(st.is_not_found(), true);
+            EXPECT_EQ(st.is<NOT_FOUND>(), true);
         }
     }
 }
@@ -1153,7 +1140,7 @@ TEST_F(SegmentReaderWriterTest, TestLookupRowKeyWithSequenceCol) {
 
             RowLocation row_location;
             Status st = segment->lookup_row_key(encoded_key, &row_location);
-            EXPECT_EQ(st.is_not_found(), true);
+            EXPECT_EQ(st.is<NOT_FOUND>(), true);
         }
     }
 
@@ -1181,7 +1168,7 @@ TEST_F(SegmentReaderWriterTest, TestLookupRowKeyWithSequenceCol) {
 
         RowLocation row_location;
         Status st = segment->lookup_row_key(encoded_key, &row_location);
-        EXPECT_EQ(st.is_already_exist(), true);
+        EXPECT_EQ(st.is<ALREADY_EXIST>(), true);
     }
 }
 

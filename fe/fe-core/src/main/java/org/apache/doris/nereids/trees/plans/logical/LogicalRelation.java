@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -42,13 +43,19 @@ import java.util.Optional;
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
-    protected final List<String> qualifier;
-    protected final List<Long> selectedPartitionIds;
+    protected final ImmutableList<String> qualifier;
+    protected final ImmutableList<Long> selectedPartitionIds;
 
     protected final RelationId id;
 
     public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
+    }
+
+    public LogicalRelation(RelationId id, PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
+        this(id, type, new OlapTable(), Collections.emptyList(), groupExpression,
+                logicalProperties, Collections.emptyList());
     }
 
     /**

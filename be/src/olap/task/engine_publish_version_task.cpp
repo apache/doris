@@ -27,6 +27,8 @@
 
 namespace doris {
 
+using namespace ErrorCode;
+
 using std::map;
 
 EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
@@ -59,6 +61,7 @@ void EnginePublishVersionTask::notify() {
 Status EnginePublishVersionTask::finish() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
+    OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
@@ -96,7 +99,7 @@ Status EnginePublishVersionTask::finish() {
                 LOG(WARNING) << "could not find related rowset for tablet " << tablet_info.tablet_id
                              << " txn id " << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = Status::OLAPInternalError(OLAP_ERR_PUSH_ROWSET_NOT_FOUND);
+                res = Status::Error<PUSH_ROWSET_NOT_FOUND>();
                 continue;
             }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
@@ -105,7 +108,7 @@ Status EnginePublishVersionTask::finish() {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id="
                              << tablet_info.tablet_id << " schema_hash=" << tablet_info.schema_hash;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = Status::OLAPInternalError(OLAP_ERR_PUSH_TABLE_NOT_EXIST);
+                res = Status::Error<PUSH_TABLE_NOT_EXIST>();
                 continue;
             }
             // in uniq key model with merge-on-write, we should see all
@@ -133,7 +136,7 @@ Status EnginePublishVersionTask::finish() {
                     // publish failed
                     if (!tablet->check_version_exist(version)) {
                         add_error_tablet_id(tablet_info.tablet_id);
-                        res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
+                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>();
                     }
                     continue;
                 }
@@ -181,7 +184,7 @@ Status EnginePublishVersionTask::finish() {
     }
 
     LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id
+              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
               << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
     return res;
 }
@@ -217,8 +220,7 @@ void TabletPublishTxnTask::handle() {
 
     // add visible rowset to tablet
     publish_status = _tablet->add_inc_rowset(_rowset);
-    if (publish_status != Status::OK() &&
-        publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -226,11 +228,10 @@ void TabletPublishTxnTask::handle() {
         return;
     }
     _engine_publish_version_task->add_succ_tablet_id(_tablet_info.tablet_id);
-    VLOG_NOTICE << "publish version successfully on tablet. tablet=" << _tablet->full_name()
-                << ", transaction_id=" << _transaction_id << ", version=" << _version.first
-                << ", res=" << publish_status;
-
-    return;
+    LOG(INFO) << "publish version successfully on tablet"
+              << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
+              << ", transaction_id=" << _transaction_id << ", version=" << _version.first
+              << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status;
 }
 
 } // namespace doris

@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.qe.ConnectContext;
 
 public class StatsRecursiveDerive {
     private StatsRecursiveDerive() {}
@@ -38,6 +39,10 @@ public class StatsRecursiveDerive {
      * which will store the derivation result of statistical information in the corresponding node
      */
     public void statsRecursiveDerive(PlanNode node) throws UserException {
+        if (ConnectContext.get().getSessionVariable().internalSession) {
+            node.setStatsDeriveResult(new StatsDeriveResult(0));
+            return;
+        }
         if (node.getStatsDeriveResult() != null) {
             return;
         }

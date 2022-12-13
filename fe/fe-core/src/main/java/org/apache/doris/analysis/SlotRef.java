@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,6 +82,19 @@ public class SlotRef extends Expr {
             this.type = Type.VARCHAR;
         }
         analysisDone();
+    }
+
+    // nerieds use this constructor to build aggFnParam
+    public SlotRef(Type type, boolean nullable) {
+        super();
+        // tuple id and slot id is meaningless here, nereids just use type and nullable
+        // to build the TAggregateExpr.param_types
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
+        tupleDescriptor.addSlot(desc);
+        desc.setIsNullable(nullable);
+        desc.setType(type);
+        this.type = type;
     }
 
     protected SlotRef(SlotRef other) {
@@ -188,6 +202,10 @@ public class SlotRef extends Expr {
         numDistinctValues = desc.getStats().getNumDistinctValues();
         if (type.equals(Type.BOOLEAN)) {
             selectivity = DEFAULT_SELECTIVITY;
+        }
+        if (tblName == null && StringUtils.isNotEmpty(desc.getParent().getLastAlias())
+                && !desc.getParent().getLastAlias().equals(desc.getParent().getTable().getName())) {
+            tblName = new TableName(null, null, desc.getParent().getLastAlias());
         }
     }
 
@@ -355,6 +373,18 @@ public class SlotRef extends Expr {
         }
         for (Expr sourceExpr : desc.getSourceExprs()) {
             sourceExpr.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
+        }
+    }
+
+    @Override
+    public Expr getRealSlotRef() {
+        Preconditions.checkState(!type.equals(Type.INVALID));
+        Preconditions.checkState(desc != null);
+        if (!desc.getSourceExprs().isEmpty()
+                && desc.getSourceExprs().get(0) instanceof SlotRef) {
+            return desc.getSourceExprs().get(0);
+        } else {
+            return this;
         }
     }
 

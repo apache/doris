@@ -21,7 +21,7 @@ suite("test_lag_lead_window") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE ${tableName} ( `aa` varchar(10) NULL COMMENT "", `bb` text NULL COMMENT "", `cc` text NULL COMMENT "" ) 
+        CREATE TABLE IF NOT EXISTS ${tableName} ( `aa` varchar(10) NULL COMMENT "", `bb` text NULL COMMENT "", `cc` text NULL COMMENT "" ) 
         ENGINE=OLAP UNIQUE KEY(`aa`) DISTRIBUTED BY HASH(`aa`) BUCKETS 3 
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2" );
     """

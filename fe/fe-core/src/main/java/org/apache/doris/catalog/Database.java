@@ -333,6 +333,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         // if a table is already exists, then edit log won't be executed
         // some caller of this method may need to know this message
         boolean isTableExist = false;
+        table.setQualifiedDbName(fullQualifiedName);
         writeLockOrDdlException();
         try {
             String tableName = table.getName();
@@ -661,27 +662,39 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-    public synchronized void addFunction(Function function) throws UserException {
-        addFunctionImpl(function, false);
-        Env.getCurrentEnv().getEditLog().logAddFunction(function);
+    public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
+        function.checkWritable();
+        if (addFunctionImpl(function, ifNotExists, false)) {
+            Env.getCurrentEnv().getEditLog().logAddFunction(function);
+        }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
-            addFunctionImpl(function, true);
+            addFunctionImpl(function, false, true);
         } catch (UserException e) {
-            Preconditions.checkArgument(false);
+            throw new RuntimeException(e);
         }
     }
 
-    // return true if add success, false
-    private void addFunctionImpl(Function function, boolean isReplay) throws UserException {
+    /**
+     * @param function
+     * @param ifNotExists
+     * @param isReplay
+     * @return return true if we do add the function, otherwise, return false.
+     * @throws UserException
+     */
+    private boolean addFunctionImpl(Function function, boolean ifNotExists, boolean isReplay) throws UserException {
         String functionName = function.getFunctionName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (!isReplay) {
             if (existFuncs != null) {
                 for (Function existFunc : existFuncs) {
                     if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
+                        if (ifNotExists) {
+                            LOG.debug("function already exists");
+                            return false;
+                        }
                         throw new UserException("function already exists");
                     }
                 }
@@ -698,26 +711,38 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
         builder.add(function);
         name2Function.put(functionName, builder.build());
+        return true;
     }
 
-    public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
-        dropFunctionImpl(function);
-        Env.getCurrentEnv().getEditLog().logDropFunction(function);
+    public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+        if (dropFunctionImpl(function, ifExists)) {
+            Env.getCurrentEnv().getEditLog().logDropFunction(function);
+        }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            dropFunctionImpl(functionSearchDesc);
+            dropFunctionImpl(functionSearchDesc, false);
         } catch (UserException e) {
-            Preconditions.checkArgument(false);
+            throw new RuntimeException(e);
         }
     }
 
-    private void dropFunctionImpl(FunctionSearchDesc function) throws UserException {
+    /**
+     * @param function
+     * @param ifExists
+     * @return return true if we do drop the function, otherwise, return false.
+     * @throws UserException
+     */
+    private boolean dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
         String functionName = function.getName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
-            throw new UserException("Unknown function, function=" + function.toString());
+            if (ifExists) {
+                LOG.debug("function name does not exist: " + functionName);
+                return false;
+            }
+            throw new UserException("function name does not exist: " + functionName);
         }
         boolean isFound = false;
         ImmutableList.Builder<Function> builder = ImmutableList.builder();
@@ -729,7 +754,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             }
         }
         if (!isFound) {
-            throw new UserException("Unknown function, function=" + function.toString());
+            if (ifExists) {
+                LOG.debug("function does not exist: " + function);
+                return false;
+            }
+            throw new UserException("function does not exist: " + function);
         }
         ImmutableList<Function> newFunctions = builder.build();
         if (newFunctions.isEmpty()) {
@@ -737,6 +766,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         } else {
             name2Function.put(functionName, newFunctions);
         }
+        return true;
     }
 
     public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
@@ -774,25 +804,30 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME);
     }
 
-    public synchronized void addEncryptKey(EncryptKey encryptKey) throws UserException {
-        addEncryptKeyImpl(encryptKey, false);
-        Env.getCurrentEnv().getEditLog().logAddEncryptKey(encryptKey);
+    public synchronized void addEncryptKey(EncryptKey encryptKey, boolean ifNotExists) throws UserException {
+        if (addEncryptKeyImpl(encryptKey, false, ifNotExists)) {
+            Env.getCurrentEnv().getEditLog().logAddEncryptKey(encryptKey);
+        }
     }
 
     public synchronized void replayAddEncryptKey(EncryptKey encryptKey) {
         try {
-            addEncryptKeyImpl(encryptKey, true);
+            addEncryptKeyImpl(encryptKey, true, true);
         } catch (UserException e) {
             Preconditions.checkArgument(false);
         }
     }
 
-    private void addEncryptKeyImpl(EncryptKey encryptKey, boolean isReplay) throws UserException {
+    private boolean addEncryptKeyImpl(EncryptKey encryptKey, boolean isReplay, boolean ifNotExists)
+            throws UserException {
         String keyName = encryptKey.getEncryptKeyName().getKeyName();
         EncryptKey existKey = dbEncryptKey.getName2EncryptKey().get(keyName);
         if (!isReplay) {
             if (existKey != null) {
                 if (existKey.isIdentical(encryptKey)) {
+                    if (ifNotExists) {
+                        return false;
+                    }
                     throw new UserException("encryptKey ["
                             + existKey.getEncryptKeyName().toString() + "] already exists");
                 }
@@ -800,25 +835,32 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         dbEncryptKey.getName2EncryptKey().put(keyName, encryptKey);
+        return true;
     }
 
-    public synchronized void dropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
-        dropEncryptKeyImpl(encryptKeySearchDesc);
-        Env.getCurrentEnv().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
+    public synchronized void dropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc, boolean ifExists)
+            throws UserException {
+        if (dropEncryptKeyImpl(encryptKeySearchDesc, ifExists)) {
+            Env.getCurrentEnv().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
+        }
     }
 
     public synchronized void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {
         try {
-            dropEncryptKeyImpl(encryptKeySearchDesc);
+            dropEncryptKeyImpl(encryptKeySearchDesc, true);
         } catch (UserException e) {
             Preconditions.checkArgument(false);
         }
     }
 
-    private void dropEncryptKeyImpl(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
+    private boolean dropEncryptKeyImpl(EncryptKeySearchDesc encryptKeySearchDesc, boolean ifExists)
+            throws UserException {
         String keyName = encryptKeySearchDesc.getKeyEncryptKeyName().getKeyName();
         EncryptKey existKey = dbEncryptKey.getName2EncryptKey().get(keyName);
         if (existKey == null) {
+            if (ifExists) {
+                return false;
+            }
             throw new UserException("Unknown encryptKey, encryptKey=" + encryptKeySearchDesc.toString());
         }
         boolean isFound = false;
@@ -826,9 +868,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             isFound = true;
         }
         if (!isFound) {
+            if (ifExists) {
+                return false;
+            }
             throw new UserException("Unknown encryptKey, encryptKey=" + encryptKeySearchDesc.toString());
         }
         dbEncryptKey.getName2EncryptKey().remove(keyName);
+        return true;
     }
 
     public synchronized List<EncryptKey> getEncryptKeys() {

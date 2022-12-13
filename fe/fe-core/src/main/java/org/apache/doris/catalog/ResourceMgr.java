@@ -70,24 +70,27 @@ public class ResourceMgr implements Writable {
     }
 
     public void createResource(CreateResourceStmt stmt) throws DdlException {
-        if (stmt.getResourceType() != ResourceType.SPARK
-                && stmt.getResourceType() != ResourceType.ODBC_CATALOG
-                && stmt.getResourceType() != ResourceType.S3
-                && stmt.getResourceType() != ResourceType.JDBC) {
-            throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, and REMOTE_STORAGE resource.");
+        if (stmt.getResourceType() == ResourceType.UNKNOWN) {
+            throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, S3_COOLDOWN, S3, HDFS and HMS resource.");
         }
         Resource resource = Resource.fromStmt(stmt);
-        createResource(resource);
-        // log add
-        Env.getCurrentEnv().getEditLog().logCreateResource(resource);
-        LOG.info("Create resource success. Resource: {}", resource);
+        if (createResource(resource, stmt.isIfNotExists())) {
+            Env.getCurrentEnv().getEditLog().logCreateResource(resource);
+            LOG.info("Create resource success. Resource: {}", resource);
+        }
     }
 
-    public void createResource(Resource resource) throws DdlException {
+    // Return true if the resource is truly added,
+    // otherwise, return false or throw exception.
+    public boolean createResource(Resource resource, boolean ifNotExists) throws DdlException {
         String resourceName = resource.getName();
         if (nameToResource.putIfAbsent(resourceName, resource) != null) {
+            if (ifNotExists) {
+                return false;
+            }
             throw new DdlException("Resource(" + resourceName + ") already exist");
         }
+        return true;
     }
 
     public void replayCreateResource(Resource resource) {
@@ -97,16 +100,14 @@ public class ResourceMgr implements Writable {
     public void dropResource(DropResourceStmt stmt) throws DdlException {
         String resourceName = stmt.getResourceName();
         if (!nameToResource.containsKey(resourceName)) {
+            if (stmt.isIfExists()) {
+                return;
+            }
             throw new DdlException("Resource(" + resourceName + ") does not exist");
         }
 
         Resource resource = nameToResource.get(resourceName);
-        if (resource.getType().equals(ResourceType.S3)
-                && !((S3Resource) resource).getCopiedUsedByPolicySet().isEmpty()) {
-            LOG.warn("S3 resource used by policy {}, can't drop it",
-                    ((S3Resource) resource).getCopiedUsedByPolicySet());
-            throw new DdlException("S3 resource used by policy, can't drop it.");
-        }
+        resource.dropResource();
 
         // Check whether the resource is in use before deleting it, except spark resource
         StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);
@@ -127,7 +128,6 @@ public class ResourceMgr implements Writable {
         String name = resource.getName();
         if (nameToResource.remove(name) == null) {
             LOG.info("resource " + name + " does not exists.");
-            return;
         }
     }
 

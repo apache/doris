@@ -46,7 +46,7 @@ class VOrcScannerTest : public testing::Test {
 public:
     VOrcScannerTest() : _runtime_state(TQueryGlobals()) {
         _profile = _runtime_state.runtime_profile();
-        _runtime_state.init_instance_mem_tracker();
+        _runtime_state.init_mem_trackers();
         _runtime_state._query_options.enable_vectorized_engine = true;
     }
     ~VOrcScannerTest() {}

@@ -222,6 +222,57 @@ public class SystemInfoServiceTest {
     }
 
     @Test
+    public void testComputeNodeBackendSelect() throws Exception {
+        // only one compute node
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+        addBackend(20001, "192.168.2.1", 9051);
+        Backend be1 = infoService.getBackend(20001);
+        setComputeNode(be1, taga);
+        be1.setAlive(true);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
+        BeSelectionPolicy policy01 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy01, 1).size());
+
+        BeSelectionPolicy policy02 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy02, 1).size());
+
+        BeSelectionPolicy policy03 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(0).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy03, 1).size());
+
+        BeSelectionPolicy policy04 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(1).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy04, 1).size());
+
+        // one compute node and two mix node
+        addBackend(20002, "192.168.2.2", 9051);
+        Backend be2 = infoService.getBackend(20002);
+        be2.setTagMap(taga.toMap());
+        be2.setAlive(true);
+        addDisk(be2, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
+
+        addBackend(20003, "192.168.2.3", 9051);
+        Backend be3 = infoService.getBackend(20003);
+        be3.setTagMap(taga.toMap());
+        be3.setAlive(true);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
+
+        BeSelectionPolicy policy05 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy05, 3).size());
+
+        BeSelectionPolicy policy06 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(2).build();
+        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy06, 2).size());
+
+        BeSelectionPolicy policy07 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(3).build();
+        Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy07, 3).size());
+    }
+
+    @Test
     public void testSelectBackendIdsForReplicaCreation() throws Exception {
         addBackend(10001, "192.168.1.1", 9050);
         Backend be1 = infoService.getBackend(10001);
@@ -243,6 +294,12 @@ public class SystemInfoServiceTest {
         Backend be5 = infoService.getBackend(10005);
         addDisk(be5, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
         be5.setAlive(true);
+        // no effect with compute node
+        addBackend(10006, "192.168.1.6", 9050);
+        Backend be6 = infoService.getBackend(10006);
+        addDisk(be6, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be6.setAlive(true);
+        setComputeNode(be6, Tag.DEFAULT_BACKEND_TAG);
 
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         // also check if the random selection logic can evenly distribute the replica.
@@ -270,5 +327,11 @@ public class SystemInfoServiceTest {
         Map<String, DiskInfo> map = Maps.newHashMap();
         map.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(map));
+    }
+
+    private void setComputeNode(Backend be, Tag tag) {
+        Map<String, String> tagMap = tag.toMap();
+        tagMap.put(Tag.TYPE_ROLE, Tag.VALUE_COMPUTATION);
+        be.setTagMap(tagMap);
     }
 }

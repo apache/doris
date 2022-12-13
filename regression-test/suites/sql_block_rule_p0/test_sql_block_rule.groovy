@@ -44,7 +44,7 @@ suite("test_sql_block_rule") {
               """
 
     test {
-        sql "SELECT * FROM table_2"
+        sql("SELECT * FROM table_2", false)
         exception "sql match regex sql block rule: test_rule_sql"
     }
 

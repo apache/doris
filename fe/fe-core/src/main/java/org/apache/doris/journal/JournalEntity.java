@@ -37,6 +37,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
@@ -48,6 +52,12 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
+import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
+import org.apache.doris.mtmv.metadata.DropMTMVJob;
+import org.apache.doris.mtmv.metadata.DropMTMVTask;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -92,6 +102,7 @@ import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -190,8 +201,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_TABLE: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -232,14 +242,12 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RECOVER_DB:
             case OperationType.OP_RECOVER_TABLE:
             case OperationType.OP_RECOVER_PARTITION: {
-                data = new RecoverInfo();
-                ((RecoverInfo) data).readFields(in);
+                data = RecoverInfo.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_ROLLUP: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -253,6 +261,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_PARTITION: {
                 data = new TableInfo();
                 ((TableInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_RENAME_COLUMN: {
+                data = TableRenameColumnInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -677,6 +690,27 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_INIT_CATALOG: {
+                data = InitCatalogLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_EXTERNAL_DB: {
+                data = InitDatabaseLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_EXTERNAL_TABLE: {
+                data = InitTableLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_REFRESH_EXTERNAL_DB:
+            case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
+                data = ExternalObjectLog.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
                 data = TableAddOrDropColumnsInfo.read(in);
                 isRead = true;
@@ -684,6 +718,36 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CLEAN_LABEL: {
                 data = CleanLabelOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_MTMV_JOB: {
+                data = MTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_MTMV_JOB: {
+                data = DropMTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV_JOB: {
+                data = ChangeMTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_MTMV_TASK: {
+                data = MTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_MTMV_TASK: {
+                data = DropMTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV_TASK: {
+                data = ChangeMTMVTask.read(in);
                 isRead = true;
                 break;
             }

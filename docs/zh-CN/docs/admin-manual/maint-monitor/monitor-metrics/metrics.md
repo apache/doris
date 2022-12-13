@@ -96,6 +96,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_query_err`| | Num | 错误查询的累积值 | |
 |`doris_fe_query_err_rate`|  | Num/Sec| 每秒错误查询数  | 观察集群是否出现查询错误 | P0 |
 |`doris_fe_query_latency_ms`| | 毫秒| 查询请求延迟的百分位统计。如 {quantile="0.75"} 表示 75 分位的查询延迟 | 详细观察各分位查询延迟 | P0 |
+|| | 毫秒| 各个DB的查询请求延迟的百分位统计。如 {quantile="0.75",db="test"} 表示DB test 75 分位的查询延迟 | 详细观察各DB各分位查询延迟 | P0 |
 |`doris_fe_query_olap_table`| | Num| 查询内部表（OlapTable）的请求个数统计 | |
 |`doris_fe_query_total`| | Num | 所有查询请求的累积计数 | |
 |`doris_fe_report_queue_size`| | Num | BE的各种定期汇报任务在FE端的队列长度 | 该值反映了汇报任务在 Master FE 节点上的阻塞程度，数值越大，表示FE处理能力不足 | P0|
@@ -131,7 +132,22 @@ curl http://be_host:webserver_port/metrics?type=json
 || {type="reject"} | Num| 被拒绝的事务数量。（如当前运行事务数大于阈值，则新的事务会被拒绝）| |
 || {type="succes"} | Num| 成功的事务数量| |
 |`doris_fe_txn_status`|  | Num | 统计当前处于各个状态的导入事务的数量。如 {type="committed"} 表示处于 committed 状态的事务的数量 | 可以观测各个状态下导入事务的数量，来判断是否有堆积 | P0 |
-|`doris_fe_max_instances_num_per_user`|| Num| 当前连接用户中，发起fragment instance最多的用户的 instance 数目 |该数值可以用于观测当前是否有用户占用过多查询资源| P0 |
+|`doris_fe_query_instance_num`|| Num| 指定用户当前正在请求的fragment instance数目。如 {user="test_u"} 表示用户 test_u 当前正在请求的 instance 数目 |该数值可以用于观测指定用户是否占用过多查询资源| P0 |
+|`doris_fe_query_instance_begin`|| Num| 指定用户请求开始的fragment instance数目。如 {user="test_u"} 表示用户 test_u 开始请求的 instance 数目 |该数值可以用于观测指定用户是否提交了过多查询| P0 |
+|`doris_fe_query_rpc_total`|| Num| 发往指定BE的RPC次数。如 {be="192.168.10.1"} 表示发往ip为 192.168.10.1 的BE的RPC次数 |该数值可以观测是否向某个BE提交了过多RPC| |
+|`doris_fe_query_rpc_failed`|| Num| 发往指定BE的RPC失败次数。如 {be="192.168.10.1"} 表示发往ip为 192.168.10.1 的BE的RPC失败次数 |该数值可以观测某个BE是否存在RPC问题| |
+|`doris_fe_query_rpc_size`|| Num| 指定BE的RPC数据大小。如 {be="192.168.10.1"} 表示发往ip为 192.168.10.1 的BE的RPC数据字节数 |该数值可以观测是否向某个BE提交了过大的RPC| |
+|`doris_fe_txn_exec_latency_ms`| | 毫秒| 事务执行耗时的百分位统计。如 {quantile="0.75"} 表示 75 分位的事务执行耗时 | 详细观察各分位事务执行耗时 | P0 |
+|`doris_fe_txn_publish_latency_ms`| | 毫秒| 事务publish耗时的百分位统计。如 {quantile="0.75"} 表示 75 分位的事务publish耗时 | 详细观察各分位事务publish耗时 | P0 |
+|`doris_fe_txn_num`|| Num| 指定DB正在执行的事务数。如 {db="test"} 表示DB test 当前正在执行的事务数 |该数值可以观测某个DB是否提交了大量事务| P0 |
+|`doris_fe_txn_replica_num`|| Num| 指定DB正在执行的事务打开的副本数。如 {db="test"} 表示DB test 当前正在执行的事务打开的副本数 |该数值可以观测某个DB是否打开了过多的副本，可能会影响其他事务执行| P0 |
+|`doris_fe_thrift_rpc_total`|| Num| FE thrift接口各个方法接收的RPC请求次数。如 {method="report"} 表示 report 方法接收的RPC请求次数 |该数值可以观测某个thrift rpc方法的负载| |
+|`doris_fe_thrift_rpc_latency_ms`|| 毫秒| FE thrift接口各个方法接收的RPC请求耗时。如 {method="report"} 表示 report 方法接收的RPC请求耗时 |该数值可以观测某个thrift rpc方法的负载| |
+|`doris_fe_external_schema_cache` | {catalog="hive"} | Num | 指定 External Catalog 对应的 schema cache 的数量 |||
+|`doris_fe_hive_meta_cache` | {catalog="hive"} | Num | |||
+| | `{type="partition_value"}` | Num | 指定 External Hive Metastore Catalog 对应的 partition value cache 的数量 |||
+| | `{type="partition"}` | Num | 指定 External Hive Metastore Catalog 对应的 partition cache 的数量 |||
+| | `{type="file"}` | Num | 指定 External Hive Metastore Catalog 对应的 file cache 的数量 |||
 
 ### JVM 监控
 

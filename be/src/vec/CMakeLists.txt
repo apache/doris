@@ -20,6 +20,8 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 set(VEC_FILES
+  aggregate_functions/aggregate_function_sequence_match.cpp
+  aggregate_functions/aggregate_function_retention.cpp
   aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
   aggregate_functions/aggregate_function_collect.cpp
@@ -32,6 +34,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_null.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
+  aggregate_functions/aggregate_function_bit.cpp
   aggregate_functions/aggregate_function_bitmap.cpp
   aggregate_functions/aggregate_function_reader.cpp
   aggregate_functions/aggregate_function_window.cpp
@@ -42,13 +45,13 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
+  aggregate_functions/aggregate_function_avg_weighted.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
   columns/column_decimal.cpp
   columns/column_nullable.cpp
   columns/column_string.cpp
-  columns/column_jsonb.cpp
   columns/column_vector.cpp
   columns/columns_common.cpp
   common/demangle.cpp
@@ -87,20 +90,11 @@ set(VEC_FILES
   data_types/data_type_jsonb.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
-  exec/ves_http_scan_node.cpp
-  exec/ves_http_scanner.cpp
-  exec/volap_scan_node.cpp
   exec/vsort_node.cpp
-  exec/volap_scanner.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
-  exec/vintersect_node.cpp
-  exec/vexcept_node.cpp
   exec/vselect_node.cpp
-  exec/vblocking_join_node.cpp
-  exec/vcross_join_node.cpp
-  exec/vodbc_scan_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
   exec/vempty_set_node.cpp
@@ -112,12 +106,23 @@ set(VEC_FILES
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
   exec/vjdbc_connector.cpp
-  exec/vjdbc_scan_node.cpp
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
-  exec/tablefunction/vnumbers_tbf.cpp
-  exec/vtable_valued_function_scannode.cpp
+  exec/join/vjoin_node_base.cpp
+  exec/join/vnested_loop_join_node.cpp
+  exec/join/inner_join_impl.cpp
+  exec/join/left_semi_join_impl.cpp
+  exec/join/left_anti_join_impl.cpp
+  exec/join/left_outer_join_impl.cpp
+  exec/join/full_outer_join_impl.cpp
+  exec/join/right_outer_join_impl.cpp
+  exec/join/cross_join_impl.cpp
+  exec/join/right_semi_join_impl.cpp
+  exec/join/right_anti_join_impl.cpp
+  exec/join/null_aware_left_anti_join_impl.cpp
+  exec/data_gen_functions/vnumbers_tvf.cpp
+  exec/vdata_gen_scan_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
   exprs/vexpr.cpp
@@ -126,6 +131,7 @@ set(VEC_FILES
   exprs/varray_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
+  exprs/vbitmap_predicate.cpp
   exprs/vruntimefilter_wrapper.cpp
   exprs/vtuple_is_null_predicate.cpp
   exprs/vslot_ref.cpp
@@ -150,6 +156,13 @@ set(VEC_FILES
   functions/array/function_array_except.cpp
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
+  functions/array/function_array_difference.cpp
+  functions/array/function_array_enumerate.cpp
+  functions/array/function_array_range.cpp
+  functions/array/function_array_compact.cpp
+  functions/array/function_array_popback.cpp
+  functions/array/function_array_constructor.cpp
+  functions/array/function_array_with_constant.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -196,8 +209,10 @@ set(VEC_FILES
   functions/function_ifnull.cpp
   functions/nullif.cpp
   functions/random.cpp
+  functions/uuid.cpp
   functions/function_coalesce.cpp
   functions/function_date_or_datetime_computation.cpp
+  functions/function_date_or_datetime_computation_v2.cpp
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
@@ -206,10 +221,16 @@ set(VEC_FILES
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
+  functions/url/function_url.cpp
+  functions/functions_multi_string_position.cpp
+  functions/functions_multi_string_search.cpp
+  functions/function_running_difference.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
   olap/olap_data_convertor.cpp
+  olap/vertical_merge_iterator.cpp
+  olap/vertical_block_reader.cpp
   sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
@@ -227,12 +248,9 @@ set(VEC_FILES
   runtime/vpartition_info.cpp
   runtime/vparquet_writer.cpp
   runtime/vorc_writer.cpp
-  utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
-  exec/file_arrow_scanner.cpp
-  exec/file_scanner.cpp
-  exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp
+  runtime/shared_hash_table_controller.cpp
+  utils/arrow_column_to_doris_column.cpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp
@@ -249,10 +267,7 @@ set(VEC_FILES
   exec/scan/scanner_scheduler.cpp
   exec/scan/new_olap_scan_node.cpp
   exec/scan/new_olap_scanner.cpp
-  exec/scan/new_file_arrow_scanner.cpp
   exec/scan/new_file_scan_node.cpp
-  exec/scan/new_file_scanner.cpp
-  exec/scan/new_file_text_scanner.cpp
   exec/scan/vfile_scanner.cpp
   exec/scan/new_odbc_scanner.cpp
   exec/scan/new_odbc_scan_node.cpp
@@ -260,7 +275,13 @@ set(VEC_FILES
   exec/scan/new_jdbc_scan_node.cpp
   exec/scan/new_es_scanner.cpp
   exec/scan/new_es_scan_node.cpp
-  exec/format/csv/vcsv_reader.cpp
+  exec/format/csv/csv_reader.cpp
+  exec/format/orc/vorc_reader.cpp
+  exec/format/json/new_json_reader.cpp
+  exec/format/table/table_format_reader.cpp
+  exec/format/table/iceberg_reader.cpp
+  exec/format/file_reader/new_file_factory.cpp
+  exec/format/file_reader/new_plain_text_line_reader.cpp
   )
 
 add_library(Vec STATIC

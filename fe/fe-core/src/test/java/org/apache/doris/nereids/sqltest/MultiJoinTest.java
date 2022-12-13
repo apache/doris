@@ -18,63 +18,21 @@
 package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class MultiJoinTest extends TestWithFeService implements PatternMatchSupported {
-    @Override
-    protected void runBeforeAll() throws Exception {
-        createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
-
-        createTables(
-                "CREATE TABLE IF NOT EXISTS T1 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T2 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T3 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n"
-        );
-    }
-
-    @Override
-    protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
-    }
-
+public class MultiJoinTest extends SqlTestBase {
     @Test
     void testMultiJoinEliminateCross() {
         List<String> sqls = ImmutableList.<String>builder()
-                .add("SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id")
                 .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id")
+                .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id AND T1.score > 0")
+                .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id AND T1.score > 0 AND T1.id + T2.id + T3.id > 0")
                 .build();
 
         for (String sql : sqls) {
@@ -89,6 +47,41 @@ public class MultiJoinTest extends TestWithFeService implements PatternMatchSupp
                     )
                     .printlnTree();
         }
+    }
+
+    @Test
+    @Disabled
+    // TODO: MultiJoin And EliminateOuter
+    void testEliminateBelowOuter() {
+        String sql = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new ReorderJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testPushdownAndEliminateOuter() {
+        String sql = "SELECT * FROM T1 LEFT JOIN T2 ON T1.id = T2.id WHERE T2.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin().when(join -> join.getJoinType().isInnerJoin())
+                );
+
+        String sql1 = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id AND T3.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql1)
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalJoin().when(join -> join.getJoinType().isInnerJoin()),
+                                any()
+                        ).when(join -> join.getJoinType().isInnerJoin())
+                );
     }
 
     @Test
@@ -110,5 +103,21 @@ public class MultiJoinTest extends TestWithFeService implements PatternMatchSupp
                     )
                     .printlnTree();
         }
+    }
+
+    @Test
+    void testOuterJoin() {
+        String sql = "SELECT * FROM T1 LEFT OUTER JOIN T2 ON T1.id = T2.id, T3 WHERE T2.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new ReorderJoin())
+                .printlnTree()
+                .matches(
+                        crossLogicalJoin(
+                                leftOuterLogicalJoin()
+                                        .when(join -> join.getOtherJoinConjuncts().size() == 1),
+                                logicalOlapScan()
+                        )
+                );
     }
 }

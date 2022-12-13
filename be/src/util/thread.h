@@ -20,8 +20,11 @@
 
 #pragma once
 
-#include <pthread.h>
+#ifndef __APPLE__
 #include <syscall.h>
+#endif
+
+#include <pthread.h>
 
 #include <atomic>
 
@@ -89,7 +92,9 @@ public:
 
     static void set_self_name(const std::string& name);
 
+#ifndef __APPLE__
     static void set_idle_sched();
+#endif
 
     ~Thread();
 

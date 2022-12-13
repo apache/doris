@@ -21,7 +21,7 @@ suite("test_string_pad_function") {
     """
     
     sql """
-        create table table_pad (
+        create table if not exists table_pad (
         a int not null,
         b varchar(10) not null
         )

@@ -21,7 +21,7 @@ suite("test_subquery_with_agg") {
     """
     
     sql """
-        CREATE TABLE agg_subquery_table
+        CREATE TABLE IF NOT EXISTS agg_subquery_table
         (
             gid       varchar(50)  NOT NULL,
             num       int(11) SUM NOT NULL DEFAULT "0",

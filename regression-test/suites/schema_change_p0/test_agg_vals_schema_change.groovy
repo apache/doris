@@ -60,7 +60,7 @@ suite ("test_agg_vals_schema_change") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                 `city` VARCHAR(20) COMMENT "用户所在城市",

@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS web_site (
     web_state char(2),
     web_zip char(10),
     web_country varchar(20),
-    web_gmt_offset decimal(5,2),
-    web_tax_percentage decimal(5,2)
+    web_gmt_offset decimalv3(5,2),
+    web_tax_percentage decimalv3(5,2)
 )
 DUPLICATE KEY(web_site_sk, web_site_id)
 DISTRIBUTED BY HASH(web_site_sk) BUCKETS 3

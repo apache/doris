@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -81,6 +80,9 @@ public class LoadStmt extends DdlStmt {
     public static final String LOAD_PARALLELISM = "load_parallelism";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+    // temp property, just make regression test happy.
+    // should remove when Config.enable_new_load_scan_node is set to true by default.
+    public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";
 
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -174,6 +176,12 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(USE_NEW_LOAD_SCAN_NODE, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
@@ -365,10 +373,6 @@ public class LoadStmt extends DdlStmt {
         if (resourceDesc != null) {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
-            // TODO(wyb): spark-load
-            if (!Config.enable_spark_load) {
-                throw new AnalysisException("Spark Load is coming soon");
-            }
             // check resource usage privilege
             if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
                                                                          resourceDesc.getName(),

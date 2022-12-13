@@ -59,6 +59,14 @@ AggregateFunctionPtr create_aggregate_function_bitmap_intersect(const std::strin
             argument_types);
 }
 
+AggregateFunctionPtr create_aggregate_function_group_bitmap_xor(const std::string& name,
+                                                                const DataTypes& argument_types,
+                                                                const Array& parameters,
+                                                                const bool result_is_nullable) {
+    return std::make_shared<AggregateFunctionBitmapOp<AggregateFunctionGroupBitmapXorOp>>(
+            argument_types);
+}
+
 AggregateFunctionPtr create_aggregate_function_bitmap_union_count(const std::string& name,
                                                                   const DataTypes& argument_types,
                                                                   const Array& parameters,
@@ -88,6 +96,7 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union_int(const std::strin
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("bitmap_union", create_aggregate_function_bitmap_union);
     factory.register_function("bitmap_intersect", create_aggregate_function_bitmap_intersect);
+    factory.register_function("group_bitmap_xor", create_aggregate_function_group_bitmap_xor);
     factory.register_function("bitmap_union_count", create_aggregate_function_bitmap_union_count);
     factory.register_function("bitmap_union_count", create_aggregate_function_bitmap_union_count,
                               true);

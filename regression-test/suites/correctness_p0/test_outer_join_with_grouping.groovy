@@ -25,7 +25,7 @@ suite("test_outer_join_with_grouping") {
     """
 
     sql """
-        CREATE TABLE `table_a` (
+        CREATE TABLE IF NOT EXISTS `table_a` (
         `id` bigint(20) NOT NULL COMMENT '',
         `moid` int(11) REPLACE_IF_NOT_NULL NULL COMMENT '',
         `sid` int(11) REPLACE_IF_NOT_NULL NULL COMMENT ''
@@ -42,7 +42,7 @@ suite("test_outer_join_with_grouping") {
     """
 
     sql """
-        CREATE TABLE `table_b` (
+        CREATE TABLE IF NOT EXISTS `table_b` (
         `id` bigint(20) NOT NULL COMMENT '',
         `name` varchar(192) NOT NULL COMMENT ''
         ) ENGINE=OLAP

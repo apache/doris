@@ -145,9 +145,13 @@ public class RoleManager implements Writable {
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(role.getUsers()));
 
-            Map<PrivLevel, String> infoMap = role.getTblPatternToPrivs().entrySet().stream()
-                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet().stream()
-                    .collect(Collectors.toMap(Entry::getKey, entry -> {
+            Map<PrivLevel, String> infoMap =
+                    Stream.concat(
+                        role.getTblPatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet().stream(),
+                        role.getResourcePatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet().stream()
+                    ).collect(Collectors.toMap(Entry::getKey, entry -> {
                         if (entry.getKey() == PrivLevel.GLOBAL) {
                             return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
                                     .orElse(FeConstants.null_string);
@@ -156,7 +160,8 @@ public class RoleManager implements Writable {
                                     .map(priv -> priv.getKey() + ": " + priv.getValue())
                                     .collect(Collectors.joining("; "));
                         }
-                    }));
+                    }, (s1, s2) -> s1 + " " + s2
+                ));
             Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);

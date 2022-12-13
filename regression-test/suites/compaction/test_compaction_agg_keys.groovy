@@ -59,7 +59,7 @@ suite("test_compaction_agg_keys") {
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                 `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间",

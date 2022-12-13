@@ -38,7 +38,7 @@ import java.util.Objects;
  * All data type literal expression in Nereids.
  * TODO: Increase the implementation of sub expression. such as Integer.
  */
-public abstract class Literal extends Expression implements LeafExpression {
+public abstract class Literal extends Expression implements LeafExpression, Comparable<Literal> {
 
     private final DataType dataType;
 
@@ -48,7 +48,7 @@ public abstract class Literal extends Expression implements LeafExpression {
      * @param dataType logical data type in Nereids
      */
     public Literal(DataType dataType) {
-        this.dataType = dataType;
+        this.dataType = Objects.requireNonNull(dataType);
     }
 
     /**
@@ -58,21 +58,21 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (value == null) {
             return new NullLiteral();
         } else if (value instanceof Byte) {
-            return new TinyIntLiteral((byte) value);
+            return new TinyIntLiteral((Byte) value);
         } else if (value instanceof Short) {
-            return new SmallIntLiteral((short) value);
+            return new SmallIntLiteral((Short) value);
         } else if (value instanceof Integer) {
-            return new IntegerLiteral((int) value);
+            return new IntegerLiteral((Integer) value);
         } else if (value instanceof Long) {
-            return new BigIntLiteral((long) value);
+            return new BigIntLiteral((Long) value);
         } else if (value instanceof BigInteger) {
             return new LargeIntLiteral((BigInteger) value);
         } else if (value instanceof Float) {
-            return new FloatLiteral((float) value);
+            return new FloatLiteral((Float) value);
         } else if (value instanceof Double) {
-            return new DoubleLiteral((double) value);
+            return new DoubleLiteral((Double) value);
         } else if (value instanceof Boolean) {
-            return BooleanLiteral.of((boolean) value);
+            return BooleanLiteral.of((Boolean) value);
         } else if (value instanceof String) {
             return new StringLiteral((String) value);
         } else {
@@ -81,6 +81,26 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     public abstract Object getValue();
+
+    /**
+     * Map literal to double, and keep "<=" order.
+     * for numeric literal (int/long/double/float), directly convert to double
+     * for char/varchar/string, we take first 8 chars as a int64, and convert it to double
+     * for other literals, getDouble() is not used.
+     * <p>
+     * And hence, we could express the range of a datatype, and used in stats derive.
+     * for example:
+     * 'abcxxxxxxxxxxx' is between ('abb', 'zzz')
+     *
+     * @return double representation of literal.
+     */
+    public double getDouble() {
+        try {
+            return Double.parseDouble(getValue().toString());
+        } catch (Exception e) {
+            return 0.0;
+        }
+    }
 
     public String getStringValue() {
         return String.valueOf(getValue());
@@ -109,6 +129,7 @@ public abstract class Literal extends Expression implements LeafExpression {
     /**
      * literal expr compare.
      */
+    @Override
     public int compareTo(Literal other) {
         if (isNullLiteral() && other.isNullLiteral()) {
             return 0;

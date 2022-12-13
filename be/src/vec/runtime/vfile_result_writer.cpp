@@ -80,7 +80,8 @@ Status VFileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
     RETURN_IF_ERROR(_create_file_writer(file_name));
-    return _close_file_writer(true);
+    // set only close to true to avoid dead loop
+    return _close_file_writer(true, true);
 }
 
 Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
@@ -334,7 +335,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
-                case TYPE_DECIMAL128: {
+                case TYPE_DECIMAL128I: {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
@@ -422,13 +423,17 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
     return Status::OK();
 }
 
-Status VFileResultWriter::_close_file_writer(bool done) {
+Status VFileResultWriter::_close_file_writer(bool done, bool only_close) {
     if (_vfile_writer) {
         _vfile_writer->close();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         _vfile_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         _file_writer_impl->close();
+    }
+
+    if (only_close) {
+        return Status::OK();
     }
 
     if (!done) {
@@ -457,7 +462,7 @@ Status VFileResultWriter::_send_result() {
 
     // The final stat result include:
     // FileNumber, TotalRows, FileSize and URL
-    // The type of these field should be conssitent with types defined
+    // The type of these field should be consistent with types defined
     // in OutFileClause.java of FE.
     MysqlRowBuffer row_buffer;
     row_buffer.push_int(_file_idx);                         // file number

@@ -481,6 +481,27 @@ TEST(VDateTimeValueTest, date_diff_test) {
         EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == 31 * 24 * 60);
         EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) == 31 * 24 * 60 * 60);
     }
+
+    {
+        VecDateTimeValue date_v2_1;
+        std::string origin_date1 = "2022-05-24 06:00:00";
+        std::string date_format1 = "%Y-%m-%d %H:%i:%s";
+        EXPECT_TRUE(date_v2_1.from_date_format_str(date_format1.data(), date_format1.size(),
+                                                   origin_date1.data(), origin_date1.size()));
+
+        VecDateTimeValue date_v2_2;
+        std::string origin_date2 = "2022-06-24 06:00:00.123 AM";
+        std::string date_format2 = "%Y-%m-%d %h:%i:%s.%f %p";
+        EXPECT_TRUE(date_v2_2.from_date_format_str(date_format2.data(), date_format2.size(),
+                                                   origin_date2.data(), origin_date2.size()));
+
+        EXPECT_TRUE(datetime_diff<TimeUnit::DAY>(date_v2_1, date_v2_2) == 31);
+        EXPECT_TRUE(datetime_diff<TimeUnit::YEAR>(date_v2_1, date_v2_2) == 0);
+        EXPECT_TRUE(datetime_diff<TimeUnit::MONTH>(date_v2_1, date_v2_2) == 1);
+        EXPECT_TRUE(datetime_diff<TimeUnit::HOUR>(date_v2_1, date_v2_2) == 31 * 24);
+        EXPECT_TRUE(datetime_diff<TimeUnit::MINUTE>(date_v2_1, date_v2_2) == 31 * 24 * 60);
+        EXPECT_TRUE(datetime_diff<TimeUnit::SECOND>(date_v2_1, date_v2_2) == 31 * 24 * 60 * 60);
+    }
 }
 
 TEST(VDateTimeValueTest, date_v2_to_string_test) {

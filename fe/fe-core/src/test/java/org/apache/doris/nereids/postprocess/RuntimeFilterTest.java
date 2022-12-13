@@ -228,9 +228,10 @@ public class RuntimeFilterTest extends SSBTestBase {
 
     private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, List<Pair<String, String>> colNames) {
         Assertions.assertEquals(filters.size(), colNames.size());
-        for (int i = 0; i < filters.size(); i++) {
-            Assertions.assertTrue(filters.get(i).getSrcExpr().toSql().equals(colNames.get(i).first)
-                    && filters.get(i).getTargetExpr().toSql().equals(colNames.get(i).second));
+        for (RuntimeFilter filter : filters) {
+            Assertions.assertTrue(colNames.contains(Pair.of(
+                    filter.getSrcExpr().getName(),
+                    filter.getTargetExpr().getName())));
         }
     }
 }

@@ -27,6 +27,7 @@
 #include <cstring>
 
 #include "util/simd/bits.h"
+#include "util/stack_util.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
@@ -313,6 +314,9 @@ const char* ColumnVector<T>::get_family_name() const {
 template <typename T>
 MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
@@ -382,10 +386,14 @@ template <typename T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
     if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
+        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
+                   << ", filter size: " << filt.size() << get_stack_trace();
     }
 
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
     Container& res_data = res->get_data();
 
     res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
@@ -445,6 +453,9 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
     }
 
     auto res = this->create(limit);
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
     typename Self::Container& res_data = res->get_data();
     for (size_t i = 0; i < limit; ++i) res_data[i] = data[perm[i]];
 
@@ -458,9 +469,12 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
     }
 
-    if (0 == size) return this->create();
-
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
+    if (0 == size) return res;
+
     typename Self::Container& res_data = res->get_data();
     res_data.reserve(offsets.back());
 
@@ -478,15 +492,17 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
-    size_t size = data.size();
+void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                                size_t begin, int count_sz) const {
+    size_t size = count_sz < 0 ? data.size() : count_sz;
     if (size == 0) return;
 
     auto& res = reinterpret_cast<ColumnVector<T>&>(column);
     typename Self::Container& res_data = res.get_data();
     res_data.reserve(target_size);
 
-    for (size_t i = 0; i < size; ++i) {
+    size_t end = begin + size;
+    for (size_t i = begin; i < end; ++i) {
         res_data.add_num_element_without_reserve(data[i], counts[i]);
     }
 }

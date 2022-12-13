@@ -39,22 +39,28 @@ public:
     JsonbToJson() : os_(buffer_, OUT_BUF_SIZE) {}
 
     // get json string
-    const char* jsonb_to_string(const JsonbValue* pval) {
+    const std::string to_json_string(const char* data, size_t size) {
+        doris::JsonbValue* pval = doris::JsonbDocument::createDocument(data, size)->getValue();
+        return to_json_string(pval);
+    }
+
+    const std::string to_json_string(const JsonbValue* val) {
         os_.clear();
         os_.seekp(0);
 
-        if (pval) {
-            intern_json(pval);
+        if (val) {
+            intern_json(val);
         }
 
         os_.put(0);
-        return os_.getBuffer();
+
+        std::string json_string {os_.getBuffer()};
+        return json_string;
     }
 
-    const char* jsonb_to_string(const char* data, size_t size) {
-        doris::JsonbToJson toStr;
-        doris::JsonbValue* val = doris::JsonbDocument::createDocument(data, size)->getValue();
-        return toStr.jsonb_to_string(val);
+    static const std::string jsonb_to_json_string(const char* data, size_t size) {
+        JsonbToJson jsonb_to_json;
+        return jsonb_to_json.to_json_string(data, size);
     }
 
 private:

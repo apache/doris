@@ -37,6 +37,7 @@ using ResourceId = std::string;
 enum class FileSystemType : uint8_t {
     LOCAL,
     S3,
+    HDFS,
 };
 
 class FileSystem {
@@ -80,7 +81,7 @@ protected:
     FileSystemType _type;
 };
 
-using FileSystemPtr = std::shared_ptr<FileSystem>;
+using FileSystemSPtr = std::shared_ptr<FileSystem>;
 
 } // namespace io
 } // namespace doris

@@ -96,6 +96,16 @@ public class JsonLiteral extends LiteralExpr {
         msg.json_literal = new TJsonLiteral(getUnescapedValue());
     }
 
+    @Override
+    public String getStringValue() {
+        return null;
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        return null;
+    }
+
     public String getUnescapedValue() {
         // Unescape string exactly like Hive does. Hive's method assumes
         // quotes so we add them here to reuse Hive's code.

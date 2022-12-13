@@ -41,13 +41,19 @@ import com.google.common.base.Strings;
  *     CREATE ENCRYPTKEY test.key1 AS "beijing";
  */
 public class CreateEncryptKeyStmt extends DdlStmt {
+    private final boolean ifNotExists;
     private final EncryptKeyName encryptKeyName;
     private final String keyString;
     private EncryptKey encryptKey;
 
-    public CreateEncryptKeyStmt(EncryptKeyName encryptKeyName, String keyString) {
+    public CreateEncryptKeyStmt(boolean ifNotExists, EncryptKeyName encryptKeyName, String keyString) {
+        this.ifNotExists = ifNotExists;
         this.encryptKeyName = encryptKeyName;
         this.keyString = keyString;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public EncryptKeyName getEncryptKeyName() {

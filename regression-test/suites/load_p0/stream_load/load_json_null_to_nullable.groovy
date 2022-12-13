@@ -40,8 +40,11 @@ suite("test_load_json_null_to_nullable", "p0") {
             """
     }
 
-    def load_array_data = {table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
+    def load_array_data = {new_json_reader_flag, table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
+        // should be deleted after new_load_scan is ready
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
+
         // load the json data
         streamLoad {
             table table_name
@@ -74,6 +77,15 @@ suite("test_load_json_null_to_nullable", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+
+        // should be deleted after new_load_scan is ready
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+    }
+
+    def check_data_correct = {table_name ->
+        sql "sync"
+        // select the table and check whether the data is correct
+        qt_select "select * from ${table_name} order by k1" 
     }
 
     // case1: import array data in json format and enable vectorized engine
@@ -82,11 +94,15 @@ suite("test_load_json_null_to_nullable", "p0") {
         
         create_test_table.call(true)
 
-        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
+        load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
-        sql "sync"
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
+        check_data_correct(testTable)
+
+        // test new json load, should be deleted after new_load_scan ready
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        create_test_table.call(true)
+        load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
+        check_data_correct(testTable)
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -98,11 +114,15 @@ suite("test_load_json_null_to_nullable", "p0") {
         
         create_test_table.call(false)
 
-        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
+        load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
-        sql "sync"
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
+        check_data_correct(testTable)
+
+        // test new json load, should be deleted after new_load_scan ready
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        create_test_table.call(false)
+        load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
+        check_data_correct(testTable)
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

@@ -588,6 +588,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Backend be = infoService.getBackend(backendId);
         if (be == null) {
             return false;
+        } else if (!be.isMixNode()) {
+            return false;
         } else if (!be.getLocationTag().equals(tag) || excludedBeIds.contains(be.getId())) {
             return false;
         } else if (!be.isScheduleAvailable()) {

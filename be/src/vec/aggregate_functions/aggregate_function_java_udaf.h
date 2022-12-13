@@ -17,8 +17,6 @@
 
 #pragma once
 
-#ifdef LIBJVM
-
 #include <jni.h>
 #include <unistd.h>
 
@@ -46,7 +44,7 @@ const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZJJ)V";
 const char* UDAF_EXECUTOR_SERIALIZE_SIGNATURE = "(J)[B";
 const char* UDAF_EXECUTOR_MERGE_SIGNATURE = "(J[B)V";
 const char* UDAF_EXECUTOR_RESULT_SIGNATURE = "(JJ)Z";
-// Calling Java method about those signture means: "(argument-types)return-type"
+// Calling Java method about those signature means: "(argument-types)return-type"
 // https://www.iitk.ac.in/esc101/05Aug/tutorial/native1.1/implementing/method.html
 
 struct AggregateJavaUdafData {
@@ -70,6 +68,7 @@ public:
         RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_close_id);
         RETURN_IF_STATUS_ERROR(status, JniUtil::GetJniExceptionMsg(env));
+        env->DeleteGlobalRef(executor_cl);
         env->DeleteGlobalRef(executor_obj);
     }
 
@@ -107,6 +106,10 @@ public:
             RETURN_IF_ERROR(jni_frame.push(env));
             RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
             executor_obj = env->NewObject(executor_cl, executor_ctor_id, ctor_params_bytes);
+
+            jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
+            env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
+            env->DeleteLocalRef(ctor_params_bytes);
         }
         RETURN_ERROR_IF_EXC(env);
         RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
@@ -157,6 +160,9 @@ public:
         jbyteArray arr = env->NewByteArray(len);
         env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, place, arr);
+        jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
+        env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
+        env->DeleteLocalRef(arr);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -171,6 +177,9 @@ public:
         serialize_data.resize(len);
         env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         write_binary(serialize_data, buf);
+        jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
+        env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
+        env->DeleteLocalRef(arr);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -201,16 +210,18 @@ public:
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
+        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        chars.resize(buffer_size);                                                                 \
         *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                            \
         *output_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());                           \
         *output_intermediate_state_ptr = chars.size();                                             \
         jboolean res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                 \
                                                         executor_result_id, to.size() - 1, place); \
         while (res != JNI_TRUE) {                                                                  \
-            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
             increase_buffer_size++;                                                                \
-            chars.reserve(chars.size() + buffer_size);                                             \
-            chars.resize(chars.size() + buffer_size);                                              \
+            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
+            chars.resize(buffer_size);                                                             \
+            *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
             *output_intermediate_state_ptr = chars.size();                                         \
             res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,  \
                                                    to.size() - 1, place);                          \
@@ -227,11 +238,8 @@ public:
             EVALUATE_JAVA_UDAF;
         } else {
             *output_null_value = -1;
-            *output_value_buffer = reinterpret_cast<int64_t>(to.get_raw_data().data);
             auto& data_col = to;
             EVALUATE_JAVA_UDAF;
-            env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,
-                                             to.size() - 1, place);
         }
         return JniUtil::GetJniExceptionMsg(env);
     }
@@ -242,9 +250,8 @@ private:
             func_id = env->GetMethodID(executor_cl, func_name, func_sign);
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) {
-                return Status::InternalError(
-                        strings::Substitute("Java-Udaf register_func_id meet error and error is $0",
-                                            s.get_error_msg()));
+                return Status::InternalError(strings::Substitute(
+                        "Java-Udaf register_func_id meet error and error is $0", s.to_string()));
             }
             return s;
         };
@@ -305,6 +312,12 @@ public:
                                        const Array& parameters, const DataTypePtr& return_type) {
         return std::make_shared<AggregateJavaUdaf>(fn, argument_types, parameters, return_type);
     }
+    //Note: The condition is added because maybe the BE can't find java-udaf impl jar
+    //So need to check as soon as possible, before call Data function
+    Status check_udaf(const TFunction& fn) {
+        auto function_cache = UserFunctionCache::instance();
+        return function_cache->check_jar(fn.id, fn.hdfs_location, fn.checksum);
+    }
 
     void create(AggregateDataPtr __restrict place) const override {
         if (_first_created) {
@@ -328,14 +341,14 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict /*place*/, const IColumn** /*columns*/, size_t /*row_num*/,
              Arena*) const override {
         LOG(WARNING) << " shouldn't going add function, there maybe some error about function "
                      << _fn.name.function_name;
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t /*place_offset*/,
+                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i]);
@@ -346,14 +359,14 @@ public:
     // TODO: Here we calling method by jni, And if we get a thrown from FE,
     // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena* /*arena*/) const override {
         int64_t places_address[1];
         places_address[0] = reinterpret_cast<int64_t>(place);
         this->data(_exec_place).add(places_address, true, columns, 0, batch_size, argument_types);
     }
 
     // TODO: reset function should be implement also in struct data
-    void reset(AggregateDataPtr place) const override {
+    void reset(AggregateDataPtr /*place*/) const override {
         LOG(WARNING) << " shouldn't going reset function, there maybe some error about function "
                      << _fn.name.function_name;
     }
@@ -391,4 +404,3 @@ private:
 };
 
 } // namespace doris::vectorized
-#endif

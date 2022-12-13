@@ -75,6 +75,8 @@ public:
 
     HeapSortCursorBlockView& value() { return _reference; }
 
+    int ref_count() const { return _ref_count; }
+
 private:
     ~SharedHeapSortCursorBlockView() noexcept = default;
     int _ref_count;

@@ -1,0 +1,4 @@
+1. Download parquet file packages from:
+    https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz
+
+2. Unzip and name it to "tpch1.db"

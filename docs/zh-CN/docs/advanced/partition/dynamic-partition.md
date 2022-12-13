@@ -453,6 +453,87 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
    这时候请修改 FE 的配置文件，增加一行 `dynamic_partition_enable=true`，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
 
+2. 关于动态分区的副本设置
+
+    动态分区是由系统内部的调度逻辑自动创建的。在自动创建分区时，所使用的分区属性（包括分区的副本数等），都是单独使用 `dynamic_partition` 前缀的属性，而不是使用表的默认属性。举例说明：
+
+    ```
+    CREATE TABLE tbl1 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition.replication_num" = "1",
+    "dynamic_partition.start" = "-3",
+    "replication_num" = "3"
+    );
+    ```
+
+    这个示例中，没有创建任何初始分区（PARTITION BY 子句中的分区定义为空），并且设置了 `DISTRIBUTED BY HASH(k1) BUCKETS 3`, `"replication_num" = "3"`, `"dynamic_partition.replication_num" = "1"` 和 `"dynamic_partition.buckets" = "32"`。
+
+    我们将前两个参数成为表的默认参数，而后两个参数成为动态分区专用参数。
+
+    当系统自动创爱分区时，会使用分桶数 32 和 副本数 1 这两个配置（即动态分区专用参数）。而不是分桶数 3 和 副本数 3 这两个配置。
+
+    当用户通过 `ALTER TABLE tbl1 ADD PARTITION` 语句手动添加分区时，则会使用分桶数 3 和 副本数 3 这两个配置（即表的默认参数）。
+
+    即动态分区使用一套独立的参数设置。只有当没有设置动态分区专用参数时，才会使用表的默认参数。如下：
+
+    ```
+    CREATE TABLE tbl2 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.buckets" = "32",
+    "replication_num" = "3"
+    );
+    ```
+    
+    这个示例中，没有单独指定 `dynamic_partition.replication_num`，则动态分区会使用表的默认参数，即 `"replication_num" = "3"`。
+
+    而如下示例：
+
+    ```
+    CREATE TABLE tbl3 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)(
+        PARTITION p1 VALUES LESS THAN ("2019-10-10")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition.replication_num" = "1",
+    "replication_num" = "3"
+    );
+    ```
+
+    这个示例中，有一个手动创建的分区 p1。这个分区会使用表的默认设置，即分桶数 3 和副本数 3。而后续系统自动创建的动态分区，依然会使用动态分区专用参数，即分桶数 32 和副本数 1。
+
 ## 更多帮助
 
 关于动态分区使用的更多详细语法及最佳实践，请参阅 [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE` 获取更多帮助信息。

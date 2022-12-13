@@ -42,6 +42,7 @@ public class ClusterLoadStatisticsTest {
     private Backend be1;
     private Backend be2;
     private Backend be3;
+    private Backend be4;
 
     private Env env;
     private SystemInfoService systemInfoService;
@@ -119,10 +120,27 @@ public class ClusterLoadStatisticsTest {
         be3.setAlive(true);
         be3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
 
+        // compute role node
+        be4 = new Backend(10004, "192.168.0.4", 9053);
+        disks = Maps.newHashMap();
+        diskInfo1 = new DiskInfo("/path1");
+        diskInfo1.setTotalCapacityB(4000000);
+        diskInfo1.setAvailableCapacityB(100000);
+        diskInfo1.setDataUsedCapacityB(80000);
+        disks.put(diskInfo1.getRootPath(), diskInfo1);
+
+        be4.setDisks(ImmutableMap.copyOf(disks));
+        be4.setAlive(true);
+        be4.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        Map<String, String> tagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        tagMap.put(Tag.TYPE_ROLE, Tag.VALUE_COMPUTATION);
+        be4.setTagMap(tagMap);
+
         systemInfoService = new SystemInfoService();
         systemInfoService.addBackend(be1);
         systemInfoService.addBackend(be2);
         systemInfoService.addBackend(be3);
+        systemInfoService.addBackend(be4);
 
         // tablet
         invertedIndex = new TabletInvertedIndex();

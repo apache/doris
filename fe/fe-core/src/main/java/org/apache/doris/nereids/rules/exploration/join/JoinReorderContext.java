@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 /**
  * JoinReorderContext for Duplicate free.
  * Paper:
+ * - The Complexity of Transformation-Based Join Enumeration
  * - Optimizing Join Enumeration in Transformation-based Query Optimizers
  * - Improving Join Reorderability with Compensation Operators
  */
@@ -35,6 +36,9 @@ public class JoinReorderContext {
     private boolean hasExchange = false;
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
+
+    // mark for whether it has applied HyperGraph.
+    private boolean hasHyperReorder = false;
 
     public JoinReorderContext() {
     }
@@ -109,5 +113,13 @@ public class JoinReorderContext {
 
     public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
         this.hasCommuteZigZag = hasCommuteZigZag;
+    }
+
+    public boolean hasHyperReorder() {
+        return hasHyperReorder;
+    }
+
+    public void setHasHyperReorder(boolean hasHyperReorder) {
+        this.hasHyperReorder = hasHyperReorder;
     }
 }

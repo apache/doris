@@ -82,7 +82,7 @@ DataStreamSender::Channel::~Channel() {
     if (_closure != nullptr && _closure->unref()) {
         delete _closure;
     }
-    // release this before request desctruct
+    // release this before request destruct
     _brpc_request.release_finst_id();
     _brpc_request.release_query_id();
 }
@@ -138,6 +138,7 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
         _closure->ref();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
@@ -172,10 +173,17 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
                 brpc_url + "/PInternalServiceImpl/transmit_data_by_http";
         _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->transmit_data_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _brpc_http_stub->transmit_data_by_http(&_closure->cntl, NULL, &_closure->result,
+                                                   _closure);
+        }
     } else {
         _closure->cntl.http_request().Clear();
-        _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
+        }
     }
 
     if (batch != nullptr) {
@@ -272,7 +280,7 @@ Status DataStreamSender::Channel::close_internal() {
 Status DataStreamSender::Channel::close(RuntimeState* state) {
     Status st = close_internal();
     if (!st.ok()) {
-        state->log_error(st.get_error_msg());
+        state->log_error(st.to_string());
     }
     return st;
 }
@@ -281,7 +289,7 @@ Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
     if (_need_close) {
         Status st = _wait_last_brpc();
         if (!st.ok()) {
-            state->log_error(st.get_error_msg());
+            state->log_error(st.to_string());
         }
         _need_close = false;
         return st;
@@ -347,8 +355,8 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
     _name = "DataStreamSender";
 }
 
-// We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
-// class becaurce there are some other member in it.
+// We use the PartitionRange to compare here. It should not be a member function of PartitionInfo
+// class because there are some other member in it.
 // TODO: move this to dpp_sink
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();

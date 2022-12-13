@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -33,111 +31,100 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
-public class FoldConstantTest {
-
-    private static final NereidsParser PARSER = new NereidsParser();
-    private ExpressionRuleExecutor executor;
+public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testCaseWhenFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("case when 1 = 2 then 1 when '1' < 2 then 2 else 3 end", "2");
-        assertRewrite("case when 1 = 2 then 1 when '1' > 2 then 2 end", "null");
-        assertRewrite("case when (1 + 5) / 2 > 2 then 4  when '1' < 2 then 2 else 3 end", "4");
-        assertRewrite("case when not 1 = 2 then 1 when '1' > 2 then 2 end", "1");
-        assertRewrite("case when 1 = 2 then 1 when 3 in ('1',2 + 8 / 2,3,4) then 2 end", "2");
-        assertRewrite("case when TA = 2 then 1 when 3 in ('1',2 + 8 / 2,3,4) then 2 end", "CASE  WHEN (TA = 2) THEN 1 ELSE 2 END");
-        assertRewrite("case when TA = 2 then 5 when 3 in (2,3,4) then 2 else 4 end", "CASE  WHEN (TA = 2) THEN 5 ELSE 2 END");
-        assertRewrite("case when TA = 2 then 1 when TB in (2,3,4) then 2 else 4 end", "CASE  WHEN (TA = 2) THEN 1 WHEN TB IN (2, 3, 4) THEN 2 ELSE 4 END");
-        assertRewrite("case when null = 2 then 1 when 3 in (2,3,4) then 2 else 4 end", "2");
-        assertRewrite("case when null = 2 then 1 else 4 end", "4");
-        assertRewrite("case when null = 2 then 1 end", "null");
-        assertRewrite("case when TA = TB then 1 when TC is null then 2 end", "CASE  WHEN (TA = TB) THEN 1 WHEN TC IS NULL THEN 2 ELSE NULL END");
+        assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when '1' < 2 then 2 else 3 end", "2");
+        assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when '1' > 2 then 2 end", "null");
+        assertRewriteAfterTypeCoercion("case when (1 + 5) / 2 > 2 then 4  when '1' < 2 then 2 else 3 end", "4");
+        assertRewriteAfterTypeCoercion("case when not 1 = 2 then 1 when '1' > 2 then 2 end", "1");
+        assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when 3 in ('1',2 + 8 / 2,3,4) then 2 end", "2");
+        assertRewriteAfterTypeCoercion("case when TA = 2 then 1 when 3 in ('1',2 + 8 / 2,3,4) then 2 end", "CASE  WHEN (TA = 2) THEN 1 ELSE 2 END");
+        assertRewriteAfterTypeCoercion("case when TA = 2 then 5 when 3 in (2,3,4) then 2 else 4 end", "CASE  WHEN (TA = 2) THEN 5 ELSE 2 END");
+        assertRewriteAfterTypeCoercion("case when TA = 2 then 1 when TB in (2,3,4) then 2 else 4 end", "CASE  WHEN (TA = 2) THEN 1 WHEN TB IN (2, 3, 4) THEN 2 ELSE 4 END");
+        assertRewriteAfterTypeCoercion("case when null = 2 then 1 when 3 in (2,3,4) then 2 else 4 end", "2");
+        assertRewriteAfterTypeCoercion("case when null = 2 then 1 else 4 end", "4");
+        assertRewriteAfterTypeCoercion("case when null = 2 then 1 end", "null");
+        assertRewriteAfterTypeCoercion("case when TA = TB then 1 when TC is null then 2 end", "CASE  WHEN (TA = TB) THEN 1 WHEN TC IS NULL THEN 2 ELSE NULL END");
     }
 
     @Test
     public void testInFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("1 in (1,2,3,4)", "true");
+        assertRewriteAfterTypeCoercion("1 in (1,2,3,4)", "true");
         // Type Coercion trans all to string.
-        assertRewrite("3 in ('1',2 + 8 / 2,3,4)", "true");
-        assertRewrite("4 / 2 * 1 - (5/2) in ('1',2 + 8 / 2,3,4)", "false");
-        assertRewrite("null in ('1',2 + 8 / 2,3,4)", "null");
-        assertRewrite("3 in ('1',null,3,4)", "true");
-        assertRewrite("TA in (1,null,3,4)", "TA in (1, null, 3, 4)");
-        assertRewrite("IA in (IB,IC,null)", "IA in (IB,IC,null)");
+        assertRewriteAfterTypeCoercion("3 in ('1',2 + 8 / 2,3,4)", "true");
+        assertRewriteAfterTypeCoercion("4 / 2 * 1 - (5/2) in ('1',2 + 8 / 2,3,4)", "false");
+        assertRewriteAfterTypeCoercion("null in ('1',2 + 8 / 2,3,4)", "null");
+        assertRewriteAfterTypeCoercion("3 in ('1',null,3,4)", "true");
+        assertRewriteAfterTypeCoercion("TA in (1,null,3,4)", "TA in (1, null, 3, 4)");
+        assertRewriteAfterTypeCoercion("IA in (IB,IC,null)", "IA in (IB,IC,null)");
     }
 
     @Test
     public void testLogicalFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("10 + 1 > 1 and 1 > 2", "false");
-        assertRewrite("10 + 1 > 1 and 1 < 2", "true");
-        assertRewrite("null + 1 > 1 and 1 < 2", "null");
-        assertRewrite("10 < 3 and 1 > 2", "false");
-        assertRewrite("6 / 2 - 10 * (6 + 1) > 2 and 10 > 3 and 1 > 2", "false");
+        assertRewriteAfterTypeCoercion("10 + 1 > 1 and 1 > 2", "false");
+        assertRewriteAfterTypeCoercion("10 + 1 > 1 and 1 < 2", "true");
+        assertRewriteAfterTypeCoercion("null + 1 > 1 and 1 < 2", "null");
+        assertRewriteAfterTypeCoercion("10 < 3 and 1 > 2", "false");
+        assertRewriteAfterTypeCoercion("6 / 2 - 10 * (6 + 1) > 2 and 10 > 3 and 1 > 2", "false");
 
-        assertRewrite("10 + 1 > 1 or 1 > 2", "true");
-        assertRewrite("null + 1 > 1 or 1 > 2", "null");
-        assertRewrite("6 / 2 - 10 * (6 + 1) > 2 or 10 > 3 or 1 > 2", "true");
+        assertRewriteAfterTypeCoercion("10 + 1 > 1 or 1 > 2", "true");
+        assertRewriteAfterTypeCoercion("null + 1 > 1 or 1 > 2", "null");
+        assertRewriteAfterTypeCoercion("6 / 2 - 10 * (6 + 1) > 2 or 10 > 3 or 1 > 2", "true");
 
-        assertRewrite("(1 > 5 and 8 < 10 or 1 = 3) or (1 > 8 + 9 / (10 * 2) or ( 10 = 3))", "false");
-        assertRewrite("(TA > 1 and 8 < 10 or 1 = 3) or (1 > 3 or ( 10 = 3))", "TA > 1");
+        assertRewriteAfterTypeCoercion("(1 > 5 and 8 < 10 or 1 = 3) or (1 > 8 + 9 / (10 * 2) or ( 10 = 3))", "false");
+        assertRewriteAfterTypeCoercion("(TA > 1 and 8 < 10 or 1 = 3) or (1 > 3 or ( 10 = 3))", "TA > 1");
 
-        assertRewrite("false or false", "false");
-        assertRewrite("false or true", "true");
-        assertRewrite("true or false", "true");
-        assertRewrite("true or true", "true");
+        assertRewriteAfterTypeCoercion("false or false", "false");
+        assertRewriteAfterTypeCoercion("false or true", "true");
+        assertRewriteAfterTypeCoercion("true or false", "true");
+        assertRewriteAfterTypeCoercion("true or true", "true");
 
-        assertRewrite("true and true", "true");
-        assertRewrite("false and true", "false");
-        assertRewrite("true and false", "false");
-        assertRewrite("false and false", "false");
+        assertRewriteAfterTypeCoercion("true and true", "true");
+        assertRewriteAfterTypeCoercion("false and true", "false");
+        assertRewriteAfterTypeCoercion("true and false", "false");
+        assertRewriteAfterTypeCoercion("false and false", "false");
 
-        assertRewrite("true and null", "null");
-        assertRewrite("false and null", "false");
-        assertRewrite("true or null", "true");
-        assertRewrite("false or null", "null");
+        assertRewriteAfterTypeCoercion("true and null", "null");
+        assertRewriteAfterTypeCoercion("false and null", "false");
+        assertRewriteAfterTypeCoercion("true or null", "true");
+        assertRewriteAfterTypeCoercion("false or null", "null");
 
-        assertRewrite("null and null", "null");
+        assertRewriteAfterTypeCoercion("null and null", "null");
     }
 
     @Test
     public void testIsNullFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("100 is null", "false");
-        assertRewrite("null is null", "true");
-        assertRewrite("null is not null", "false");
-        assertRewrite("100 is not null", "true");
-        assertRewrite("IA is not null", "IA is not null");
-        assertRewrite("IA is null", "IA is null");
+        assertRewriteAfterTypeCoercion("100 is null", "false");
+        assertRewriteAfterTypeCoercion("null is null", "true");
+        assertRewriteAfterTypeCoercion("null is not null", "false");
+        assertRewriteAfterTypeCoercion("100 is not null", "true");
+        assertRewriteAfterTypeCoercion("IA is not null", "IA is not null");
+        assertRewriteAfterTypeCoercion("IA is null", "IA is null");
     }
 
     @Test
     public void testNotFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("not 1 > 2", "true");
-        assertRewrite("not null + 1 > 2", "null");
-        assertRewrite("not (1 + 5) / 2 + (10 - 1) * 3 > 3 * 5 + 1", "false");
+        assertRewriteAfterTypeCoercion("not 1 > 2", "true");
+        assertRewriteAfterTypeCoercion("not null + 1 > 2", "null");
+        assertRewriteAfterTypeCoercion("not (1 + 5) / 2 + (10 - 1) * 3 > 3 * 5 + 1", "false");
     }
 
     @Test
@@ -154,18 +141,18 @@ public class FoldConstantTest {
     @Test
     public void testCompareFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("'1' = 2", "false");
-        assertRewrite("1 = 2", "false");
-        assertRewrite("1 != 2", "true");
-        assertRewrite("2 > 2", "false");
-        assertRewrite("3 * 10 + 1 / 2 >= 2", "true");
-        assertRewrite("3 < 2", "false");
-        assertRewrite("3 <= 2", "false");
-        assertRewrite("3 <= null", "null");
-        assertRewrite("3 >= null", "null");
-        assertRewrite("null <=> null", "true");
-        assertRewrite("2 <=> null", "false");
-        assertRewrite("2 <=> 2", "true");
+        assertRewriteAfterTypeCoercion("'1' = 2", "false");
+        assertRewriteAfterTypeCoercion("1 = 2", "false");
+        assertRewriteAfterTypeCoercion("1 != 2", "true");
+        assertRewriteAfterTypeCoercion("2 > 2", "false");
+        assertRewriteAfterTypeCoercion("3 * 10 + 1 / 2 >= 2", "true");
+        assertRewriteAfterTypeCoercion("3 < 2", "false");
+        assertRewriteAfterTypeCoercion("3 <= 2", "false");
+        assertRewriteAfterTypeCoercion("3 <= null", "null");
+        assertRewriteAfterTypeCoercion("3 >= null", "null");
+        assertRewriteAfterTypeCoercion("null <=> null", "true");
+        assertRewriteAfterTypeCoercion("2 <=> null", "false");
+        assertRewriteAfterTypeCoercion("2 <=> 2", "true");
     }
 
     @Test
@@ -175,9 +162,9 @@ public class FoldConstantTest {
         assertRewrite("1 - 1", Literal.of((short) 0));
         assertRewrite("100 + 100", Literal.of((short) 200));
         assertRewrite("1 - 2", Literal.of((short) -1));
-        assertRewrite("1 - 2 > 1", "false");
-        assertRewrite("1 - 2 + 1 > 1 + 1 - 100", "true");
-        assertRewrite("10 * 2 / 1 + 1 > (1 + 1) - 100", "true");
+        assertRewriteAfterTypeCoercion("1 - 2 > 1", "false");
+        assertRewriteAfterTypeCoercion("1 - 2 + 1 > 1 + 1 - 100", "true");
+        assertRewriteAfterTypeCoercion("10 * 2 / 1 + 1 > (1 + 1) - 100", "true");
 
         // a + 1 > 2
         Slot a = SlotReference.of("a", IntegerType.INSTANCE);
@@ -278,67 +265,5 @@ public class FoldConstantTest {
             funcOpName = arithmetic.getFuncName();
         }
         return arithmetic.withFuncName(funcOpName.toLowerCase(Locale.ROOT));
-    }
-
-    private void assertRewrite(String expression, String expected) {
-        Map<String, Slot> mem = Maps.newHashMap();
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
-        Expression expectedExpression = PARSER.parseExpression(expected);
-        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assertions.assertEquals(expectedExpression, rewrittenExpression);
-    }
-
-    private void assertRewrite(String expression, Expression expectedExpression) {
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assertions.assertEquals(expectedExpression, rewrittenExpression);
-    }
-
-    private void assertRewrite(Expression expression, Expression expectedExpression) {
-        Expression rewrittenExpression = executor.rewrite(expression);
-        Assertions.assertEquals(expectedExpression, rewrittenExpression);
-    }
-
-    private Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
-        List<Expression> children = Lists.newArrayList();
-        boolean hasNewChildren = false;
-        for (Expression child : expression.children()) {
-            Expression newChild = replaceUnboundSlot(child, mem);
-            if (newChild != child) {
-                hasNewChildren = true;
-            }
-            children.add(newChild);
-        }
-        if (expression instanceof UnboundSlot) {
-            String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, SlotReference.of(name, getType(name.charAt(0))));
-            return mem.get(name);
-        }
-        return hasNewChildren ? expression.withChildren(children) : expression;
-    }
-
-    private Expression typeCoercion(Expression expression) {
-        return TypeCoercion.INSTANCE.visit(expression, null);
-    }
-
-    private DataType getType(char t) {
-        switch (t) {
-            case 'T':
-                return TinyIntType.INSTANCE;
-            case 'I':
-                return IntegerType.INSTANCE;
-            case 'D':
-                return DoubleType.INSTANCE;
-            case 'S':
-                return StringType.INSTANCE;
-            case 'V':
-                return VarcharType.INSTANCE;
-            case 'B':
-                return BooleanType.INSTANCE;
-            default:
-                return BigIntType.INSTANCE;
-        }
     }
 }

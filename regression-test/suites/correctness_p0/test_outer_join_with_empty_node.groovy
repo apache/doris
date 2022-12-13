@@ -25,7 +25,7 @@ suite("test_outer_join_with_empty_node") {
     """
     
     sql """
-        CREATE TABLE `t1` (
+        CREATE TABLE IF NOT EXISTS `t1` (
         `k1` int(11) NULL COMMENT "",
         `k2` int(11) NULL COMMENT ""
         ) ENGINE=OLAP
@@ -40,7 +40,7 @@ suite("test_outer_join_with_empty_node") {
     """
 
     sql """
-        CREATE TABLE `t2` (
+        CREATE TABLE IF NOT EXISTS `t2` (
         `j1` int(11) NULL COMMENT "",
         `j2` int(11) NULL COMMENT ""
         ) ENGINE=OLAP

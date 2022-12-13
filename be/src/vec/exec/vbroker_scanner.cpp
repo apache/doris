@@ -19,14 +19,9 @@
 
 #include <fmt/format.h>
 
-#include <iostream>
-
-#include "exec/exec_node.h"
-#include "exec/plain_text_line_reader.h"
+#include "exec/line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
-#include "exprs/expr_context.h"
-#include "util/utf8_check.h"
 
 namespace doris::vectorized {
 
@@ -91,9 +86,10 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line,
         return Status::OK();
     }
 
-    if (!check_array_format(_split_values)) {
-        return Status::OK();
-    }
+    // This check is meaningless, should be removed
+    // if (!check_array_format(_split_values)) {
+    //     return Status::OK();
+    // }
 
     int idx = 0;
     for (int i = 0; i < _split_values.size(); ++i) {

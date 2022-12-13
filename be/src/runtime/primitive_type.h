@@ -28,7 +28,6 @@ namespace doris {
 
 namespace vectorized {
 class ColumnString;
-class ColumnJsonb;
 } // namespace vectorized
 
 class DateTimeValue;
@@ -38,12 +37,64 @@ struct JsonBinaryValue;
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
 
-bool is_enumeration_type(PrimitiveType type);
-bool is_date_type(PrimitiveType type);
-bool is_float_or_double(PrimitiveType type);
-bool is_int_or_bool(PrimitiveType type);
-bool is_string_type(PrimitiveType type);
-bool has_variable_type(PrimitiveType type);
+constexpr bool is_enumeration_type(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+    case TYPE_NULL:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+    case TYPE_BOOLEAN:
+    case TYPE_ARRAY:
+    case TYPE_HLL:
+        return false;
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT:
+    case TYPE_DATE:
+    case TYPE_DATEV2:
+        return true;
+
+    case INVALID_TYPE:
+    default:
+        DCHECK(false);
+    }
+
+    return false;
+}
+
+constexpr bool is_date_type(PrimitiveType type) {
+    return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
+           type == TYPE_DATEV2;
+}
+
+constexpr bool is_string_type(PrimitiveType type) {
+    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
+}
+
+constexpr bool is_float_or_double(PrimitiveType type) {
+    return type == TYPE_FLOAT || type == TYPE_DOUBLE;
+}
+
+constexpr bool is_int_or_bool(PrimitiveType type) {
+    return type == TYPE_BOOLEAN || type == TYPE_TINYINT || type == TYPE_SMALLINT ||
+           type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
+}
+
+constexpr bool has_variable_type(PrimitiveType type) {
+    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
+           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
+}
 
 // Returns the byte size of 'type'  Returns 0 for variable length types.
 int get_byte_size(PrimitiveType type);
@@ -60,6 +111,9 @@ std::string type_to_string(PrimitiveType t);
 std::string type_to_odbc_string(PrimitiveType t);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
+
+template <PrimitiveType type>
+constexpr PrimitiveType PredicateEvaluateType = is_string_type(type) ? TYPE_STRING : type;
 
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
@@ -145,9 +199,9 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_DECIMAL128> {
+struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using CppType = __int128_t;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {
@@ -180,7 +234,7 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonBinaryValue;
-    using ColumnType = vectorized::ColumnJsonb;
+    using ColumnType = vectorized::ColumnString;
 };
 
 // only for adapt get_predicate_column_ptr

@@ -64,11 +64,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     static {
         FN_NAME_TO_PATTERN = Maps.newHashMap();
         FN_NAME_TO_PATTERN.put(AggregateType.SUM.name().toLowerCase(),
-                               new MVColumnOneChildPattern(AggregateType.SUM.name().toLowerCase()));
+                new MVColumnOneChildPattern(AggregateType.SUM.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(AggregateType.MIN.name().toLowerCase(),
-                               new MVColumnOneChildPattern(AggregateType.MIN.name().toLowerCase()));
+                new MVColumnOneChildPattern(AggregateType.MIN.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(AggregateType.MAX.name().toLowerCase(),
-                               new MVColumnOneChildPattern(AggregateType.MAX.name().toLowerCase()));
+                new MVColumnOneChildPattern(AggregateType.MAX.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(FunctionSet.COUNT, new MVColumnOneChildPattern(FunctionSet.COUNT));
         FN_NAME_TO_PATTERN.put(FunctionSet.BITMAP_UNION, new MVColumnBitmapUnionPattern());
         FN_NAME_TO_PATTERN.put(FunctionSet.HLL_UNION, new MVColumnHLLUnionPattern());
@@ -137,6 +137,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
+        rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
         selectStmt.analyze(analyzer);
@@ -147,16 +148,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
-                                                + selectStmt.getWhereClause().toSql());
+                    + selectStmt.getWhereClause().toSql());
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
-                                                + selectStmt.getHavingPred().toSql());
+                    + selectStmt.getHavingPred().toSql());
         }
         analyzeOrderByClause();
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
-                                                + " limit " + selectStmt.getLimit());
+                    + " limit " + selectStmt.getLimit());
         }
     }
 
@@ -182,7 +183,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                                                    + "Error column: " + selectListItemExpr.toSql());
+                        + "Error column: " + selectListItemExpr.toSql());
             }
             if (selectListItemExpr instanceof SlotRef) {
                 if (meetAggregate) {
@@ -256,7 +257,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         List<OrderByElement> orderByElements = selectStmt.getOrderByElements();
         if (orderByElements.size() > mvColumnItemList.size()) {
             throw new AnalysisException("The number of columns in order clause must be less than " + "the number of "
-                                                + "columns in select clause");
+                    + "columns in select clause");
         }
         if (beginIndexOfAggregation != -1 && (orderByElements.size() != (beginIndexOfAggregation))) {
             throw new AnalysisException("The key of columns in mv must be all of group by columns");
@@ -265,13 +266,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             Expr orderByElement = orderByElements.get(i).getExpr();
             if (!(orderByElement instanceof SlotRef)) {
                 throw new AnalysisException("The column in order clause must be original column without calculation. "
-                                                    + "Error column: " + orderByElement.toSql());
+                        + "Error column: " + orderByElement.toSql());
             }
             MVColumnItem mvColumnItem = mvColumnItemList.get(i);
             SlotRef slotRef = (SlotRef) orderByElement;
             if (!mvColumnItem.getName().equalsIgnoreCase(slotRef.getColumnName())) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                                                    + "the order of columns in select list");
+                        + "the order of columns in select list");
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
             mvColumnItem.setIsKey(true);
@@ -451,7 +452,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                             CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
-                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP, params);
+                            FunctionCallExpr defineExpr =
+                                    new FunctionCallExpr(FunctionSet.TO_BITMAP_WITH_CHECK, params);
                             result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
                         } else {
                             result.put(baseColumnName, null);
@@ -471,7 +473,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.COUNT:
                         Expr defineExpr = new CaseExpr(null, Lists.newArrayList(
                                 new CaseWhenClause(new IsNullPredicate(slots.get(0), false),
-                                                   new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
+                                        new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
                         result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
                         break;
                     default:
@@ -482,6 +484,26 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
         return result;
+    }
+
+    // for bitmap_union(to_bitmap(column)) function, we should check value is not negative
+    // in vectorized schema_change mode, so we should rewrite the function to
+    // bitmap_union(to_bitmap_with_check(column))
+    private void rewriteToBitmapWithCheck() {
+        for (SelectListItem item : selectStmt.getSelectList().getItems()) {
+            if (item.getExpr() instanceof FunctionCallExpr) {
+                String functionName = ((FunctionCallExpr) item.getExpr()).getFnName().getFunction();
+                if (functionName.equalsIgnoreCase("bitmap_union")) {
+                    if (item.getExpr().getChildren().size() == 1
+                            && item.getExpr().getChild(0) instanceof FunctionCallExpr) {
+                        FunctionCallExpr childFunctionCallExpr = (FunctionCallExpr) item.getExpr().getChild(0);
+                        if (childFunctionCallExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
+                            childFunctionCallExpr.setFnName(FunctionName.createBuiltinName("to_bitmap_with_check"));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public static String mvColumnBuilder(String functionName, String sourceColumnName) {

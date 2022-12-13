@@ -174,7 +174,7 @@ public class Utils {
     public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
-        correlatedPredicates.stream().forEach(predicate -> {
+        correlatedPredicates.forEach(predicate -> {
             if (!(predicate instanceof BinaryExpression)) {
                 throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
             }
@@ -200,5 +200,13 @@ public class Utils {
 
     public static LocalDateTime getLocalDatetimeFromLong(long dateTime) {
         return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
+    }
+
+    public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == oldItem) {
+                list.set(i, newItem);
+            }
+        }
     }
 }

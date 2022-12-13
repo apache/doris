@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <map>
@@ -32,9 +33,11 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "udf/udf.h"
 #include "util/coding.h"
-
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 namespace doris {
 
 // serialized bitmap := TypeCode(1), Payload
@@ -1429,6 +1432,9 @@ public:
         return false;
     }
 
+    // true if contains a value that belongs to the range [left, right].
+    bool contains_any(uint64_t left, uint64_t right) const;
+
     uint64_t cardinality() const {
         switch (_type) {
         case EMPTY:
@@ -1676,24 +1682,50 @@ public:
         }
     }
 
+    uint64_t max(bool* empty) const {
+        return min_or_max(empty, [&]() { return _bitmap.maximum(); });
+    }
+
+    uint64_t min(bool* empty) const {
+        return min_or_max(empty, [&]() { return _bitmap.minimum(); });
+    }
+
+    bool empty() const { return _type == EMPTY; }
+
     /**
      * Return new set with specified range (not include the range_end)
      */
     int64_t sub_range(const int64_t& range_start, const int64_t& range_end,
                       BitmapValue* ret_bitmap) {
-        int64_t count = 0;
-        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
-            if (*it < range_start) {
-                continue;
-            }
-            if (*it < range_end) {
-                ret_bitmap->add(*it);
-                ++count;
+        switch (_type) {
+        case EMPTY:
+            return 0;
+        case SINGLE: {
+            //only single value, so _sv must in [range_start,range_end)
+            if (range_start <= _sv && _sv < range_end) {
+                ret_bitmap->add(_sv);
+                return 1;
             } else {
-                break;
+                return 0;
             }
         }
-        return count;
+        case BITMAP: {
+            int64_t count = 0;
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                if (*it < range_start) {
+                    continue;
+                }
+                if (*it < range_end) {
+                    ret_bitmap->add(*it);
+                    ++count;
+                } else {
+                    break;
+                }
+            }
+            return count;
+        }
+        }
+        return 0;
     }
 
     /**
@@ -1704,19 +1736,35 @@ public:
      */
     int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
                       BitmapValue* ret_bitmap) {
-        int64_t count = 0;
-        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
-            if (*it < range_start) {
-                continue;
-            }
-            if (count < cardinality_limit) {
-                ret_bitmap->add(*it);
-                ++count;
+        switch (_type) {
+        case EMPTY:
+            return 0;
+        case SINGLE: {
+            //only single value, so range_start must less than _sv
+            if (range_start > _sv) {
+                return 0;
             } else {
-                break;
+                ret_bitmap->add(_sv);
+                return 1;
             }
         }
-        return count;
+        case BITMAP: {
+            int64_t count = 0;
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                if (*it < range_start) {
+                    continue;
+                }
+                if (count < cardinality_limit) {
+                    ret_bitmap->add(*it);
+                    ++count;
+                } else {
+                    break;
+                }
+            }
+            return count;
+        }
+        }
+        return 0;
     }
 
     /**
@@ -1725,8 +1773,23 @@ public:
      * Analog of the substring string function, but for bitmap.
      */
     int64_t offset_limit(const int64_t& offset, const int64_t& limit, BitmapValue* ret_bitmap) {
-        if (std::abs(offset) >= _bitmap.cardinality()) {
+        switch (_type) {
+        case EMPTY:
             return 0;
+        case SINGLE: {
+            //only single value, so offset must start 0
+            if (offset == 0) {
+                ret_bitmap->add(_sv);
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        case BITMAP: {
+            if (std::abs(offset) >= _bitmap.cardinality()) {
+                return 0;
+            }
+        }
         }
         int64_t abs_offset = offset;
         if (offset < 0) {
@@ -1745,6 +1808,24 @@ public:
         return count;
     }
 
+    //for function bitmap_to_array
+    void to_array(vectorized::PaddedPODArray<int64_t>& data) const {
+        switch (_type) {
+        case EMPTY:
+            break;
+        case SINGLE: {
+            data.emplace_back(_sv);
+            break;
+        }
+        case BITMAP: {
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                data.emplace_back(*it);
+            }
+            break;
+        }
+        }
+    }
+
     void clear() {
         _type = EMPTY;
         _bitmap.clear();
@@ -1757,6 +1838,7 @@ public:
 
     b_iterator begin() const;
     b_iterator end() const;
+    b_iterator lower_bound(uint64_t val) const;
 
 private:
     void _convert_to_smaller_type() {
@@ -1771,6 +1853,25 @@ private:
             }
             _bitmap.clear();
         }
+    }
+
+    uint64_t min_or_max(bool* empty, std::function<uint64_t()> func) const {
+        bool is_empty = false;
+        uint64_t result = 0;
+        switch (_type) {
+        case SINGLE:
+            result = _sv;
+            break;
+        case BITMAP:
+            result = func();
+            break;
+        default:
+            is_empty = true;
+        }
+        if (empty) {
+            *empty = is_empty;
+        }
+        return result;
     }
 
     enum BitmapDataType {
@@ -1810,7 +1911,9 @@ public:
     }
 
     BitmapValueIterator(const BitmapValueIterator& other)
-            : _bitmap(other._bitmap), _iter(other._iter), _sv(other._sv), _end(other._end) {}
+            : _bitmap(other._bitmap), _sv(other._sv), _end(other._end) {
+        _iter = other._iter ? new detail::Roaring64MapSetBitForwardIterator(*other._iter) : nullptr;
+    }
 
     ~BitmapValueIterator() {
         if (_iter != nullptr) {
@@ -1864,7 +1967,9 @@ public:
     }
 
     bool operator==(const BitmapValueIterator& other) const {
-        if (_end && other._end) return true;
+        if (_end && other._end) {
+            return true;
+        }
 
         switch (_bitmap._type) {
         case BitmapValue::BitmapDataType::EMPTY:
@@ -1881,6 +1986,27 @@ public:
 
     bool operator!=(const BitmapValueIterator& other) const { return !(*this == other); }
 
+    /**
+    * Move the iterator to the first value >= `val`.
+    */
+    BitmapValueIterator& move(uint64_t val) {
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::SINGLE:
+            if (_sv < val) {
+                _end = true;
+            }
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            if (!_iter->move(val)) {
+                _end = true;
+            }
+            break;
+        default:
+            break;
+        }
+        return *this;
+    }
+
 private:
     const BitmapValue& _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
@@ -1894,6 +2020,18 @@ inline BitmapValueIterator BitmapValue::begin() const {
 
 inline BitmapValueIterator BitmapValue::end() const {
     return BitmapValueIterator(*this, true);
+}
+
+inline BitmapValueIterator BitmapValue::lower_bound(uint64_t val) const {
+    return BitmapValueIterator(*this).move(val);
+}
+
+inline bool BitmapValue::contains_any(uint64_t left, uint64_t right) const {
+    if (left > right) {
+        return false;
+    }
+    auto it = lower_bound(left);
+    return it != end() && *it <= right;
 }
 
 } // namespace doris

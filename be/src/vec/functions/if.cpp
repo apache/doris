@@ -414,13 +414,23 @@ public:
 
         if (auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
             DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
+
+            // update neseted column by nullmap
+            auto* __restrict null_map = nullable->get_null_map_data().data();
+            auto* __restrict nested_bool_data =
+                    ((ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
+            auto rows = nullable->size();
+            for (size_t i = 0; i < rows; i++) {
+                nested_bool_data[i] = null_map[i] ? false : nested_bool_data[i];
+            }
+
             Block temporary_block {{nullable->get_nested_column_ptr(),
                                     remove_nullable(arg_cond.type), arg_cond.name},
                                    arg_then,
                                    arg_else,
                                    block.get_by_position(result)};
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            execute_impl(context, temporary_block, {0, 1, 2}, 3, rows);
 
             block.get_by_position(result).column =
                     std::move(temporary_block.get_by_position(3).column);
@@ -444,6 +454,19 @@ public:
         ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
         cond_column.column = materialize_column_if_const(cond_column.column);
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
+
+        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
+            if (check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
+                ColumnWithTypeAndName& then_column = block.get_by_position(arguments[1]);
+                then_column.column = materialize_column_if_const(then_column.column);
+            }
+        }
+        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
+            if (check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+                ColumnWithTypeAndName& else_column = block.get_by_position(arguments[2]);
+                else_column.column = materialize_column_if_const(else_column.column);
+            }
+        }
 
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arg_cond, arg_then, arg_else, result) ||

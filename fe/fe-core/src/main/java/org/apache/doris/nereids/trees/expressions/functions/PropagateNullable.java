@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import java.util.List;
 
 /**
- * nullable is true if any children is nullable, most functions is PropagateNullable.
+ * nullable is true if any children is nullable, most functions are PropagateNullable.
  *
  * e.g. `substring(null, 1)` is nullable, `substring('abc', 1)` is not nullable.
  */

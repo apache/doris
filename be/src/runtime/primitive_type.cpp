@@ -17,8 +17,6 @@
 
 #include "runtime/primitive_type.h"
 
-#include <sstream>
-
 #include "gen_cpp/Types_types.h"
 #include "runtime/collection_value.h"
 #include "runtime/define_primitive_type.h"
@@ -49,8 +47,8 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_DECIMAL32;
     case FunctionContext::Type::TYPE_DECIMAL64:
         return PrimitiveType::TYPE_DECIMAL64;
-    case FunctionContext::Type::TYPE_DECIMAL128:
-        return PrimitiveType::TYPE_DECIMAL128;
+    case FunctionContext::Type::TYPE_DECIMAL128I:
+        return PrimitiveType::TYPE_DECIMAL128I;
     case FunctionContext::Type::TYPE_BOOLEAN:
         return PrimitiveType::TYPE_BOOLEAN;
     case FunctionContext::Type::TYPE_ARRAY:
@@ -88,65 +86,6 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
     return PrimitiveType::INVALID_TYPE;
 }
 
-bool is_enumeration_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_NULL:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-    case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMEV2:
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128:
-    case TYPE_BOOLEAN:
-    case TYPE_ARRAY:
-    case TYPE_HLL:
-        return false;
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_DATE:
-    case TYPE_DATEV2:
-        return true;
-
-    case INVALID_TYPE:
-    default:
-        DCHECK(false);
-    }
-
-    return false;
-}
-
-bool is_date_type(PrimitiveType type) {
-    return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
-           type == TYPE_DATEV2;
-}
-
-bool is_string_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
-}
-
-bool is_float_or_double(PrimitiveType type) {
-    return type == TYPE_FLOAT || type == TYPE_DOUBLE;
-}
-
-bool is_int_or_bool(PrimitiveType type) {
-    return type == TYPE_BOOLEAN || type == TYPE_TINYINT || type == TYPE_SMALLINT ||
-           type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
-}
-
-bool has_variable_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
-           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
-}
-
 // Returns the byte size of 'type'  Returns 0 for variable length types.
 int get_byte_size(PrimitiveType type) {
     switch (type) {
@@ -182,7 +121,7 @@ int get_byte_size(PrimitiveType type) {
     case TYPE_DATE:
     case TYPE_LARGEINT:
     case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return 16;
 
     case INVALID_TYPE:
@@ -305,8 +244,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DECIMAL64:
         return TYPE_DECIMAL64;
 
-    case TPrimitiveType::DECIMAL128:
-        return TYPE_DECIMAL128;
+    case TPrimitiveType::DECIMAL128I:
+        return TYPE_DECIMAL128I;
 
     case TPrimitiveType::CHAR:
         return TYPE_CHAR;
@@ -399,8 +338,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_DECIMAL64:
         return TPrimitiveType::DECIMAL64;
 
-    case TYPE_DECIMAL128:
-        return TPrimitiveType::DECIMAL128;
+    case TYPE_DECIMAL128I:
+        return TPrimitiveType::DECIMAL128I;
 
     case TYPE_CHAR:
         return TPrimitiveType::CHAR;
@@ -493,8 +432,8 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_DECIMAL64:
         return "DECIMAL64";
 
-    case TYPE_DECIMAL128:
-        return "DECIMAL128";
+    case TYPE_DECIMAL128I:
+        return "DECIMAL128I";
 
     case TYPE_CHAR:
         return "CHAR";
@@ -588,7 +527,7 @@ std::string type_to_odbc_string(PrimitiveType t) {
     case TYPE_DECIMAL64:
         return "decimal64";
 
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return "decimal128";
 
     case TYPE_CHAR:
@@ -682,7 +621,7 @@ int get_slot_size(PrimitiveType type) {
         return sizeof(DateTimeValue);
 
     case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return 16;
 
     case INVALID_TYPE:

@@ -391,10 +391,10 @@ public class UdfExecutorTest {
         for (int i = 0; i < batchSize; i++) {
             input1[i] = "Input1_" + i;
             input2[i] = "Input2_" + i;
-            inputOffsets1[i] = i == 0 ? input1[i].getBytes(StandardCharsets.UTF_8).length + 1
-                    : inputOffsets1[i - 1] + input1[i].getBytes(StandardCharsets.UTF_8).length + 1;
-            inputOffsets2[i] = i == 0 ? input2[i].getBytes(StandardCharsets.UTF_8).length + 1
-                    : inputOffsets2[i - 1] + input2[i].getBytes(StandardCharsets.UTF_8).length + 1;
+            inputOffsets1[i] = i == 0 ? input1[i].getBytes(StandardCharsets.UTF_8).length
+                    : inputOffsets1[i - 1] + input1[i].getBytes(StandardCharsets.UTF_8).length;
+            inputOffsets2[i] = i == 0 ? input2[i].getBytes(StandardCharsets.UTF_8).length
+                    : inputOffsets2[i - 1] + input2[i].getBytes(StandardCharsets.UTF_8).length;
             inputBufferSize1 += input1[i].getBytes(StandardCharsets.UTF_8).length;
             inputBufferSize2 += input2[i].getBytes(StandardCharsets.UTF_8).length;
         }
@@ -453,11 +453,6 @@ public class UdfExecutorTest {
                     Integer.parseUnsignedInt(String.valueOf(inputOffsets1[i])));
             UdfUtils.UNSAFE.putInt(null, inputOffset2 + 4L * i,
                     Integer.parseUnsignedInt(String.valueOf(inputOffsets2[i])));
-            UdfUtils.UNSAFE.putChar(null, inputBuffer1 + inputOffsets1[i] - 1,
-                    UdfUtils.END_OF_STRING);
-            UdfUtils.UNSAFE.putChar(null, inputBuffer2 + inputOffsets2[i] - 1,
-                    UdfUtils.END_OF_STRING);
-
         }
         params.setInputBufferPtrs(inputBufferPtr);
         params.setInputNullsPtrs(inputNullPtr);
@@ -483,9 +478,7 @@ public class UdfExecutorTest {
                 UdfUtils.copyMemory(null, outputBuffer + lastOffset, bytes, UdfUtils.BYTE_ARRAY_OFFSET,
                         bytes.length);
             }
-            long curOffset = UdfUtils.UNSAFE.getInt(null, outputOffset + 4 * i);
             assert (new String(bytes, StandardCharsets.UTF_8).equals(input1[i] + input2[i]));
-            assert (UdfUtils.UNSAFE.getByte(null, outputBuffer + curOffset - 1) == UdfUtils.END_OF_STRING);
             assert (UdfUtils.UNSAFE.getByte(null, outputNull + i) == 0);
         }
     }

@@ -21,6 +21,7 @@
 
 #include <vector>
 
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "testutil/test_util.h"
 
 using namespace doris;
@@ -221,7 +222,7 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
                             CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
     static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
-            std::make_unique<MemTrackerLimiter>(-1, "TestLruCache");
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "TestLruCache");
     cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter,
                                lru_cache_tracker.get(), priority));
 }

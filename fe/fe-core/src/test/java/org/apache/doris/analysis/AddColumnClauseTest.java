@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -41,7 +42,7 @@ public class AddColumnClauseTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException {
+    public void testNormal() throws AnalysisException, DdlException {
         Column column = new Column("testCol", ScalarType.createType(PrimitiveType.INT));
         new Expectations() {
             {
@@ -91,14 +92,14 @@ public class AddColumnClauseTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoColDef() throws AnalysisException {
+    public void testNoColDef() throws AnalysisException, DdlException {
         AddColumnClause clause = new AddColumnClause(null, null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoDefault() throws AnalysisException {
+    public void testNoDefault() throws AnalysisException, DdlException {
         new Expectations() {
             {
                 definition.analyze(true);
@@ -131,7 +132,7 @@ public class AddColumnClauseTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testAggPos() throws AnalysisException {
+    public void testAggPos() throws AnalysisException, DdlException {
         new Expectations() {
             {
                 definition.analyze(true);
@@ -164,7 +165,7 @@ public class AddColumnClauseTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testAddValueToFirst() throws AnalysisException {
+    public void testAddValueToFirst() throws AnalysisException, DdlException {
         new Expectations() {
             {
                 definition.analyze(true);

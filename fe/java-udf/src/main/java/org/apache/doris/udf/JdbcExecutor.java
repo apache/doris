@@ -19,17 +19,21 @@ package org.apache.doris.udf;
 
 
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
+import org.apache.doris.thrift.TJdbcOperation;
 
+import com.google.common.base.Preconditions;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.FileNotFoundException;
 import java.net.MalformedURLException;
-import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.Date;
-import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -43,11 +47,13 @@ import java.util.List;
 public class JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(JdbcExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
-    private URLClassLoader classLoader = null;
     private Connection conn = null;
     private Statement stmt = null;
     private ResultSet resultSet = null;
     private ResultSetMetaData resultSetMetaData = null;
+    // Use HikariDataSource to help us manage the JDBC connections.
+    private HikariDataSource dataSource = null;
+    private List<String> resultColumnTypeNames = null;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -57,8 +63,8 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        init(request.jar_location_path, request.jdbc_driver_class, request.jdbc_url, request.jdbc_user,
-                request.jdbc_password);
+        init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
+                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op);
     }
 
     public void close() throws Exception {
@@ -71,12 +77,26 @@ public class JdbcExecutor {
         if (conn != null) {
             conn.close();
         }
-        if (classLoader != null) {
-            classLoader.close();
+        if (dataSource != null) {
+            dataSource.close();
+        }
+        resultSet = null;
+        stmt = null;
+        conn = null;
+        dataSource = null;
+    }
+
+    public int read() throws UdfRuntimeException {
+        try {
+            resultSet = ((PreparedStatement) stmt).executeQuery();
+            resultSetMetaData = resultSet.getMetaData();
+            return resultSetMetaData.getColumnCount();
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
     }
 
-    public int querySQL(String sql) throws UdfRuntimeException {
+    public int write(String sql) throws UdfRuntimeException {
         try {
             boolean res = stmt.execute(sql);
             if (res) { // sql query
@@ -88,6 +108,19 @@ public class JdbcExecutor {
             }
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+        }
+    }
+
+    public List<String> getResultColumnTypeNames() throws UdfRuntimeException {
+        try {
+            int count = resultSetMetaData.getColumnCount();
+            resultColumnTypeNames = new ArrayList<>(count);
+            for (int i = 0; i < count; ++i) {
+                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            }
+            return resultColumnTypeNames;
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getResultColumnTypeNames has error: ", e);
         }
     }
 
@@ -156,41 +189,58 @@ public class JdbcExecutor {
     }
 
     public long convertDateToLong(Object obj) {
-        LocalDate date = ((Date) obj).toLocalDate();
-        long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        LocalDate date;
+        if (obj instanceof LocalDate) {
+            date = (LocalDate) obj;
+        } else {
+            date = ((Date) obj).toLocalDate();
+        }
+        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 0, 0, 0, true);
         return time;
     }
 
     public long convertDateTimeToLong(Object obj) {
-        LocalDateTime date = ((Timestamp) obj).toLocalDateTime();
-        long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        LocalDateTime date;
+        // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
+        if (obj instanceof LocalDateTime) {
+            date = (LocalDateTime) obj;
+        } else {
+            date = ((Timestamp) obj).toLocalDateTime();
+        }
+        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 date.getHour(), date.getMinute(), date.getSecond(), false);
         return time;
     }
 
-    private void init(String driverPath, String driverClass, String jdbcUrl, String jdbcUser, String jdbcPassword)
-            throws UdfRuntimeException {
+    private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
+            String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
         try {
-            ClassLoader loader;
-            if (driverPath != null) {
-                ClassLoader parent = getClass().getClassLoader();
-                classLoader = UdfUtils.getClassLoader(driverPath, parent);
-                loader = classLoader;
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+            Thread.currentThread().setContextClassLoader(classLoader);
+            HikariConfig config = new HikariConfig();
+            config.setDriverClassName(driverClass);
+            config.setJdbcUrl(jdbcUrl);
+            config.setUsername(jdbcUser);
+            config.setPassword(jdbcPassword);
+            config.setMaximumPoolSize(1);
+
+            dataSource = new HikariDataSource(config);
+            conn = dataSource.getConnection();
+            if (op == TJdbcOperation.READ) {
+                Preconditions.checkArgument(sql != null);
+                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                stmt.setFetchSize(batchSize);
             } else {
-                loader = ClassLoader.getSystemClassLoader();
+                stmt = conn.createStatement();
             }
-            Class.forName(driverClass, true, loader);
-            conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
-            stmt = conn.createStatement();
+        } catch (FileNotFoundException e) {
+            throw new UdfRuntimeException("Can not find driver file:  " + driverUrl, e);
         } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("MalformedURLException to load class about " + driverPath, e);
-        } catch (ClassNotFoundException e) {
-            throw new UdfRuntimeException("Loading JDBC class error ClassNotFoundException about " + driverClass, e);
+            throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
         } catch (SQLException e) {
-            throw new UdfRuntimeException("Connection JDBC class error about " + jdbcUrl, e);
-        } catch (Exception e) {
-            throw new UdfRuntimeException("unable to init jdbc executor Exception ", e);
+            throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }
     }
 }

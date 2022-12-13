@@ -45,6 +45,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 StorageEngine* k_engine = nullptr;
@@ -147,7 +148,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->tablet_path = kTestDir;
+        rowset_writer_context->rowset_dir = kTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -182,7 +183,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         create_rowset_writer_context(tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;
@@ -251,7 +252,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -293,7 +294,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(1, num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -335,7 +336,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -374,7 +375,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(100, num_rows_read);
             delete predicate;

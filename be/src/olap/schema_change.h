@@ -91,8 +91,7 @@ public:
                            TabletSchemaSPtr base_tablet_schema) {
         if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
             RETURN_WITH_WARN_IF_ERROR(
-                    rowset_writer->flush(),
-                    Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
+                    rowset_writer->flush(), Status::Error<ErrorCode::INVALID_ARGUMENT>(),
                     fmt::format("create empty version for schema change failed. version= {}-{}",
                                 rowset_writer->version().first, rowset_writer->version().second));
 
@@ -108,7 +107,7 @@ public:
 
         // Check row num changes
         if (config::row_nums_check && !_check_row_nums(rowset_reader, *rowset_writer)) {
-            return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
+            return Status::Error<ErrorCode::ALTER_STATUS_ERR>();
         }
 
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
@@ -135,6 +134,7 @@ protected:
         if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
+                         << ", writer rows=" << writer.num_rows()
                          << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows()
                          << ", new_index_rows=" << writer.num_rows();

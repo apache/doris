@@ -20,9 +20,14 @@ package org.apache.doris.system;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Selection policy for building BE nodes
@@ -40,6 +45,9 @@ public class BeSelectionPolicy {
     public boolean checkDiskUsage = false;
     // If set to false, do not select backends on same host.
     public boolean allowOnSameHost = false;
+
+    public boolean preferComputeNode = false;
+    public int candidateNum = Integer.MAX_VALUE;
 
     private BeSelectionPolicy() {
 
@@ -92,12 +100,27 @@ public class BeSelectionPolicy {
             return this;
         }
 
+        public Builder preferComputeNode() {
+            policy.preferComputeNode = true;
+            return this;
+        }
+
+        public Builder assignCandidateNum(int candidateNum) {
+            policy.candidateNum = candidateNum;
+            return this;
+        }
+
         public BeSelectionPolicy build() {
             return policy;
         }
     }
 
-    public boolean isMatch(Backend backend) {
+    private boolean isMatch(Backend backend) {
+        // Compute node is only used when preferComputeNode is set.
+        if (!preferComputeNode && backend.isComputeNode()) {
+            return false;
+        }
+
         if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
                 || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
                 backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
@@ -114,6 +137,41 @@ public class BeSelectionPolicy {
             }
         }
         return true;
+    }
+
+    public List<Backend> getCandidateBackends(ImmutableCollection<Backend> backends) {
+        List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
+        Collections.shuffle(filterBackends);
+        List<Backend> candidates = new ArrayList<>();
+        if (preferComputeNode) {
+            int num = 0;
+            // pick compute node first
+            for (Backend backend : filterBackends) {
+                if (backend.isComputeNode()) {
+                    if (num >= candidateNum) {
+                        break;
+                    }
+                    candidates.add(backend);
+                    num++;
+                }
+            }
+            // fill with some mix node.
+            if (num < candidateNum) {
+                for (Backend backend : filterBackends) {
+                    if (backend.isMixNode()) {
+                        if (num >= candidateNum) {
+                            break;
+                        }
+                        candidates.add(backend);
+                        num++;
+                    }
+                }
+            }
+        } else {
+            candidates.addAll(filterBackends);
+        }
+
+        return candidates;
     }
 
     @Override

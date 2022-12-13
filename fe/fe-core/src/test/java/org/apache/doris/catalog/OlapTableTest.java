@@ -56,8 +56,8 @@ public class OlapTableTest {
                 continue;
             }
             OlapTable tbl = (OlapTable) table;
-            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"),
-                    IndexDef.IndexType.BITMAP, "xxxxxx")));
+            tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
+                    IndexDef.IndexType.BITMAP, null, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
@@ -89,11 +89,14 @@ public class OlapTableTest {
         olapTable.setTableProperty(tableProperty);
         olapTable.setColocateGroup("test_group");
         Assert.assertTrue(olapTable.isColocateTable());
+        Assert.assertTrue(olapTable.getDefaultReplicaAllocation() == ReplicaAllocation.DEFAULT_ALLOCATION);
 
-        olapTable.resetPropertiesForRestore(false);
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) 4);
+        olapTable.resetPropertiesForRestore(false, replicaAlloc);
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.isColocateTable());
+        Assert.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         // restore with dynamic partition keys
         properties = Maps.newHashMap();
@@ -109,12 +112,13 @@ public class OlapTableTest {
 
         tableProperty = new TableProperty(properties);
         olapTable.setTableProperty(tableProperty);
-        olapTable.resetPropertiesForRestore(false);
+        olapTable.resetPropertiesForRestore(false, ReplicaAllocation.DEFAULT_ALLOCATION);
 
         Map<String, String> expectedProperties = Maps.newHashMap(properties);
         expectedProperties.put(DynamicPartitionProperty.ENABLE, "false");
         Assert.assertEquals(expectedProperties, olapTable.getTableProperty().getProperties());
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
     }
 }

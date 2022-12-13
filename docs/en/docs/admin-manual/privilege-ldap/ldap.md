@@ -74,7 +74,7 @@ You need to configure the LDAP basic information in the fe/conf/ldap.conf file, 
 #### Set the LDAP administrator password:
 After configuring the ldap.conf file, start fe, log in to Doris with the root or admin account, and execute sql:  
 ```sql
-set ldap_admin_password = 'ldap_admin_password';
+set ldap_admin_password = password('ldap_admin_password');
 ```
 
 ### Client-side configuration  

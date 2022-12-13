@@ -17,6 +17,7 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -28,7 +29,8 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -42,7 +44,9 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -55,11 +59,13 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
+import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDescribeTableParams;
@@ -67,6 +73,8 @@ import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
+import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -77,6 +85,8 @@ import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
+import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
@@ -95,6 +105,7 @@ import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
@@ -115,9 +126,11 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -294,21 +307,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (matcher != null && !matcher.match(table.getName())) {
                             continue;
                         }
-                        long lastCheckTime = 0;
-                        if (table instanceof Table) {
-                            lastCheckTime = ((Table) table).getLastCheckTime();
-                        } else {
-                            lastCheckTime = ((ExternalTable) table).getLastCheckTime();
-                        }
+                        long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                         TTableStatus status = new TTableStatus();
                         status.setName(table.getName());
                         status.setType(table.getMysqlType());
                         status.setEngine(table.getEngine());
                         status.setComment(table.getComment());
                         status.setCreateTime(table.getCreateTime());
-                        status.setLastCheckTime(lastCheckTime);
+                        status.setLastCheckTime(lastCheckTime / 1000);
                         status.setUpdateTime(table.getUpdateTime() / 1000);
-                        status.setCheckTime(lastCheckTime);
+                        status.setCheckTime(lastCheckTime / 1000);
                         status.setCollation("utf-8");
                         status.setRows(table.getRowCount());
                         status.setDataLength(table.getDataLength());
@@ -973,6 +981,122 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @Override
+    public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
+        switch (request.getSchemaTableName()) {
+            case BACKENDS:
+                return getBackendsSchemaTable(request);
+            default:
+                break;
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
+        return result;
+    }
+
+    private TFetchSchemaTableDataResult getBackendsSchemaTable(TFetchSchemaTableDataRequest request) {
+        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<Long> backendIds = null;
+        if (!Strings.isNullOrEmpty(request.cluster_name)) {
+            final Cluster cluster = Env.getCurrentEnv().getCluster(request.cluster_name);
+            // root not in any cluster
+            if (null == cluster) {
+                return result;
+            }
+            backendIds = cluster.getBackendIdList();
+        } else {
+            backendIds = clusterInfoService.getBackendIds(false);
+            if (backendIds == null) {
+                return result;
+            }
+        }
+
+        long start = System.currentTimeMillis();
+        Stopwatch watch = Stopwatch.createUnstarted();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (long backendId : backendIds) {
+            Backend backend = clusterInfoService.getBackend(backendId);
+            if (backend == null) {
+                continue;
+            }
+
+            watch.start();
+            Integer tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            watch.stop();
+
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setLongVal(backendId));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
+            if (Strings.isNullOrEmpty(request.cluster_name)) {
+                trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getHttpPort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getBrpcPort()));
+            }
+            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
+            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
+            trow.addToColumnValue(new TCell().setStringVal(String.valueOf(backend.isAlive())));
+            if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+                trow.addToColumnValue(new TCell().setStringVal("true"));
+            } else if (backend.isDecommissioned()
+                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
+                trow.addToColumnValue(new TCell().setStringVal("true"));
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+                trow.addToColumnValue(new TCell().setStringVal("false"));
+            }
+            trow.addToColumnValue(new TCell().setLongVal(tabletNum));
+
+            // capacity
+            // data used
+            trow.addToColumnValue(new TCell().setLongVal(backend.getDataUsedCapacityB()));
+
+            // available
+            long availB = backend.getAvailableCapacityB();
+            trow.addToColumnValue(new TCell().setLongVal(availB));
+
+            // total
+            long totalB = backend.getTotalCapacityB();
+            trow.addToColumnValue(new TCell().setLongVal(totalB));
+
+            // used percent
+            double used = 0.0;
+            if (totalB <= 0) {
+                used = 0.0;
+            } else {
+                used = (double) (totalB - availB) * 100 / totalB;
+            }
+            trow.addToColumnValue(new TCell().setDoubleVal(used));
+            trow.addToColumnValue(new TCell().setDoubleVal(backend.getMaxDiskUsedPct() * 100));
+
+            // remote used capacity
+            trow.addToColumnValue(new TCell().setLongVal(backend.getRemoteUsedCapacityB()));
+
+            // tags
+            trow.addToColumnValue(new TCell().setStringVal(backend.getTagMapString()));
+            // err msg
+            trow.addToColumnValue(new TCell().setStringVal(backend.getHeartbeatErrMsg()));
+            // version
+            trow.addToColumnValue(new TCell().setStringVal(backend.getVersion()));
+            // status
+            trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(backend.getBackendStatus())));
+            dataBatch.add(trow);
+        }
+
+        // backends proc node get result too slow, add log to observer.
+        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
+                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
     private TNetworkAddress getClientAddr() {
         ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
         // For NonBlockingServer, we can not get client ip.
@@ -1010,7 +1134,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(
                 iter -> {
                     // default policy not init.
@@ -1021,17 +1145,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     rEntry.setPolicyName(iter.getPolicyName());
                     //java 8 not support ifPresentOrElse
                     final long[] ttlCoolDown = {-1};
-                    Optional.ofNullable(iter.getCooldownTtl())
-                        .ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
+                    Optional.ofNullable(iter.getCooldownTtl()).ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
                     rEntry.setCooldownTtl(ttlCoolDown[0]);
 
-                    final long[] secondTimestamp = {-1};
-                    Optional.ofNullable(iter.getCooldownDatetime())
-                        .ifPresent(date -> secondTimestamp[0] = date.getTime() / 1000);
-                    rEntry.setCooldownDatetime(secondTimestamp[0]);
+                    rEntry.setCooldownDatetime(
+                            iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 100);
 
                     Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
-
                     TS3StorageParam s3Info = new TS3StorageParam();
                     Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
                         Map<String, String> storagePolicyProperties = Env.getCurrentEnv().getResourceMgr()
@@ -1044,10 +1164,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
                         s3Info.setS3MaxConn(
                                 Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
-                        s3Info.setS3RequestTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
-                        s3Info.setS3ConnTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+                        s3Info.setS3RequestTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                        s3Info.setS3ConnTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
                     });
 
                     rEntry.setS3StorageParam(s3Info);
@@ -1059,6 +1179,48 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         LOG.debug("refresh storage policy request: {}", result);
+        return result;
+    }
+
+    @Override
+    public TInitExternalCtlMetaResult initExternalCtlMeta(TInitExternalCtlMetaRequest request) throws TException {
+        if (request.isSetCatalogId() && request.isSetDbId()) {
+            return initDb(request.catalogId, request.dbId);
+        } else if (request.isSetCatalogId()) {
+            return initCatalog(request.catalogId);
+        } else {
+            throw new TException("Catalog name is not set. Init failed.");
+        }
+    }
+
+    private TInitExternalCtlMetaResult initCatalog(long catalogId) throws TException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new TException("Only support forward ExternalCatalog init operation.");
+        }
+        ((ExternalCatalog) catalog).makeSureInitialized();
+        TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        result.setStatus("OK");
+        return result;
+    }
+
+    private TInitExternalCtlMetaResult initDb(long catalogId, long dbId) throws TException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new TException("Only support forward ExternalCatalog init operation.");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbId);
+        if (db == null) {
+            throw new TException("database " + dbId + " is null");
+        }
+        if (!(db instanceof ExternalDatabase)) {
+            throw new TException("Only support forward ExternalDatabase init operation.");
+        }
+        ((ExternalDatabase) db).makeSureInitialized();
+        TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        result.setStatus("OK");
         return result;
     }
 }

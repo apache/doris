@@ -61,7 +61,7 @@ Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令�
 ```sql
 -- Range Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_range_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -93,7 +93,7 @@ PROPERTIES
 
 -- List Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_list_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -157,11 +157,17 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    - 分区列通常为时间列，以方便的管理新旧数据。
 
-   - Partition 支持通过 `VALUES LESS THAN (...)` 仅指定上界，系统会将前一个分区的上界作为该分区的下界，生成一个左闭右开的区间。同时，也支持通过 `VALUES [...)` 指定上下界，生成一个左闭右开的区间。
-
+   - Partition 支持通过 `VALUES LESS THAN (...)` 仅指定上界，系统会将前一个分区的上界作为该分区的下界，生成一个左闭右开的区间。也支持通过 `VALUES [...)` 指定上下界，生成一个左闭右开的区间。
+   
+<version since="1.2.0">
+   
+   - 同时，也支持通过`FROM(...) TO (...) INTERVAL ...` 来批量创建分区。
+   
+</version>
+   
    - 通过 `VALUES [...)` 同时指定上下界比较容易理解。这里举例说明，当使用 `VALUES LESS THAN (...)` 语句进行分区的增删操作时，分区范围的变化情况：
 
-     - 如上 `expamle_range_tbl` 示例，当建表完成后，会自动生成如下3个分区：
+     - 如上 `example_range_tbl` 示例，当建表完成后，会自动生成如下3个分区：
 
        ```text
        p201701: [MIN_VALUE,  2017-02-01)
@@ -252,6 +258,17 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    * 2017-04-01, 1000    --> 无法导入
    * 2017-05-01, 1000    --> 无法导入
    ```
+<version since="1.2.0">
+
+   Range分区同样支持**批量分区**， 通过语句 `FROM ("2022-01-03") TO ("2022-01-06") INTERVAL 1 DAY` 批量创建按天划分的分区：2022-01-03到2022-01-06（不含2022-01-06日），分区结果如下：
+
+   ```text
+   p20220103:    [2022-01-03,  2022-01-04)
+   p20220104:    [2022-01-04,  2022-01-05)
+   p20220105:    [2022-01-05,  2022-01-06)
+   ```
+
+</version>
 
    **List 分区**
 
@@ -338,12 +355,18 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    > 注：表的数据量可以通过 [`SHOW DATA`](../sql-manual/sql-reference/Show-Statements/SHOW-DATA.md) 命令查看，结果除以副本数，即表的数据量。
 
+4. **关于 Random Distribution 的设置以及使用场景。**   
+    - 如果 OLAP 表没有更新类型的字段，将表的数据分桶模式设置为 RANDOM，则可以避免严重的数据倾斜(数据在导入表对应的分区的时候，单次导入作业每个 batch 的数据将随机选择一个tablet进行写入)。
+    - 当表的分桶模式被设置为RANDOM 时，因为没有分桶列，无法根据分桶列的值仅对几个分桶查询，对表进行查询的时候将对命中分区的全部分桶同时扫描，该设置适合对表数据整体的聚合查询分析而不适合高并发的点查询。
+    - 如果 OLAP 表的是 Random Distribution 的数据分布，那么在数据导入的时候可以设置单分片导入模式（将 `load_to_single_tablet` 设置为 true），那么在大数据量的导入的时候，一个任务在将数据写入对应的分区时将只写入一个分片，这样将能提高数据导入的并发度和吞吐量，减少数据导入和 Compaction
+    导致的写放大问题，保障集群的稳定性。 
+
 #### 复合分区与单分区
 
 复合分区
 
 - 第一级称为 Partition，即分区。用户可以指定某一维度列作为分区列（当前只支持整型和时间类型的列），并指定每个分区的取值范围。
-- 第二级称为 Distribution，即分桶。用户可以指定一个或多个维度列以及桶数对数据进行 HASH 分布。
+- 第二级称为 Distribution，即分桶。用户可以指定一个或多个维度列以及桶数对数据进行 HASH 分布 或者不指定分桶列设置成 Random Distribution 对数据进行随机分布。
 
 以下场景推荐使用复合分区
 

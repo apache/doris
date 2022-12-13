@@ -100,7 +100,7 @@ public:
 
     // set the disk throttle for the user by getting resource value from the map and echo it to the cgroups.
     // currently, both the user and groups under the user are set to the same value
-    // because throttle does not support hierachy.
+    // because throttle does not support hierarchy.
     // Input parameters:
     //  user_name: name for the user
     //  resource_share: resource value get from fe

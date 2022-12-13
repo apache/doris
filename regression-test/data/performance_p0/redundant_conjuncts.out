@@ -8,7 +8,7 @@ PLAN FRAGMENT 0
   VRESULT SINK
 
   0:VOlapScanNode
-     TABLE: redundant_conjuncts(null), PREAGGREGATION: OFF. Reason: No AggregateInfo
+     TABLE: default_cluster:regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: OFF. Reason: No AggregateInfo
      PREDICATES: `k1` = 1
      partitions=0/1, tablets=0/0, tabletList=
      cardinality=0, avgRowSize=8.0, numNodes=1
@@ -22,7 +22,7 @@ PLAN FRAGMENT 0
   VRESULT SINK
 
   0:VOlapScanNode
-     TABLE: redundant_conjuncts(null), PREAGGREGATION: OFF. Reason: No AggregateInfo
+     TABLE: default_cluster:regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: OFF. Reason: No AggregateInfo
      PREDICATES: (`k1` = 1 OR `k1` = 2)
      partitions=0/1, tablets=0/0, tabletList=
      cardinality=0, avgRowSize=8.0, numNodes=1

@@ -19,10 +19,11 @@
 
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
+#include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -91,13 +92,17 @@ private:
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size,
                                      vectorized::ColumnString* res_ptr) {
         StringRef refs[sel_size];
+        size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& sv = reinterpret_cast<StringValue&>(data[n]);
             refs[i].data = sv.ptr;
             refs[i].size = sv.len;
+            length += sv.len;
         }
-        res_ptr->insert_many_continuous_strings(refs, sel_size);
+        res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
+        res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
+        res_ptr->insert_many_strings_without_reserve(refs, sel_size);
     }
 
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
@@ -256,6 +261,30 @@ public:
         }
     }
 
+    void insert_many_continuous_binary_data(const char* data_, const uint32_t* offsets,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        if constexpr (std::is_same_v<T, StringValue>) {
+            if (_pool == nullptr) {
+                _pool.reset(new MemPool());
+            }
+            const auto total_mem_size = offsets[num] - offsets[0];
+            char* destination = (char*)_pool->allocate(total_mem_size);
+            memcpy(destination, data_ + offsets[0], total_mem_size);
+            size_t org_elem_num = data.size();
+            data.resize(org_elem_num + num);
+
+            auto* data_ptr = &data[org_elem_num];
+            for (size_t i = 0; i != num; ++i) {
+                data_ptr[i].ptr = destination + offsets[i] - offsets[0];
+                data_ptr[i].len = offsets[i + 1] - offsets[i];
+            }
+            DCHECK(data_ptr[num - 1].ptr + data_ptr[num - 1].len == destination + total_mem_size);
+        }
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         if (num == 0) {
@@ -358,7 +387,7 @@ public:
         LOG(FATAL) << "get field not supported in PredicateColumnType";
     }
 
-    // it's impossable to use ComplexType as key , so we don't have to implemnt them
+    // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in PredicateColumnType";

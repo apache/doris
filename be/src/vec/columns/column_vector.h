@@ -166,6 +166,7 @@ public:
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
+        data.reserve(data.size() + num);
         size_t input_value_size = sizeof(uint24_t);
 
         for (int i = 0; i < num; i++) {
@@ -180,6 +181,7 @@ public:
     }
 
     void insert_datetime_column(const char* data_ptr, size_t num) {
+        data.reserve(data.size() + num);
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + value_size * i;
@@ -339,7 +341,8 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     void get_extremes(Field& min, Field& max) const override;
 

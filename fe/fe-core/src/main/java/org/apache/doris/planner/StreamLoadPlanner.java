@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -40,12 +42,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -85,9 +90,8 @@ public class StreamLoadPlanner {
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    private StreamLoadScanNode scanNode;
+    private ScanNode scanNode;
     private TupleDescriptor tupleDesc;
-    private TupleDescriptor scanTupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
@@ -119,7 +123,7 @@ public class StreamLoadPlanner {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
+        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
             throw new UserException("Table " + destTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
@@ -167,13 +171,31 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+        if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
+            ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
+            // 1. create file group
+            DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
+            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+            fileGroup.parse(db, dataDescription);
+            // 2. create dummy file status
+            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+            fileStatus.setPath("");
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(-1); // must set to -1, means stream.
+            fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
+                    fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
+            scanNode = fileScanNode;
+        } else {
+            scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+        }
+
         scanNode.init(analyzer);
-        descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {
-            scanNode.convertToVectoriezd();
+            scanNode.convertToVectorized();
         }
+        descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
         if (taskInfo instanceof RoutineLoadJob) {
@@ -228,6 +250,8 @@ public class StreamLoadPlanner {
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
+        queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
+        queryOptions.setBeExecVersion(Config.be_exec_version);
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

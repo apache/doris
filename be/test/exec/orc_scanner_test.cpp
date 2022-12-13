@@ -44,7 +44,7 @@ class OrcScannerTest : public testing::Test {
 public:
     OrcScannerTest() : _runtime_state(TQueryGlobals()) {
         _profile = _runtime_state.runtime_profile();
-        _runtime_state.init_instance_mem_tracker();
+        _runtime_state.init_mem_trackers();
     }
 
     static void SetUpTestCase() {

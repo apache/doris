@@ -24,12 +24,14 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
@@ -98,11 +100,12 @@ public class LoadScanProvider implements FileScanProviderIf {
         ctx.timezone = analyzer.getTimezone();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        params.format_type = formatType(fileGroupInfo.getFileGroup().getFileFormat(), "");
+        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
+        params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
             params.setHdfsParams(tHdfsParams);
         }
         TFileAttributes fileAttributes = new TFileAttributes();
@@ -189,9 +192,14 @@ public class LoadScanProvider implements FileScanProviderIf {
             columnDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
         }
         // add columnExpr for sequence column
-        if (context.fileGroup.hasSequenceCol()) {
-            columnDescs.descs.add(
-                    new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, context.fileGroup.getSequenceCol())));
+        TableIf targetTable = getTargetTable();
+        if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
+            String sequenceCol = ((OlapTable) targetTable).getSequenceMapCol();
+            if (sequenceCol == null) {
+                sequenceCol = context.fileGroup.getSequenceCol();
+            }
+            columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                    new SlotRef(null, sequenceCol)));
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
@@ -233,23 +241,9 @@ public class LoadScanProvider implements FileScanProviderIf {
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
             }
-        }
-
-        String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
-            return TFileFormatType.FORMAT_PARQUET;
-        } else if (lowerCasePath.endsWith(".gz")) {
-            return TFileFormatType.FORMAT_CSV_GZ;
-        } else if (lowerCasePath.endsWith(".bz2")) {
-            return TFileFormatType.FORMAT_CSV_BZ2;
-        } else if (lowerCasePath.endsWith(".lz4")) {
-            return TFileFormatType.FORMAT_CSV_LZ4FRAME;
-        } else if (lowerCasePath.endsWith(".lzo")) {
-            return TFileFormatType.FORMAT_CSV_LZOP;
-        } else if (lowerCasePath.endsWith(".deflate")) {
-            return TFileFormatType.FORMAT_CSV_DEFLATE;
         } else {
-            return TFileFormatType.FORMAT_CSV_PLAIN;
+            // get file format by the suffix of file
+            return Util.getFileFormatType(path);
         }
     }
 

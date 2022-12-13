@@ -20,7 +20,7 @@ suite("test_bitmap_intersect", "p0") {
     def tbName = "test_bitmap_intersect"
     sql """ SET enable_vectorized_engine = FALSE; """
     sql """ DROP TABLE IF EXISTS ${tbName} """
-    sql """ create table ${tbName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) distributed by hash (tag) PROPERTIES("replication_num" = "1"); """
+    sql """ create table if not exists ${tbName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) distributed by hash (tag) PROPERTIES("replication_num" = "1"); """
     sql """ insert into ${tbName} values('A', to_bitmap(1)); """
     sql """ insert into ${tbName} values('A', to_bitmap(2)); """
     sql """ insert into ${tbName} values('A', to_bitmap(3)); """

@@ -24,6 +24,7 @@
 #include "olap/row_cursor_cell.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 // This iterator will generate ordered data. For example for schema
 // (int, int) this iterator will generator data like
@@ -197,7 +198,7 @@ Status MergeIteratorContext::_load_next_block() {
         Status st = _iter->next_batch(&_block);
         if (!st.ok()) {
             _valid = false;
-            if (st.is_end_of_file()) {
+            if (st.is<END_OF_FILE>()) {
                 return Status::OK();
             } else {
                 return st;
@@ -263,15 +264,18 @@ private:
             }
 
             // if row cursors equal, compare segment id.
-            // here we sort segment id in reverse order, because of the row order in AGG_KEYS
-            // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
-            // return the row in reverse order of segment id
-            bool result = res == 0 ? lhs->data_id() < rhs->data_id() : res < 0;
+            // when in UNIQUE_KEYS table, we need only read the latest one, so we
+            // return the row in reverse order of segment id.
+            // when in AGG_KEYS table, we return the row in order of segment id, because
+            // we need replace the value with lower segment id by the one with higher segment id when
+            // non-vectorized.
             if (_is_unique) {
+                bool result = res == 0 ? lhs->data_id() < rhs->data_id() : res < 0;
                 result ? lhs->set_skip(true) : rhs->set_skip(true);
+                return result;
             }
 
-            return result;
+            return lhs->data_id() > rhs->data_id();
         }
 
         int _sequence_id_idx;
@@ -337,7 +341,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
 // UnionIterator will read data from input iterator one by one.
 class UnionIterator : public RowwiseIterator {
 public:
-    // Iterators' ownership it transfered to this class.
+    // Iterators' ownership it transferred to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
     UnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}
@@ -375,7 +379,7 @@ Status UnionIterator::init(const StorageReadOptions& opts) {
 Status UnionIterator::next_batch(RowBlockV2* block) {
     while (_cur_iter != nullptr) {
         auto st = _cur_iter->next_batch(block);
-        if (st.is_end_of_file()) {
+        if (st.is<END_OF_FILE>()) {
             delete _cur_iter;
             _cur_iter = nullptr;
             _origin_iters.pop_front();

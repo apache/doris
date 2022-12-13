@@ -37,6 +37,8 @@ public enum JoinType {
     LEFT_ANTI_JOIN,
     RIGHT_ANTI_JOIN,
     CROSS_JOIN,
+    NULL_AWARE_LEFT_ANTI_JOIN,
+    USING_JOIN,
     ;
 
     private static final Map<JoinType, JoinType> joinSwapMap = ImmutableMap
@@ -71,6 +73,8 @@ public enum JoinType {
                 return JoinOperator.FULL_OUTER_JOIN;
             case LEFT_ANTI_JOIN:
                 return JoinOperator.LEFT_ANTI_JOIN;
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
             case RIGHT_ANTI_JOIN:
                 return JoinOperator.RIGHT_ANTI_JOIN;
             case LEFT_SEMI_JOIN:
@@ -97,7 +101,8 @@ public enum JoinType {
     }
 
     public final boolean isLeftJoin() {
-        return this == LEFT_OUTER_JOIN || this == LEFT_ANTI_JOIN || this == LEFT_SEMI_JOIN;
+        return this == LEFT_OUTER_JOIN || this == LEFT_ANTI_JOIN || this == NULL_AWARE_LEFT_ANTI_JOIN
+                || this == LEFT_SEMI_JOIN;
     }
 
     public final boolean isRightJoin() {
@@ -117,7 +122,7 @@ public enum JoinType {
     }
 
     public final boolean isLeftSemiOrAntiJoin() {
-        return this == LEFT_SEMI_JOIN || this == LEFT_ANTI_JOIN;
+        return this == LEFT_SEMI_JOIN || this == LEFT_ANTI_JOIN || this == NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public final boolean isRightSemiOrAntiJoin() {
@@ -125,7 +130,8 @@ public enum JoinType {
     }
 
     public final boolean isSemiOrAntiJoin() {
-        return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN || this == LEFT_ANTI_JOIN || this == RIGHT_ANTI_JOIN;
+        return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN || this == LEFT_ANTI_JOIN
+                || this == NULL_AWARE_LEFT_ANTI_JOIN || this == RIGHT_ANTI_JOIN;
     }
 
     public final boolean isOuterJoin() {
@@ -137,7 +143,7 @@ public enum JoinType {
     }
 
     public final boolean isRemainRightJoin() {
-        return this != LEFT_SEMI_JOIN && this != LEFT_ANTI_JOIN;
+        return this != LEFT_SEMI_JOIN && this != LEFT_ANTI_JOIN && this != NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public final boolean isSwapJoinType() {

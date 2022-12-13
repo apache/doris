@@ -20,8 +20,46 @@
 # This script will restart all thirdparty containers
 ################################################################
 
-################################################################
-# restart elasticsearch containers
-################################################################
-docker compose -f docker-compose/elasticsearch.yaml down
-docker compose -f docker-compose/elasticsearch.yaml up -d
+set -eo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+# If you want to start multi group of these containers on same host,
+# Change this to a specific string.
+# Do not use "_" or other sepcial characters, only number and alphabeta.
+# NOTICE: change this uid will modify the file in docker-compose.
+CONTAINER_UID="doris--"
+
+# elasticsearch
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
+sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env down
+sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
+sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
+sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es7/
+sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es7/*
+sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
+sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
+sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
+sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
+
+# mysql 5.7
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
+sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
+sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
+sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
+sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
+
+# pg 14
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
+sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
+sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
+sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
+sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
+
+# hive
+# before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
+sudo "${ROOT}"/docker-compose/hive/gen_env.sh
+sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d

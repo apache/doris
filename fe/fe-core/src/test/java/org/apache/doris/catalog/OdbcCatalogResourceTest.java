@@ -85,7 +85,7 @@ public class OdbcCatalogResourceTest {
         };
 
         // host: 127.0.0.1, port: 7777, without driver and odbc_type
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         OdbcCatalogResource resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
@@ -98,7 +98,7 @@ public class OdbcCatalogResourceTest {
         // with driver and odbc_type
         properties.put("driver", "mysql");
         properties.put("odbc_type", "mysql");
-        stmt = new CreateResourceStmt(true, name, properties);
+        stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals("mysql", resource.getProperty("driver"));

@@ -17,23 +17,25 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.mv.SelectRollupWithAggregate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.PushDownAggOperator;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
@@ -43,16 +45,20 @@ import java.util.Optional;
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalRelation {
+public class LogicalOlapScan extends LogicalRelation implements CatalogRelation {
 
     private final long selectedIndexId;
-    private final List<Long> selectedTabletId;
+    private final List<Long> selectedTabletIds;
     private final boolean partitionPruned;
+    private final boolean tabletPruned;
 
     private final List<Long> candidateIndexIds;
-    private final boolean rollupSelected;
+    private final boolean indexSelected;
 
     private final PreAggStatus preAggStatus;
+
+    private final boolean aggPushed;
+    private final PushDownAggOperator pushDownAggOperator;
 
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
@@ -60,12 +66,14 @@ public class LogicalOlapScan extends LogicalRelation {
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, ImmutableList.of(), false, PreAggStatus.on());
+                table.getPartitionIds(), false, ImmutableList.of(), false,
+                ImmutableList.of(), false, PreAggStatus.on(), false, PushDownAggOperator.NONE);
     }
 
     public LogicalOlapScan(RelationId id, Table table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false, PreAggStatus.on());
+                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false,
+                ImmutableList.of(), false, PreAggStatus.on(), false, PushDownAggOperator.NONE);
     }
 
     /**
@@ -73,22 +81,24 @@ public class LogicalOlapScan extends LogicalRelation {
      */
     public LogicalOlapScan(RelationId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Long> selectedPartitionIdList, boolean partitionPruned, List<Long> candidateIndexIds,
-            boolean rollupSelected, PreAggStatus preAggStatus) {
+            List<Long> selectedPartitionIds, boolean partitionPruned,
+            List<Long> selectedTabletIds, boolean tabletPruned,
+            List<Long> candidateIndexIds, boolean indexSelected, PreAggStatus preAggStatus,
+            boolean aggPushed, PushDownAggOperator pushDownAggOperator) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
-                groupExpression, logicalProperties, selectedPartitionIdList);
+                groupExpression, logicalProperties, selectedPartitionIds);
         // TODO: use CBO manner to select best index id, according to index's statistics info,
         //   revisit this after rollup and materialized view selection are fully supported.
         this.selectedIndexId = CollectionUtils.isEmpty(candidateIndexIds)
                 ? getTable().getBaseIndexId() : candidateIndexIds.get(0);
-        this.selectedTabletId = Lists.newArrayList();
-        for (Partition partition : getTable().getAllPartitions()) {
-            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
-        }
+        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.partitionPruned = partitionPruned;
-        this.candidateIndexIds = candidateIndexIds;
-        this.rollupSelected = rollupSelected;
+        this.tabletPruned = tabletPruned;
+        this.candidateIndexIds = ImmutableList.copyOf(candidateIndexIds);
+        this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
+        this.aggPushed = aggPushed;
+        this.pushDownAggOperator = pushDownAggOperator;
     }
 
     @Override
@@ -98,13 +108,21 @@ public class LogicalOlapScan extends LogicalRelation {
     }
 
     @Override
+    public Database getDatabase() throws AnalysisException {
+        Preconditions.checkArgument(!qualifier.isEmpty());
+        return Env.getCurrentInternalCatalog().getDbOrException(qualifier.get(0),
+                s -> new AnalysisException("Database [" + qualifier.get(0) + "] does not exist."));
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
                 "qualified", qualifiedName(),
                 "output", getOutput(),
                 "candidateIndexIds", candidateIndexIds,
                 "selectedIndexId", selectedIndexId,
-                "preAgg", preAggStatus
+                "preAgg", preAggStatus,
+                "pushAgg", pushDownAggOperator
         );
     }
 
@@ -117,34 +135,52 @@ public class LogicalOlapScan extends LogicalRelation {
             return false;
         }
         return Objects.equals(selectedPartitionIds, ((LogicalOlapScan) o).selectedPartitionIds)
-                && Objects.equals(candidateIndexIds, ((LogicalOlapScan) o).candidateIndexIds);
+                && Objects.equals(candidateIndexIds, ((LogicalOlapScan) o).candidateIndexIds)
+                && Objects.equals(selectedTabletIds, ((LogicalOlapScan) o).selectedTabletIds)
+                && Objects.equals(pushDownAggOperator, ((LogicalOlapScan) o).pushDownAggOperator);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, selectedPartitionIds, candidateIndexIds);
+        return Objects.hash(id, selectedPartitionIds, candidateIndexIds, selectedTabletIds, pushDownAggOperator);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, candidateIndexIds, rollupSelected, preAggStatus);
+                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
+                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
-                partitionPruned, candidateIndexIds, rollupSelected, preAggStatus);
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties,
+                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
+                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
     }
 
-    public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
+    public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
         return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionId, true, candidateIndexIds, rollupSelected, preAggStatus);
+                selectedPartitionIds, true, selectedTabletIds, tabletPruned,
+                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, List<Long> candidateIndexIds) {
         return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, candidateIndexIds, true, preAgg);
+                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
+                candidateIndexIds, true, preAgg, aggPushed, pushDownAggOperator);
+    }
+
+    public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
+                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
+    }
+
+    public LogicalOlapScan withPushDownAggregateOperator(PushDownAggOperator pushDownAggOperator) {
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
+                candidateIndexIds, indexSelected, preAggStatus, true, pushDownAggOperator);
     }
 
     @Override
@@ -156,38 +192,37 @@ public class LogicalOlapScan extends LogicalRelation {
         return partitionPruned;
     }
 
-    public List<Long> getSelectedTabletId() {
-        return selectedTabletId;
+    public boolean isTabletPruned() {
+        return tabletPruned;
+    }
+
+    public List<Long> getSelectedTabletIds() {
+        return selectedTabletIds;
     }
 
     public long getSelectedIndexId() {
         return selectedIndexId;
     }
 
-    public boolean isRollupSelected() {
-        return rollupSelected;
+    public boolean isIndexSelected() {
+        return indexSelected;
     }
 
     public PreAggStatus getPreAggStatus() {
         return preAggStatus;
     }
 
-    /**
-     * Should apply {@link SelectRollupWithAggregate} or not.
-     */
-    public boolean shouldSelectRollup() {
-        switch (((OlapTable) table).getKeysType()) {
-            case AGG_KEYS:
-            case UNIQUE_KEYS:
-                return !rollupSelected;
-            default:
-                return false;
-        }
+    public boolean isAggPushed() {
+        return aggPushed;
+    }
+
+    public PushDownAggOperator getPushDownAggOperator() {
+        return pushDownAggOperator;
     }
 
     @VisibleForTesting
-    public Optional<String> getSelectRollupName() {
-        return rollupSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
+    public Optional<String> getSelectedMaterializedIndexName() {
+        return indexSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
                 : Optional.empty();
     }
 }

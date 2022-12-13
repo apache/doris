@@ -115,8 +115,10 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("begin", new Integer(SqlParserSymbols.KW_BEGIN));
         keywordMap.put("between", new Integer(SqlParserSymbols.KW_BETWEEN));
         keywordMap.put("bigint", new Integer(SqlParserSymbols.KW_BIGINT));
+        keywordMap.put("bin", new Integer(SqlParserSymbols.KW_BIN));
         keywordMap.put("binlog", new Integer(SqlParserSymbols.KW_BINLOG));
         keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
+        keywordMap.put("inverted", new Integer(SqlParserSymbols.KW_INVERTED));
         keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
@@ -269,7 +271,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("isolation", new Integer(SqlParserSymbols.KW_ISOLATION));
         keywordMap.put("job", new Integer(SqlParserSymbols.KW_JOB));
         keywordMap.put("join", new Integer(SqlParserSymbols.KW_JOIN));
-        keywordMap.put("json", new Integer(SqlParserSymbols.KW_JSON));
+        keywordMap.put("jsonb", new Integer(SqlParserSymbols.KW_JSONB));
         keywordMap.put("key", new Integer(SqlParserSymbols.KW_KEY));
         keywordMap.put("keys", new Integer(SqlParserSymbols.KW_KEYS));
         keywordMap.put("kill", new Integer(SqlParserSymbols.KW_KILL));
@@ -354,6 +356,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("real", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("rebalance", new Integer(SqlParserSymbols.KW_REBALANCE));
         keywordMap.put("recover", new Integer(SqlParserSymbols.KW_RECOVER));
+        keywordMap.put("recycle", new Integer(SqlParserSymbols.KW_RECYCLE));
         keywordMap.put("refresh", new Integer(SqlParserSymbols.KW_REFRESH));
         keywordMap.put("regexp", new Integer(SqlParserSymbols.KW_REGEXP));
         keywordMap.put("release", new Integer(SqlParserSymbols.KW_RELEASE));
@@ -461,6 +464,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
+        keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
    }
     
   // map from token id to token description
