@@ -32,10 +32,10 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AssertNumRowsOperator final : public Operator<AssertNumRowsOperatorBuilder> {
+class AssertNumRowsOperator final : public StreamingOperator<AssertNumRowsOperatorBuilder> {
 public:
     AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
-            : Operator(operator_builder, node) {};
+            : StreamingOperator(operator_builder, node) {};
 };
 
 OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {

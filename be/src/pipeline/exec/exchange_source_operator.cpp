@@ -23,7 +23,7 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ExchangeSourceOperator, Operator)
+OPERATOR_CODE_GENERATOR(ExchangeSourceOperator, SourceOperator)
 
 bool ExchangeSourceOperator::can_read() {
     return _node->_stream_recvr->ready_to_read();

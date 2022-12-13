@@ -20,6 +20,7 @@
 #include "olap/rowset/beta_rowset.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {
@@ -132,13 +133,12 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable file. path=" << path
-                     << ", err: " << st.get_error_msg();
+        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
     }
 

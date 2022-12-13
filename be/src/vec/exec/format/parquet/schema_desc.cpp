@@ -228,6 +228,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
     switch (convertedType) {
     case tparquet::ConvertedType::type::UTF8:
         type.type = TYPE_STRING;
+        break;
     case tparquet::ConvertedType::type::DECIMAL:
         type.type = TYPE_DECIMALV2;
         type.precision = 27;
@@ -250,6 +251,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
     case tparquet::ConvertedType::type::INT_16:
     case tparquet::ConvertedType::type::INT_32:
         type.type = TYPE_INT;
+        break;
     case tparquet::ConvertedType::type::UINT_32:
     case tparquet::ConvertedType::type::UINT_64:
     case tparquet::ConvertedType::type::INT_64:

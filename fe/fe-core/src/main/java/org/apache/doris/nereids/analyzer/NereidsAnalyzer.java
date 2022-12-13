@@ -54,4 +54,5 @@ public class NereidsAnalyzer {
         // check whether analyze result is meaningful
         new CheckAnalysisJob(cascadesContext).execute();
     }
+
 }

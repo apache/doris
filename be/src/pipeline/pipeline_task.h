@@ -167,7 +167,6 @@ private:
     void _init_profile();
     void _init_state();
 
-private:
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _dependency_finish = false;

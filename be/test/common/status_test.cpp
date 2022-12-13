@@ -29,8 +29,7 @@ TEST_F(StatusTest, OK) {
     // default
     Status st;
     EXPECT_TRUE(st.ok());
-    EXPECT_EQ("", st.get_error_msg());
-    EXPECT_EQ("OK", st.to_string());
+    EXPECT_EQ("[OK]", st.to_string());
     // copy
     {
         Status other = st;
@@ -50,24 +49,22 @@ TEST_F(StatusTest, Error) {
     // default
     Status st = Status::InternalError("123");
     EXPECT_FALSE(st.ok());
-    EXPECT_EQ("123", st.get_error_msg());
-    EXPECT_EQ("Internal error: 123", st.to_string());
+    EXPECT_EQ("[INTERNAL_ERROR]123", st.to_string());
     // copy
     {
         Status other = st;
         EXPECT_FALSE(other.ok());
-        EXPECT_EQ("123", st.get_error_msg());
+        EXPECT_EQ("[INTERNAL_ERROR]123", other.to_string());
     }
     // move assign
     st = Status::InternalError("456");
     EXPECT_FALSE(st.ok());
-    EXPECT_EQ("456", st.get_error_msg());
+    EXPECT_EQ("[INTERNAL_ERROR]456", st.to_string());
     // move construct
     {
         Status other = std::move(st);
         EXPECT_FALSE(other.ok());
-        EXPECT_EQ("456", other.get_error_msg());
-        EXPECT_EQ("Internal error: 456", other.to_string());
+        EXPECT_EQ("[INTERNAL_ERROR]456", other.to_string());
     }
 }
 

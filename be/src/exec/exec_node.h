@@ -44,7 +44,6 @@ class RowBatch;
 class RuntimeState;
 class TPlan;
 class TupleRow;
-class DataSink;
 class MemTracker;
 
 namespace vectorized {
@@ -61,9 +60,6 @@ class OperatorBase;
 using std::string;
 using std::stringstream;
 using std::vector;
-using std::map;
-using std::lock_guard;
-using std::mutex;
 
 // Superclass of all executor nodes.
 // All subclasses need to make sure to check RuntimeState::is_cancelled()
@@ -188,13 +184,15 @@ public:
     // Collect all scan node types.
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
 
+    virtual void prepare_for_next() {}
+
     // When the agg node is the scan node direct parent,
     // we directly return agg object from scan node to agg node,
     // and don't serialize the agg object.
     // This improve is cautious, we ensure the correctness firstly.
     void try_do_aggregate_serde_improve();
 
-    typedef bool (*EvalConjunctsFn)(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
+    using EvalConjunctsFn = bool (*)(ExprContext* const*, int, TupleRow*);
     // Evaluate exprs over row.  Returns true if all exprs return true.
     // TODO: This doesn't use the vector<Expr*> signature because I haven't figured
     // out how to deal with declaring a templated std:vector type in IR
@@ -241,6 +239,8 @@ public:
     static const std::string ROW_THROUGHPUT_COUNTER;
 
     ExecNode* child(int i) { return _children[i]; }
+
+    size_t children_count() const { return _children.size(); }
 
 protected:
     friend class DataSink;

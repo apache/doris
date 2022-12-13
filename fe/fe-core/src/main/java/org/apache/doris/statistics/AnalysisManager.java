@@ -80,6 +80,7 @@ public class AnalysisManager {
                         .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
                         .setTblName(tbl.getTbl()).setColName(colName).setJobType(JobType.MANUAL)
                         .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.COLUMN)
+                        .setState(AnalysisState.PENDING)
                         .setScheduleType(ScheduleType.ONCE).build();
                 try {
                     StatisticsRepository.createAnalysisTask(analysisTaskInfo);
@@ -132,7 +133,8 @@ public class AnalysisManager {
         } finally {
             info.state = jobState;
             if (analysisJobIdToTaskMap.get(info.jobId).values()
-                    .stream().allMatch(i -> i.state != AnalysisState.PENDING && i.state != AnalysisState.RUNNING)) {
+                    .stream().allMatch(i -> i.state != null
+                            && i.state != AnalysisState.PENDING && i.state != AnalysisState.RUNNING)) {
                 analysisJobIdToTaskMap.remove(info.jobId);
             }
 

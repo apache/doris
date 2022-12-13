@@ -194,7 +194,7 @@ public:
     static constexpr int PREFETCH_STEP = 64;
 
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~HashJoinNode();
+    ~HashJoinNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
@@ -211,7 +211,7 @@ public:
     bool need_more_input_data();
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
-    void prepare_for_next();
+    void prepare_for_next() override;
 
 private:
     using VExprContexts = std::vector<VExprContext*>;

@@ -41,5 +41,4 @@ Status HdfsReaderWriter::create_writer(const std::map<std::string, std::string>&
     writer.reset(new HDFSWriter(properties, path));
     return Status::OK();
 }
-
 } // namespace doris

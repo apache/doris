@@ -26,6 +26,7 @@
 #include "olap/rowset/beta_rowset_reader.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 CollectIterator::~CollectIterator() = default;
 
@@ -45,7 +46,7 @@ Status CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
     std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_reader, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
-        return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        return Status::Error<END_OF_FILE>();
     }
 
     _children.push_back(child.release());
@@ -185,7 +186,7 @@ Status CollectIterator::next(const RowCursor** row, bool* delete_flag) {
     if (LIKELY(_inner_iter)) {
         return _inner_iter->next(row, delete_flag);
     } else {
-        return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        return Status::Error<END_OF_FILE>();
     }
 }
 
@@ -236,7 +237,7 @@ Status CollectIterator::Level0Iterator::_refresh_current_row_v2() {
         }
     } while (_row_block != nullptr);
     _current_row = nullptr;
-    return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+    return Status::Error<END_OF_FILE>();
 }
 
 Status CollectIterator::Level0Iterator::next(const RowCursor** row, bool* delete_flag) {
@@ -285,11 +286,11 @@ CollectIterator::Level1Iterator::~Level1Iterator() {
 
 // Read next row into *row.
 // Returns
-//      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *row to nullptr when EOF is reached.
+//      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
 //      Others when error happens
 Status CollectIterator::Level1Iterator::next(const RowCursor** row, bool* delete_flag) {
     if (UNLIKELY(_cur_child == nullptr)) {
-        return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        return Status::Error<END_OF_FILE>();
     }
     if (_merge) {
         return _merge_next(row, delete_flag);
@@ -360,14 +361,14 @@ inline Status CollectIterator::Level1Iterator::_merge_next(const RowCursor** row
     if (LIKELY(res.ok())) {
         _heap->push(_cur_child);
         _cur_child = _heap->top();
-    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
+    } else if (res.is<END_OF_FILE>()) {
         // current child has been read, to read next
         delete _cur_child;
         if (!_heap->empty()) {
             _cur_child = _heap->top();
         } else {
             _cur_child = nullptr;
-            return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+            return Status::Error<END_OF_FILE>();
         }
     } else {
         _cur_child = nullptr;
@@ -389,7 +390,7 @@ inline Status CollectIterator::Level1Iterator::_normal_next(const RowCursor** ro
     auto res = _cur_child->next(row, delete_flag);
     if (LIKELY(res.ok())) {
         return Status::OK();
-    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
+    } else if (res.is<END_OF_FILE>()) {
         // current child has been read, to read next
         delete _cur_child;
         _children.pop_front();
@@ -399,7 +400,7 @@ inline Status CollectIterator::Level1Iterator::_normal_next(const RowCursor** ro
             return Status::OK();
         } else {
             _cur_child = nullptr;
-            return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+            return Status::Error<END_OF_FILE>();
         }
     } else {
         _cur_child = nullptr;
