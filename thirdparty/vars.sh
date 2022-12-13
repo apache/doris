@@ -245,11 +245,17 @@ ARROW_NAME="apache-arrow-7.0.0.tar.gz"
 ARROW_SOURCE="apache-arrow-7.0.0"
 ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
 
+# Abseil
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20220623.1.tar.gz"
+ABSEIL_NAME=abseil-cpp-20220623.1.tar.gz
+ABSEIL_SOURCE=abseil-cpp-20220623.1
+ABSEIL_MD5SUM="2aea7c1171c4c280f755de170295afd6"
+
 # S2
-S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
-S2_NAME=s2geometry-0.9.0.tar.gz
-S2_SOURCE=s2geometry-0.9.0
-S2_MD5SUM="293552c7646193b8b4a01556808fe155"
+S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
+S2_NAME=s2geometry-0.10.0.tar.gz
+S2_SOURCE=s2geometry-0.10.0
+S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
 BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
@@ -467,6 +473,7 @@ export TP_ARCHIVES=(
     'ARROW'
     'BROTLI'
     'ZSTD'
+    'ABSEIL'
     'S2'
     'BITSHUFFLE'
     'CROARINGBITMAP'

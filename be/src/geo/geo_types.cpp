@@ -29,7 +29,9 @@
 
 #include <iomanip>
 #include <sstream>
+#include <type_traits>
 
+#include "common/config.h"
 #include "geo/wkt_parse.h"
 
 namespace doris {
@@ -74,7 +76,7 @@ static bool is_loop_closed(const std::vector<S2Point>& points) {
     if (points.empty()) {
         return false;
     }
-    if (points[0] != points[points.size() - 1]) {
+    if (!points[0].aequal(points[points.size() - 1], config::s2geo_eps)) {
         return false;
     }
     return true;
@@ -85,7 +87,7 @@ static void remove_duplicate_points(std::vector<S2Point>* points) {
     int lhs = 0;
     int rhs = 1;
     for (; rhs < points->size(); ++rhs) {
-        if ((*points)[rhs] != (*points)[lhs]) {
+        if (!(*points)[rhs].aequal((*points)[lhs], config::s2geo_eps)) {
             lhs++;
             if (lhs != rhs) {
                 (*points)[lhs] = (*points)[rhs];
@@ -147,6 +149,37 @@ static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
     return GEO_PARSE_OK;
 }
 
+// remove those compatibility codes when we finish upgrade s2geo.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+template <typename T, bool (T::*)(const T*) const = &T::Contains>
+constexpr bool is_pointer_argument() {
+    return true;
+}
+
+constexpr bool is_pointer_argument(...) {
+    return false;
+}
+
+template <typename T>
+bool adapt_contains(const T* lhs, const T* rhs) {
+    if constexpr (is_pointer_argument<T>()) {
+        return lhs->Contains(rhs);
+    } else {
+        return lhs->Contains(*rhs);
+    }
+}
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic pop
+#endif
+
 static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
                                    std::unique_ptr<S2Polygon>* polygon) {
     std::vector<std::unique_ptr<S2Loop>> loops(coords_list.list.size());
@@ -155,7 +188,7 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
         if (res != GEO_PARSE_OK) {
             return res;
         }
-        if (i != 0 && !loops[0]->Contains(loops[i].get())) {
+        if (i != 0 && !adapt_contains(loops[0].get(), loops[i].get())) {
             return GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
@@ -355,7 +388,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return _polygon->Contains(other->polygon());
+        return adapt_contains(_polygon.get(), other->polygon());
     }
     default:
         return false;

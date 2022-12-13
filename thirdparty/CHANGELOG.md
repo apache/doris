@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20221212
+- Modified: s2geometry 0.9.0 -> 0.10.0
+- Added: Abseil, it is dependency of new s2geometry
+
 ## v20221209
 - Modified: update parallel-hashmap from 1.33 to 1.3.8
 
