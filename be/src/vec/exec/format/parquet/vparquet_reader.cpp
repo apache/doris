@@ -554,7 +554,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
     if (!_has_page_index(row_group.columns, page_index)) {
         return Status::OK();
     }
-    //    int64_t buffer_size = page_index._column_index_size;
     uint8_t col_index_buff[page_index._column_index_size];
     int64_t bytes_read = 0;
     RETURN_IF_ERROR(_file_reader->readat(page_index._column_index_start,
