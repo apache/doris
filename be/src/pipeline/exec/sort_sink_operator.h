@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <utility>
-
 #include "operator.h"
 
 namespace doris {
@@ -38,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SortSinkOperator final : public Operator<SortSinkOperatorBuilder> {
+class SortSinkOperator final : public StreamingOperator<SortSinkOperatorBuilder> {
 public:
     SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
 

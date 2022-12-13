@@ -203,6 +203,13 @@ storage_root_path=/path/your/data_dir
 >1. 默认目录在 BE安装目录的 storage 目录下。
 >2. BE 配置的存储目录必须先创建好
 
+3. 安装 Java UDF 函数
+
+<version since="1.2.0">安装Java UDF 函数</version>
+因为从1.2 版本开始支持Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
+
+
+
 ### 启动 BE
 
 在 BE 安装目录下执行下面的命令，来完成 BE 的启动。

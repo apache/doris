@@ -118,4 +118,9 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalSort<>(orderKeys, Optional.empty(), logicalProperties, child());
     }
+
+    public Plan withOrderByKey(List<OrderKey> orderKeysWithoutConst) {
+        return new LogicalSort(orderKeysWithoutConst, Optional.empty(),
+                Optional.of(getLogicalProperties()), child());
+    }
 }

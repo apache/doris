@@ -47,6 +47,8 @@ public:
 
     RuntimeProfile* profile() override { return _profile; }
 
+    const RowDescriptor& row_desc() { return _row_desc; }
+
 protected:
     // owned by RuntimeState
     ObjectPool* _pool;

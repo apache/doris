@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <utility>
-
 #include "operator.h"
 
 namespace doris::vectorized {
@@ -36,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ScanOperator : public Operator<ScanOperatorBuilder> {
+class ScanOperator : public SourceOperator<ScanOperatorBuilder> {
 public:
     ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 

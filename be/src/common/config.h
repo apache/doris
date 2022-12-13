@@ -72,6 +72,12 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
 
+// If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
+// when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
+// used memory and the exec_mem_limit will be canceled.
+// If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
+CONF_mBool(enable_query_memroy_overcommit, "true");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 CONF_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -857,6 +863,8 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+
+CONF_Double(s2geo_eps, "0.000000001");
 
 #ifdef BE_TEST
 // test s3

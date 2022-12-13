@@ -33,7 +33,9 @@ public:
     GCContextPerDisk() : _conf_max_size(0), _used_size(0) {}
     void init(const std::string& path, int64_t max_size);
     bool try_add_file_cache(FileCachePtr cache, int64_t file_size);
-    void get_gc_file_caches(std::list<FileCachePtr>&);
+    FileCachePtr top();
+    Status gc_top();
+    void pop();
 
 private:
     std::string _disk_path;

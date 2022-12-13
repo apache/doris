@@ -94,11 +94,11 @@ Status PageIndex::parse_column_index(const tparquet::ColumnChunk& chunk, const u
 }
 
 Status PageIndex::parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                                     int64_t buffer_size, tparquet::OffsetIndex* offset_index) {
-    int64_t buffer_offset = chunk.offset_index_offset - _offset_index_start + _column_index_size;
+                                     tparquet::OffsetIndex* offset_index) {
+    int64_t buffer_offset = chunk.offset_index_offset - _offset_index_start;
     uint32_t length = chunk.offset_index_length;
     DCHECK_GE(buffer_offset, 0);
-    DCHECK_LE(buffer_offset + length, buffer_size);
+    DCHECK_LE(buffer_offset + length, _offset_index_size);
     RETURN_IF_ERROR(deserialize_thrift_msg(buff + buffer_offset, &length, true, offset_index));
     return Status::OK();
 }

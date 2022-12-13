@@ -164,6 +164,7 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
+                case MATERIALIZED_VIEW:
                     return "VIEW";
                 case MYSQL:
                 case ODBC:

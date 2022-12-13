@@ -235,8 +235,8 @@ TEST(CountTest, Basic) {
     std::vector<IntVal> no_nulls;
     no_nulls.resize(1000);
 
-    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(no_nulls.size()))) << test.get_error_msg();
-    EXPECT_FALSE(test.execute(no_nulls, BigIntVal(100))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(no_nulls.size()))) << test;
+    EXPECT_FALSE(test.execute(no_nulls, BigIntVal(100))) << test;
 }
 
 TEST(CountMultiArgTest, Basic) {
@@ -276,13 +276,13 @@ TEST(CountTest, FuzzyEquals) {
     std::vector<IntVal> no_nulls;
     no_nulls.resize(1000);
 
-    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(1000))) << test.get_error_msg();
-    EXPECT_FALSE(test.execute(no_nulls, BigIntVal(999))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(1000))) << test;
+    EXPECT_FALSE(test.execute(no_nulls, BigIntVal(999))) << test;
 
     test.set_result_comparator(FuzzyCompare);
-    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(1000))) << test.get_error_msg();
-    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(999))) << test.get_error_msg();
-    EXPECT_FALSE(test.execute(no_nulls, BigIntVal(998))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(1000))) << test;
+    EXPECT_TRUE(test.execute(no_nulls, BigIntVal(999))) << test;
+    EXPECT_FALSE(test.execute(no_nulls, BigIntVal(998))) << test;
 }
 
 TEST(MinTest, Basic) {
@@ -292,24 +292,24 @@ TEST(MinTest, Basic) {
 
     std::vector<StringVal> values;
     values.push_back(StringVal("BBB"));
-    EXPECT_TRUE(test.execute(values, StringVal("BBB"))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(values, StringVal("BBB"))) << test;
 
     values.push_back(StringVal("AA"));
-    EXPECT_TRUE(test.execute(values, StringVal("AA"))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(values, StringVal("AA"))) << test;
 
     values.push_back(StringVal("CCC"));
-    EXPECT_TRUE(test.execute(values, StringVal("AA"))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(values, StringVal("AA"))) << test;
 
     values.push_back(StringVal("ABCDEF"));
     values.push_back(StringVal("AABCDEF"));
     values.push_back(StringVal("A"));
-    EXPECT_TRUE(test.execute(values, StringVal("A"))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(values, StringVal("A"))) << test;
 
     values.clear();
     values.push_back(StringVal::null());
-    EXPECT_TRUE(test.execute(values, StringVal::null())) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(values, StringVal::null())) << test;
 
     values.push_back(StringVal("ZZZ"));
-    EXPECT_TRUE(test.execute(values, StringVal("ZZZ"))) << test.get_error_msg();
+    EXPECT_TRUE(test.execute(values, StringVal("ZZZ"))) << test;
 }
 } // namespace doris_udf

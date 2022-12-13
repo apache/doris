@@ -177,6 +177,7 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     // which is already destructor and then coredump.
     Status status = _materialize_build_side(state);
     RETURN_IF_ERROR(thread_status.get_future().get());
+    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
 
     return status;
 }

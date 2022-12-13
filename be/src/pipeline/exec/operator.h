@@ -20,10 +20,13 @@
 #include <utility>
 
 #include "common/status.h"
+#include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/exec/vdata_gen_scan_node.h"
+#include "vec/exec/vselect_node.h"
+#include "vec/exec/vunion_node.h"
 
 #define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                                                 \
     NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)                               \
@@ -143,6 +146,8 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
+    virtual std::string get_name() const = 0;
+
     bool is_sink() const;
 
     bool is_source() const;
@@ -254,11 +259,13 @@ public:
 
     ~DataSinkOperator() override = default;
 
+    std::string get_name() const override { return "DataSinkOperator"; }
+
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
         _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("Operator:" + _runtime_profile->name(),
+        _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
                                                     _runtime_profile.get());
         return Status::OK();
     }
@@ -271,9 +278,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
-        if (!UNLIKELY(in_block)) {
-            DCHECK(source_state == SourceState::FINISHED)
-                    << "block is null, eos should invoke in finalize.";
+        if (UNLIKELY(!in_block || in_block->rows() == 0)) {
             return Status::OK();
         }
         return _sink->send(state, in_block, source_state == SourceState::FINISHED);
@@ -299,20 +304,22 @@ protected:
  * All operators inherited from Operator will hold a ExecNode inside.
  */
 template <typename OperatorBuilderType>
-class Operator : public OperatorBase {
+class StreamingOperator : public OperatorBase {
 public:
     using NodeType =
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
-    Operator(OperatorBuilderBase* builder, ExecNode* node)
+    StreamingOperator(OperatorBuilderBase* builder, ExecNode* node)
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {};
 
-    ~Operator() override = default;
+    ~StreamingOperator() override = default;
+
+    std::string get_name() const override { return "StreamingOperator"; }
 
     Status prepare(RuntimeState* state) override {
         _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("Operator:" + _runtime_profile->name(),
+        _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
                                                     _runtime_profile.get());
         _node->increase_ref();
         return Status::OK();
@@ -341,9 +348,10 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
+        DCHECK(_child);
+        RETURN_IF_ERROR(_child->get_block(state, block, source_state));
         bool eos = false;
         RETURN_IF_ERROR(_node->pull(state, block, &eos));
-        source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
         return Status::OK();
     }
 
@@ -360,6 +368,29 @@ protected:
     NodeType* _node;
 };
 
+template <typename OperatorBuilderType>
+class SourceOperator : public StreamingOperator<OperatorBuilderType> {
+public:
+    using NodeType =
+            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
+
+    SourceOperator(OperatorBuilderBase* builder, ExecNode* node)
+            : StreamingOperator<OperatorBuilderType>(builder, node) {};
+
+    ~SourceOperator() override = default;
+
+    std::string get_name() const override { return "SourceOperator"; }
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override {
+        auto& node = StreamingOperator<OperatorBuilderType>::_node;
+        bool eos = false;
+        RETURN_IF_ERROR(node->pull(state, block, &eos));
+        source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
+        return Status::OK();
+    }
+};
+
 /**
  * StatefulOperator indicates the operators with some states inside.
  *
@@ -369,22 +400,24 @@ protected:
  * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
  */
 template <typename OperatorBuilderType>
-class StatefulOperator : public Operator<OperatorBuilderType> {
+class StatefulOperator : public StreamingOperator<OperatorBuilderType> {
 public:
     using NodeType =
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : Operator<OperatorBuilderType>(builder, node),
+            : StreamingOperator<OperatorBuilderType>(builder, node),
               _child_block(new vectorized::Block),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {};
 
     virtual ~StatefulOperator() = default;
 
+    std::string get_name() const override { return "DataStateOperator"; }
+
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        auto& node = Operator<OperatorBuilderType>::_node;
-        auto& child = Operator<OperatorBuilderType>::_child;
+        auto& node = StreamingOperator<OperatorBuilderType>::_node;
+        auto& child = StreamingOperator<OperatorBuilderType>::_child;
 
         if (node->need_more_input_data()) {
             RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));

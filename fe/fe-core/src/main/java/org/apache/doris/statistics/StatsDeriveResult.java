@@ -124,11 +124,12 @@ public class StatsDeriveResult {
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(limit, width, penalty);
+        double selectivity = 1.0;
         if (limit > 0 && rowCount > 0 && rowCount > limit) {
-            double selectivity = ((double) limit) / rowCount;
-            for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
-                statsDeriveResult.addColumnStats(entry.getKey(), entry.getValue().multiply(selectivity));
-            }
+            selectivity = ((double) limit) / rowCount;
+        }
+        for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
+            statsDeriveResult.addColumnStats(entry.getKey(), entry.getValue().multiply(selectivity));
         }
         return statsDeriveResult;
     }

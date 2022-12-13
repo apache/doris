@@ -89,7 +89,7 @@ public class PlanToStringTest {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
-        Assertions.assertTrue(plan.toString().matches("LogicalProject \\( projects=\\[a#\\d+] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject \\( projects=\\[a#\\d+], excepts=\\[] \\)"));
     }
 
     @Test

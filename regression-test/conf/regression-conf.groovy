@@ -117,6 +117,6 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3Endpoint = "cos.ap-hongkong.myqcloud.com/regression"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"

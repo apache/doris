@@ -170,7 +170,7 @@ public class NereidsParserTest extends ParserTestBase {
         String innerJoin2 = "SELECT t1.a FROM t1 JOIN t2 ON t1.id = t2.id;";
         logicalPlan = nereidsParser.parseSingle(innerJoin2);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
-        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
 
         String leftJoin1 = "SELECT t1.a FROM t1 LEFT JOIN t2 ON t1.id = t2.id;";
         logicalPlan = nereidsParser.parseSingle(leftJoin1);
@@ -216,6 +216,18 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = nereidsParser.parseSingle(crossJoin);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
+    }
+
+    @Test
+    void parseJoinEmptyConditionError() {
+        parsePlan("select * from t1 LEFT JOIN t2")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageEquals("\n"
+                        + "on mustn't be empty except for cross/inner join(line 1, pos 17)\n"
+                        + "\n"
+                        + "== SQL ==\n"
+                        + "select * from t1 LEFT JOIN t2\n"
+                        + "-----------------^^^\n");
     }
 
     @Test

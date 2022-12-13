@@ -718,6 +718,7 @@ nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
 nonterminal SlotRef column_ref;
+nonterminal ArrayList<SlotRef> column_ref_list;
 nonterminal FunctionCallExpr column_subscript;
 nonterminal FunctionCallExpr column_slice;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
@@ -878,6 +879,7 @@ nonterminal MVRefreshInfo.BuildMode build_mv;
 nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
+nonterminal PartitionDesc opt_mv_partition;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1688,11 +1690,23 @@ opt_mv_refersh_info ::=
 
 opt_mv_keys ::=
     {:
-        RESULT = new KeysDesc(KeysType.DUP_KEYS, Lists.newArrayList());
+        RESULT = null;
     :}
     | KW_KEY LPAREN ident_list:keys RPAREN
     {:
         RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    ;
+
+opt_mv_partition ::=
+    /* Empty: no partition */
+    {:
+        RESULT = null;
+    :}
+    /* Column partition */
+    | KW_PARTITION KW_BY LPAREN column_ref_list:columns RPAREN
+    {:
+        RESULT = new ColumnPartitionDesc(columns);
     :}
     ;
 
@@ -1825,7 +1839,7 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
-         opt_partition:partitionDesc
+         opt_mv_partition:partitionDesc
          opt_distribution:distributionDesc
          opt_properties:properties
          KW_AS query_stmt:query
@@ -6178,6 +6192,20 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
+  ;
+
+column_ref_list ::=
+  column_ref:ref
+  {:
+    ArrayList<SlotRef> refs = new ArrayList<SlotRef>();
+    refs.add(ref);
+    RESULT = refs;
+  :}
+  | column_ref_list:list COMMA column_ref:ref
+  {:
+    list.add(ref);
+    RESULT = list;
+  :}
   ;
 
 column_subscript ::=

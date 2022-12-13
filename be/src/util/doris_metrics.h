@@ -154,6 +154,7 @@ public:
     // Metrics related with file reader/writer
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;
+    IntCounter* hdfs_file_reader_total;
     IntCounter* local_file_writer_total;
     IntCounter* s3_file_writer_total;
     IntCounter* file_created_total;
@@ -164,6 +165,7 @@ public:
     IntCounter* s3_bytes_written_total;
     IntGauge* local_file_open_reading;
     IntGauge* s3_file_open_reading;
+    IntGauge* hdfs_file_open_reading;
     IntGauge* local_file_open_writing;
     IntGauge* s3_file_open_writing;
 
@@ -229,7 +231,7 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    bool is_inited() { return _is_inited; }
+    bool is_inited() const { return _is_inited; }
 
 private:
     // Don't allow constructor

@@ -15,26 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("unary_binary_arithmetic") {
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
 
-#include "vec/exec/vset_operation_node.h"
+    qt_select "select 8 div 2";
 
-namespace doris {
-namespace vectorized {
+    qt_select "select 8 div 0";
 
-class VExceptNode : public VSetOperationNode {
-public:
-    VExceptNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    using VSetOperationNode::get_next;
-    virtual Status get_next(RuntimeState* state, vectorized::Block* output_block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    qt_select "select 7 & 1";
+    qt_select "select 4 & 1";
+    
+    qt_select "select 7 ^ 7"
+    qt_select "select 7 ^ 8"
 
-private:
-    template <class HashTableContext, bool is_intersected>
-    friend struct HashTableProbe;
-};
-} // namespace vectorized
-} // namespace doris
+    qt_select "select 3 | 4"
+    qt_select "select 7 | 0"
+
+    qt_select "select 4 % 2"
+    qt_select "select 99 % 2"
+
+    qt_select "select -1"
+    qt_select "select -(2+3)"
+    qt_select "select +(1+1)"
+    qt_select "select ~7"
+    qt_select "select ~8"
+    
+    qt_select "select ~'a';"
+    qt_select "select ~cast('2000-01-01' as date)"
+
+
+}

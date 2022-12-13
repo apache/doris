@@ -420,11 +420,6 @@ public class Config extends ConfigBase {
     @ConfField public static int max_mysql_service_task_threads_num = 4096;
 
     /**
-     * Cluster name will be shown as the title of web page
-     */
-    @ConfField public static String cluster_name = "Baidu Palo";
-
-    /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
      * Cluster id is usually a random integer generated when master FE start at first time.
      * You can also specify one.
@@ -531,10 +526,6 @@ public class Config extends ConfigBase {
      * Do not change this if you know what you are doing.
      */
     @ConfField public static int load_etl_thread_num_normal_priority = 10;
-    /**
-     * Concurrency of delete jobs.
-     */
-    @ConfField public static int delete_thread_num = 10;
     /**
      * Not available.
      */
