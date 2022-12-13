@@ -206,6 +206,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeLiteral(desc);
         } else if (targetType.isDecimalType()) {
             return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
+        } else if (targetType.isDateV2()) {
+            return new DateV2Literal(desc);
+        } else if (targetType.isDateTimeV2()) {
+            return new DateTimeV2Literal(desc);
         }
         throw new AnalysisException("no support cast!");
     }
