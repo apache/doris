@@ -69,9 +69,9 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
 
     private static final DateLiteral MIN_DATETIMEV2
-            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0);
+            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
     private static final DateLiteral MAX_DATETIMEV2
-            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L);
+            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
     private static final int DATEKEY_LENGTH = 8;
     private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
@@ -284,7 +284,8 @@ public class DateLiteral extends LiteralExpr {
         this.type = ScalarType.getDefaultDateType(Type.DATETIME);
     }
 
-    public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond) {
+    public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond,
+            Type type) {
         this.hour = hour;
         this.minute = minute;
         this.second = second;
@@ -292,7 +293,8 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.microsecond = microsecond;
-        this.type = Type.DATETIMEV2;
+        Preconditions.checkArgument(type.isDatetimeV2());
+        this.type = type;
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, Type type) {
@@ -486,7 +488,7 @@ public class DateLiteral extends LiteralExpr {
             return (year << 9) | (month << 5) | day;
         } else if (type.equals(Type.DATETIMEV2)) {
             return (year << 50) | (month << 46) | (day << 41) | (hour << 36)
-                | (minute << 30) | (second << 24) | microsecond;
+                    | (minute << 30) | (second << 24) | microsecond;
         } else {
             Preconditions.checkState(false, "invalid date type: " + type);
             return -1L;
@@ -638,8 +640,8 @@ public class DateLiteral extends LiteralExpr {
                 return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
                         targetType);
             } else if (targetType.isDatetimeV2()) {
-                return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.microsecond,
-                        targetType);
+                return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
+                        this.microsecond, targetType);
             } else {
                 throw new AnalysisException("Error date literal type : " + type);
             }
@@ -672,7 +674,7 @@ public class DateLiteral extends LiteralExpr {
 
     private long makePackedDatetimeV2() {
         return (year << 50) | (month << 46) | (day << 41) | (hour << 36)
-            | (minute << 30) | (second << 24) | microsecond;
+                | (minute << 30) | (second << 24) | microsecond;
     }
 
     @Override
