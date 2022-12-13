@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFileType;
 
@@ -65,7 +64,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
     private URI hdfsUri;
     private String filePath;
 
-    public HdfsTableValuedFunction(Map<String, String> params) throws UserException {
+    public HdfsTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> fileFormatParams = new CaseInsensitiveMap();
         locationProperties = Maps.newHashMap();
         for (String key : params.keySet()) {
