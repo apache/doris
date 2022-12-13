@@ -244,7 +244,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
         if (locationType == TFileType.FILE_S3) {
             return hmsTable.getS3Properties();
         } else if (locationType == TFileType.FILE_HDFS) {
-            return hmsTable.getDfsProperties();
+            return hmsTable.getHdfsProperties();
         } else {
             return Maps.newHashMap();
         }
