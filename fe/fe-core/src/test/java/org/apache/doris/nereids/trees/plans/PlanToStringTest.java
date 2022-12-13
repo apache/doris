@@ -34,6 +34,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -61,9 +62,9 @@ public class PlanToStringTest {
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
-        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableList.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
+        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
-        Assertions.assertEquals("LogicalFilter ( conjuncts=[(1 = 1)] )", plan.toString());
+        Assertions.assertEquals("LogicalFilter ( predicates=(1 = 1) )", plan.toString());
     }
 
     @Test

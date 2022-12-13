@@ -29,12 +29,13 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical Having plan
@@ -42,25 +43,29 @@ import java.util.Optional;
  */
 public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
 
-    private final List<Expression> conjuncts;
+    private final Set<Expression> conjuncts;
 
-    public LogicalHaving(List<Expression> conjuncts, CHILD_TYPE child) {
+    public LogicalHaving(Expression expression, CHILD_TYPE child) {
+        this(ImmutableSet.copyOf(ExpressionUtils.extractConjunction(expression)), child);
+    }
+
+    public LogicalHaving(Set<Expression> conjuncts, CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalHaving(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    public LogicalHaving(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_HAVING, groupExpression, logicalProperties, child);
         this.conjuncts = Objects.requireNonNull(conjuncts, "conjuncts can not be null");
     }
 
     @Override
-    public List<Expression> getConjuncts() {
+    public Set<Expression> getConjuncts() {
         return conjuncts;
     }
 
     public List<Expression> getExpressions() {
-        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(getConjuncts()))).get();
+        return ImmutableList.of(getPredicate());
     }
 
     @Override
@@ -108,6 +113,6 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalHaving", "conjuncts", conjuncts);
+        return Utils.toSqlString("LogicalHaving", "predicates", getPredicate());
     }
 }

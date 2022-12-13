@@ -30,6 +30,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +82,7 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
             newAggOutput.addAll(newGroupby.stream().map(NamedExpression.class::cast).collect(Collectors.toList()));
             LogicalAggregate newAgg = new LogicalAggregate<>(
                     newGroupby, newAggOutput,
-                    PlanUtils.filterOrSelf(unCorrelatedPredicate, filter.child()));
+                    PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
             return new LogicalApply<>(apply.getCorrelationSlot(),
                     apply.getSubqueryExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate),

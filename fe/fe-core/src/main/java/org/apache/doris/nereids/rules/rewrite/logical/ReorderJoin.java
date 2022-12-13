@@ -37,10 +37,10 @@ import org.apache.doris.nereids.util.PlanUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -205,7 +205,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      */
     public Plan multiJoinToJoin(MultiJoin multiJoin, Map<Plan, JoinHintType> planToHintType) {
         if (multiJoin.arity() == 1) {
-            return PlanUtils.filterOrSelf(multiJoin.getJoinFilter(), multiJoin.child(0));
+            return PlanUtils.filterOrSelf(ImmutableSet.copyOf(multiJoin.getJoinFilter()), multiJoin.child(0));
         }
 
         Builder<Plan> builder = ImmutableList.builder();
@@ -267,7 +267,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 right = children.get(1);
             }
 
-            return PlanUtils.filterOrSelf(remainingFilter, new LogicalJoin<>(
+            return PlanUtils.filterOrSelf(ImmutableSet.copyOf(remainingFilter), new LogicalJoin<>(
                     multiJoinHandleChildren.getJoinType(),
                     ExpressionUtils.EMPTY_CONDITION, multiJoinHandleChildren.getNotInnerJoinConditions(),
                     JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
@@ -290,7 +290,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             left = join;
         }
 
-        return PlanUtils.filterOrSelf(new ArrayList<>(joinFilter), left);
+        return PlanUtils.filterOrSelf(joinFilter, left);
     }
 
     /**

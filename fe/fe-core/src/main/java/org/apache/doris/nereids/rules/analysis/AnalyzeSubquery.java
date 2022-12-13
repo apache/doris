@@ -35,12 +35,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * AnalyzeSubquery. translate from subquery to LogicalApply.
@@ -55,9 +55,8 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
             RuleType.ANALYZE_FILTER_SUBQUERY.build(
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
-                    Set<SubqueryExpr> subqueryExprs = filter.getConjuncts().stream()
-                            .<Set<SubqueryExpr>>map(expr -> expr.collect(SubqueryExpr.class::isInstance))
-                            .flatMap(Set::stream).collect(Collectors.toSet());
+                    Set<SubqueryExpr> subqueryExprs = filter.getExpressions().get(0)
+                            .collect(SubqueryExpr.class::isInstance);
                     if (subqueryExprs.isEmpty()) {
                         return filter;
                     }
@@ -114,9 +113,9 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
      *      3.filter(True);
      */
     private static class ReplaceSubquery extends DefaultExpressionRewriter<Void> {
-        public List<Expression> replace(List<Expression> expressions) {
+        public Set<Expression> replace(Set<Expression> expressions) {
             return expressions.stream().map(expr -> expr.accept(this, null))
-                    .collect(Collectors.toList());
+                    .collect(ImmutableSet.toImmutableSet());
         }
 
         @Override

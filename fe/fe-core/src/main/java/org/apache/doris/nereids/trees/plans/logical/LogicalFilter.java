@@ -30,9 +30,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -50,6 +49,10 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     private final Set<Expression> conjuncts;
 
     private final boolean singleTableExpressionExtracted;
+
+    public LogicalFilter(Expression expression, CHILD_TYPE child) {
+        this(ImmutableSet.copyOf(ExpressionUtils.extractConjunction(expression)), child);
+    }
 
     public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), Optional.empty(), child);
@@ -75,13 +78,12 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<Expression> getConjuncts() {
+    public Set<Expression> getConjuncts() {
         return conjuncts;
     }
 
     public List<Expression> getExpressions() {
-        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(ImmutableList.copyOf(getConjuncts()))))
-                .get();
+        return ImmutableList.of(getPredicate());
     }
 
     @Override
@@ -93,7 +95,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                         if (m instanceof SubqueryExpr) {
                             return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
                         } else {
-                            return new LogicalFilter<Plan>(ImmutableList.of(m), child()).extraPlans().stream();
+                            return new LogicalFilter<Plan>(ImmutableSet.of(m), child()).extraPlans().stream();
                         }
                     }).collect(Collectors.toList());
         }
@@ -108,7 +110,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalFilter",
-                "conjuncts", conjuncts
+                "predicates", getPredicate()
         );
     }
 

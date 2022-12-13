@@ -47,6 +47,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -223,7 +224,7 @@ class MemoTest implements PatternMatchSupported {
 
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
                 ImmutableList.of(scan.computeOutput().get(0)), scan);
-        LogicalFilter<LogicalProject<LogicalOlapScan>> filter = new LogicalFilter<>(ImmutableList.of(
+        LogicalFilter<LogicalProject<LogicalOlapScan>> filter = new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(scan.computeOutput().get(0), new IntegerLiteral(1))), project);
 
         PlanChecker.from(connectContext, filter)

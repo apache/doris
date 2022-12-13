@@ -40,6 +40,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -120,8 +121,8 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(2));
 
-        ImmutableList and = ImmutableList.of(eq1, eq2);
-        ImmutableList or = ImmutableList.of(new Or(eq1, eq2));
+        ImmutableSet and = ImmutableSet.of(eq1, eq2);
+        ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
         Group childGroup = new Group();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
@@ -173,8 +174,8 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
 
-        ImmutableList and = ImmutableList.of(eq1, eq2);
-        ImmutableList or = ImmutableList.of(new Or(eq1, eq2));
+        ImmutableSet and = ImmutableSet.of(eq1, eq2);
+        ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
         Group childGroup = new Group();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));

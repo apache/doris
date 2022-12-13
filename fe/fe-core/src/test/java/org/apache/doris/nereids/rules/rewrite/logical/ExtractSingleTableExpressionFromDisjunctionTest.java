@@ -35,12 +35,13 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
-import java.util.List;
+import java.util.Set;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternMatchSupported {
@@ -82,7 +83,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 )
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter(ImmutableList.of(expr), join);
+        LogicalFilter root = new LogicalFilter(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -92,7 +93,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
         Assertions.assertTrue(studentGender != null);
     }
 
-    private boolean verifySingleTableExpression1(List<Expression> conjuncts) {
+    private boolean verifySingleTableExpression1(Set<Expression> conjuncts) {
         Expression or1 = new Or(
                 new EqualTo(courseCid, new IntegerLiteral(1)),
                 new EqualTo(courseName, new StringLiteral("abc"))
@@ -124,7 +125,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 )
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter<>(ImmutableList.of(expr), join);
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -134,7 +135,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
         Assertions.assertNotNull(studentGender);
     }
 
-    private boolean verifySingleTableExpression2(List<Expression> conjuncts) {
+    private boolean verifySingleTableExpression2(Set<Expression> conjuncts) {
         Expression or1 = new Or(
                 new EqualTo(courseCid, new IntegerLiteral(1)),
                 new And(
@@ -160,7 +161,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter<>(ImmutableList.of(expr), join);
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -170,7 +171,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
         Assertions.assertNotNull(studentGender);
     }
 
-    private boolean verifySingleTableExpression3(List<Expression> conjuncts) {
+    private boolean verifySingleTableExpression3(Set<Expression> conjuncts) {
         Expression or = new Or(
                 new EqualTo(studentAge, new IntegerLiteral(10)),
                 new EqualTo(studentGender, new IntegerLiteral(1))

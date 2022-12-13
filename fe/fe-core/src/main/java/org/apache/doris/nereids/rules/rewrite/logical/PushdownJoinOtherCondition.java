@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -63,8 +64,8 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> remainingOther = Lists.newArrayList();
-                    List<Expression> leftConjuncts = Lists.newArrayList();
-                    List<Expression> rightConjuncts = Lists.newArrayList();
+                    Set<Expression> leftConjuncts = Sets.newHashSet();
+                    Set<Expression> rightConjuncts = Sets.newHashSet();
 
                     for (Expression otherConjunct : otherJoinConjuncts) {
                         if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())

@@ -53,7 +53,7 @@ public class Validator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
-                && filter.getConjuncts().get(0) != BooleanLiteral.TRUE);
+                && filter.getExpressions().get(0) != BooleanLiteral.TRUE);
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.

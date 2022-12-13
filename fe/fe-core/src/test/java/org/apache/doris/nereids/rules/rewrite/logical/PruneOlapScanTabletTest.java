@@ -45,6 +45,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -146,7 +147,8 @@ public class PruneOlapScanTabletTest {
             }
         };
 
-        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableList.of(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo),
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo),
                 new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());

@@ -75,7 +75,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             if (partitionColumnNameSet.isEmpty() || !partitionInfo.getType().equals(PartitionType.RANGE)) {
                 return ctx.root;
             }
-            List<Expression> expressionList = filter.getConjuncts();
+            Set<Expression> expressionList = filter.getConjuncts();
             // TODO: Process all partition column for now, better to process required column only.
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (String colName : partitionColumnNameSet) {
@@ -93,7 +93,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }
 
-    private ColumnRange createColumnRange(String colName, List<Expression> expressionList) {
+    private ColumnRange createColumnRange(String colName, Set<Expression> expressionList) {
         ColumnRange result = ColumnRange.create();
         for (Expression expression : expressionList) {
             Set<SlotReference> slotReferences = expression.collect(SlotReference.class::isInstance);

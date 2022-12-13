@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -44,11 +43,11 @@ public class MergeFiltersTest {
     public void testMergeConsecutiveFilters() {
         UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "table"));
         Expression expression1 = new IntegerLiteral(1);
-        LogicalFilter filter1 = new LogicalFilter<>(ImmutableList.of(expression1), relation);
+        LogicalFilter filter1 = new LogicalFilter<>(ImmutableSet.of(expression1), relation);
         Expression expression2 = new IntegerLiteral(2);
-        LogicalFilter filter2 = new LogicalFilter<>(ImmutableList.of(expression2), filter1);
+        LogicalFilter filter2 = new LogicalFilter<>(ImmutableSet.of(expression2), filter1);
         Expression expression3 = new IntegerLiteral(3);
-        LogicalFilter filter3 = new LogicalFilter<>(ImmutableList.of(expression3), filter2);
+        LogicalFilter filter3 = new LogicalFilter<>(ImmutableSet.of(expression3), filter2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter3);
         List<Rule> rules = Lists.newArrayList(new MergeFilters().build());

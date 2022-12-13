@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Locale;
@@ -100,15 +101,15 @@ public class BindFunction implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_FUNCTION.build(
                logicalFilter().thenApply(ctx -> {
                    LogicalFilter<GroupPlan> filter = ctx.root;
-                   List<Expression> conjuncts = bind(filter.getConjuncts(), ctx.connectContext.getEnv());
-                   return new LogicalFilter<>(conjuncts, filter.child());
+                   List<Expression> conjuncts = bind(filter.getExpressions(), ctx.connectContext.getEnv());
+                   return new LogicalFilter<>(ImmutableSet.copyOf(conjuncts), filter.child());
                })
             ),
             RuleType.BINDING_HAVING_FUNCTION.build(
                 logicalHaving().thenApply(ctx -> {
                     LogicalHaving<GroupPlan> having = ctx.root;
-                    List<Expression> conjuncts = bind(having.getConjuncts(), ctx.connectContext.getEnv());
-                    return new LogicalHaving<>(conjuncts, having.child());
+                    List<Expression> conjuncts = bind(having.getExpressions(), ctx.connectContext.getEnv());
+                    return new LogicalHaving<>(ImmutableSet.copyOf(conjuncts), having.child());
                 })
             ),
             RuleType.BINDING_SORT_FUNCTION.build(

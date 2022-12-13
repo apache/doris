@@ -24,6 +24,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
 import java.util.List;
 
 /**
@@ -39,7 +42,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                 .when(filter -> filter.child().getJoinType().isCrossJoin()
                         || filter.child().getJoinType().isInnerJoin())
                 .then(filter -> {
-                    List<Expression> otherConditions = filter.getConjuncts();
+                    List<Expression> otherConditions = Lists.newArrayList(filter.getConjuncts());
                     LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
                     otherConditions.addAll(join.getOtherJoinConjuncts());
                     return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),

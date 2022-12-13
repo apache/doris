@@ -137,7 +137,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof LogicalFilter);
         LogicalFilter filter = (LogicalFilter) plan;
         Assertions.assertEquals(filter.child(), relation);
-        Assertions.assertTrue(filter.getConjuncts().get(0) instanceof EqualTo);
+        Assertions.assertTrue(ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo);
         Assertions.assertTrue(filter.getConjuncts().toString().contains("k1 = 1"));
 
         dropPolicy("DROP ROW POLICY "

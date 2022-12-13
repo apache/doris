@@ -118,7 +118,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
-                    List<Expression> boundConjuncts = bind(filter.getConjuncts(), filter.children(),
+                    Expression boundConjuncts = bind(filter.getPredicate(), filter.children(),
                             filter, ctx.cascadesContext);
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
@@ -278,8 +278,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .collect(Collectors.toSet());
                     SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), having,
                             ctx.cascadesContext);
-                    List<Expression> boundConjuncts = having.getConjuncts().stream().map(binder::bind).collect(
-                            Collectors.toList());
+                    Expression boundConjuncts = binder.bind(having.getPredicate());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),

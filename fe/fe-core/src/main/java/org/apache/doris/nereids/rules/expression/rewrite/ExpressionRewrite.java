@@ -31,10 +31,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -101,9 +103,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalFilter().then(filter -> {
-                List<Expression> newConjuncts = filter.getConjuncts().stream()
-                        .map(expr -> ExpressionUtils.extractConjunction(rewriter.rewrite(expr)))
-                        .flatMap(List::stream).collect(Collectors.toList());
+                Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
+                        rewriter.rewrite(filter.getPredicate())));
                 if (newConjuncts.equals(filter.getConjuncts())) {
                     return filter;
                 }

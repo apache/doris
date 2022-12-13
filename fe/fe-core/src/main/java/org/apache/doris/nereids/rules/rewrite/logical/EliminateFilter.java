@@ -25,9 +25,9 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
-import java.util.List;
+import java.util.Set;
 
 /**
  * Eliminate filter which is FALSE or TRUE.
@@ -38,7 +38,7 @@ public class EliminateFilter extends OneRewriteRuleFactory {
         return logicalFilter()
                 .when(filter -> filter.getConjuncts().stream().anyMatch(BooleanLiteral.class::isInstance))
                 .then(filter -> {
-                    List<Expression> newConjuncts = Lists.newArrayListWithCapacity(filter.getConjuncts().size());
+                    Set<Expression> newConjuncts = Sets.newHashSetWithExpectedSize(filter.getConjuncts().size());
                     for (Expression expression : filter.getConjuncts()) {
                         if (expression == BooleanLiteral.FALSE) {
                             return new LogicalEmptyRelation(filter.getOutput());

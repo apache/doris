@@ -65,7 +65,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
     protected boolean containAllRequiredColumns(
             MaterializedIndex index,
             LogicalOlapScan scan,
-            Set<Slot> requiredScanOutput) {
+            Set<Slot> requiredScanOutput,
+            Set<Expression> predicates) {
+
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
         Map<ExprId, String> exprIdToName = Stream.concat(
@@ -122,7 +124,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
     protected List<MaterializedIndex> matchPrefixMost(
             LogicalOlapScan scan,
             List<MaterializedIndex> candidate,
-            List<Expression> predicates,
+            Set<Expression> predicates,
             Map<ExprId, String> exprIdToName) {
         Map<Boolean, Set<String>> split = filterCanUsePrefixIndexAndSplitByEquality(predicates, exprIdToName);
         Set<String> equalColNames = split.getOrDefault(true, ImmutableSet.of());
@@ -146,8 +148,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * when comparing the key column.
      */
     private Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
-            List<Expression> conjunct, Map<ExprId, String> exprIdToColName) {
-        return conjunct.stream()
+            Set<Expression> conjuncts, Map<ExprId, String> exprIdToColName) {
+        return conjuncts.stream()
                 .map(expr -> PredicateChecker.canUsePrefixIndex(expr, exprIdToColName))
                 .filter(result -> !result.equals(PrefixIndexCheckResult.FAILURE))
                 .collect(Collectors.groupingBy(

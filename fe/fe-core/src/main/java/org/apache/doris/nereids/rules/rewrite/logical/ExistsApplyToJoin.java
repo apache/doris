@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.Optional;
@@ -122,7 +123,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                 ImmutableList.of(alias), newLimit);
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 (LogicalPlan) unapply.left(), newAgg);
-        return new LogicalFilter<>(ImmutableList.of(new EqualTo(newAgg.getOutput().get(0),
+        return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
                 new IntegerLiteral(0))), newJoin);
     }
 

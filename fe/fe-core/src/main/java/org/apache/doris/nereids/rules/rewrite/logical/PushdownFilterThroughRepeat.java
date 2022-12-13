@@ -29,9 +29,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -72,8 +71,8 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
                 return filter;
             }
 
-            List<Expression> pushedPredicates = Lists.newArrayList();
-            List<Expression> notPushedPredicates = Lists.newArrayList();
+            Set<Expression> pushedPredicates = Sets.newHashSet();
+            Set<Expression> notPushedPredicates = Sets.newHashSet();
             for (Expression conjunct : filter.getConjuncts()) {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 if (commonGroupingSetExpressions.containsAll(conjunctSlots)) {
@@ -87,7 +86,7 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
     }
 
     private Plan pushDownPredicate(LogicalFilter filter, LogicalRepeat repeat,
-                                   List<Expression> pushedPredicates, List<Expression> notPushedPredicates) {
+                                   Set<Expression> pushedPredicates, Set<Expression> notPushedPredicates) {
         if (pushedPredicates.size() == 0) {
             // nothing pushed down, just return origin plan
             return filter;

@@ -290,6 +290,13 @@ public class ExpressionUtils {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public static Set<Expression> replace(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
     private static class ExpressionReplacer
             extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
@@ -346,8 +353,8 @@ public class ExpressionUtils {
     /**
      * extract the predicate that is covered by `slots`
      */
-    public static List<Expression> extractCoveredConjunction(List<Expression> predicates, Set<Slot> slots) {
-        List<Expression> coveredPredicates = Lists.newArrayList();
+    public static Set<Expression> extractCoveredConjunction(Set<Expression> predicates, Set<Slot> slots) {
+        Set<Expression> coveredPredicates = Sets.newHashSet();
         for (Expression predicate : predicates) {
             if (slots.containsAll(predicate.getInputSlots())) {
                 coveredPredicates.add(predicate);

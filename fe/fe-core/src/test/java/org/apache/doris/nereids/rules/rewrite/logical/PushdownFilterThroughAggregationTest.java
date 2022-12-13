@@ -35,9 +35,10 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
-public class PushDownFilterThroughAggregationTest implements PatternMatchSupported {
+public class PushdownFilterThroughAggregationTest implements PatternMatchSupported {
 
     /*-
      * origin plan:
@@ -78,7 +79,7 @@ public class PushDownFilterThroughAggregationTest implements PatternMatchSupport
                                 logicalAggregate(
                                         logicalFilter(
                                                 logicalOlapScan()
-                                        ).when(filter -> filter.getConjuncts().equals(ImmutableList.of(filterPredicate)))
+                                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
                                 )
                         )
                 );
@@ -134,10 +135,10 @@ public class PushDownFilterThroughAggregationTest implements PatternMatchSupport
                                         logicalAggregate(
                                                 logicalFilter(
                                                         logicalOlapScan()
-                                                ).when(filter -> filter.getConjuncts().get(0) instanceof GreaterThan
-                                                        && filter.getConjuncts().get(1) instanceof LessThanEqual)
+                                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof LessThanEqual
+                                                        && ImmutableList.copyOf(filter.getConjuncts()).get(1) instanceof GreaterThan)
                                         )
-                                ).when(filter -> filter.getConjuncts().get(0) instanceof EqualTo)
+                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo)
                         )
                 );
     }

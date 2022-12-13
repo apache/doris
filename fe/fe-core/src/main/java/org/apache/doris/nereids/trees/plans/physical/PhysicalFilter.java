@@ -25,35 +25,34 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Physical filter plan.
  */
 public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Filter {
-    private final List<Expression> conjuncts;
+    private final Set<Expression> conjuncts;
 
-    public PhysicalFilter(List<Expression> conjuncts, LogicalProperties logicalProperties, CHILD_TYPE child) {
+    public PhysicalFilter(Set<Expression> conjuncts, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalFilter(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child);
         this.conjuncts = Objects.requireNonNull(conjuncts, "conjuncts can not be null");
     }
 
-    public PhysicalFilter(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
@@ -62,18 +61,18 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public List<Expression> getConjuncts() {
+    public Set<Expression> getConjuncts() {
         return conjuncts;
     }
 
     public List<Expression> getExpressions() {
-        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(getConjuncts()))).get();
+        return ImmutableList.of(getPredicate());
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalFilter",
-                "conjuncts", conjuncts,
+                "predicates", getPredicate(),
                 "stats", statsDeriveResult
         );
     }

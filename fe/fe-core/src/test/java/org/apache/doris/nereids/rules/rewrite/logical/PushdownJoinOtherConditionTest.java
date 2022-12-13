@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -107,7 +108,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
 
-        Assertions.assertEquals(condition, actualFilter.getConjuncts());
+        Assertions.assertEquals(condition, ImmutableList.copyOf(actualFilter.getConjuncts()));
     }
 
     @Test
@@ -142,8 +143,8 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(rightFilter instanceof LogicalFilter);
         LogicalFilter<Plan> actualLeft = (LogicalFilter<Plan>) leftFilter;
         LogicalFilter<Plan> actualRight = (LogicalFilter<Plan>) rightFilter;
-        Assertions.assertEquals(ImmutableList.of(leftSide), actualLeft.getConjuncts());
-        Assertions.assertEquals(ImmutableList.of(rightSide), actualRight.getConjuncts());
+        Assertions.assertEquals(ImmutableSet.of(leftSide), actualLeft.getConjuncts());
+        Assertions.assertEquals(ImmutableSet.of(rightSide), actualRight.getConjuncts());
     }
 
     @Test
@@ -190,7 +191,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldFilter instanceof LogicalFilter);
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
-        Assertions.assertEquals(ImmutableList.of(pushSide), actualFilter.getConjuncts());
+        Assertions.assertEquals(ImmutableSet.of(pushSide), actualFilter.getConjuncts());
     }
 
     private Memo rewrite(Plan plan) {

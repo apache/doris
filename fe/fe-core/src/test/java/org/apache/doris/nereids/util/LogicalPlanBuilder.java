@@ -36,10 +36,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class LogicalPlanBuilder {
@@ -124,10 +126,10 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder filter(Expression conjunct) {
-        return filter(ExpressionUtils.extractConjunction(conjunct));
+        return filter(ImmutableSet.copyOf(ExpressionUtils.extractConjunction(conjunct)));
     }
 
-    public LogicalPlanBuilder filter(List<Expression> conjuncts) {
+    public LogicalPlanBuilder filter(Set<Expression> conjuncts) {
         LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(conjuncts, this.plan);
         return from(filter);
     }
