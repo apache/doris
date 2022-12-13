@@ -137,7 +137,7 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_sphere) {
         check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
     }
 }
-
+/*
 TEST(VGeoFunctionsTest, function_geo_st_contains) {
     std::string func_name = "st_contains";
     {
@@ -172,7 +172,7 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
 }
-
+*/
 TEST(VGeoFunctionsTest, function_geo_st_circle) {
     std::string func_name = "st_circle";
     {
