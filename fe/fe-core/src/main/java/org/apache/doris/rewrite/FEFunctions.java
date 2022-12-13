@@ -142,11 +142,6 @@ public class FEFunctions {
         }
     }
 
-    @FEFunction(name = "makedate", argTypes = { "INT", "INT" }, returnType = "DATETIME")
-    public static DateLiteral makeDate(LiteralExpr date) throws AnalysisException {
-        return (DateLiteral) date;
-    }
-
     @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateSub(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
@@ -275,38 +270,6 @@ public class FEFunctions {
     public static DateLiteral utcTimestamp() {
         return new DateLiteral(LocalDateTime.now(TimeUtils.getOrSystemTimeZone("+00:00").toZoneId()),
                 ScalarType.getDefaultDateType(Type.DATETIME));
-    }
-
-    @FEFunction(name = "yearweek", argTypes = { "DATE" }, returnType = "INT")
-    public static IntLiteral yearWeek(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "yearweek", argTypes = { "DATE", "INT" }, returnType = "INT")
-    public static IntLiteral yearWeekMod(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "week", argTypes = { "DATE" }, returnType = "INT")
-    public static IntLiteral week(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "week", argTypes = { "DATE", "INT" }, returnType = "INT")
-    public static IntLiteral weekMode(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
     }
 
     @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "INT")

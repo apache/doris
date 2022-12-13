@@ -402,7 +402,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction empty_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                empty_query_values);
     st = BooleanQueryBuilder::check_es_query(empty_es_query);
-    EXPECT_STREQ(st.get_error_msg().c_str(), "esquery must only one root");
+    EXPECT_STREQ(st.to_string().c_str(), "[INVALID_ARGUMENT]esquery must only one root");
     //LOG(INFO) <<"error msg:" << st1.get_error_msg();
     char malformed_query[] = "{\"bool\": {\"must_not\": {\"exists\": {";
     int malformed_query_length = (int)strlen(malformed_query);
@@ -412,7 +412,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction malformed_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                    malformed_query_values);
     st = BooleanQueryBuilder::check_es_query(malformed_es_query);
-    EXPECT_STREQ(st.get_error_msg().c_str(), "malformed esquery json");
+    EXPECT_STREQ(st.to_string().c_str(), "[INVALID_ARGUMENT]malformed esquery json");
     char illegal_query[] = "{\"term\": {\"k1\" : \"2\"},\"match\": {\"k1\": \"3\"}}";
     int illegal_query_length = (int)strlen(illegal_query);
     StringValue illegal_query_value(illegal_query, illegal_query_length);
@@ -421,7 +421,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction illegal_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                  illegal_query_values);
     st = BooleanQueryBuilder::check_es_query(illegal_es_query);
-    EXPECT_STREQ(st.get_error_msg().c_str(), "esquery must only one root");
+    EXPECT_STREQ(st.to_string().c_str(), "[INVALID_ARGUMENT]esquery must only one root");
     char illegal_key_query[] = "[\"22\"]";
     int illegal_key_query_length = (int)strlen(illegal_key_query);
     StringValue illegal_key_query_value(illegal_key_query, illegal_key_query_length);
@@ -430,7 +430,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction illegal_key_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                      illegal_key_query_values);
     st = BooleanQueryBuilder::check_es_query(illegal_key_es_query);
-    EXPECT_STREQ(st.get_error_msg().c_str(), "esquery must be a object");
+    EXPECT_STREQ(st.to_string().c_str(), "[INVALID_ARGUMENT]esquery must be a object");
 }
 
 TEST_F(BooleanQueryBuilderTest, validate_partial) {

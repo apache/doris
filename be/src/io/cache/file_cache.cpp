@@ -22,6 +22,7 @@
 #include "olap/iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace io {
 
 Status FileCache::download_cache_to_local(const Path& cache_file, const Path& cache_done_file,
@@ -58,7 +59,7 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
                 LOG(ERROR) << "read remote file failed: " << remote_file_reader->path().native()
                            << ", bytes read: " << bytes_read
                            << " vs need read size: " << need_req_size;
-                return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+                return Status::Error<OS_ERROR>();
             }
             count_bytes_read += bytes_read;
             RETURN_NOT_OK_STATUS_WITH_WARN(

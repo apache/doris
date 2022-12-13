@@ -22,11 +22,11 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ScanOperator, Operator)
+OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
 
 Status ScanOperator::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(Operator::open(state));
+    RETURN_IF_ERROR(SourceOperator::open(state));
     return _node->open(state);
 }
 
@@ -48,7 +48,7 @@ bool ScanOperator::is_pending_finish() const {
 }
 
 Status ScanOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::close(state));
+    RETURN_IF_ERROR(SourceOperator::close(state));
     _node->close(state);
     return Status::OK();
 }

@@ -37,7 +37,7 @@ public:
     bool is_sink() const override { return true; };
 };
 
-class NestLoopJoinBuildOperator final : public Operator<NestLoopJoinBuildOperatorBuilder> {
+class NestLoopJoinBuildOperator final : public StreamingOperator<NestLoopJoinBuildOperatorBuilder> {
 public:
     NestLoopJoinBuildOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return true; };

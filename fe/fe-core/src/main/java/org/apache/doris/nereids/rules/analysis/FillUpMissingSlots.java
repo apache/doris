@@ -120,7 +120,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 having.getPredicates(), r.getSubstitution());
                         return new LogicalFilter<>(newPredicates, a);
                     });
-                })
+                })),
+            RuleType.FILL_UP_HAVING_PROJECT.build(
+                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getPredicates(),
+                    having.child()))
             )
         );
     }

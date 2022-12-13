@@ -45,6 +45,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos)
         : _push_req(push_req), _tablet_infos(tablet_infos) {
@@ -232,7 +233,7 @@ Status EngineBatchLoadTask::_process() {
         status = _push(_push_req, _tablet_infos);
         time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
-        if (status.precise_code() == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        if (status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             status = Status::OK();
         }
     }

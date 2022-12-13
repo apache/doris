@@ -36,7 +36,7 @@ public:
     bool is_sink() const override { return true; };
 };
 
-class HashJoinBuildSink final : public Operator<HashJoinBuildSinkBuilder> {
+class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return true; };

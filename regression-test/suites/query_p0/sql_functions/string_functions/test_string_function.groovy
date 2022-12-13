@@ -117,8 +117,19 @@ suite("test_string_function") {
 
     qt_sql "SELECT REVERSE('hello');"
 
-    qt_sql "select split_part(\"hello world\", \" \", 1);"
-    qt_sql "select split_part(\"hello world\", \" \", 2);"
+    qt_sql "select split_part('hello world', ' ', 1)"
+    qt_sql "select split_part('hello world', ' ', 2)"
+    qt_sql "select split_part('hello world', ' ', 0)"
+    qt_sql "select split_part('hello world', ' ', -1)"
+    qt_sql "select split_part('hello world', ' ', -2)"
+    qt_sql "select split_part('hello world', ' ', -3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 0)"
+    qt_sql "select split_part('abc##123###xyz', '##', 1)"
+    qt_sql "select split_part('abc##123###xyz', '##', 3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 5)"
+    qt_sql "select split_part('abc##123###xyz', '##', -1)"
+    qt_sql "select split_part('abc##123###xyz', '##', -2)"
+    qt_sql "select split_part('abc##123###xyz', '##', -4)"
 
     qt_sql "select starts_with(\"hello world\",\"hello\");"
     qt_sql "select starts_with(\"hello world\",\"world\");"
@@ -139,6 +150,17 @@ suite("test_string_function") {
     qt_sql "select substr('a',-1,1);"
     qt_sql "select substr('a',-2,1);"
     qt_sql "select substr('a',-3,1);"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"

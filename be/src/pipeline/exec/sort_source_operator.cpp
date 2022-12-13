@@ -21,6 +21,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(SortSourceOperator, Operator)
+OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 } // namespace doris::pipeline

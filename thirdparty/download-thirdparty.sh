@@ -257,15 +257,6 @@ fi
 cd -
 echo "Finished patching ${LIBEVENT_SOURCE}"
 
-# s2 patch to disable shared library
-cd "${TP_SOURCE_DIR}/${S2_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/s2geometry-0.9.0.patch"
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${S2_SOURCE}"
-
 # gsasl2 patch to fix link error such as mutilple func defination
 # when link target with kerberos
 cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"

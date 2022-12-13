@@ -209,7 +209,7 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
     }
     if (!status.ok()) {
         LOG(ERROR) << "Could not construct expr tree.\n"
-                   << status.get_error_msg() << "\n"
+                   << status << "\n"
                    << apache::thrift::ThriftDebugString(texpr);
     }
     return status;

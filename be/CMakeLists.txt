@@ -543,6 +543,9 @@ endif()
 if (STRICT_MEMORY_USE)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DSTRICT_MEMORY_USE")
 endif()
+if (ENABLE_STACKTRACE)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_STACKTRACE")
+endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
@@ -684,6 +687,9 @@ set(DORIS_LINK_LIBS
     ${WL_END_GROUP}
 )
 
+set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
+find_package(absl)
+
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
@@ -749,6 +755,14 @@ set(COMMON_THIRDPARTY
     lzma
     simdjson
 )
+
+if (absl_FOUND)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        absl::flat_hash_set
+        absl::str_format
+    )
+endif()
 
 if (OS_MACOSX)
     set(COMMON_THIRDPARTY

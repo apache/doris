@@ -246,12 +246,12 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_HAVING_SLOT.build(
-                logicalHaving(aggregate()).when(Plan::canBind).thenApply(ctx -> {
-                    LogicalHaving<Aggregate<GroupPlan>> having = ctx.root;
-                    Aggregate<GroupPlan> aggregate = having.child();
+                logicalHaving(any()).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalHaving<Plan> having = ctx.root;
+                    Plan childPlan = having.child();
                     // We should deduplicate the slots, otherwise the binding process will fail due to the
                     // ambiguous slots exist.
-                    Set<Slot> boundSlots = Stream.concat(Stream.of(aggregate), aggregate.children().stream())
+                    Set<Slot> boundSlots = Stream.concat(Stream.of(childPlan), childPlan.children().stream())
                             .flatMap(plan -> plan.getOutput().stream())
                             .collect(Collectors.toSet());
                     Expression boundPredicates = new SlotBinder(

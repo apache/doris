@@ -199,6 +199,11 @@ storage_root_path=/path/your/data_dir
 >1. The default directory is in the storage directory of the BE installation directory.
 >2. The storage directory for BE configuration must be created first
 
+3. Install Java UDF functions 
+
+  <version since="1.2.0">Install Java UDF functions</version>
+  Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
+
 ### Start BE
 
 Execute the following command in the BE installation directory to complete the BE startup.

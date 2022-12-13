@@ -236,7 +236,7 @@ private:
 template <typename MessageType, typename ExtraType, typename FileHandlerType>
 Status FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(FileHandlerType* file_handler) {
     if (nullptr == file_handler) {
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
     }
 
     // Use the file name as Signature to prevent problems caused by some misoperations
@@ -246,12 +246,12 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(FileHandlerT
         if (!_proto.SerializeToString(&_proto_string)) {
             LOG(WARNING) << "serialize file header to string error. [path='"
                          << file_handler->file_name() << "']";
-            return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+            return Status::Error<ErrorCode::SERIALIZE_PROTOBUF_ERROR>();
         }
     } catch (...) {
         LOG(WARNING) << "serialize file header to string error. [path='"
                      << file_handler->file_name() << "']";
-        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+        return Status::Error<ErrorCode::SERIALIZE_PROTOBUF_ERROR>();
     }
 
     _fixed_file_header.protobuf_checksum =
@@ -270,7 +270,7 @@ template <typename MessageType, typename ExtraType, typename FileHandlerType>
 Status FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
         FileHandlerType* file_handler) {
     if (nullptr == file_handler) {
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
     }
 
     // write to file
@@ -278,7 +278,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
         char errmsg[64];
         LOG(WARNING) << "fail to write fixed header to file. [file='" << file_handler->file_name()
                      << "' err=" << strerror_r(errno, errmsg, 64) << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     if (!file_handler->pwrite(&_extra_fixed_header, sizeof(_extra_fixed_header),
@@ -287,7 +287,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
         LOG(WARNING) << "fail to write extra fixed header to file. [file='"
                      << file_handler->file_name() << "' err=" << strerror_r(errno, errmsg, 64)
                      << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     if (!file_handler->pwrite(_proto_string.c_str(), _proto_string.size(),
@@ -295,7 +295,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
         char errmsg[64];
         LOG(WARNING) << "fail to write proto header to file. [file='" << file_handler->file_name()
                      << "' err='" << strerror_r(errno, errmsg, 64) << "']";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     return Status::OK();
@@ -305,7 +305,7 @@ template <typename MessageType, typename ExtraType, typename FileHandlerType>
 Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         FileHandlerType* file_handler) {
     if (nullptr == file_handler) {
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
     }
 
     off_t real_file_length = 0;
@@ -315,7 +315,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         char errmsg[64];
         LOG(WARNING) << "fail to load header structure from file. file="
                      << file_handler->file_name() << ", error=" << strerror_r(errno, errmsg, 64);
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     if (_fixed_file_header.magic_number != OLAP_FIX_HEADER_MAGIC_NUMBER) {
@@ -327,7 +327,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
             LOG(WARNING) << "fail to load header structure from file. file="
                          << file_handler->file_name()
                          << ", error=" << strerror_r(errno, errmsg, 64);
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<ErrorCode::IO_ERROR>();
         }
 
         _fixed_file_header.file_length = tmp_header.file_length;
@@ -351,7 +351,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         char errmsg[64];
         LOG(WARNING) << "fail to load extra fixed header from file. file="
                      << file_handler->file_name() << ", error=" << strerror_r(errno, errmsg, 64);
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     std::unique_ptr<char[]> buf(new (std::nothrow) char[_fixed_file_header.protobuf_length]);
@@ -360,7 +360,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         char errmsg[64];
         LOG(WARNING) << "malloc protobuf buf error. file=" << file_handler->file_name()
                      << ", error=" << strerror_r(errno, errmsg, 64);
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<ErrorCode::MEM_ALLOC_FAILED>();
     }
 
     if (!file_handler->pread(buf.get(), _fixed_file_header.protobuf_length,
@@ -368,7 +368,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         char errmsg[64];
         LOG(WARNING) << "fail to load protobuf from file. file=" << file_handler->file_name()
                      << ", error=" << strerror_r(errno, errmsg, 64);
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     real_file_length = file_handler->length();
@@ -377,7 +377,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         LOG(WARNING) << "file length is not match. file=" << file_handler->file_name()
                      << ", file_length=" << file_length()
                      << ", real_file_length=" << real_file_length;
-        return Status::OLAPInternalError(OLAP_ERR_FILE_DATA_ERROR);
+        return Status::Error<ErrorCode::FILE_DATA_ERROR>();
     }
 
     // check proto checksum
@@ -388,7 +388,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         LOG(WARNING) << "checksum is not match. file=" << file_handler->file_name()
                      << ", expect=" << _fixed_file_header.protobuf_checksum
                      << ", actual=" << real_protobuf_checksum;
-        return Status::OLAPInternalError(OLAP_ERR_CHECKSUM_ERROR);
+        return Status::Error<ErrorCode::CHECKSUM_ERROR>();
     }
 
     try {
@@ -397,11 +397,11 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         if (!_proto.ParseFromString(protobuf_str)) {
             LOG(WARNING) << "fail to parse file content to protobuf object. file="
                          << file_handler->file_name();
-            return Status::OLAPInternalError(OLAP_ERR_PARSE_PROTOBUF_ERROR);
+            return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>();
         }
     } catch (...) {
         LOG(WARNING) << "fail to load protobuf. file='" << file_handler->file_name();
-        return Status::OLAPInternalError(OLAP_ERR_PARSE_PROTOBUF_ERROR);
+        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>();
     }
 
     return Status::OK();
@@ -416,7 +416,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::validate(const std::
         char errmsg[64];
         LOG(WARNING) << "fail to open file. [file='" << filename
                      << "' err=" << strerror_r(errno, errmsg, 64) << "]";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<ErrorCode::IO_ERROR>();
     }
 
     if (!(res = unserialize(&file_handler))) {

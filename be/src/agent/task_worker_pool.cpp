@@ -56,6 +56,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
@@ -217,7 +218,7 @@ void TaskWorkerPool::start() {
 
     for (int i = 0; i < _worker_count; i++) {
         auto st = _thread_pool->submit_func(cb);
-        CHECK(st.ok()) << st.to_string();
+        CHECK(st.ok()) << st;
     }
 #endif
 }
@@ -554,7 +555,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         }
     }
 
-    if (!status.ok() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
+    if (!status.ok() && !status.is<NOT_IMPLEMENTED_ERROR>()) {
         LOG_WARNING("failed to {}", process_name)
                 .tag("signature", agent_task_req.signature)
                 .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
@@ -686,7 +687,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             status = _env->storage_engine()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
-            } else if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+            } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
                 if (time_elapsed > PUBLISH_TIMEOUT_SEC) {
                     LOG(INFO) << "task elapsed " << time_elapsed
@@ -710,7 +711,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
-        if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS && !is_task_timeout) {
+        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !is_task_timeout) {
             continue;
         }
 

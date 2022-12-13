@@ -64,16 +64,14 @@ void DownloadAction::handle_normal(HttpRequest* req, const std::string& file_par
     if (config::enable_token_check) {
         status = check_token(req);
         if (!status.ok()) {
-            std::string error_msg = status.get_error_msg();
-            HttpChannel::send_reply(req, error_msg);
+            HttpChannel::send_reply(req, status.to_string());
             return;
         }
     }
 
     status = check_path_is_allowed(file_param);
     if (!status.ok()) {
-        std::string error_msg = status.get_error_msg();
-        HttpChannel::send_reply(req, error_msg);
+        HttpChannel::send_reply(req, status.to_string());
         return;
     }
 
@@ -89,7 +87,7 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 
     Status status = check_log_path_is_allowed(absolute_path);
     if (!status.ok()) {
-        std::string error_msg = status.get_error_msg();
+        std::string error_msg = status.to_string();
         HttpChannel::send_reply(req, error_msg);
         return;
     }

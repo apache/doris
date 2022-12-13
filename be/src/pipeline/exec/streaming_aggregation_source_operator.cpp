@@ -23,7 +23,7 @@ namespace doris {
 namespace pipeline {
 StreamingAggSourceOperator::StreamingAggSourceOperator(OperatorBuilderBase* templ, ExecNode* node,
                                                        std::shared_ptr<AggContext> agg_context)
-        : Operator(templ, node), _agg_context(std::move(agg_context)) {}
+        : SourceOperator(templ, node), _agg_context(std::move(agg_context)) {}
 
 bool StreamingAggSourceOperator::can_read() {
     return _agg_context->has_data_or_finished();
