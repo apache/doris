@@ -57,7 +57,6 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
         }
         // Only consider CastExpr and try our best to convert non-date_literal
         // to date_literal，to be compatible with MySQL
-        Expr resultExpr = null;
         if (valueExpr instanceof CastExpr) {
             Expr childExpr = valueExpr.getChild(0);
             if (childExpr instanceof LiteralExpr) {
@@ -66,8 +65,7 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
                     DateLiteral dateLiteral = new DateLiteral();
                     dateLiteral.fromDateStr(dateStr);
                     dateLiteral.setType(ScalarType.getDefaultDateType(dateLiteral.getType()));
-                    resultExpr = expr.clone();
-                    resultExpr.setChild(1, dateLiteral);
+                    expr.setChild(1, dateLiteral);
                 } catch (AnalysisException e) {
                     if (clauseType == ExprRewriter.ClauseType.OTHER_CLAUSE) {
                         return new NullLiteral();
@@ -76,7 +74,6 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
                                 + valueExpr.toSql() + " in expression: " + expr.toSql());
                     }
                 }
-                return resultExpr;
             }
         }
         return expr;

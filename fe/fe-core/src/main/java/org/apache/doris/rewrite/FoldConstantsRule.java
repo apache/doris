@@ -316,21 +316,19 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @return
      */
     private Expr replaceExpr(Expr expr, String key, LiteralExpr literalExpr) {
-        Expr resultExpr = null;
         if (expr.getId().toString().equals(key)) {
             return literalExpr;
         }
-        resultExpr = expr.clone();
         // ATTN: make sure the child order of expr keep unchanged
         for (int i = 0; i < expr.getChildren().size(); i++) {
             Expr child = expr.getChild(i);
             if (literalExpr.equals(replaceExpr(child, key, literalExpr))) {
                 literalExpr.setId(child.getId());
-                resultExpr.setChild(i, literalExpr);
+                expr.setChild(i, literalExpr);
                 break;
             }
         }
-        return resultExpr;
+        return expr;
     }
 
     /**

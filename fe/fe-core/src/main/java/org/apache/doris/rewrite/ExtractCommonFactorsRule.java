@@ -25,6 +25,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
@@ -78,8 +79,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 return rewrittenExpr;
             }
         } else {
+            if (!(expr instanceof CompoundPredicate)) {
+                return expr;
+            }
+
             resultExpr = expr.clone();
-            for (int i = 0; i < expr.getChildren().size(); i++) {
+
+            for (int i = 0; i < resultExpr.getChildren().size(); i++) {
                 Expr rewrittenExpr = apply(expr.getChild(i), analyzer, clauseType);
                 if (rewrittenExpr != null) {
                     resultExpr.setChild(i, rewrittenExpr);
@@ -178,8 +184,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             remainingOrClause.add(makeCompound(clearExpr, CompoundPredicate.Operator.AND));
         }
         Expr result = null;
-        if (CollectionUtils.isNotEmpty(commonFactorList)
-                && makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR) == null) {
+        if (CollectionUtils.isNotEmpty(commonFactorList)) {
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
                     makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
                     makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR));
@@ -441,11 +446,12 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 return rewritePredicate;
             }
         }
+
         CompoundPredicate result = new CompoundPredicate(op, exprs.get(0), exprs.get(1));
-        for (int i = 2; i < exprs.size(); ++i) {
+        for (int i = 2; i < exprs.size(); i++) {
             result = new CompoundPredicate(op, result.clone(), exprs.get(i));
         }
-
+        result.setPrintSqlInParens(true);
         return result;
     }
 
@@ -471,7 +477,14 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 isOrToInAllowed = false;
                 break;
             } else {
-                slotSet.add(((SlotRef) predicate.getChild(0)).getColumnName());
+                TableName tableName = ((SlotRef) predicate.getChild(0)).getTableName();
+                if (tableName != null) {
+                    String tblName = tableName.toString();
+                    String columnWithTable = tblName + "." + ((SlotRef) predicate.getChild(0)).getColumnName();
+                    slotSet.add(columnWithTable);
+                } else {
+                    slotSet.add(((SlotRef) predicate.getChild(0)).getColumnName());
+                }
             }
         }
 
@@ -479,6 +492,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         // slotSet.size : nums of columnName in exprs, should be 1
         if (isOrToInAllowed && slotSet.size() == 1) {
             // slotRef to get ColumnName
+
             // SlotRef firstSlot = (SlotRef) exprs.get(0).getChild(0);
             List<Expr> childrenList = exprs.get(0).getChildren();
             inPredicate = new InPredicate(exprs.get(0).getChild(0),
