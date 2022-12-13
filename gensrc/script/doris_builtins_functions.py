@@ -1825,13 +1825,67 @@ visible_functions = [
     [['atan'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions4atanEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
 
-    [['ceil', 'ceiling', 'dceil'], 'BIGINT', ['DOUBLE'],
+    [['ceil', 'ceiling', 'dceil'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
-    [['floor', 'dfloor'], 'BIGINT', ['DOUBLE'],
+    [['floor', 'dfloor'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
-    [['round', 'dround'], 'BIGINT', ['DOUBLE'],
+    [['round', 'dround'], 'DOUBLE', ['DOUBLE'],
+            '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['ceil', 'ceiling', 'dceil'], 'DECIMAL32', ['DECIMAL32'],
+            '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32'],
+            '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round', 'dround'], 'DECIMAL32', ['DECIMAL32'],
+            '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['ceil', 'ceiling', 'dceil'], 'DECIMAL64', ['DECIMAL64'],
+            '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['floor', 'dfloor'], 'DECIMAL64', ['DECIMAL64'],
+            '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round', 'dround'], 'DECIMAL64', ['DECIMAL64'],
+            '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['ceil', 'ceiling', 'dceil'], 'DECIMAL128', ['DECIMAL128'],
+            '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['floor', 'dfloor'], 'DECIMAL128', ['DECIMAL128'],
+            '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round', 'dround'], 'DECIMAL128', ['DECIMAL128'],
             '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round', 'dround'], 'DECIMAL32', ['DECIMAL32', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round', 'dround'], 'DECIMAL64', ['DECIMAL64', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round', 'dround'], 'DECIMAL128', ['DECIMAL128', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['floor', 'dfloor'], 'DECIMAL64', ['DECIMAL64', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['floor', 'dfloor'], 'DECIMAL128', ['DECIMAL128', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['ceil', 'dceil'], 'DECIMAL32', ['DECIMAL32', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['ceil', 'dceil'], 'DECIMAL64', ['DECIMAL64', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['ceil', 'dceil'], 'DECIMAL128', ['DECIMAL128', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['truncate'], 'DECIMAL64', ['DECIMAL64', 'INT'],
+            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'],
