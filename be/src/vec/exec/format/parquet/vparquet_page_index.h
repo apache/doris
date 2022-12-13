@@ -38,7 +38,7 @@ public:
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               tparquet::ColumnIndex* _column_index);
     Status parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                              int64_t buffer_size, tparquet::OffsetIndex* _offset_index);
+                              tparquet::OffsetIndex* _offset_index);
 
 private:
     friend class ParquetReader;
