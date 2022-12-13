@@ -34,6 +34,7 @@ public:
 
 private:
     Status _handle(HttpRequest* req);
+    Status check_param(HttpRequest* req);
 
 #ifdef BE_TEST
 public:

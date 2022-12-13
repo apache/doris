@@ -28,7 +28,15 @@
 namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
-const std::string VERSION = "version";
+const std::string START_VERSION = "start_version";
+const std::string END_VERSION = "end_version";
+
+Status check_one_param(const std::string& param_name, const std::string& param_val) {
+    if (param_val.empty()) {
+        return Status::InternalError("paramater {} not specified in url", param_name);
+    }
+    return Status::OK();
+}
 
 void PadRowsetAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -42,30 +50,33 @@ void PadRowsetAction::handle(HttpRequest* req) {
     }
 }
 
-Status PadRowsetAction::_handle(HttpRequest* req) {
-    // Get tablet id
-    const std::string& tablet_id_str = req->param(TABLET_ID);
-    if (tablet_id_str.empty()) {
-        std::string error_msg = std::string("parameter " + TABLET_ID + " not specified in url.");
-        return Status::InternalError(error_msg);
-    }
+Status PadRowsetAction::check_param(HttpRequest* req) {
+    RETURN_IF_ERROR(check_one_param(req->param(TABLET_ID), TABLET_ID));
+    RETURN_IF_ERROR(check_one_param(req->param(START_VERSION), START_VERSION));
+    RETURN_IF_ERROR(check_one_param(req->param(END_VERSION), END_VERSION));
+    return Status::OK();
+}
 
-    // Get schema hash
-    const std::string& version_str = req->param(VERSION);
-    if (version_str.empty()) {
-        std::string error_msg = std::string("parameter " + VERSION + " not specified in url.");
-        return Status::InternalError(error_msg);
-    }
+Status PadRowsetAction::_handle(HttpRequest* req) {
+    RETURN_IF_ERROR(check_param(req));
+
+    const std::string& tablet_id_str = req->param(TABLET_ID);
+    const std::string& start_version_str = req->param(START_VERSION);
+    const std::string& end_version_str = req->param(END_VERSION);
 
     // valid str format
     int64_t tablet_id = std::atol(tablet_id_str.c_str());
-    int32_t version = std::atoi(version_str.c_str());
+    int32_t start_version = std::atoi(start_version_str.c_str());
+    int32_t end_version = std::atoi(end_version_str.c_str());
+    if (start_version < 0 || end_version < 0 || end_version < start_version) {
+        return Status::InternalError("Invalid input version");
+    }
 
     auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (nullptr == tablet) {
         return Status::InternalError("Unknown tablet id {}", tablet_id);
     }
-    return _pad_rowset(tablet, Version(version, version));
+    return _pad_rowset(tablet, Version(start_version, end_version));
 }
 
 Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& version) {
