@@ -304,6 +304,7 @@ public class SelectStmt extends QueryStmt {
                 inlineStmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
             } else if (tblRef instanceof TableValuedFunctionRef) {
                 TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
+                tblFuncRef.analyze(analyzer);
                 tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
                         tblFuncRef.getTableFunction().getTable());
             } else {
