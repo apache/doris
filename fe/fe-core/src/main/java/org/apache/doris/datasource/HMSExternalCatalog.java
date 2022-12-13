@@ -120,7 +120,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
                 UserGroupInformation.setLoginUser(ugi);
             } catch (IOException e) {
-                throw new HMSClientException("login use kerberos failed for catalog %s", e, this.getName());
+                throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
             }
         }
         // 1. read properties from hive-site.xml.

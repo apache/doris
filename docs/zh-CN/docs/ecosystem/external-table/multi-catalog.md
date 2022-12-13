@@ -108,7 +108,7 @@ CREATE CATALOG hive PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
     'hadoop.security.authentication' = 'kerberos',
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
-    'hadoop.kerberos.principal' = 'your-real-principal@YOUR.COM',
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
     'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
 );
