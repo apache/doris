@@ -227,11 +227,10 @@ void TabletPublishTxnTask::handle() {
         return;
     }
     _engine_publish_version_task->add_succ_tablet_id(_tablet_info.tablet_id);
-    VLOG_NOTICE << "publish version successfully on tablet. tablet=" << _tablet->full_name()
-                << ", transaction_id=" << _transaction_id << ", version=" << _version.first
-                << ", res=" << publish_status;
-
-    return;
+    LOG(INFO) << "publish version successfully on tablet"
+              << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
+              << ", transaction_id=" << _transaction_id << ", version=" << _version.first
+              << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status;
 }
 
 } // namespace doris
