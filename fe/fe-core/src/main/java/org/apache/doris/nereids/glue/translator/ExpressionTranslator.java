@@ -81,8 +81,11 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -307,6 +310,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
+        if ((function.getName().equalsIgnoreCase("aes_decrypt")
+                || function.getName().equalsIgnoreCase("aes_encrypt")
+                || function.getName().equalsIgnoreCase("sm4_decrypt")
+                || function.getName().equalsIgnoreCase("sm4_encrypt"))
+                && function.children().size() == 3) {
+            translateEncryptionFunctions(function, context, arguments, argTypes);
+        }
+
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
@@ -444,5 +455,62 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             default:
                 throw new AnalysisException("UnSupported type: " + assertion);
         }
+    }
+
+    private void translateEncryptionFunctions(ScalarFunction function, PlanTranslatorContext context,
+            List<Expr> arguments, List<Type> argTypes) {
+        String blockEncryptionMode = context.getRuntimeTranslator().get().getRuntimeFilterContext()
+                .getSessionVariable().getBlockEncryptionMode();
+        if (function.getName().equalsIgnoreCase("aes_decrypt")
+                || function.getName().equalsIgnoreCase("aes_encrypt")) {
+            HashSet<String> aesModes = new HashSet<>(Arrays.asList(
+                    "AES_128_ECB",
+                    "AES_192_ECB",
+                    "AES_256_ECB",
+                    "AES_128_CBC",
+                    "AES_192_CBC",
+                    "AES_256_CBC",
+                    "AES_128_CFB",
+                    "AES_192_CFB",
+                    "AES_256_CFB",
+                    "AES_128_CFB1",
+                    "AES_192_CFB1",
+                    "AES_256_CFB1",
+                    "AES_128_CFB8",
+                    "AES_192_CFB8",
+                    "AES_256_CFB8",
+                    "AES_128_CFB128",
+                    "AES_192_CFB128",
+                    "AES_256_CFB128",
+                    "AES_128_CTR",
+                    "AES_192_CTR",
+                    "AES_256_CTR",
+                    "AES_128_OFB",
+                    "AES_192_OFB",
+                    "AES_256_OFB"
+            ));
+            if (StringUtils.isAllBlank(blockEncryptionMode)) {
+                blockEncryptionMode = "AES_128_ECB";
+            }
+            if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
+                throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
+            }
+        } else if (function.getName().equalsIgnoreCase("sm4_decrypt")
+                || function.getName().equalsIgnoreCase("sm4_encrypt")) {
+            HashSet<String> sm4Modes = new HashSet<>(Arrays.asList(
+                    "SM4_128_ECB",
+                    "SM4_128_CBC",
+                    "SM4_128_CFB128",
+                    "SM4_128_OFB",
+                    "SM4_128_CTR"));
+            if (StringUtils.isAllBlank(blockEncryptionMode)) {
+                blockEncryptionMode = "SM4_128_ECB";
+            }
+            if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
+                throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
+            }
+        }
+        arguments.add(new StringLiteral(blockEncryptionMode));
+        argTypes.add(function.expectedInputTypes().get(0).toCatalogDataType());
     }
 }
