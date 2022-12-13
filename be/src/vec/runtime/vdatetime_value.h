@@ -728,19 +728,19 @@ public:
             std::conditional_t<std::is_same_v<T, DateTimeV2ValueType>, uint64_t, uint32_t>;
 
     // Constructor
-    DateV2Value<T>() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
+    DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
 
-    DateV2Value<T>(DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
+    DateV2Value(DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
 
-    DateV2Value<T>(const DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
+    DateV2Value(const DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
 
-    static DateV2Value<T> create_from_olap_date(uint64_t value) {
+    static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
         date.from_olap_date(value);
         return date;
     }
 
-    static DateV2Value<T> create_from_olap_datetime(uint64_t value) {
+    static DateV2Value create_from_olap_datetime(uint64_t value) {
         DateV2Value<T> datetime;
         datetime.from_olap_datetime(value);
         return datetime;
@@ -1178,8 +1178,8 @@ private:
         underlying_value int_val_;
     };
 
-    DateV2Value<T>(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                   uint8_t second, uint32_t microsecond)
+    DateV2Value(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
 
