@@ -30,7 +30,6 @@ public:
     ~KafkaConsumerPipeReader() override = default;
 
     Status append_with_line_delimiter(const char* data, size_t size) {
-        LOG(INFO) << "--ftw: kafka reader";
         Status st = append(data, size);
         if (!st.ok()) {
             return st;
@@ -41,10 +40,7 @@ public:
         return st;
     }
 
-    Status append_json(const char* data, size_t size) {
-        LOG(INFO) << "--ftw: kafka append json";
-        return append_and_flush(data, size);
-    }
+    Status append_json(const char* data, size_t size) { return append_and_flush(data, size); }
 };
 } // namespace io
 } // end namespace doris
