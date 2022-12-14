@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -124,6 +125,15 @@ public class BindFunction implements AnalysisRuleFactory {
                             ))
                             .collect(ImmutableList.toImmutableList());
                     return new LogicalSort<>(orderKeys, sort.child());
+                })
+            ),
+            RuleType.BINDING_JOIN_FUNCTION.build(
+                logicalJoin().thenApply(ctx -> {
+                    LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
+                    List<Expression> hashConjuncts = bind(join.getHashJoinConjuncts(), ctx.connectContext.getEnv());
+                    List<Expression> otherConjuncts = bind(join.getOtherJoinConjuncts(), ctx.connectContext.getEnv());
+                    return new LogicalJoin<>(join.getJoinType(), hashConjuncts, otherConjuncts,
+                            join.left(), join.right());
                 })
             ),
             RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(

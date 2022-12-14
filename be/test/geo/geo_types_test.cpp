@@ -93,7 +93,7 @@ TEST_F(GeoTypesTest, linestring) {
         EXPECT_EQ(nullptr, line2);
     }
 }
-
+/*
 TEST_F(GeoTypesTest, polygon_contains) {
     const char* wkt = "POLYGON ((10 10, 50 10, 50 10, 50 50, 50 50, 10 50, 10 10))";
     GeoParseStatus status;
@@ -128,7 +128,7 @@ TEST_F(GeoTypesTest, polygon_contains) {
         EXPECT_EQ(nullptr, shape);
     }
 }
-
+*/
 TEST_F(GeoTypesTest, polygon_parse_fail) {
     {
         const char* wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50), (10 10 01))";
@@ -152,7 +152,7 @@ TEST_F(GeoTypesTest, polygon_parse_fail) {
         EXPECT_EQ(nullptr, polygon.get());
     }
 }
-
+/*
 TEST_F(GeoTypesTest, polygon_hole_contains) {
     const char* wkt =
             "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 40 20, 40 40, 20 40, 20 20))";
@@ -180,7 +180,7 @@ TEST_F(GeoTypesTest, polygon_hole_contains) {
         EXPECT_TRUE(res);
     }
 }
-
+*/
 TEST_F(GeoTypesTest, circle) {
     GeoCircle circle;
     auto res = circle.init(110.123, 64, 1000);

@@ -96,7 +96,7 @@ Status HdfsFileSystem::create_file(const Path& /*path*/, FileWriterPtr* /*writer
     // }
     // hdfsCloseFile(handle->hdfs_fs, hdfs_file);
     // return Status::OK();
-    return Status::NotSupported("Currently not support to upload file to HDFS");
+    return Status::NotSupported("Currently not support to create file to HDFS");
 }
 
 Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
@@ -161,7 +161,12 @@ Status HdfsFileSystem::delete_directory(const Path& path) {
 
 Status HdfsFileSystem::exists(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLE(_fs_handle);
-    *res = hdfsExists(_fs_handle->hdfs_fs, path.string().c_str());
+    int is_exists = hdfsExists(_fs_handle->hdfs_fs, path.string().c_str());
+    if (is_exists == 0) {
+        *res = true;
+    } else {
+        *res = false;
+    }
     return Status::OK();
 }
 
