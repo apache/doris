@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -649,6 +650,10 @@ public class OutFileClause {
         }
         if (storageType == StorageBackend.StorageType.S3) {
             S3Storage.checkS3(brokerProps);
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
+                brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));
+            }
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
