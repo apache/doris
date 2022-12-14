@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# RESTORE TABLET
+# PAD ROWSET
 ## description
    
     Pad one empty rowset as one substitute for error replica.

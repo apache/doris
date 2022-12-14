@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# RESTORE TABLET
+# PAD ROWSET
 ## description
    
     该功能用于使用一个空的rowset填充损坏的副本。
