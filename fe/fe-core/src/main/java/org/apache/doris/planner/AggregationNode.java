@@ -225,7 +225,7 @@ public class AggregationNode extends PlanNode {
 
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
-        sb.append(VectorizedUtil.isVectorized() ? "VAGGREGATE" : "AGGREGATE");
+        sb.append("VAGGREGATE");
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");
