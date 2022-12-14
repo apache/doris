@@ -16,3 +16,12 @@ ex_tb0
 
 -- !select --
 ex_tb0
+
+-- !select --
+doris_test
+
+-- !select --
+ex_tb0
+
+-- !select --
+ex_tb0

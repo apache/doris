@@ -63,6 +63,14 @@ suite("test_show_where", "query") {
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb0}'"
 
+
+            sql """switch internal"""
+            sql """ use ${ex_db_name}"""
+
+            qt_select "show databases where schema_name= '${ex_db_name}'"
+            qt_select "show tables"
+            qt_select "show tables where table_name= '${ex_tb0}'"
+
         }
 
     } finally {
