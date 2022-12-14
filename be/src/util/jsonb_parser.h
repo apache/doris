@@ -62,11 +62,10 @@
 #include <cmath>
 #include <limits>
 
-#include "string_parser.hpp"
-
 #include "jsonb_document.h"
 #include "jsonb_error.h"
 #include "jsonb_writer.h"
+#include "string_parser.hpp"
 
 namespace doris {
 
@@ -897,10 +896,11 @@ private:
 
         *pbuf = 0; // set null-terminator
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        int64_t val = StringParser::string_to_int<int64_t>(num_buf_, pbuf - num_buf_, &parse_result);
+        int64_t val =
+                StringParser::string_to_int<int64_t>(num_buf_, pbuf - num_buf_, &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
-            VLOG_ROW << "debug string_to_int error for " << num_buf_
-                     << " val=" << val << " parse_result=" << parse_result;
+            VLOG_ROW << "debug string_to_int error for " << num_buf_ << " val=" << val
+                     << " parse_result=" << parse_result;
             err_ = JsonbErrType::E_DECIMAL_OVERFLOW;
             return false;
         }
@@ -999,12 +999,12 @@ private:
     }
 
     // call system function to parse double to string
-    bool internConvertBufferToDouble(char *num_buf_, int len) {
+    bool internConvertBufferToDouble(char* num_buf_, int len) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
         double val = StringParser::string_to_float<double>(num_buf_, len, &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
-            VLOG_ROW << "debug string_to_float error for " << num_buf_
-                     << " val=" << val << " parse_result=" << parse_result;
+            VLOG_ROW << "debug string_to_float error for " << num_buf_ << " val=" << val
+                     << " parse_result=" << parse_result;
             err_ = JsonbErrType::E_DECIMAL_OVERFLOW;
             return false;
         }
