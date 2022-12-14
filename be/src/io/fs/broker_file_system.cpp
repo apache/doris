@@ -69,7 +69,7 @@ Status BrokerFileSystem::connect() {
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         status = Status::InternalError(ss.str());
     }
     return status;
