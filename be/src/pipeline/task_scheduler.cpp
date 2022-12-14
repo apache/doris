@@ -227,6 +227,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         auto check_state = task->get_state();
         if (check_state == PENDING_FINISH) {
+            DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
             _try_close_task(task, canceled ? CANCELED : FINISHED);
             continue;
         }

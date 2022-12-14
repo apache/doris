@@ -199,10 +199,11 @@ public:
     bool is_ready() const {
         return (!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
                (_state->enable_pipeline_exec() &&
-                _rf_state_atomic.load() == RuntimeFilterState::READY);
+                _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
     }
     RuntimeFilterState current_state() const {
-        return _state->enable_pipeline_exec() ? _rf_state_atomic.load() : _rf_state;
+        return _state->enable_pipeline_exec() ? _rf_state_atomic.load(std::memory_order_acquire)
+                                              : _rf_state;
     }
     bool is_ready_or_timeout();
 
@@ -301,9 +302,12 @@ protected:
 
     std::string _get_explain_state_string() {
         if (_state->enable_pipeline_exec()) {
-            return _rf_state_atomic.load() == RuntimeFilterState::READY      ? "READY"
-                   : _rf_state_atomic.load() == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
-                                                                             : "NOT_READY";
+            return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
+                           ? "READY"
+                   : _rf_state_atomic.load(std::memory_order_acquire) ==
+                                   RuntimeFilterState::TIME_OUT
+                           ? "TIME_OUT"
+                           : "NOT_READY";
         } else {
             return _rf_state == RuntimeFilterState::READY      ? "READY"
                    : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"

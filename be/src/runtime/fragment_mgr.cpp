@@ -758,8 +758,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         }
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-        _runtimefilter_controller.add_entity(params, &handler,
-                                             context->get_runtime_state());
+        _runtimefilter_controller.add_entity(params, &handler, context->get_runtime_state());
         context->set_merge_controller_handler(handler);
 
         {
