@@ -18,6 +18,7 @@
 #include "http/action/pad_rowset_action.h"
 
 #include <memory>
+#include <mutex>
 
 #include "http/http_channel.h"
 #include "olap/olap_common.h"
@@ -92,8 +93,11 @@ Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& versi
 
     std::vector<RowsetSharedPtr> to_add {rowset};
     std::vector<RowsetSharedPtr> to_delete;
-    tablet->modify_rowsets(to_add, to_delete);
-    tablet->save_meta();
+    {
+        std::unique_lock wlock(tablet->get_header_lock());
+        tablet->modify_rowsets(to_add, to_delete);
+        tablet->save_meta();
+    }
 
     return Status::OK();
 }
