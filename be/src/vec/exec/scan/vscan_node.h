@@ -206,6 +206,7 @@ protected:
 
     // indicate this scan node has no more data to return
     bool _eos = false;
+    bool _opened = false;
 
     FilterPredicates _filter_predicates {};
 

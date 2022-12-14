@@ -91,6 +91,9 @@ Status VScanNode::open(RuntimeState* state) {
 }
 
 Status VScanNode::alloc_resource(RuntimeState* state) {
+    if (_opened) {
+        return Status::OK();
+    }
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
@@ -109,6 +112,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
         RETURN_IF_ERROR(_start_scanners(scanners));
     }
     RETURN_IF_CANCELLED(state);
+    _opened = true;
     return Status::OK();
 }
 

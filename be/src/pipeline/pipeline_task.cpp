@@ -76,9 +76,6 @@ bool PipelineTask::has_dependency() {
 }
 
 Status PipelineTask::open() {
-    if (_sink) {
-        RETURN_IF_ERROR(_sink->open(_state));
-    }
     auto st = Status::OK();
     for (auto& o : _operators) {
         if (st.is_blocked_by_rf()) {
@@ -88,6 +85,9 @@ Status PipelineTask::open() {
         }
     }
     if (st.ok()) {
+        if (_sink) {
+            RETURN_IF_ERROR(_sink->open(_state));
+        }
         _opened = true;
     }
     return st;
