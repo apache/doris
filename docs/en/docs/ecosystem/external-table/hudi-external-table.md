@@ -26,7 +26,7 @@ under the License.
 
 # Hudi External Table of Doris
 
-<version deprecated="1.2.0" comment="Please use the multi-directory function to access Hudi">
+<version deprecated="1.2.0" comment="Please use the Multi-Catalog function to access Hudi">
 
 Hudi External Table of Doris provides Doris with the ability to access hdui external tables directly, eliminating the need for cumbersome data import and leveraging Doris' own OLAP capabilities to solve hudi table data analysis problems.
 
