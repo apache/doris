@@ -139,6 +139,7 @@ public class Analyzer {
     private final Map<TupleId, Integer> currentOutputColumn = Maps.newHashMap();
     // used for Information Schema Table Scan
     private String schemaDb;
+    private String schemaCatalog;
     private String schemaWild;
     private String schemaTable; // table used in DESCRIBE Table
 
@@ -2025,6 +2026,10 @@ public class Analyzer {
         return schemaDb;
     }
 
+    public String getSchemaCatalog() {
+        return schemaCatalog;
+    }
+
     public String getSchemaTable() {
         return schemaTable;
     }
@@ -2044,10 +2049,11 @@ public class Analyzer {
     }
 
     // for Schema Table Schema like SHOW TABLES LIKE "abc%"
-    public void setSchemaInfo(String db, String table, String wild) {
+    public void setSchemaInfo(String db, String table, String wild, String catalog) {
         schemaDb = db;
         schemaTable = table;
         schemaWild = wild;
+        schemaCatalog = catalog;
     }
 
     public String getTargetDbName(FunctionName fnName) {

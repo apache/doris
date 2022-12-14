@@ -88,7 +88,11 @@ public class ShowDbStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-
+        if (catalogName != null) {
+            analyzer.setSchemaInfo(null, null, null, catalogName);
+        } else {
+            analyzer.setSchemaInfo(null, null, null, analyzer.getDefaultCatalog());
+        }
         return selectStmt;
     }
 

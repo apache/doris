@@ -46,6 +46,9 @@ Status SchemaSchemataScanner::start(RuntimeState* state) {
     if (nullptr != _param->wild) {
         db_params.__set_pattern(*(_param->wild));
     }
+    if (nullptr != _param->catalog) {
+        db_params.__set_catalog(*(_param->catalog));
+    }
     if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {

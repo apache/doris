@@ -183,7 +183,7 @@ public class ShowTableStatusStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        analyzer.setSchemaInfo(db, null, null);
+        analyzer.setSchemaInfo(db, null, null, analyzer.getDefaultCatalog());
 
         return selectStmt;
     }
