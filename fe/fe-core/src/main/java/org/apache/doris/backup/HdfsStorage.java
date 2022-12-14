@@ -77,20 +77,9 @@ public class HdfsStorage extends BlobStorage {
         setName(StorageBackend.StorageType.HDFS.name());
     }
 
-    public static void checkHDFS(Map<String, String> properties) throws UserException {
-        for (String field : HdfsResource.REQUIRED_FIELDS) {
-            if (!properties.containsKey(field)) {
-                throw new UserException(
-                        String.format("The properties of hdfs is invalid. %s are needed", field));
-            }
-        }
-    }
-
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
-            checkHDFS(caseInsensitiveProperties);
-            String hdfsFsName = caseInsensitiveProperties.get(HdfsResource.HADOOP_FS_NAME);
             String username = caseInsensitiveProperties.get(HdfsResource.HADOOP_USER_NAME);
             Configuration conf = new HdfsConfiguration();
             boolean isSecurityEnabled = false;
@@ -109,7 +98,11 @@ public class HdfsStorage extends BlobStorage {
                             caseInsensitiveProperties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
                             caseInsensitiveProperties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
                 }
-                dfsFileSystem = FileSystem.get(java.net.URI.create(hdfsFsName), conf, username);
+                if (username == null) {
+                    dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
+                } else {
+                    dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
+                }
             } catch (Exception e) {
                 LOG.error("errors while connect to " + remotePath, e);
                 throw new UserException("errors while connect to " + remotePath, e);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
@@ -650,8 +649,6 @@ public class OutFileClause {
         }
         if (storageType == StorageBackend.StorageType.S3) {
             S3Storage.checkS3(brokerProps);
-        } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HdfsStorage.checkHDFS(brokerProps);
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
