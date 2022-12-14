@@ -135,8 +135,7 @@ public class ExchangeNode extends PlanNode {
      */
     public void setMergeInfo(SortInfo info) {
         this.mergeInfo = info;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + MERGING_EXCHANGE_NODE
-                : MERGING_EXCHANGE_NODE;
+        this.planNodeName = "V" + MERGING_EXCHANGE_NODE;
     }
 
     /**
