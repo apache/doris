@@ -1105,6 +1105,18 @@ public class StmtExecutor implements ProfileWriter {
             handleCacheStmt(cacheAnalyzer, channel, (SelectStmt) queryStmt);
             return;
         }
+
+        // handle select .. from xx  limit 0
+        if (parsedStmt instanceof SelectStmt) {
+            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+            if (parsedSelectStmt.getLimit() == 0) {
+                LOG.info("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
+                sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                context.getState().setEof();
+                return;
+            }
+        }
+
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
     }
 
