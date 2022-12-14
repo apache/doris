@@ -77,7 +77,7 @@ public class InsertStreamTxnExecutor {
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
+                if (Config.enable_new_load_scan_node) {
                     scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
                             TFileFormatType.FORMAT_PROTO);
                     scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(

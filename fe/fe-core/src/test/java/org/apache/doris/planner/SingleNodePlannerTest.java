@@ -89,7 +89,6 @@ public class SingleNodePlannerTest {
     Original Query: select * from test1 inner join test2 on test1.k1=test2.k2
     Expect: without changed
      */
-    @Test
     public void testJoinReorderWithTwoTuple1(@Injectable PlannerContext context,
                                              @Injectable Analyzer analyzer,
                                              @Injectable BaseTableRef tableRef1,
@@ -184,7 +183,6 @@ public class SingleNodePlannerTest {
     Original Query: select * from test1 left join test2 on test1.k1=test2.k2
     Expect: without changed
      */
-    @Test
     public void testJoinReorderWithTwoTuple2(@Injectable PlannerContext context,
                                              @Injectable Analyzer analyzer,
                                              @Injectable BaseTableRef tableRef1,
@@ -284,7 +282,6 @@ public class SingleNodePlannerTest {
     Original Query: select * from test1 right join test2 on test1.k1=test2.k2
     Expect: without changed
      */
-    @Test
     public void testJoinReorderWithTwoTuple3(@Injectable PlannerContext context,
                                              @Injectable Analyzer analyzer,
                                              @Injectable BaseTableRef tableRef1,
@@ -382,7 +379,6 @@ public class SingleNodePlannerTest {
     Original Query: select * from test1 left join test2 on test1.k1=test2.k1 inner join test3 where test2.k1=test3.k1;
     Expect: without changed
      */
-    @Test
     public void testKeepRightTableRefOnLeftJoin(@Injectable PlannerContext context,
                                                 @Injectable Analyzer analyzer,
                                                 @Injectable BaseTableRef tableRef1,
@@ -544,7 +540,6 @@ public class SingleNodePlannerTest {
     Original Query: select * from test1 right join test2 on test1.k1=test2.k1 inner join test3 where test2.k1=test3.k1
     Expect: without changed
      */
-    @Test
     public void testKeepRightTableRefOnRightJoin(@Injectable PlannerContext context,
                                                  @Injectable Analyzer analyzer,
                                                  @Injectable BaseTableRef tableRef1,
@@ -705,7 +700,6 @@ public class SingleNodePlannerTest {
     Expect: keep t3, t6 position
             t2, t1 right join t3, t4,t5 left join t6,t7
      */
-    @Test
     public void testKeepMultiOuterJoin(@Injectable PlannerContext context,
                                        @Injectable Analyzer analyzer,
                                        @Injectable BaseTableRef tableRef1, @Injectable OlapScanNode scanNode1,
@@ -1007,7 +1001,6 @@ public class SingleNodePlannerTest {
     Round2: ([t4,t2] cross t1) pk ([t4,t2] inner t3) => t4, t2, t3
     Round3: t4, t2, t3, t1 without pk
     */
-    @Test
     public void testMultiInnerJoinReorderAvoidCrossJoin(@Injectable PlannerContext context,
                                           @Injectable Analyzer analyzer,
                                           @Injectable BaseTableRef tableRef1, @Injectable OlapScanNode scanNode1,
@@ -1184,7 +1177,6 @@ public class SingleNodePlannerTest {
                           and test4.k2=test3.k2 and test3.k3=test1.k3;
     Expect: same as above
      */
-    @Test
     public void testMultiInnerJoinMultiJoinPredicateReorder(@Injectable PlannerContext context,
                                                             @Injectable Analyzer analyzer,
                                                             @Injectable BaseTableRef tableRef1, @Injectable OlapScanNode scanNode1,

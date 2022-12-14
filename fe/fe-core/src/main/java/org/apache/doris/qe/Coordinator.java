@@ -318,9 +318,10 @@ public class Coordinator {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
+        this.queryOptions.setEnableVectorizedEngine(true);
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setEnableVectorizedEngine(true);
     }
 
     public long getJobId() {
@@ -337,10 +338,6 @@ public class Coordinator {
 
     public void setQueryType(TQueryType type) {
         this.queryOptions.setQueryType(type);
-    }
-
-    public void setExecVecEngine(boolean vec) {
-        this.queryOptions.setEnableVectorizedEngine(vec);
     }
 
     public void setExecPipEngine(boolean vec) {

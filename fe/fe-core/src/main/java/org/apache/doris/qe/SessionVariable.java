@@ -1118,11 +1118,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
-        this.enableVectorizedEngine = enableVectorizedEngine;
+        return;
     }
 
     public boolean enablePipelineEngine() {
-        return enablePipelineEngine && enableVectorizedEngine;
+        return enablePipelineEngine;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
@@ -1257,7 +1257,7 @@ public class SessionVariable implements Serializable, Writable {
      * @return true if both nereids and vectorized engine are enabled
      */
     public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner && enableVectorizedEngine;
+        return enableNereidsPlanner;
     }
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
@@ -1335,7 +1335,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
-        tResult.setEnableVectorizedEngine(enableVectorizedEngine);
+        tResult.setEnableVectorizedEngine(true);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);

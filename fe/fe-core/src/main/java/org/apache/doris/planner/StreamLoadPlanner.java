@@ -135,11 +135,9 @@ public class StreamLoadPlanner {
         // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         TupleDescriptor scanTupleDesc = tupleDesc;
-        if (Config.enable_vectorized_load) {
-            // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
-            // construct tuple descriptor, used for scanNode
-            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
-        }
+        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+        // construct tuple descriptor, used for scanNode
+        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -147,23 +145,20 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
-
-            if (Config.enable_vectorized_load) {
-                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-                scanSlotDesc.setIsMaterialized(true);
-                scanSlotDesc.setColumn(col);
-                scanSlotDesc.setIsNullable(col.isAllowNull());
-                for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
-                    try {
-                        if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                                && importColumnDesc.getColumnName().equals(col.getName())) {
-                            scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
-                            break;
-                        }
-                    } catch (Exception e) {
-                        // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
-                        // We just skip this case here.
+            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            scanSlotDesc.setIsMaterialized(true);
+            scanSlotDesc.setColumn(col);
+            scanSlotDesc.setIsNullable(col.isAllowNull());
+            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                try {
+                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                        scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                        break;
                     }
+                } catch (Exception e) {
+                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                    // We just skip this case here.
                 }
             }
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
@@ -172,7 +167,7 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
+        if (Config.enable_new_load_scan_node) {
             ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
             // 1. create file group
             DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
@@ -199,9 +194,7 @@ public class StreamLoadPlanner {
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        if (Config.enable_vectorized_load) {
-            scanNode.convertToVectorized();
-        }
+        scanNode.convertToVectorized();
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
@@ -256,7 +249,7 @@ public class StreamLoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
-        queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
+        queryOptions.setEnableVectorizedEngine(true);
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
 

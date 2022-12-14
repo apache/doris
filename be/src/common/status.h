@@ -268,6 +268,7 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
+        && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
         && code != ErrorCode::SEGCOMPACTION_FAILED;
 }
 // clang-format on
