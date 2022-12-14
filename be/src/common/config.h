@@ -864,8 +864,6 @@ CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
 
-CONF_Double(s2geo_eps, "0.000000001");
-
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

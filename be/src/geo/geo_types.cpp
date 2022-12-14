@@ -31,7 +31,6 @@
 #include <sstream>
 #include <type_traits>
 
-#include "common/config.h"
 #include "geo/wkt_parse.h"
 
 namespace doris {
@@ -76,7 +75,7 @@ static bool is_loop_closed(const std::vector<S2Point>& points) {
     if (points.empty()) {
         return false;
     }
-    if (!points[0].aequal(points[points.size() - 1], config::s2geo_eps)) {
+    if (points[0] != points[points.size() - 1]) {
         return false;
     }
     return true;
@@ -87,7 +86,7 @@ static void remove_duplicate_points(std::vector<S2Point>* points) {
     int lhs = 0;
     int rhs = 1;
     for (; rhs < points->size(); ++rhs) {
-        if (!(*points)[rhs].aequal((*points)[lhs], config::s2geo_eps)) {
+        if ((*points)[rhs] != (*points)[lhs]) {
             lhs++;
             if (lhs != rhs) {
                 (*points)[lhs] = (*points)[rhs];
@@ -270,7 +269,7 @@ void GeoPoint::encode(std::string* buf) {
 }
 
 bool GeoPoint::decode(const void* data, size_t size) {
-    if (size < sizeof(*_point)) {
+    if (size != sizeof(*_point)) {
         return false;
     }
     memcpy(_point.get(), data, size);
@@ -336,7 +335,7 @@ void GeoPolygon::encode(std::string* buf) {
 bool GeoPolygon::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
     _polygon.reset(new S2Polygon());
-    return _polygon->Decode(&decoder);
+    return _polygon->Decode(&decoder) && _polygon->IsValid();
 }
 
 std::string GeoLine::as_wkt() const {
@@ -429,7 +428,7 @@ void GeoCircle::encode(std::string* buf) {
 bool GeoCircle::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
     _cap.reset(new S2Cap());
-    return _cap->Decode(&decoder);
+    return _cap->Decode(&decoder) && _cap->is_valid();
 }
 
 std::string GeoCircle::as_wkt() const {
