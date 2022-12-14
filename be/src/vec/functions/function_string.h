@@ -893,21 +893,22 @@ private:
         const auto& src_array_offsets = array_column.get_offsets();
         size_t current_src_array_offset = 0;
 
-        auto& sep_offsets = *offsets_list[0];
-        auto& sep_chars = *chars_list[0];
-        auto& sep_nullmap = *null_list[0];
-        int sep_size = sep_offsets[0];
-        const char* sep_data = reinterpret_cast<const char*>(&sep_chars[0]);
-        std::string_view sep(sep_data, sep_size);
-
         // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {
+            auto& sep_offsets = *offsets_list[0];
+            auto& sep_chars = *chars_list[0];
+            auto& sep_nullmap = *null_list[0];
+
             if (sep_nullmap[i]) {
                 res_offset[i] = res_data.size();
                 current_src_array_offset += src_array_offsets[i] - src_array_offsets[i - 1];
                 continue;
             }
 
+            int sep_size = sep_offsets[i] - sep_offsets[i - 1];
+            const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
+
+            std::string_view sep(sep_data, sep_size);
             buffer.clear();
             views.clear();
 
@@ -940,20 +941,20 @@ private:
                          const std::vector<const Chars*>& chars_list,
                          const std::vector<const ColumnUInt8::Container*>& null_list,
                          Chars& res_data, Offsets& res_offset) {
-        auto& sep_offsets = *offsets_list[0];
-        auto& sep_chars = *chars_list[0];
-        auto& sep_nullmap = *null_list[0];
-        int sep_size = sep_offsets[0];
-        const char* sep_data = reinterpret_cast<const char*>(&sep_chars[0]);
-        std::string_view sep(sep_data, sep_size);
-
         // Concat string
         for (size_t i = 0; i < input_rows_count; ++i) {
+            auto& sep_offsets = *offsets_list[0];
+            auto& sep_chars = *chars_list[0];
+            auto& sep_nullmap = *null_list[0];
             if (sep_nullmap[i]) {
                 res_offset[i] = res_data.size();
                 continue;
             }
 
+            int sep_size = sep_offsets[i] - sep_offsets[i - 1];
+            const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
+
+            std::string_view sep(sep_data, sep_size);
             buffer.clear();
             views.clear();
             for (size_t j = 1; j < argument_size; ++j) {
