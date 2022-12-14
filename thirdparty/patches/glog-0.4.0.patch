@@ -194,7 +194,7 @@ diff -uprN a/src/logging.cc b/src/logging.cc
  void LogFileObject::Write(bool force_flush,
                            time_t timestamp,
                            const char* message,
-@@ -972,14 +1055,55 @@ void LogFileObject::Write(bool force_flu
+@@ -972,14 +1055,57 @@ void LogFileObject::Write(bool force_flu
      return;
    }
  
@@ -232,27 +232,29 @@ diff -uprN a/src/logging.cc b/src/logging.cc
  
 +  if ((file_ == NULL) && (!inited_) && (FLAGS_log_split_method == "size")) {
 +    CheckFileNumQuota();
-+    const char* filename = file_list_.back().name.c_str();
-+    int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, FLAGS_logfile_mode);
-+    if (fd != -1) {
++    if (!file_list_.empty()) {
++      const char* filename = file_list_.back().name.c_str();
++      int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, FLAGS_logfile_mode);
++      if (fd != -1) {
 +#ifdef HAVE_FCNTL
-+      // Mark the file close-on-exec. We don't really care if this fails
-+      fcntl(fd, F_SETFD, FD_CLOEXEC);
++        // Mark the file close-on-exec. We don't really care if this fails
++        fcntl(fd, F_SETFD, FD_CLOEXEC);
 +#endif
-+      file_ = fopen(filename, "a+"); // Read and append a FILE*.
-+      if (file_ == NULL) {      // Man, we're screwed!, try to create new log file
-+        close(fd);
++        file_ = fopen(filename, "a+"); // Read and append a FILE*.
++        if (file_ == NULL) {      // Man, we're screwed!, try to create new log file
++          close(fd);
++        }
++        fseek(file_, 0, SEEK_END);
++        file_length_ = bytes_since_flush_ = ftell(file_);
++        inited_ = true;
 +      }
-+      fseek(file_, 0, SEEK_END);
-+      file_length_ = bytes_since_flush_ = ftell(file_);
-+      inited_ = true;
 +    }
 +  }
 +
    // If there's no destination file, make one before outputting
    if (file_ == NULL) {
      // Try to rollover the log file every 32 log messages.  The only time
-@@ -988,7 +1112,16 @@ void LogFileObject::Write(bool force_flu
+@@ -988,7 +1114,16 @@ void LogFileObject::Write(bool force_flu
      if (++rollover_attempt_ != kRolloverAttemptFrequency) return;
      rollover_attempt_ = 0;
  
@@ -270,7 +272,7 @@ diff -uprN a/src/logging.cc b/src/logging.cc
      localtime_r(&timestamp, &tm_time);
  
      // The logfile's filename will have the date/time & pid in it
-@@ -996,13 +1129,19 @@ void LogFileObject::Write(bool force_flu
+@@ -996,13 +1131,19 @@ void LogFileObject::Write(bool force_flu
      time_pid_stream.fill('0');
      time_pid_stream << 1900+tm_time.tm_year
                      << setw(2) << 1+tm_time.tm_mon
@@ -297,7 +299,7 @@ diff -uprN a/src/logging.cc b/src/logging.cc
      const string& time_pid_string = time_pid_stream.str();
  
      if (base_filename_selected_) {
-@@ -1035,10 +1174,7 @@ void LogFileObject::Write(bool force_flu
+@@ -1035,10 +1176,7 @@ void LogFileObject::Write(bool force_flu
        // attempt to hold on to the same mutex, and get into a
        // deadlock. Simply use a name like invalid-user.
        if (uidname.empty()) uidname = "invalid-user";
@@ -309,7 +311,7 @@ diff -uprN a/src/logging.cc b/src/logging.cc
        // We're going to (potentially) try to put logs in several different dirs
        const vector<string> & log_dirs = GetLoggingDirectories();
  
-@@ -1062,28 +1198,6 @@ void LogFileObject::Write(bool force_flu
+@@ -1062,28 +1200,6 @@ void LogFileObject::Write(bool force_flu
          return;
        }
      }
