@@ -18,6 +18,8 @@
 #pragma once
 
 #include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <atomic>
 
 #include "io/fs/file_reader.h"
 namespace doris {
