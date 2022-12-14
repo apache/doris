@@ -987,8 +987,6 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 默认值：true
 
-是否开启向量化导入
-
 #### `default_max_filter_ratio`
 
 默认值：0
