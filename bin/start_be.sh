@@ -143,6 +143,14 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+if [[ -z "${JAVA_HOME}" ]]; then
+    echo "The JAVA_HOME environment variable is not defined correctly"
+    echo "This environment variable is needed to run this program"
+    echo "NB: JAVA_HOME should point to a JDK not a JRE"
+    echo "You can set it in be.conf"
+    exit 1
+fi
+
 if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"
 fi
