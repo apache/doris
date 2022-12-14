@@ -624,7 +624,6 @@ public class OutFileClause {
         } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
             brokerName = StorageBackend.StorageType.HDFS.name();
             storageType = StorageBackend.StorageType.HDFS;
-            filePath = filePath.substring(HDFS_FILE_PREFIX.length() - 1);
         } else {
             return;
         }
