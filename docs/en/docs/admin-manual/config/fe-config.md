@@ -989,6 +989,12 @@ Default: true
 
 Whether to enable vectorized load
 
+#### `enable_new_load_scan_node`
+
+Default: false
+
+Whether to enable file scan node
+
 #### `default_max_filter_ratio`
 
 Default：0
