@@ -247,6 +247,9 @@ Status NodeChannel::open_wait() {
                         commit_info.tabletId = tablet.tablet_id();
                         commit_info.backendId = _node_id;
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
+                        if (tablet.has_num_rows()) {
+                            _tablets_rows_num.emplace_back(tablet.tablet_id(), tablet.num_rows());
+                        }
                         VLOG_CRITICAL
                                 << "master replica commit info: tabletId=" << tablet.tablet_id()
                                 << ", backendId=" << _node_id
@@ -457,6 +460,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
                                             std::make_move_iterator(_tablet_commit_infos.end()));
 
         _index_channel->set_error_tablet_in_state(state);
+        _index_channel->set_tablets_rows_num(_tablets_rows_num, _node_id);
         return Status::OK();
     }
 
@@ -767,6 +771,39 @@ void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
         error_info.__set_msg(it.second);
         error_tablet_infos.emplace_back(error_info);
     }
+}
+
+void IndexChannel::set_tablets_rows_num(
+        const std::vector<std::pair<int64_t, int64_t>>& tablets_rows_num, int64_t node_id) {
+    for (const auto& [tablet_id, rows_num] : tablets_rows_num) {
+        _tablets_rows_num[tablet_id].emplace_back(node_id, rows_num);
+    }
+}
+
+Status IndexChannel::check_tablet_rows_num_consistency() {
+    for (auto& tablet : _tablets_rows_num) {
+        for (size_t i = 0; i < tablet.second.size(); i++) {
+            VLOG_NOTICE << "check_tablet_rows_num_consistency, load_id: " << _parent->_load_id
+                        << ", txn_id: " << std::to_string(_parent->_txn_id)
+                        << ", tablet_id: " << tablet.first
+                        << ", node_id: " << tablet.second[i].first
+                        << ", rows_num: " << tablet.second[i].second;
+            if (i == 0) {
+                continue;
+            }
+            if (tablet.second[i].second != tablet.second[0].second) {
+                LOG(WARNING) << "rows num doest't match, load_id: " << _parent->_load_id
+                             << ", txn_id: " << std::to_string(_parent->_txn_id)
+                             << ", tablt_id: " << tablet.first
+                             << ", node_id: " << tablet.second[i].first
+                             << ", rows_num: " << tablet.second[i].second
+                             << ", node_id: " << tablet.second[0].first
+                             << ", rows_num: " << tablet.second[0].second;
+                return Status::InternalError("rows num written by multi replicas doest't match");
+            }
+        }
+    }
+    return Status::OK();
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -1155,6 +1192,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                 Status index_st = index_channel->check_intolerable_failure();
                 if (!index_st.ok()) {
                     status = index_st;
+                } else if (Status st = index_channel->check_tablet_rows_num_consistency();
+                           !st.ok()) {
+                    status = st;
                 }
             } // end for index channels
         }

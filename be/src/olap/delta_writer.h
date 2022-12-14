@@ -110,6 +110,8 @@ public:
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
+    int64_t total_rows() const { return _total_rows; }
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
                 bool is_vec);
@@ -172,6 +174,11 @@ private:
     RowsetIdUnorderedSet _rowset_ids;
     // current max version, used to calculate delete bitmap
     int64_t _cur_max_version;
+
+    // total rows num written by DeltaWriter
+    int64_t _total_rows = 0;
+    // rows num merged by memtable
+    int64_t _merged_rows = 0;
 };
 
 } // namespace doris

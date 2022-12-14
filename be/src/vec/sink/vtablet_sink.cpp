@@ -135,6 +135,9 @@ Status VNodeChannel::open_wait() {
                     commit_info.tabletId = tablet.tablet_id();
                     commit_info.backendId = _node_id;
                     _tablet_commit_infos.emplace_back(std::move(commit_info));
+                    if (tablet.has_num_rows()) {
+                        _tablets_rows_num.emplace_back(tablet.tablet_id(), tablet.num_rows());
+                    }
                     VLOG_CRITICAL << "master replica commit info: tabletId=" << tablet.tablet_id()
                                   << ", backendId=" << _node_id
                                   << ", master node id: " << this->node_id()

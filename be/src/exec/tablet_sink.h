@@ -321,6 +321,8 @@ protected:
     bool _is_closed = false;
 
     RuntimeState* _state;
+    // rows number imported per tablet, tablet_id -> rows_num
+    std::vector<std::pair<int64_t, int64_t>> _tablets_rows_num;
 
 private:
     std::unique_ptr<RowBatch> _cur_batch;
@@ -368,6 +370,12 @@ public:
         return mem_consumption;
     }
 
+    void set_tablets_rows_num(const std::vector<std::pair<int64_t, int64_t>>& tablets_rows_num,
+                              int64_t node_id);
+
+    // check whether the rows num written by different replicas is consistent
+    Status check_tablet_rows_num_consistency();
+
 private:
     friend class NodeChannel;
     friend class VNodeChannel;
@@ -398,6 +406,9 @@ private:
     Status _intolerable_failure_status = Status::OK();
 
     std::unique_ptr<MemTracker> _index_channel_tracker;
+    // rows num written by DeltaWriter per tablet, tablet_id -> <node_Id, rows_num>
+    // used to verify whether the rows num written by different replicas is consistent
+    std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_rows_num;
 };
 
 template <typename Row>
