@@ -381,6 +381,14 @@ public:
         return execute_get_type(case_state->result_type, block, arguments, result,
                                 input_rows_count);
     }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FRAGMENT_LOCAL) {
+            delete reinterpret_cast<CaseState*>(
+                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        }
+        return Status::OK();
+    }
 };
 
 } // namespace doris::vectorized
