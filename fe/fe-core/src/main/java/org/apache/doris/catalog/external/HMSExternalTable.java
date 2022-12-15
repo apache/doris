@@ -284,8 +284,8 @@ public class HMSExternalTable extends ExternalTable {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
 
-    public Map<String, String> getDfsProperties() {
-        return catalog.getCatalogProperty().getDfsProperties();
+    public Map<String, String> getHdfsProperties() {
+        return catalog.getCatalogProperty().getHdfsProperties();
     }
 
     public Map<String, String> getS3Properties() {

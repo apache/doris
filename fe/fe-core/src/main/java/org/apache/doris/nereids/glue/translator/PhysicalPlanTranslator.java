@@ -88,6 +88,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SelectNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -1004,8 +1005,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
-        if (!(filter.child(0) instanceof PhysicalHashJoin)) {
-            addConjunctsToPlanNode(filter, planNode, context);
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+            // the three nodes don't support conjuncts, need create a SelectNode to filter data
+            SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
+            addConjunctsToPlanNode(filter, selectNode, context);
+            inputFragment.addPlanRoot(selectNode);
+        } else {
+            if (!(filter.child(0) instanceof PhysicalHashJoin)) {
+                addConjunctsToPlanNode(filter, planNode, context);
+            }
         }
         return inputFragment;
     }

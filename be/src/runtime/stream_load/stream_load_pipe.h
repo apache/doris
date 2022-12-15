@@ -46,9 +46,11 @@ public:
               _total_length(total_length),
               _use_proto(use_proto) {}
 
-    virtual ~StreamLoadPipe() {
+    ~StreamLoadPipe() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-        while (!_buf_queue.empty()) _buf_queue.pop_front();
+        while (!_buf_queue.empty()) {
+            _buf_queue.pop_front();
+        }
     }
 
     Status open() override { return Status::OK(); }

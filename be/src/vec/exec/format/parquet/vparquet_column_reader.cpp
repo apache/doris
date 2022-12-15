@@ -67,17 +67,17 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
     }
     int index = _row_range_index;
     while (index < _row_ranges->size()) {
-        const RowRange& read_range = (*_row_ranges)[index];
-        if (read_range.last_row <= start_index) {
+        const RowRange& row_range = (*_row_ranges)[index];
+        if (row_range.last_row <= start_index) {
             index++;
             _row_range_index++;
             continue;
         }
-        if (read_range.first_row >= end_index) {
+        if (row_range.first_row >= end_index) {
             break;
         }
-        int64_t start = read_range.first_row < start_index ? start_index : read_range.first_row;
-        int64_t end = read_range.last_row < end_index ? read_range.last_row : end_index;
+        int64_t start = row_range.first_row < start_index ? start_index : row_range.first_row;
+        int64_t end = row_range.last_row < end_index ? row_range.last_row : end_index;
         read_ranges.emplace_back(start, end);
         index++;
     }
