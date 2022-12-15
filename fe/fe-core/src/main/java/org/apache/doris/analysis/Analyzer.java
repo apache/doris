@@ -112,8 +112,6 @@ public class Analyzer {
     // table/view used db.table, inline use alias
     private final Set<String> uniqueTableAliasSet = Sets.newHashSet();
     private final Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
-    private final Map<String, TupleDescriptor> markTuples = Maps.newHashMap();
-    private final Map<TableRef, TupleId> markTupleIdByInnerRef = Maps.newHashMap();
 
     // NOTE: Alias of column is case ignorance
     // map from lowercase table alias to descriptor.
@@ -389,6 +387,10 @@ public class Analyzer {
 
         private final Map<SlotId, SlotId> equivalentSlots = Maps.newHashMap();
 
+        private final Map<String, TupleDescriptor> markTuples = Maps.newHashMap();
+
+        private final Map<TableRef, TupleId> markTupleIdByInnerRef = Maps.newHashMap();
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -652,8 +654,8 @@ public class Analyzer {
         if (ref.getJoinOp() != null && ref.isMark()) {
             TupleDescriptor markTuple = getDescTbl().createTupleDescriptor();
             markTuple.setAliases(new String[]{ref.getMarkTupleName()}, true);
-            markTuples.put(ref.getMarkTupleName(), markTuple);
-            markTupleIdByInnerRef.put(ref, markTuple.getId());
+            globalState.markTuples.put(ref.getMarkTupleName(), markTuple);
+            globalState.markTupleIdByInnerRef.put(ref, markTuple.getId());
         }
 
         return result;
@@ -944,7 +946,7 @@ public class Analyzer {
             }
         }
 
-        return result != null ? result : markTuples.get(tblName.toString());
+        return result != null ? result : globalState.markTuples.get(tblName.toString());
     }
 
     private TupleDescriptor resolveColumnRef(String colName) throws AnalysisException {
@@ -1525,7 +1527,7 @@ public class Analyzer {
     }
 
     public List<Expr> getMarkConjuncts(TableRef ref) {
-        TupleId id = markTupleIdByInnerRef.get(ref);
+        TupleId id = globalState.markTupleIdByInnerRef.get(ref);
         if (id == null) {
             return Collections.emptyList();
         }
@@ -1533,12 +1535,25 @@ public class Analyzer {
     }
 
     public TupleDescriptor getMarkTuple(TableRef ref) {
-        TupleDescriptor markTuple = globalState.descTbl.getTupleDesc(markTupleIdByInnerRef.get(ref));
+        TupleDescriptor markTuple = globalState.descTbl.getTupleDesc(globalState.markTupleIdByInnerRef.get(ref));
         if (markTuple != null) {
             markTuple.setIsMaterialized(true);
             markTuple.getSlots().forEach(s -> s.setIsMaterialized(true));
         }
         return markTuple;
+    }
+
+    public List<Expr> getMarkConjuncts() {
+        List<Expr> exprs = Lists.newArrayList();
+        List<TupleId> markIds = Lists.newArrayList(globalState.markTupleIdByInnerRef.values());
+        for (Expr e : globalState.conjuncts.values()) {
+            List<TupleId> tupleIds = Lists.newArrayList();
+            e.getIds(tupleIds, null);
+            if (!Collections.disjoint(markIds, tupleIds)) {
+                exprs.add(e);
+            }
+        }
+        return exprs;
     }
 
     /**
