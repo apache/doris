@@ -620,7 +620,18 @@ public class StmtExecutor implements ProfileWriter {
                         VectorizedUtil.switchToQueryNonVec();
                     }
                 } catch (UserException e) {
-                    if (e.getCause() instanceof VecNotImplException) {
+                    boolean isVecNotImp = false;
+                    Throwable self = e;
+                    Throwable child = self.getCause();
+                    while (child != null) {
+                        self = child;
+                        if (self instanceof VecNotImplException) {
+                            isVecNotImp = true;
+                            break;
+                        }
+                        child = self.getCause();
+                    }
+                    if (isVecNotImp) {
                         if (i == analyzeTimes) {
                             throw e;
                         } else {
