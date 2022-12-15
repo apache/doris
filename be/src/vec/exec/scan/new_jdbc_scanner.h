@@ -33,7 +33,6 @@ public:
 
 public:
     Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
-
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
