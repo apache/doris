@@ -74,8 +74,7 @@ public:
                                      io::FileReaderSPtr* file_reader);
 
     // Create FileReader for stream load pipe
-    static Status create_pipe_reader(const TUniqueId& load_id,
-                                     std::shared_ptr<FileReader>& file_reader);
+    static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);
 
     // TODO(ftw): should be delete after new_hdfs_file_reader ready
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,

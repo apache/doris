@@ -49,7 +49,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
         sql """drop catalog if exists ${catalog_name} """
 
-        // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
                 "type"="jdbc",
                 "jdbc.user"="root",
