@@ -38,6 +38,7 @@
 #include "exec/hash_join_node.h"
 #include "exec/intersect_node.h"
 #include "exec/merge_node.h"
+#include "exec/mysql_scan_node.h"
 #include "exec/odbc_scan_node.h"
 #include "exec/olap_scan_node.h"
 #include "exec/partitioned_aggregation_node.h"
