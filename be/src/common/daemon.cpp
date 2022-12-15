@@ -205,6 +205,9 @@ void Daemon::memory_maintenance_thread() {
     int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
+        if (!MemInfo::initialized()) {
+            continue;
+        }
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
@@ -246,7 +249,9 @@ void Daemon::load_channel_tracker_refresh_thread() {
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms))) {
-        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+        if (ExecEnv::GetInstance()->initialized()) {
+            doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+        }
     }
 }
 
