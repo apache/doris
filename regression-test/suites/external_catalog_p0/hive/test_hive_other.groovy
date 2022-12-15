@@ -77,6 +77,7 @@ suite("test_hive_other", "p0") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
+        String hdfs_port = context.config.otherConfigs.get("hdfs_port")
         String catalog_name = "hive_test_other"
         set_be_config.call()
 
@@ -100,7 +101,51 @@ suite("test_hive_other", "p0") {
         // order_qt_show_tables2 """show tables"""
         q01()
         sql """refresh table `default`.table_with_vertical_line"""
-        order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""        
+        order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
+
+        // external table
+        sql """switch internal"""
+        sql """drop database if exists external_hive_table_test"""
+        sql """create database external_hive_table_test"""
+        sql """use external_hive_table_test"""
+        sql """drop table if exists external_hive_student"""
+
+        sql """
+            create external table `external_hive_student` (
+                `id` varchar(100),
+                `name` varchar(100),
+                `age` int,
+                `gender` varchar(100),
+                `addr` varchar(100),
+                `phone` varchar(100)
+            ) ENGINE=HIVE
+            PROPERTIES
+            (
+                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}',
+                'database' = 'default',
+                'table' = 'student'
+            );
+        """
+        qt_student """select * from external_hive_student order by name;"""
+
+        // read external table
+        String csv_output_dir = UUID.randomUUID().toString()
+        sql """
+            select * from external_hive_student
+            into outfile "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_"
+            format as csv_with_names
+            properties (
+                "column_separator" = ",",
+                "line_delimiter" = "\n"
+            );
+        """
+        qt_tvf_student """
+            select * from hdfs (
+                "format" = "csv_with_names",
+                "fs.defaultFS" = "hdfs://127.0.0.1:${hdfs_port}",
+                "uri" = "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_*"
+            ) order by name;
+        """
     }
 }
 
