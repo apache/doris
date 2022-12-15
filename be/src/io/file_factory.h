@@ -93,6 +93,11 @@ public:
                                    const std::string& path, io::FileSystem** s3_file_system,
                                    io::FileReaderSPtr* reader);
 
+    static Status create_broker_reader(const TNetworkAddress& broker_addr,
+                                       const std::map<std::string, std::string>& prop,
+                                       const std::string& path, io::FileSystem** hdfs_file_system,
+                                       io::FileReaderSPtr* reader);
+
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:
