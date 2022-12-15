@@ -685,6 +685,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSplitPart>();
     factory.register_function<FunctionSplitByString>();
     factory.register_function<FunctionStringMd5AndSM3<MD5Sum>>();
+    factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
