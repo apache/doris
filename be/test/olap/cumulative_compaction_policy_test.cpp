@@ -649,11 +649,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_big) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    SizeBasedCumulativeCompactionPolicy* policy =
-            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
-                    _tablet->_cumulative_compaction_policy.get());
-
-    EXPECT_EQ(1073741824, policy->_tablet_size_based_promotion_size);
+    EXPECT_EQ(1073741824, _tablet->cumulative_promotion_size());
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
@@ -668,10 +664,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    SizeBasedCumulativeCompactionPolicy* policy =
-            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
-                    _tablet->_cumulative_compaction_policy.get());
-    EXPECT_EQ(67108864, policy->_tablet_size_based_promotion_size);
+    EXPECT_EQ(67108864, _tablet->cumulative_promotion_size());
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {

@@ -826,7 +826,7 @@ const uint32_t Tablet::_calc_cumulative_compaction_score(
 #endif
     uint32_t score = 0;
     _cumulative_compaction_policy->calc_cumulative_compaction_score(
-            tablet_state(), _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
+            this, tablet_state(), _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
     return score;
 }
 
