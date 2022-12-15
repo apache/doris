@@ -33,7 +33,7 @@
 #include "gen_cpp/QueryPlanExtra_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/stream_load_pipe_reader.h"
+#include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
@@ -137,8 +137,8 @@ public:
 
     std::shared_ptr<QueryFragmentsCtx> get_fragments_ctx() { return _fragments_ctx; }
 
-    void set_pipe(std::shared_ptr<io::StreamLoadPipeReader> pipe) { _pipe = pipe; }
-    std::shared_ptr<io::StreamLoadPipeReader> get_pipe() const { return _pipe; }
+    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
+    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
 
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
@@ -172,7 +172,7 @@ private:
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
     // The pipe for data transfering, such as insert.
-    std::shared_ptr<io::StreamLoadPipeReader> _pipe;
+    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
@@ -528,7 +528,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
         stream_load_ctx->need_commit_self = true;
         stream_load_ctx->need_rollback = true;
-        auto pipe = std::make_shared<io::StreamLoadPipeReader>(
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
                 kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 -1 /* total_length */, true /* use_proto */);
         stream_load_ctx->body_sink = pipe;
@@ -561,7 +561,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 }
 
 void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
-                           std::shared_ptr<io::StreamLoadPipeReader> pipe) {
+                           std::shared_ptr<io::StreamLoadPipe> pipe) {
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
@@ -571,8 +571,7 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
     }
 }
 
-std::shared_ptr<io::StreamLoadPipeReader> FragmentMgr::get_pipe(
-        const TUniqueId& fragment_instance_id) {
+std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);

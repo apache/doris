@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include "io/fs/stream_load_pipe_reader.h"
+#include "io/fs/stream_load_pipe.h"
 
 namespace doris {
 namespace io {
-class KafkaConsumerPipeReader : public StreamLoadPipeReader {
+class KafkaConsumerPipeReader : public StreamLoadPipe {
 public:
     KafkaConsumerPipeReader(size_t max_buffered_bytes = 1024 * 1024,
                             size_t min_chunk_size = 64 * 1024)
-            : StreamLoadPipeReader(max_buffered_bytes, min_chunk_size) {}
+            : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {}
 
     ~KafkaConsumerPipeReader() override = default;
 

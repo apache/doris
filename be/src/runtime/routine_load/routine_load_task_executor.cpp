@@ -268,7 +268,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
 
     // create and set pipe
-    std::shared_ptr<io::StreamLoadPipeReader> pipe;
+    std::shared_ptr<io::StreamLoadPipe> pipe;
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
         pipe = std::make_shared<io::KafkaConsumerPipeReader>();
@@ -376,8 +376,7 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
     auto mock_consumer = [this, ctx]() {
         ctx->ref();
-        std::shared_ptr<io::StreamLoadPipeReader> pipe =
-                _exec_env->new_load_stream_mgr()->get(ctx->id);
+        std::shared_ptr<io::StreamLoadPipe> pipe = _exec_env->new_load_stream_mgr()->get(ctx->id);
         bool eof = false;
         std::stringstream ss;
         while (true) {

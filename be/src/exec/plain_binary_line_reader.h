@@ -17,24 +17,27 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include "exec/line_reader.h"
+#include "io/fs/file_reader.h"
 
 namespace doris {
 
-class FileReader;
-
 class PlainBinaryLineReader : public LineReader {
 public:
-    PlainBinaryLineReader(FileReader* file_reader);
+    PlainBinaryLineReader(io::FileReaderSPtr file_reader, TFileType::type file_type);
 
-    virtual ~PlainBinaryLineReader();
+    ~PlainBinaryLineReader() override;
 
-    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
+    Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
 
-    virtual void close() override;
+    void close() override;
 
 private:
-    FileReader* _file_reader;
+    io::FileReaderSPtr _file_reader;
+
+    TFileType::type _file_type;
 };
 
 } // namespace doris

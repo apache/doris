@@ -31,18 +31,17 @@ class ExecEnv;
 class TNetworkAddress;
 class RuntimeProfile;
 
-struct FileSystemProperties {
+struct FileSystemProperties2 {
     TFileType::type system_type;
     std::map<std::string, std::string> properties;
     THdfsParams hdfs_params;
     std::vector<TNetworkAddress> broker_addresses;
 };
 
-struct FileDescription {
+struct FileDescription2 {
     std::string path;
     int64_t start_offset;
     size_t file_size;
-    size_t buffer_size;
 };
 
 class NewFileFactory {
@@ -68,8 +67,8 @@ public:
      * Otherwise, return the underlying FileReader directly.
      */
     static Status create_file_reader(RuntimeProfile* profile,
-                                     const FileSystemProperties& system_properties,
-                                     const FileDescription& file_description,
+                                     const FileSystemProperties2& system_properties,
+                                     const FileDescription2& file_description,
                                      std::unique_ptr<io::FileSystem>* file_system,
                                      io::FileReaderSPtr* file_reader);
 

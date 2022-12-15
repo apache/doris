@@ -23,6 +23,7 @@
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_file_reader.h"
 #include "io/hdfs_writer.h"
@@ -31,7 +32,6 @@
 #include "io/s3_reader.h"
 #include "io/s3_writer.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "util/s3_util.h"
 
@@ -111,13 +111,18 @@ Status NewFileFactory::create_file_reader(TFileType::type type, ExecEnv* env,
 // ============================
 // file scan node/unique ptr
 Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
-                                          const FileSystemProperties& system_properties,
-                                          const FileDescription& file_description,
+                                          const FileSystemProperties2& system_properties,
+                                          const FileDescription2& file_description,
                                           std::unique_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader) {
     TFileType::type type = system_properties.system_type;
     io::FileSystem* file_system_ptr = nullptr;
     switch (type) {
+    case TFileType::FILE_LOCAL: {
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->open_file(file_description.path, file_reader));
+        break;
+    }
     case TFileType::FILE_S3: {
         RETURN_IF_ERROR(create_s3_reader(system_properties.properties, file_description.path,
                                          &file_system_ptr, file_reader));

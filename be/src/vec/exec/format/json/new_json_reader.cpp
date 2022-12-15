@@ -21,6 +21,8 @@
 #include "exec/plain_text_line_reader.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
+#include "io/fs/stream_load_pipe.h"
+#include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -38,9 +40,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
+          _file_system(nullptr),
           _file_reader(nullptr),
-          _file_reader_s(nullptr),
-          _real_file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
           _skip_first_line(false),
@@ -49,7 +50,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
-          _scanner_eof(scanner_eof) {
+          _scanner_eof(scanner_eof),
+          _current_offset(0) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
@@ -64,9 +66,6 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_reader(nullptr),
-          _file_reader_s(nullptr),
-          _real_file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
           _skip_first_line(false),
@@ -159,11 +158,11 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, &eof));
     } else {
-        int64_t length = 0;
-        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
+        size_t read_size = 0;
+        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &read_size));
         json_str = json_str_ptr.get();
-        size = length;
-        if (length == 0) {
+        size = read_size;
+        if (read_size == 0) {
             eof = true;
         }
     }
@@ -286,15 +285,25 @@ Status NewJsonReader::_open_file_reader() {
         start_offset -= 1;
     }
 
+    _current_offset = start_offset;
+
+    FileSystemProperties system_properties;
+    system_properties.system_type = _params.file_type;
+    system_properties.properties = _params.properties;
+    system_properties.hdfs_params = _params.hdfs_params;
+
+    FileDescription file_description;
+    file_description.path = _range.path;
+    file_description.start_offset = start_offset;
+    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, _file_reader_s));
-        _real_file_reader = _file_reader_s.get();
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _params, _range.path, start_offset, _range.file_size, 0, _file_reader));
-        _real_file_reader = _file_reader.get();
+                _profile, system_properties, file_description, &_file_system, &_file_reader));
     }
-    return _real_file_reader->open();
+    return Status::OK();
 }
 
 Status NewJsonReader::_open_line_reader() {
@@ -306,8 +315,9 @@ Status NewJsonReader::_open_line_reader() {
     } else {
         _skip_first_line = false;
     }
-    _line_reader.reset(new PlainTextLineReader(_profile, _real_file_reader, nullptr, size,
-                                               _line_delimiter, _line_delimiter_length));
+    _line_reader.reset(new PlainTextLineReader(_profile, _file_reader, nullptr, size,
+                                               _line_delimiter, _line_delimiter_length,
+                                               _current_offset));
     return Status::OK();
 }
 
@@ -509,13 +519,12 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof));
     } else {
-        int64_t length = 0;
-        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
-        json_str = json_str_ptr.get();
-        *size = length;
-        if (length == 0) {
+        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, size));
+        json_str = json_str_ptr.release();
+        if (*size == 0) {
             *eof = true;
         }
+        _current_offset += *size;
     }
 
     _bytes_read_counter += *size;
@@ -877,4 +886,42 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
     return std::string(buffer.GetString());
 }
 
+Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
+    IOContext io_ctx;
+    io_ctx.reader_type = READER_QUERY;
+    switch (_params.file_type) {
+    case TFileType::FILE_LOCAL:
+    case TFileType::FILE_HDFS:
+    case TFileType::FILE_S3: {
+        size_t file_size = _file_reader->size();
+        file_buf->reset(new uint8_t[file_size]);
+        Slice result(file_buf->get(), file_size);
+        _file_reader->read_at(_current_offset, result, io_ctx, read_size);
+        break;
+    }
+    case TFileType::FILE_STREAM: {
+        // can not use `size_t` type, because we will judge -1.
+        int64_t bytes_req =
+                (dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))->get_total_length();
+        if (bytes_req == -1) {
+            // If bytes_req == -1, this should be a Kafka routine load task
+            // and the bytes requied is no used, so we set required bytes = 0.
+            // Memory allocation of file_buf will take place in `_read_next_buffer` function.
+            Slice result(file_buf->get(), 0);
+            _file_reader->read_at(_current_offset, result, io_ctx, read_size);
+        } else if (bytes_req >= 0) {
+            file_buf->reset(new uint8_t[bytes_req]);
+            Slice result(file_buf->get(), static_cast<size_t>(bytes_req));
+            _file_reader->read_at(_current_offset, result, io_ctx, read_size);
+        } else {
+            return Status::InternalError("invalid, bytes_req is: {}", bytes_req);
+        }
+        break;
+    }
+    default: {
+        return Status::NotSupported("no supported file reader type: {}", _params.file_type);
+    }
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

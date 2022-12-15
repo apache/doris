@@ -22,11 +22,6 @@
 
 namespace doris {
 
-namespace io {
-class FileReader;
-}
-
-class FileReader;
 class LineReader;
 class TextConverter;
 class Decompressor;
@@ -76,7 +71,6 @@ private:
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
 
-private:
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;
@@ -91,11 +85,8 @@ private:
     // True if this is a load task
     bool _is_load = false;
 
-    // _file_reader_s is for stream load pipe reader,
-    // and _file_reader is for other file reader.
-    // TODO: refactor this to use only shared_ptr or unique_ptr
-    std::unique_ptr<FileReader> _file_reader;
-    std::shared_ptr<FileReader> _file_reader_s;
+    std::unique_ptr<io::FileSystem> _file_system;
+    io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
     std::unique_ptr<TextConverter> _text_converter;
@@ -114,9 +105,6 @@ private:
     std::string _line_delimiter;
     int _value_separator_length;
     int _line_delimiter_length;
-
-    std::unique_ptr<io::FileSystem> _new_file_system;
-    io::FileReaderSPtr _new_file_reader;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
