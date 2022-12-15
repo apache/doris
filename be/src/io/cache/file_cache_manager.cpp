@@ -142,7 +142,7 @@ void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
                 // load cache meta from disk and clean unfinished cache files
                 file_cache->load_and_clean();
                 // policy1: GC file cache by timeout
-                file_cache->clean_timeout_cache();
+                file_cache->clean_cache_normal();
 
                 result.push_back(file_cache);
             }
@@ -184,7 +184,7 @@ void FileCacheManager::gc_file_caches() {
                 continue;
             }
             // policy1: GC file cache by timeout
-            iter->second->clean_timeout_cache();
+            iter->second->clean_cache_normal();
             // sort file cache by last match time
             _add_file_cache_for_gc_by_disk(contexts, iter->second);
         }

@@ -52,6 +52,7 @@ Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_
                    << ", bytes read: " << bytes_read << " vs required size: " << result.size;
         return Status::Error<OS_ERROR>();
     }
+    update_last_match_time();
     return Status::OK();
 }
 
@@ -126,17 +127,31 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
-    update_last_match_time();
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << " -> " << cache_file.native();
     return Status::OK();
 }
 
 Status WholeFileCache::clean_timeout_cache() {
-    if (time(nullptr) - _last_match_time > _alive_time_sec) {
+    bool is_time_out = false;
+    {
+        std::shared_lock<std::shared_mutex> rlock(_cache_lock);
+        if (time(nullptr) - _last_match_time > _alive_time_sec) {
+            is_time_out = true;
+        }
+    }
+    if (is_time_out) {
         _clean_cache_internal(nullptr);
     }
     return Status::OK();
+}
+
+Status WholeFileCache::clean_cache_normal() {
+    {
+        std::shared_lock<std::shared_mutex> rlock(_cache_lock);
+        _gc_match_time = _last_match_time;
+    }
+    return clean_timeout_cache();
 }
 
 Status WholeFileCache::clean_all_cache() {
@@ -154,7 +169,13 @@ Status WholeFileCache::_clean_cache_internal(size_t* cleaned_size) {
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
     Path done_file =
             _cache_dir / fmt::format("{}{}", WHOLE_FILE_CACHE_NAME, CACHE_DONE_FILE_SUFFIX);
-    return _remove_file(cache_file, done_file, cleaned_size);
+    RETURN_IF_ERROR(_remove_cache_and_done(cache_file, done_file, cleaned_size));
+    return _check_and_delete_dir(_cache_dir);
+}
+
+bool WholeFileCache::is_gc_finish() const {
+    std::shared_lock<std::shared_mutex> rlock(_cache_lock);
+    return _cache_file_reader == nullptr;
 }
 
 } // namespace io

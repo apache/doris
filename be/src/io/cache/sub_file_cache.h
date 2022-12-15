@@ -48,7 +48,7 @@ public:
 
     io::FileReaderSPtr remote_file_reader() const override { return _remote_file_reader; }
 
-    Status clean_timeout_cache() override;
+    Status clean_cache_normal() override;
 
     Status clean_all_cache() override;
 

@@ -44,7 +44,7 @@ public:
 
     virtual io::FileReaderSPtr remote_file_reader() const = 0;
 
-    virtual Status clean_timeout_cache() = 0;
+    virtual Status clean_cache_normal() = 0;
 
     virtual Status clean_all_cache() = 0;
 
@@ -61,7 +61,17 @@ public:
     virtual int64_t get_oldest_match_time() const = 0;
 
 protected:
-    Status _remove_file(const Path& cache_file, const Path& cache_done_file, size_t* cleaned_size);
+    Status _remove_file(const Path& file, size_t* cleaned_size);
+
+    Status _remove_cache_and_done(const Path& cache_file, const Path& cache_done_file,
+                                  size_t* cleaned_size);
+
+    Status _get_dir_file(const Path& cache_dir, std::vector<Path>& cache_names,
+                         std::vector<Path>& unfinished_files);
+
+    Status _clean_unfinished_files(const std::vector<Path>& unfinished_files);
+
+    Status _check_and_delete_dir(const Path& cache_dir);
 
     template <typename T>
     struct SubFileLRUComparator {
