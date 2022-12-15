@@ -34,6 +34,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -82,7 +83,7 @@ public class CatalogProperty implements Writable {
 
     public Map<String, String> getProperties() {
         if (resource == null) {
-            return properties;
+            return new HashMap<>(properties);
         } else {
             try {
                 return catalogResource().getCopiedProperties();

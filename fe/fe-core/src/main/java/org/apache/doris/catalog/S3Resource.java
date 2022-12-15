@@ -196,9 +196,11 @@ public class S3Resource extends Resource {
         if (properties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
             s3Properties.put("fs.s3a.connection.timeout", properties.get(S3_CONNECTION_TIMEOUT_MS));
         }
-        s3Properties.put("fs.s3.impl.disable.cache", "true");
-        s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        s3Properties.put("fs.s3a.attempts.maximum", "2");
+        if (s3Properties.containsKey(S3Resource.S3_ENDPOINT)) {
+            s3Properties.put("fs.s3.impl.disable.cache", "true");
+            s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+            s3Properties.put("fs.s3a.attempts.maximum", "2");
+        }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(S3Resource.S3_FS_PREFIX)) {
                 s3Properties.put(entry.getKey(), entry.getValue());

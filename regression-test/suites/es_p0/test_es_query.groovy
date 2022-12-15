@@ -27,24 +27,31 @@ suite("test_es_query", "p0") {
         sql """drop catalog if exists es7;"""
         sql """drop catalog if exists es8;"""
 
-        sql """create resource if not exists es6_resource properties(
-            "type"="es",
-            "hosts"="http://127.0.0.1:$es_6_port",
-            "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
-        );"""
+        // test old create-catalog syntax for compatibility
+        sql """
+            create catalog es6
+            properties (
+                "type"="es",
+                "elasticsearch.hosts"="http://127.0.0.1:$es_6_port",
+                "elasticsearch.nodes_discovery"="false",
+                "elasticsearch.keyword_sniff"="true"
+            );
+        """
+        // test new create catalog syntax
         sql """create resource if not exists es7_resource properties(
             "type"="es",
             "hosts"="http://127.0.0.1:$es_7_port",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
-        );"""
+        );
+        """
         sql """create resource if not exists es8_resource properties(
             "type"="es",
             "hosts"="http://127.0.0.1:$es_8_port",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
-        );"""
+        );
+        """
 
         sql """create catalog if not exists es6 with resource es6_resource;"""
         sql """create catalog if not exists es7 with resource es7_resource;"""

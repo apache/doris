@@ -24,8 +24,6 @@ import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -236,9 +234,7 @@ public class PolicyMgr implements Writable {
     public void replayCreate(Policy policy) throws AnalysisException {
         unprotectedAdd(policy);
         if (policy instanceof StoragePolicy) {
-            StoragePolicy storagePolicy = (StoragePolicy) policy;
-            Env.getCurrentEnv().getResourceMgr().getResource(storagePolicy.getStorageResource())
-                    .addReference(storagePolicy.policyName, ReferenceType.POLICY);
+            ((StoragePolicy) policy).addResourceReference();
         }
         LOG.info("replay create policy: {}", policy);
     }
@@ -271,11 +267,7 @@ public class PolicyMgr implements Writable {
         policies.removeIf(policy -> {
             if (policy.matchPolicy(log)) {
                 if (policy instanceof StoragePolicy) {
-                    Resource resource = Env.getCurrentEnv().getResourceMgr()
-                            .getResource(((StoragePolicy) policy).getStorageResource());
-                    if (resource != null) {
-                        resource.removeReference(log.getPolicyName(), ReferenceType.POLICY);
-                    }
+                    ((StoragePolicy) policy).removeResourceReference();
                 }
                 return true;
             }

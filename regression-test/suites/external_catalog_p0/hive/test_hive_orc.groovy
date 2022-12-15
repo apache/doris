@@ -89,6 +89,16 @@ suite("test_hive_orc", "all_types") {
             sql """drop catalog if exists ${catalog_name}"""
             sql """drop resource if exists hms_resource_hive_orc"""
 
+            // test old create-catalog syntax for compatibility
+            sql """
+                create catalog if not exists ${catalog_name} properties (
+                    "type"="hms",
+                    'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                );
+            """
+            sql """use `${catalog_name}`.`default`"""
+            select_top50()
+            sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
     }

@@ -135,7 +135,3 @@ suite("test_hive_other", "p0") {
         sql """drop resource if exists hms_resource_hive_other"""
     }
 }
-
-
-
-

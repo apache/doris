@@ -46,6 +46,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
 
         sql """drop catalog if exists ${catalog_name} """
+
         sql """create resource if not exists jdbc_resource_catalog_mysql properties(
             "type"="jdbc",
             "user"="root",
@@ -97,6 +98,20 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
 
         sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists jdbc_resource_catalog_mysql"""
+
+        // test old create-catalog syntax for compatibility
+        sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+        """
+        sql """switch ${catalog_name}"""
+        sql """use ${ex_db_name}"""
+        order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
         sql """drop resource if exists jdbc_resource_catalog_mysql"""
     }
 }
