@@ -21,7 +21,7 @@
 
 #include "common/config.h"
 #include "exec/olap_common.h"
-#include "io/file_reader.h"
+#include "io/fs/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
@@ -37,15 +37,10 @@ public:
         int64_t read_bytes = 0;
     };
 
-    ORCFileInputStream(const std::string& file_name, FileReader* file_reader)
+    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader)
             : _file_name(file_name), _file_reader(file_reader) {};
 
-    ~ORCFileInputStream() override {
-        if (_file_reader != nullptr) {
-            _file_reader->close();
-            delete _file_reader;
-        }
-    }
+    ~ORCFileInputStream() override = default;
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -60,7 +55,7 @@ public:
 private:
     Statistics _statistics;
     const std::string& _file_name;
-    FileReader* _file_reader;
+    io::FileReaderSPtr _file_reader;
 };
 
 class OrcReader : public GenericReader {
@@ -82,7 +77,7 @@ public:
 
     ~OrcReader() override;
     // for test
-    void set_file_reader(const std::string& file_name, FileReader* file_reader) {
+    void set_file_reader(const std::string& file_name, io::FileReaderSPtr file_reader) {
         _file_reader = new ORCFileInputStream(file_name, file_reader);
     }
 
@@ -282,6 +277,8 @@ private:
     std::unique_ptr<orc::RowReader> _row_reader;
     orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
+
+    std::unique_ptr<io::FileSystem> _file_system;
 
     // only for decimal
     DecimalScaleParams _decimal_scale_params;
