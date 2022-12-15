@@ -974,15 +974,14 @@ build_abseil() {
     check_if_source_exist "${ABSEIL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
 
-    CXXFLAGS="-O3" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DABSL_ENABLE_INSTALL=ON \
-        -DBUILD_DEPS=ON \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_CXX_STANDARD=11
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+    -DABSL_ENABLE_INSTALL=ON \
+    -DBUILD_DEPS=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
 
-    cmake --build "${BUILD_DIR}"
+    cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
     cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
 }
 
@@ -996,13 +995,13 @@ build_s2() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    CXXFLAGS="-O3" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DWITH_GFLAGS=ON \
-        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}" ..
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+    -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DWITH_GFLAGS=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
