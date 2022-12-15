@@ -519,18 +519,11 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
     }
 
     case TYPE_DATEV2: {
-        auto* date_v2_val = (const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)v;
-        char buf[64];
-        int date_v2_len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);
+        return HashUtil::zlib_crc_hash(v, 4, seed);
     }
 
     case TYPE_DATETIMEV2: {
-        auto* date_v2_val =
-                (const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*)v;
-        char buf[64];
-        int date_v2_len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);
+        return HashUtil::zlib_crc_hash(v, 8, seed);
     }
 
     case TYPE_DECIMALV2: {
