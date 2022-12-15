@@ -115,7 +115,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 List<NamedExpression> newOutputExpressions = outputExpressions.stream()
                         .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
-                if (outputExpressions.containsAll(newOutputExpressions)) {
+                if (outputExpressions.containsAll(newOutputExpressions) && groupByExprs.containsAll(newGroupByExprs)) {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,

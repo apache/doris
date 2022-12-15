@@ -226,6 +226,9 @@ public class TypeCoercionUtils {
             } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
                 tightestCommonType = DateV2Type.INSTANCE;
             }
+        } else if ((left instanceof DateLikeType && right instanceof IntegralType)
+                    || (right instanceof DateLikeType && left instanceof IntegralType)) {
+            tightestCommonType = BigIntType.INSTANCE;
         }
         return Optional.ofNullable(tightestCommonType);
     }
