@@ -26,7 +26,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/** TVFProperties */
+/**
+ * TVFProperties
+ */
 public class TVFProperties extends Expression implements LeafExpression {
     private final Map<String, String> keyValues;
 
@@ -61,5 +63,25 @@ public class TVFProperties extends Expression implements LeafExpression {
     @Override
     public String toString() {
         return "TVFProperties(" + toSql() + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        TVFProperties that = (TVFProperties) o;
+        return Objects.equals(keyValues, that.keyValues);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), keyValues);
     }
 }
