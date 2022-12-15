@@ -93,17 +93,21 @@ Status FileCache::_remove_file(const Path& file, size_t* cleaned_size) {
     bool cache_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->exists(file, &cache_file_exist),
                                    "Check local cache file exist failed.");
+    size_t file_size = 0;
     if (cache_file_exist) {
-        if (cleaned_size) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    io::global_local_filesystem()->file_size(file, cleaned_size),
-                    fmt::format("get local cache file size failed: {}", file.native()));
-        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->file_size(file, &file_size),
+                fmt::format("get local cache file size failed: {}", file.native()));
+
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 io::global_local_filesystem()->delete_file(file),
                 fmt::format("Delete local cache file failed: {}", file.native()));
+        LOG(INFO) << "Delete local cache file successfully: " << file.native()
+                  << ", file size: " << file_size;
     }
-    LOG(INFO) << "Delete local cache file successfully: " << file.native();
+    if (cleaned_size) {
+        *cleaned_size = file_size;
+    }
     return Status::OK();
 }
 
@@ -114,8 +118,16 @@ Status FileCache::_remove_cache_and_done(const Path& cache_file, const Path& cac
     return Status::OK();
 }
 
-Status FileCache::_get_dir_file(const Path& cache_dir, std::vector<Path>& cache_names,
-                                std::vector<Path>& unfinished_files) {
+Status FileCache::_get_dir_files_and_remove_unfinished(const Path& cache_dir,
+                                                       std::vector<Path>& cache_names) {
+    bool cache_dir_exist = true;
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            io::global_local_filesystem()->exists(cache_dir, &cache_dir_exist),
+            fmt::format("Check local cache dir exist failed. {}", cache_dir.native()));
+    if (!cache_dir_exist) {
+        return Status::OK();
+    }
+
     // list all files
     std::vector<Path> cache_file_names;
     RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -142,12 +154,12 @@ Status FileCache::_get_dir_file(const Path& cache_dir, std::vector<Path>& cache_
             cache_names.push_back(std::move(cache_filename));
         } else {
             // not data file, but with DONE file
-            unfinished_files.push_back(std::move(done_file));
+            RETURN_IF_ERROR(_remove_file(done_file, nullptr));
         }
     }
     // data file without DONE file
     for (auto& file : cache_names_temp) {
-        unfinished_files.push_back(file);
+        RETURN_IF_ERROR(_remove_file(file, nullptr));
     }
     return Status::OK();
 }
@@ -160,7 +172,15 @@ Status FileCache::_clean_unfinished_files(const std::vector<Path>& unfinished_fi
     return Status::OK();
 }
 
-Status FileCache::_check_and_delete_dir(const Path& cache_dir) {
+Status FileCache::_check_and_delete_empty_dir(const Path& cache_dir) {
+    bool cache_dir_exist = true;
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            io::global_local_filesystem()->exists(cache_dir, &cache_dir_exist),
+            fmt::format("Check local cache dir exist failed. {}", cache_dir.native()));
+    if (!cache_dir_exist) {
+        return Status::OK();
+    }
+
     std::vector<Path> cache_file_names;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->list(cache_dir, &cache_file_names),

@@ -133,44 +133,35 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
 }
 
 Status WholeFileCache::clean_timeout_cache() {
-    bool is_time_out = false;
-    {
-        std::shared_lock<std::shared_mutex> rlock(_cache_lock);
-        if (time(nullptr) - _last_match_time > _alive_time_sec) {
-            is_time_out = true;
-        }
-    }
-    if (is_time_out) {
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
+    _gc_match_time = _last_match_time;
+    if (time(nullptr) - _last_match_time > _alive_time_sec) {
         _clean_cache_internal(nullptr);
     }
     return Status::OK();
 }
 
-Status WholeFileCache::clean_cache_normal() {
-    {
-        std::shared_lock<std::shared_mutex> rlock(_cache_lock);
-        _gc_match_time = _last_match_time;
-    }
-    return clean_timeout_cache();
-}
-
 Status WholeFileCache::clean_all_cache() {
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     return _clean_cache_internal(nullptr);
 }
 
 Status WholeFileCache::clean_one_cache(size_t* cleaned_size) {
-    return _clean_cache_internal(cleaned_size);
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
+    if (_gc_match_time == _last_match_time) {
+        return _clean_cache_internal(cleaned_size);
+    }
+    return Status::OK();
 }
 
 Status WholeFileCache::_clean_cache_internal(size_t* cleaned_size) {
-    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     _cache_file_reader.reset();
     _cache_file_size = 0;
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
     Path done_file =
             _cache_dir / fmt::format("{}{}", WHOLE_FILE_CACHE_NAME, CACHE_DONE_FILE_SUFFIX);
     RETURN_IF_ERROR(_remove_cache_and_done(cache_file, done_file, cleaned_size));
-    return _check_and_delete_dir(_cache_dir);
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 bool WholeFileCache::is_gc_finish() const {

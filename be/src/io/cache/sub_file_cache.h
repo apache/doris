@@ -48,7 +48,7 @@ public:
 
     io::FileReaderSPtr remote_file_reader() const override { return _remote_file_reader; }
 
-    Status clean_cache_normal() override;
+    Status clean_timeout_cache() override;
 
     Status clean_all_cache() override;
 
@@ -68,9 +68,9 @@ private:
     Status _get_need_cache_offsets(size_t offset, size_t req_size,
                                    std::vector<size_t>* cache_offsets);
 
-    size_t _calc_cache_file_size();
-
     std::pair<Path, Path> _cache_path(size_t offset);
+
+    void _init();
 
 private:
     struct SubFileInfo {
@@ -91,6 +91,8 @@ private:
     std::map<size_t, int64_t> _last_match_times;
     // offset_begin -> local file reader
     std::map<size_t, io::FileReaderSPtr> _cache_file_readers;
+
+    std::once_flag init_flag;
 };
 
 } // namespace io

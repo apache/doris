@@ -45,11 +45,11 @@ void DummyFileCache::_add_file_cache(const Path& data_file) {
 
 void DummyFileCache::_load() {
     std::vector<Path> cache_names;
-    if (!_get_dir_file(_cache_dir, cache_names, _unfinished_files).ok()) {
+    if (!_get_dir_files_and_remove_unfinished(_cache_dir, cache_names).ok()) {
         return;
     }
 
-    for (auto file : cache_names) {
+    for (const auto& file : cache_names) {
         _add_file_cache(file);
     }
 }
@@ -57,7 +57,7 @@ void DummyFileCache::_load() {
 Status DummyFileCache::load_and_clean() {
     _load();
     RETURN_IF_ERROR(_clean_unfinished_files(_unfinished_files));
-    return _check_and_delete_dir(_cache_dir);
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 Status DummyFileCache::clean_timeout_cache() {
@@ -71,17 +71,13 @@ Status DummyFileCache::clean_timeout_cache() {
     return Status::OK();
 }
 
-Status DummyFileCache::clean_cache_normal() {
-    return clean_timeout_cache();
-}
-
 Status DummyFileCache::clean_all_cache() {
     while (!_gc_lru_queue.empty()) {
         RETURN_IF_ERROR(_clean_cache_internal(_gc_lru_queue.top().file, nullptr));
         _gc_lru_queue.pop();
     }
     _cache_file_size = 0;
-    return _check_and_delete_dir(_cache_dir);
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 Status DummyFileCache::clean_one_cache(size_t* cleaned_size) {
@@ -92,7 +88,7 @@ Status DummyFileCache::clean_one_cache(size_t* cleaned_size) {
         _gc_lru_queue.pop();
     }
     if (_gc_lru_queue.empty()) {
-        RETURN_IF_ERROR(_check_and_delete_dir(_cache_dir));
+        RETURN_IF_ERROR(_check_and_delete_empty_dir(_cache_dir));
     }
     return Status::OK();
 }

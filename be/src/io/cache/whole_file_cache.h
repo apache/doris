@@ -48,15 +48,13 @@ public:
 
     io::FileReaderSPtr remote_file_reader() const override { return _remote_file_reader; }
 
-    Status clean_timeout_cache();
-
-    Status clean_cache_normal() override;
+    Status clean_timeout_cache() override;
 
     Status clean_all_cache() override;
 
     Status clean_one_cache(size_t* cleaned_size) override;
 
-    int64_t get_oldest_match_time() const override { return _gc_match_time; };
+    int64_t get_oldest_match_time() const override { return _gc_match_time; }
 
     bool is_gc_finish() const override;
 

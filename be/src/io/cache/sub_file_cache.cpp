@@ -50,6 +50,7 @@ SubFileCache::~SubFileCache() {}
 
 Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                              size_t* bytes_read) {
+    _init();
     if (io_ctx.reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
     }
@@ -211,54 +212,33 @@ Status SubFileCache::_get_need_cache_offsets(size_t offset, size_t req_size,
     return Status::OK();
 }
 
-Status SubFileCache::clean_cache_normal() {
-    std::vector<Path> cache_names;
-    std::vector<Path> unfinished_files;
-    {
-        std::shared_lock<std::shared_mutex> rlock(_cache_map_lock);
-        RETURN_IF_ERROR(_get_dir_file(_cache_dir, cache_names, unfinished_files));
-    }
-
+Status SubFileCache::clean_timeout_cache() {
+    _init();
     SubGcQueue gc_queue;
     _gc_lru_queue.swap(gc_queue);
     std::vector<size_t> timeout_keys;
-    size_t disk_file_size {0};
-    for (auto& file : cache_names) {
-        auto str_vec = split(file.native(), "_");
-        size_t offset = std::strtoul(str_vec[str_vec.size() - 1].c_str(), nullptr, 10);
-
+    {
         std::shared_lock<std::shared_mutex> rlock(_cache_map_lock);
-        if (auto iter = _last_match_times.find(offset); iter != _last_match_times.end()) {
+        for (std::map<size_t, int64_t>::const_iterator iter = _last_match_times.cbegin();
+             iter != _last_match_times.cend(); ++iter) {
             if (time(nullptr) - iter->second > _alive_time_sec) {
                 timeout_keys.emplace_back(iter->first);
             } else {
                 _gc_lru_queue.push({iter->first, iter->second});
             }
-        } else {
-            time_t m_time = 0;
-            size_t file_size = 0;
-            Path absolute_path = _cache_dir / file;
-            if (io::global_local_filesystem()->file_size(absolute_path, &file_size).ok() &&
-                FileUtils::mtime(absolute_path.native(), &m_time).ok()) {
-                _gc_lru_queue.push({offset, m_time});
-                disk_file_size += file_size;
-            } else {
-                unfinished_files.push_back(std::move(file));
-            }
         }
     }
-    if (!unfinished_files.empty() || !timeout_keys.empty()) {
-        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
-        for (const auto& file : unfinished_files) {
-            _remove_file(file, nullptr);
-        }
+
+    std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
+    if (timeout_keys.size() > 0) {
         for (std::vector<size_t>::const_iterator iter = timeout_keys.cbegin();
              iter != timeout_keys.cend(); ++iter) {
-            RETURN_IF_ERROR(_clean_cache_internal(*iter, nullptr));
+            size_t cleaned_size = 0;
+            RETURN_IF_ERROR(_clean_cache_internal(*iter, &cleaned_size));
+            _cache_file_size -= cleaned_size;
         }
     }
-    _cache_file_size = disk_file_size + _calc_cache_file_size();
-    return _check_and_delete_dir(_cache_dir);
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 Status SubFileCache::clean_all_cache() {
@@ -268,7 +248,7 @@ Status SubFileCache::clean_all_cache() {
         RETURN_IF_ERROR(_clean_cache_internal(iter->first, nullptr));
     }
     _cache_file_size = 0;
-    return _check_and_delete_dir(_cache_dir);
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 Status SubFileCache::clean_one_cache(size_t* cleaned_size) {
@@ -277,8 +257,7 @@ Status SubFileCache::clean_one_cache(size_t* cleaned_size) {
         {
             std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
             if (auto it = _last_match_times.find(cache.offset);
-                it == _last_match_times.end() ||
-                (it != _last_match_times.end() && it->second == cache.last_match_time)) {
+                it != _last_match_times.end() && it->second == cache.last_match_time) {
                 RETURN_IF_ERROR(_clean_cache_internal(cache.offset, cleaned_size));
                 _cache_file_size -= *cleaned_size;
                 _gc_lru_queue.pop();
@@ -293,7 +272,8 @@ Status SubFileCache::clean_one_cache(size_t* cleaned_size) {
         }
     }
     if (_gc_lru_queue.empty()) {
-        RETURN_IF_ERROR(_check_and_delete_dir(_cache_dir));
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
+        RETURN_IF_ERROR(_check_and_delete_empty_dir(_cache_dir));
     }
     return Status::OK();
 }
@@ -302,17 +282,38 @@ Status SubFileCache::_clean_cache_internal(size_t offset, size_t* cleaned_size) 
     if (_cache_file_readers.find(offset) != _cache_file_readers.end()) {
         _cache_file_readers.erase(offset);
     }
+    if (_last_match_times.find(offset) != _last_match_times.end()) {
+        _last_match_times.erase(offset);
+    }
     auto [cache_file, done_file] = _cache_path(offset);
     return _remove_cache_and_done(cache_file, done_file, cleaned_size);
 }
 
-size_t SubFileCache::_calc_cache_file_size() {
-    std::shared_lock<std::shared_mutex> rlock(_cache_map_lock);
-    size_t cache_file_size = 0;
-    for (const auto& item : _cache_file_readers) {
-        cache_file_size += item.second->size();
-    }
-    return cache_file_size;
+void SubFileCache::_init() {
+    auto init = [this] {
+        std::vector<Path> cache_names;
+
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
+        if (!_get_dir_files_and_remove_unfinished(_cache_dir, cache_names).ok()) {
+            return;
+        }
+        for (const auto& file : cache_names) {
+            auto str_vec = split(file.native(), "_");
+            size_t offset = std::strtoul(str_vec[str_vec.size() - 1].c_str(), nullptr, 10);
+
+            size_t file_size = 0;
+            auto path = _cache_dir / file;
+            if (io::global_local_filesystem()->file_size(path, &file_size).ok()) {
+                _last_match_times[offset] = time(nullptr);
+                _cache_file_size += file_size;
+            } else {
+                LOG(WARNING) << "get local cache file size failed:" << path.native();
+                _clean_cache_internal(offset, nullptr);
+            }
+        }
+    };
+
+    std::call_once(init_flag, init);
 }
 
 } // namespace io
