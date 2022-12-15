@@ -49,12 +49,19 @@ public class MaskLastN extends ScalarFunction implements ExplicitlyCastableSigna
         super("mask_last_n", arg, arg1);
     }
 
+    public MaskLastN(Expression arg) {
+        this(arg, null);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MaskLastN withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1);
+        if (children.size() == 1) {
+            return new MaskLastN(children.get(0));
+        }
         return new MaskLastN(children.get(0), children.get(1));
     }
 

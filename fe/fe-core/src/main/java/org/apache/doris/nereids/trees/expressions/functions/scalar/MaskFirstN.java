@@ -49,12 +49,19 @@ public class MaskFirstN extends ScalarFunction implements ExplicitlyCastableSign
         super("mask_first_n", arg, arg1);
     }
 
+    public MaskFirstN(Expression arg) {
+        this(arg, null);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MaskFirstN withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1);
+        if (children.size() == 1) {
+            return new MaskFirstN(children.get(0));
+        }
         return new MaskFirstN(children.get(0), children.get(1));
     }
 
