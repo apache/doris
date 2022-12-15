@@ -3956,6 +3956,10 @@ cancel_param ::=
     {:
         RESULT = new CancelLoadStmt(db, parser.where);
     :}
+    | KW_EXPORT opt_db:db opt_wild_where
+    {:
+        RESULT = new CancelExportStmt(db, parser.where);
+    :}
     | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table cancel_rollup_job_id_list:list
     {:
         RESULT = new CancelAlterTableStmt(type, table, list);
