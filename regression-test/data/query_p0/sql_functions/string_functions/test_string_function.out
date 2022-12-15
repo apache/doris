@@ -312,6 +312,45 @@ tNEW-STRorigin str
 d***is
 
 -- !sql --
+hello
+
+-- !sql --
+hello world
+
+-- !sql --
+hello world
+
+-- !sql --
+world
+
+-- !sql --
+hello world
+
+-- !sql --
+hello world
+
+-- !sql --
+prefix__string2
+
+-- !sql --
+prefix_
+
+-- !sql --
+prefix_string2
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+prefix_string
+
+-- !sql --
 \N
 
 -- !sql --
@@ -328,4 +367,3 @@ tNEW-STRorigin str
 
 -- !sql --
 d***is
-
