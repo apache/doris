@@ -21,19 +21,20 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "runtime/stream_load/stream_load_pipe.h" // for StreamLoadPipe
+#include "io/fs/stream_load_pipe_reader.h"
 #include "util/doris_metrics.h"
-#include "util/uid_util.h" // for std::hash for UniqueId
+#include "util/uid_util.h"
 
 namespace doris {
 
 // used to register all streams in process so that other module can get this stream
-class LoadStreamMgr {
+// TODO(ftw): should be renamed to `LoadStreamMgr` after new file reader is ready.
+class NewLoadStreamMgr {
 public:
-    LoadStreamMgr();
-    ~LoadStreamMgr();
+    NewLoadStreamMgr();
+    ~NewLoadStreamMgr();
 
-    Status put(const UniqueId& id, std::shared_ptr<StreamLoadPipe> stream) {
+    Status put(const UniqueId& id, std::shared_ptr<io::StreamLoadPipeReader> stream) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
@@ -44,7 +45,7 @@ public:
         return Status::OK();
     }
 
-    std::shared_ptr<StreamLoadPipe> get(const UniqueId& id) {
+    std::shared_ptr<io::StreamLoadPipeReader> get(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it == std::end(_stream_map)) {
@@ -66,7 +67,6 @@ public:
 
 private:
     std::mutex _lock;
-    std::unordered_map<UniqueId, std::shared_ptr<StreamLoadPipe>> _stream_map;
+    std::unordered_map<UniqueId, std::shared_ptr<io::StreamLoadPipeReader>> _stream_map;
 };
-
 } // namespace doris
