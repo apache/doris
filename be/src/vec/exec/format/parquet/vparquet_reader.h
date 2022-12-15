@@ -79,7 +79,7 @@ public:
 
     Status file_metadata(FileMetaData** metadata);
 
-    void merge_delete_row_ranges(const std::vector<RowRange>& delete_row_ranges);
+    void merge_delete_row_ranges(const std::set<RowRange>& delete_row_ranges);
 
     int64_t size() const { return _file_reader->size(); }
 
@@ -149,7 +149,6 @@ private:
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     std::unique_ptr<FileReader> _file_reader = nullptr;
-    std::vector<RowRange> _delete_row_ranges;
     std::vector<RowRange> _row_ranges;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;

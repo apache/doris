@@ -491,11 +491,11 @@ Status VFileScanner::_get_next_reader() {
             }
             init_status = parquet_reader->init_reader(_file_col_names, _colname_to_value_range,
                                                       _push_down_expr);
-            if (_params.__isset.table_format_params &&
-                _params.table_format_params.table_format_type == "iceberg") {
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "iceberg") {
                 IcebergTableReader* iceberg_reader = new IcebergTableReader(
                         (GenericReader*)parquet_reader, _profile, _state, _params);
-                iceberg_reader->init_row_filters();
+                iceberg_reader->init_row_filters(range);
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 _cur_reader.reset((GenericReader*)parquet_reader);
