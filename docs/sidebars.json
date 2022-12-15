@@ -945,6 +945,7 @@
                                 "sql-manual/sql-reference/Data-Types/SMALLINT",
                                 "sql-manual/sql-reference/Data-Types/TINYINT",
                                 "sql-manual/sql-reference/Data-Types/DECIMAL",
+                                "sql-manual/sql-reference/Data-Types/DECIMALV3",
                                 "sql-manual/sql-reference/Data-Types/BIGINT",
                                 "sql-manual/sql-reference/Data-Types/BOOLEAN",
                                 "sql-manual/sql-reference/Data-Types/FLOAT",
