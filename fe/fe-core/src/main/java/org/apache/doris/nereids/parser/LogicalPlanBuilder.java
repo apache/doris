@@ -783,6 +783,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             case "DATE":
                 return new DateLiteral(value);
             case "DATETIME":
+            case "TIMESTAMP":
                 return new DateTimeLiteral(value);
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
