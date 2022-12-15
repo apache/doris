@@ -106,6 +106,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private void addCatalog(CatalogIf catalog) {
         nameToCatalog.put(catalog.getName(), catalog);
         idToCatalog.put(catalog.getId(), catalog);
+        if (catalog.getResource() != null) {
+            try {
+                Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource())
+                        .addReference(catalog.getName(), ReferenceType.CATALOG);
+            } catch (AnalysisException e) {
+                LOG.error("Catalog {} failed to add reference to resource {}",
+                        catalog.getName(), catalog.getResource(), e);
+            }
+        }
     }
 
     private CatalogIf removeCatalog(long catalogId) {
@@ -115,9 +124,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             nameToCatalog.remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
-            String resource = catalog.getResource();
-            if (resource != null) {
-                Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(resource);
+            if (catalog.getResource() != null) {
+                Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
                 if (catalogResource != null) {
                     catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
                 }

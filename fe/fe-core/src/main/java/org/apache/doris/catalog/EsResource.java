@@ -87,6 +87,7 @@ public class EsResource extends Resource {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        super.modifyProperties(properties);
     }
 
     @Override

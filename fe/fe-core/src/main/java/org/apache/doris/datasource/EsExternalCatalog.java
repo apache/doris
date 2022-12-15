@@ -134,6 +134,16 @@ public class EsExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void notifyPropertiesUpdated() {
+        try {
+            processCompatibleProperties(catalogProperty.getProperties());
+            initLocalObjectsImpl();
+        } catch (DdlException e) {
+            LOG.warn("Failed to notify properties updated to catalog {}", name, e);
+        }
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
         esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
     }

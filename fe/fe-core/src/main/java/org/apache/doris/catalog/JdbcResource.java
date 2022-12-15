@@ -101,6 +101,7 @@ public class JdbcResource extends Resource {
         replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        super.modifyProperties(properties);
     }
 
     @Override

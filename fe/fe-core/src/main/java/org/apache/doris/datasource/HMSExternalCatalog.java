@@ -95,6 +95,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void notifyPropertiesUpdated() {
+        initLocalObjectsImpl();
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
         HiveConf hiveConf = new HiveConf();
         for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {

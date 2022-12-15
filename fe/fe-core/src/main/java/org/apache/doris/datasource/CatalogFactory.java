@@ -25,8 +25,6 @@ import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.Resource.ReferenceType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
 import java.util.Map;
@@ -108,11 +106,6 @@ public class CatalogFactory {
                     break;
                 default:
                     throw new DdlException("Unknown catalog type with resource: " + resource + ", type: " + type);
-            }
-            try {
-                catalogResource.addReference(name, ReferenceType.CATALOG);
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage(), e);
             }
         } else {
             throw new DdlException("Can't provide resource and properties for catalog simultaneously");

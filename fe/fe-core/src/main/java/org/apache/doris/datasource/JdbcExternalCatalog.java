@@ -110,6 +110,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void notifyPropertiesUpdated() {
+        processCompatibleProperties(catalogProperty.getProperties());
+        initLocalObjectsImpl();
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
         jdbcClient = new JdbcClient(jdbcUser, jdbcPasswd, jdbcUrl, driverUrl, driverClass);
         databaseTypeName = jdbcClient.getDbType();
