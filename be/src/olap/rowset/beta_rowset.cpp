@@ -130,20 +130,27 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
     return Status::OK();
 }
 
-Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
-    DCHECK(seg_id >= 0);
-    auto fs = _rowset_meta->fs();
-    if (!fs || _schema == nullptr) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
-    }
-    auto seg_path = segment_file_path(seg_id);
-    auto cache_path = segment_cache_path(seg_id);
-    auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(), _schema,
-                                       segment);
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
-                     << " : " << s.to_string();
-        return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
+Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments) {
+    int64_t seg_id = seg_id_begin;
+    while (seg_id < seg_id_end) {
+        DCHECK(seg_id >= 0);
+        auto fs = _rowset_meta->fs();
+        if (!fs || _schema == nullptr) {
+            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        }
+        auto seg_path = segment_file_path(seg_id);
+        auto cache_path = segment_cache_path(seg_id);
+        std::shared_ptr<segment_v2::Segment> segment;
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(), _schema,
+                                           &segment);
+        if (!s.ok()) {
+            LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
+                         << unique_id() << " : " << s.to_string();
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
+        }
+        segments->push_back(std::move(segment));
+        seg_id++;
     }
     return Status::OK();
 }

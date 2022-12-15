@@ -80,6 +80,8 @@ public:
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
+    int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
+
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);

@@ -84,6 +84,8 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
+    virtual int32_t get_atomic_num_segment() const = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
