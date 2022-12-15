@@ -15,27 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
+package org.apache.doris.nereids.jobs.joinorder;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
+import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 
-import java.util.HashMap;
-import java.util.List;
+import org.junit.jupiter.api.Test;
 
-/**
- * A interface of receiver
- */
-public interface AbstractReceiver {
-    boolean emitCsgCmp(long csg, long cmp, List<Edge> edges,
-            HashMap<Long, NamedExpression> projectExpression);
-
-    void addGroup(long bitSet, Group group);
-
-    boolean contain(long bitSet);
-
-    void reset();
-
-    Group getBestPlan(long bitSet);
+public class TPCHTest extends TPCHTestBase {
+    @Test
+    void testQ5() {
+        PlanChecker.from(connectContext)
+                .analyze(TPCHUtils.Q5)
+                .rewrite()
+                .deriveStats()
+                .orderJoin()
+                .optimize();
+    }
 }
