@@ -760,7 +760,7 @@ public class DateLiteral extends LiteralExpr {
             this.type = Type.DATE;
         } else if (dateLiteralType == DateLiteralType.DATETIMEV2.value()) {
             fromPackedDatetimeV2(in.readLong());
-            this.type = ScalarType.createDatetimeV2Type(in.readShort());
+            this.type = ScalarType.createDatetimeV2Type(in.readInt());
         } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
             fromPackedDateV2(in.readLong());
             this.type = Type.DATEV2;
