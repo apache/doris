@@ -60,7 +60,7 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Group root;
+    private Group root;
 
     // FOR TEST ONLY
     public Memo() {
@@ -71,8 +71,22 @@ public class Memo {
         root = init(plan);
     }
 
+    public static long getStateId() {
+        return stateId;
+    }
+
     public Group getRoot() {
         return root;
+    }
+
+    /**
+     * This function used to update the root group when DPHyp change the root Group
+     * Note it only used in DPHyp
+     *
+     * @param root The new root Group
+     */
+    public void setRoot(Group root) {
+        this.root = root;
     }
 
     public List<Group> getGroups() {
@@ -81,10 +95,6 @@ public class Memo {
 
     public Map<GroupExpression, GroupExpression> getGroupExpressions() {
         return groupExpressions;
-    }
-
-    public static long getStateId() {
-        return stateId;
     }
 
     /**
