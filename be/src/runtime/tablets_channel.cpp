@@ -127,6 +127,7 @@ Status TabletsChannel::close(
                 if (_broken_tablets.find(it.second->tablet_id()) != _broken_tablets.end()) {
                     LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
                                  << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
+                    continue;
                 }
                 need_wait_writers.insert(it.second);
             } else {
