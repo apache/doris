@@ -258,7 +258,8 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
             RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&vexprs));
             _runtime_filter_ctxs[i].apply_mark = true;
         } else if ((wait || !runtime_filter->is_ready_or_timeout()) &&
-                   runtime_filter->current_state() == RuntimeFilterState::NOT_READY) {
+                   runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
+                   !_runtime_filter_ctxs[i].apply_mark) {
             _blocked_by_rf = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {
             DCHECK(!_blocked_by_rf &&
@@ -266,10 +267,10 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
             _is_all_rf_applied = false;
         }
     }
-    if (_blocked_by_rf) {
-        return Status::WaitForRf("");
-    }
     RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
+    if (_blocked_by_rf) {
+        return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
+    }
 
     return Status::OK();
 }

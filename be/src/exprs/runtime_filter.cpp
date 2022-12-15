@@ -1257,6 +1257,9 @@ bool IRuntimeFilter::await() {
             return true;
         }
         return false;
+    } else if (_state->enable_pipeline_exec() &&
+               _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::TIME_OUT) {
+        return false;
     } else if (!_state->enable_pipeline_exec()) {
         SCOPED_TIMER(_await_time_cost);
         std::unique_lock<std::mutex> lock(_inner_mutex);

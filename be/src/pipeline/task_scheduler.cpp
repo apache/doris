@@ -246,7 +246,8 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = task->execute(&eos);
         task->set_previous_core_id(index);
         if (!status.ok()) {
-            LOG(WARNING) << "Pipeline task execute task fail " << task->debug_string();
+            LOG(WARNING) << "Pipeline task execute task fail " << task->debug_string() << " "
+                         << status.to_string();
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "execute fail");
             _try_close_task(task, CANCELED);

@@ -86,7 +86,7 @@ Status PipelineTask::open() {
     }
     if (st.ok()) {
         if (_sink) {
-            RETURN_IF_ERROR(_sink->open(_state));
+            st = _sink->open(_state);
         }
         _opened = true;
     }
@@ -212,12 +212,12 @@ void PipelineTask::set_state(PipelineTaskState state) {
 
 std::string PipelineTask::debug_string() const {
     std::stringstream ss;
-    ss << "PipelineTask(" << _index << ")" << get_state_name(_cur_state) << "\nsink: ";
-    ss << _sink->debug_string();
-    ss << "\n operators(from source to root)";
-    for (auto operatr : _operators) {
-        ss << "\n" << operatr->debug_string();
+    ss << "PipelineTask[id = " << _index << ", state = " << get_state_name(_cur_state)
+       << "]\noperators: ";
+    for (size_t i = 0; i < _operators.size(); i++) {
+        ss << "\n" << string(i * 2, ' ') << _operators[i]->debug_string();
     }
+    ss << "\n" << string(_operators.size() * 2, ' ') << _sink->debug_string();
     return ss.str();
 }
 
