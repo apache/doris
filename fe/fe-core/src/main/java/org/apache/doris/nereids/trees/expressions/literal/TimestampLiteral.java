@@ -18,60 +18,32 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
-import org.apache.doris.nereids.util.DateUtils;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Instant;
-import org.joda.time.format.DateTimeFormatter;
 
 import java.util.Objects;
 
 /**
  * time stamp literal
  */
-public class TimeStampLiteral extends DateLiteral {
-    private static final Logger LOG = LogManager.getLogger(TimeStampLiteral.class);
-    private static DateTimeFormatter TIMESTAMP_FORMATTER = null;
+public class TimestampLiteral extends DateTimeLiteral {
     private final Instant timeStamp;
 
-    static {
-        try {
-            TIMESTAMP_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
-        } catch (AnalysisException e) {
-            LOG.error("invalid date format", e);
-            System.exit(-1);
-        }
-    }
-
-    public TimeStampLiteral(String timeString) {
-        this(DateTimeType.INSTANCE, timeString);
-    }
-
-    public TimeStampLiteral(DateLikeType type, String timeString) {
-        super(type);
+    public TimestampLiteral(String timeString) {
+        super(timeString);
         init(timeString);
-        timeStamp = checkAndMaybeSetValue(timeString);
+        timeStamp = checkAndMaybeSetValue(getStringValue());
     }
 
-    public TimeStampLiteral(long year, long month, long day, long hour, long minute, long second) {
-        this(DateTimeType.INSTANCE, year, month, day, hour, minute, second);
-    }
-
-    public TimeStampLiteral(DateLikeType type, long year, long month, long day, long hour, long minute, long second) {
-        super(type);
-        String timeString = String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-        init(timeString);
-        timeStamp = checkAndMaybeSetValue(timeString);
+    public TimestampLiteral(long year, long month, long day, long hour, long minute, long second) {
+        super(year, month, day, hour, minute, second);
+        timeStamp = checkAndMaybeSetValue(getStringValue());
     }
 
     private Instant checkAndMaybeSetValue(String timeString) {
-        return Objects.requireNonNull(Instant.parse(timeString, TIMESTAMP_FORMATTER), "timestamp format error");
+        return Objects.requireNonNull(Instant.parse(timeString), "invalid timestamp literal");
     }
 
     @Override
@@ -100,7 +72,7 @@ public class TimeStampLiteral extends DateLiteral {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        TimeStampLiteral that = (TimeStampLiteral) o;
+        TimestampLiteral that = (TimestampLiteral) o;
         return Objects.equals(timeStamp, that.timeStamp);
     }
 

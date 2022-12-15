@@ -163,7 +163,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -786,7 +786,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             case "DATETIME":
                 return new DateTimeLiteral(value);
             case "TIMESTAMP":
-                return new TimeStampLiteral(value);
+                return new TimestampLiteral(value);
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
