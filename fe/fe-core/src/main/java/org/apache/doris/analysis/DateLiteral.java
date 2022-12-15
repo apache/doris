@@ -690,7 +690,7 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIMEV2;
     }
 
-    private void fromPackedDateV2(int packedTime) {
+    private void fromPackedDateV2(long packedTime) {
         day = packedTime % (1 << 5);
         long ym = packedTime >> 5;
         month = ym % (1 << 4);
@@ -704,8 +704,8 @@ public class DateLiteral extends LiteralExpr {
             | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
     }
 
-    private int makePackedDateV2() {
-        return (int) ((year << 9) | (month << 5) | day);
+    private long makePackedDateV2() {
+        return ((year << 9) | (month << 5) | day);
     }
 
     @Override
@@ -721,10 +721,10 @@ public class DateLiteral extends LiteralExpr {
         } else if (this.type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
             out.writeShort(DateLiteralType.DATETIMEV2.value());
             out.writeLong(makePackedDatetimeV2());
-            out.writeShort(((ScalarType) this.type).getScalarScale());
+            out.writeInt(((ScalarType) this.type).getScalarScale());
         } else if (this.type.equals(Type.DATEV2)) {
             out.writeShort(DateLiteralType.DATEV2.value());
-            out.writeInt(makePackedDateV2());
+            out.writeLong(makePackedDateV2());
         } else {
             throw new IOException("Error date literal type : " + type);
         }
@@ -762,7 +762,7 @@ public class DateLiteral extends LiteralExpr {
             fromPackedDatetimeV2(in.readLong());
             this.type = ScalarType.createDatetimeV2Type(in.readShort());
         } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
-            fromPackedDateV2(in.readInt());
+            fromPackedDateV2(in.readLong());
             this.type = Type.DATEV2;
         } else {
             throw new IOException("Error date literal type : " + type);
