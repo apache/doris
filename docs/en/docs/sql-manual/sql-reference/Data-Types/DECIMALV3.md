@@ -26,7 +26,7 @@ under the License.
 
 ## DECIMALV3
 ### Description
-DECIMAL (M [,D])
+DECIMALV3 (M [,D])
 
 High-precision fixed-point number, M represents the total number of significant digits, and D represents the scale.
 
