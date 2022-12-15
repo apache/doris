@@ -979,7 +979,8 @@ build_abseil() {
         -DABSL_ENABLE_INSTALL=ON \
         -DBUILD_DEPS=ON \
         -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_SHARED_LIBS=OFF
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CXX_STANDARD=11
 
     cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
     cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
