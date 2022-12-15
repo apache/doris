@@ -221,6 +221,15 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
+# abseil patch
+cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+if [[ ! -f "${PATCHED_MARK}" ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/absl.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ABSEIL_SOURCE}"
+
 # glog patch
 cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
