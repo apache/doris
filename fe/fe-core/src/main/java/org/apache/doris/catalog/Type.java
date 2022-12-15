@@ -513,8 +513,11 @@ public abstract class Type {
             return false;
         } else if (targetType.isStructType() && sourceType.isStringType()) {
             return true;
+<<<<<<< HEAD
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
+=======
+>>>>>>> [feature](struct-type) add children column when create table
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
