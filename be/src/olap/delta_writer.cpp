@@ -167,7 +167,7 @@ Status DeltaWriter::write(Tuple* tuple) {
         return _cancel_status;
     }
 
-    _total_rows++;
+    _total_received_rows++;
     _mem_table->insert(tuple);
 
     // if memtable is full, push it to the flush executor,
@@ -193,7 +193,7 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
         return _cancel_status;
     }
 
-    _total_rows += row_idxs.size();
+    _total_received_rows += row_idxs.size();
     for (const auto& row_idx : row_idxs) {
         _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
     }
@@ -222,7 +222,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return _cancel_status;
     }
 
-    _total_rows += row_idxs.size();
+    _total_received_rows += row_idxs.size();
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
@@ -362,10 +362,10 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
 
     _mem_table.reset();
 
-    if (_rowset_writer->num_rows() + _merged_rows != _total_rows) {
-        LOG(WARNING) << "the rows number written doesn't match, rowset num_rows: "
+    if (_rowset_writer->num_rows() + _merged_rows != _total_received_rows) {
+        LOG(WARNING) << "the rows number written doesn't match, rowset num rows written to file: "
                      << _rowset_writer->num_rows() << ", merged_rows: " << _merged_rows
-                     << ", total_rows: " << _total_rows;
+                     << ", total received rows: " << _total_received_rows;
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
     // use rowset meta manager to save meta
