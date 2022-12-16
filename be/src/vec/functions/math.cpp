@@ -425,7 +425,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<                                                                      \
             FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>();    \
     factory.register_function<                                                                          \
-            FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round, TieBreakingMode::Banker>>();
+            FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round, TieBreakingMode::Bankers>>();
 
     REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
     REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)

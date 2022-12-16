@@ -377,7 +377,6 @@ TEST(MathFunctionTest, round_bankers_test) {
 
         DataSet data_set = {{{0.4}, 0.0}, {{-3.5}, -4.0}, {{4.5}, 4.0}};
         check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
-
     }
 }
 
