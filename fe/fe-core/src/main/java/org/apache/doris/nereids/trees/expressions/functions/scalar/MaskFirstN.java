@@ -50,7 +50,7 @@ public class MaskFirstN extends ScalarFunction implements ExplicitlyCastableSign
     }
 
     public MaskFirstN(Expression arg) {
-        this(arg, null);
+        super("mask_first_n", arg);
     }
 
     /**
