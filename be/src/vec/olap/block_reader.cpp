@@ -416,8 +416,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 bool BlockReader::_get_next_row_same() {
     if (_next_row.is_same) {
         return true;
-    }
-    else {
+    } else {
         auto block = _next_row.block.get();
         return block->get_same_bit(_next_row.row_pos);
     }
