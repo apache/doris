@@ -72,6 +72,9 @@ Status HdfsFileReader::open() {
 
     RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
     _hdfs_fs = _fs_handle->hdfs_fs;
+    if (hdfsExists(_hdfs_fs, _path.c_str()) != 0) {
+        return Status::NotFound("{} not exists!", _path);
+    }
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         if (_fs_handle->from_cache) {
