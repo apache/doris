@@ -21,7 +21,6 @@ suite("test_bitmap_filter", "query_p0") {
     def tbl3 = "baseall"
 
     sql "set runtime_filter_type = 16"
-    sql "set enable_vectorized_engine = true"
     sql "use test_query_db"
     sql "DROP TABLE IF EXISTS ${tbl2}"
     sql """

@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_array_functions_by_literal") {
-    sql "set enable_vectorized_engine = true"
-
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
     qt_sql "select array_contains([1,2,3], 4)"

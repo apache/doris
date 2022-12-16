@@ -76,9 +76,6 @@ suite("test_select_stddev_variance_window") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
-    // Not Vectorized
-    sql """ set enable_vectorized_engine = false """
-
     sql "sync"
 
     qt_select_default  "select k1, stddev_pop(k2) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from  ${tableName} order by k1;"
@@ -108,9 +105,6 @@ suite("test_select_stddev_variance_window") {
     qt_select_default  "select k1, variance_samp(k2) over (partition by k6 order by k1 rows between current row and current row) from   ${tableName} order by k1;"
     qt_select_default  "select k1, variance_samp(k2) over (partition by k6 order by k1 rows between current row and unbounded following) from  ${tableName} order by k1;"
     qt_select_default  "select k1, variance_samp(k2) over (partition by k6 order by k1) from  ${tableName} order by k1;"
-
-    // vectorized
-    sql """ set enable_vectorized_engine = true """
 
     qt_select_default  "select k1, stddev_pop(k2) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from ${tableName} order by k1;"
     qt_select_default  "select k1, stddev_pop(k2) over (partition by k6 order by k1 rows between 3 preceding and 1 preceding) from  ${tableName} order by k1;"
