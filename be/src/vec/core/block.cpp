@@ -341,8 +341,7 @@ void Block::set_num_rows(size_t length) {
             }
         }
         if (length < row_same_bit.size()) {
-            std::vector<bool> tmp_row_same_bit(row_same_bit.begin(),
-                                                   row_same_bit.begin() + length);
+            std::vector<bool> tmp_row_same_bit(row_same_bit.begin(), row_same_bit.begin() + length);
             row_same_bit = tmp_row_same_bit;
         }
     }
@@ -360,8 +359,7 @@ void Block::skip_num_rows(int64_t& length) {
             }
         }
         if (length < row_same_bit.size()) {
-            std::vector<bool> tmp_row_same_bit(row_same_bit.begin() + length,
-                                                   row_same_bit.end());
+            std::vector<bool> tmp_row_same_bit(row_same_bit.begin() + length, row_same_bit.end());
             row_same_bit = tmp_row_same_bit;
         }
     }
