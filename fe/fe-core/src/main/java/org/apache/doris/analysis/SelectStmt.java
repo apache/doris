@@ -997,6 +997,11 @@ public class SelectStmt extends QueryStmt {
                     // use col name from tableRefs first
                     havingClauseAfterAnaylzed = havingClause.clone();
                     havingClauseAfterAnaylzed.analyze(analyzer);
+                    // according to mysql
+                    // following case we should use alias name k2 for having
+                    //     example: select k1, sum(k2) k2 from table group by k1 having k2 > 1;
+                    // in this case we will not get an exception, but we still need a substitute
+                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
                 } catch (AnalysisException ex) {
                     // then consider alias name
                     havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
