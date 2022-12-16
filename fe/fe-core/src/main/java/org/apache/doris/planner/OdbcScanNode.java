@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -53,11 +54,18 @@ public class OdbcScanNode extends ScanNode {
 
     // Now some database have different function call like doris, now doris do not
     // push down the function call except MYSQL
+    // TODO: maybe add a config to decide whether to pushdown the function of MYSQL
     public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         if (!tableType.equals(TOdbcTableType.MYSQL)) {
             List<FunctionCallExpr> fnExprList = Lists.newArrayList();
             expr.collect(FunctionCallExpr.class, fnExprList);
             if (!fnExprList.isEmpty()) {
+                return false;
+            }
+            //oracle date type is not push down https://github.com/apache/doris/discussions/15069
+            //TODO: Now not sure how to rewrite the needed expr and doesn't affect other normal
+            //if we could rewrite the expr according to the format, then can pushdown this.
+            if (tableType.equals(TOdbcTableType.ORACLE) && expr.contains(DateLiteral.class)) {
                 return false;
             }
         }
