@@ -208,6 +208,7 @@ enum IndexType {
     BITMAP = 0;
     INVERTED = 1;
     BLOOMFILTER = 2;
+    NGRAM_BF = 3;
 }
 
 message TabletIndexPB {

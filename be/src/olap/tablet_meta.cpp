@@ -164,20 +164,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         column->set_has_bitmap_index(true);
                         break;
                     }
-                } else if (index.index_type == TIndexType::type::NGRAM_BF) {
-                    DCHECK_EQ(index.columns.size(), 1);
-                    if (iequal(tcolumn.column_name, index.columns[0])) {
-                        // for ngram bloom filter params, validated in FE
-                        DCHECK_EQ(index.arguments.size(), 2);
-                        const auto& exprNode0 = index.arguments[0].nodes;
-                        DCHECK_EQ(exprNode0.size(), 1);
-                        column->set_gram_size(exprNode0[0].int_literal.value);
-                        const auto& exprNode1 = index.arguments[1].nodes;
-                        DCHECK_EQ(exprNode1.size(), 1);
-                        column->set_gram_bf_size(exprNode1[0].int_literal.value);
-                        column->set_ngram_bf_column(true);
-                        break;
-                    }
                 }
             }
         }
@@ -208,7 +194,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             case TIndexType::BLOOMFILTER:
                 index_pb->set_index_type(IndexType::BLOOMFILTER);
                 break;
+            case TIndexType::NGRAM_BF:
+                index_pb->set_index_type(IndexType::NGRAM_BF);
+                break;
             }
+
             if (index.__isset.properties) {
                 auto properties = index_pb->mutable_properties();
                 for (auto kv : index.properties) {

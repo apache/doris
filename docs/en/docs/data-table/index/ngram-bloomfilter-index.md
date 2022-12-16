@@ -36,8 +36,8 @@ During create table：
 CREATE TABLE `table3` (
   `siteid` int(11) NULL DEFAULT "10" COMMENT "",
   `citycode` smallint(6) NULL COMMENT "",
-  `username` varchar(32) NULL DEFAULT "" COMMENT "",
-  INDEX idx_ngrambf (`username`) USING NGRAM_BF (3,256) COMMENT 'username ngram_bf index'
+  `username` varchar(100) NULL DEFAULT "" COMMENT "",
+  INDEX idx_ngrambf (`username`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256") COMMENT 'username ngram_bf index'
 ) ENGINE=OLAP
 AGGREGATE KEY(`siteid`, `citycode`, `username`) COMMENT "OLAP"
 DISTRIBUTED BY HASH(`siteid`) BUCKETS 10
@@ -45,8 +45,8 @@ PROPERTIES (
 "replication_num" = "1"
 );
 
--- (3,256)，indicate the number of gram and bytes of bloom filter respectively.
--- the gram size set to same as the most like query need. and the suitable bytes of bloom filter can be get by test.
+-- PROPERTIES("gram_size"="3", "bf_size"="1024")，indicate the number of gram and bytes of bloom filter respectively.
+-- the gram size set to same as the like query pattern string length. and the suitable bytes of bloom filter can be get by test, more larger more better, 256 maybe is a good start.
 -- Usually, if the data's cardinality is small, you can increase the bytes of bloom filter to improve the efficiency.
 ```
 
@@ -68,7 +68,7 @@ alter table example_db.table3 drop index idx_ngrambf;
 Add NGram BloomFilter Index for old column:
 
 ```sql
-alter table example_db.table3 add index idx_ngrambf(username) using NGRAM_BF(3, 256) comment 'username ngram_bf index' 
+alter table example_db.table3 add index idx_ngrambf(username) using NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="512")comment 'username ngram_bf index' 
 ```
 
 ## **Some notes about Doris NGram BloomFilter**

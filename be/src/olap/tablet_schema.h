@@ -71,9 +71,6 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
-    inline bool is_ngram_bf_column() const { return _is_ngram_bf_column; }
-    inline uint8_t get_gram_size() const { return _gram_size; }
-    inline uint16_t get_gram_bf_size() const { return _gram_bf_size; }
 
     /**
      * Add a sub column.
@@ -118,9 +115,6 @@ private:
     TabletColumn* _parent = nullptr;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
-    bool _is_ngram_bf_column = false;
-    uint8_t _gram_size;
-    uint16_t _gram_bf_size;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -139,6 +133,18 @@ public:
     const IndexType index_type() const { return _index_type; }
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
+    int32_t get_gram_size() const {
+        if (_properties.count("gram_size"))
+            return std::stoi(_properties.at("gram_size"));
+        else
+            return 0;
+    }
+    int32_t get_gram_bf_size() const {
+        if (_properties.count("bf_size"))
+            return std::stoi(_properties.at("bf_size"));
+        else
+            return 0;
+    }
 
 private:
     int64_t _index_id;
@@ -196,6 +202,8 @@ public:
     std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
     bool has_inverted_index(int32_t col_unique_id) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
+    bool has_ngram_bf_index(int32_t col_unique_id) const;
+    const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
 
     int32_t schema_version() const { return _schema_version; }
