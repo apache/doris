@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW-FUNCTIONS
+## SHOW-TYPECAST
 
 ### Name
 
