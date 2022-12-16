@@ -496,7 +496,8 @@ public class Alter {
         boolean swapTable = clause.isSwapTable();
         db.writeLockOrDdlException();
         try {
-            Table newTbl = db.getTableViewOrMetaException(newTblName);
+            List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
+            Table newTbl = db.getTableOrMetaException(newTblName, tableTypes);
             OlapTable olapNewTbl = (OlapTable) newTbl;
             List<Table> tableList = Lists.newArrayList(origTable, newTbl);
             tableList.sort((Comparator.comparing(Table::getId)));

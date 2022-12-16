@@ -29,7 +29,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
@@ -42,7 +41,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,20 +54,20 @@ public class MTMVTaskProcessor {
     void process(MTMVTaskContext context) throws Exception {
         String taskId = context.getTask().getTaskId();
         long jobId = context.getJob().getId();
-        LOG.info("run mv logic start, task_id:{}, jobid:{}", taskId, jobId);
+        LOG.info("run mtmv logic start, task_id:{}, jobid:{}", taskId, jobId);
         String tableName = context.getTask().getMvName();
         String tmpTableName = genTmpTableName(tableName);
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)
                 .getDbOrAnalysisException(context.getTask().getDbName());
         MaterializedView table = (MaterializedView) db.getTableOrAnalysisException(tableName);
         if (!table.tryMvTaskLock()) {
-            LOG.warn("run mv task  failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, "get lock fail");
+            LOG.warn("run mtmv task  failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, "get lock fail");
             return;
         }
         try {
             //step1 create tmp table
             String tmpCreateTableStmt = genCreateTempMaterializedViewStmt(context, tableName, tmpTableName);
-            //check whther tmp table exists, if exists means run mv task failed before, so need to drop it first
+            //check whther tmp table exists, if exists means run mtmv task failed before, so need to drop it first
             if (db.isTableExist(tmpTableName)) {
                 String dropStml = genDropStml(context, tmpTableName);
                 ConnectContext dropResult = execSQL(context, dropStml);
@@ -104,13 +102,13 @@ public class MTMVTaskProcessor {
             //step4 update task info
             context.getTask().setMessage(insertDataResult.getState().getInfoMessage());
             context.getTask().setState(TaskState.SUCCESS);
-            LOG.info("run mv task success, task_id:{},jobid:{}", taskId, jobId);
+            LOG.info("run mtmv task success, task_id:{},jobid:{}", taskId, jobId);
         } catch (AnalysisException e) {
-            LOG.warn("run mv task failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, e.getMessage());
+            LOG.warn("run mtmv task failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, e.getMessage());
             context.getTask().setMessage("run task failed, caused by " + e.getMessage());
             context.getTask().setState(TaskState.FAILED);
         } catch (Throwable e) {
-            LOG.warn("run mv task failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, e.getMessage());
+            LOG.warn("run mtmv task failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, e.getMessage());
             context.getTask().setMessage("run task failed, caused by " + e.getMessage());
             context.getTask().setState(TaskState.FAILED);
         } finally {
@@ -223,12 +221,6 @@ public class MTMVTaskProcessor {
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
             executor.execute();
-        } catch (IOException e) {
-            LOG.warn("execSQL failed, taskid:{}, msg:{}, stmt:{}", context.getTask().getTaskId(), e.getMessage(),
-                    originStmt);
-        } catch (UserException e) {
-            LOG.warn("execSQL failed, taskid:{}, msg:{}, stmt:{}", context.getTask().getTaskId(), e.getMessage(),
-                    originStmt);
         } catch (Throwable e) {
             LOG.warn("execSQL failed, taskid:{}, msg:{}, stmt:{}", context.getTask().getTaskId(), e.getMessage(),
                     originStmt);

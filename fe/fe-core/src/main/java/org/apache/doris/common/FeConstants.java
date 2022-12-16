@@ -79,5 +79,5 @@ public class FeConstants {
     public static String FS_PREFIX_HDFS = "hdfs";
     public static String FS_PREFIX_FILE = "file";
     public static final String INTERNAL_DB_NAME = "__internal_schema";
-    public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "doris_internal_tmp_multi_view_";
+    public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
 }
