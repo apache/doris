@@ -132,6 +132,10 @@ public class ExpressionUtils {
         return optionalAnd(Lists.newArrayList(expressions));
     }
 
+    public static Optional<Expression> optionalAnd(Collection<Expression> collection) {
+        return optionalAnd(ImmutableList.copyOf(collection));
+    }
+
     public static Expression and(List<Expression> expressions) {
         return combine(And.class, expressions);
     }

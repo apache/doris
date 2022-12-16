@@ -96,7 +96,7 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
 
         for (String expectFilterPredicate : expectFilterPredicates) {
             planChecker.matches(
-                    logicalFilter().when(filter -> filter.getConjuncts().iterator().next().toSql().equals(expectFilterPredicate))
+                    logicalFilter().when(filter -> filter.getPredicate().toSql().equals(expectFilterPredicate))
             );
         }
     }
