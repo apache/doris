@@ -124,17 +124,13 @@ public:
 
     void set_same(bool same) const { _same = same; }
 
-    std::vector<uint64_t> get_pre_ctx_same() const { return _pre_ctx_same_bit; }
+    std::vector<bool> get_pre_ctx_same() const { return _pre_ctx_same_bit; }
 
     void set_pre_ctx_same(VMergeIteratorContext* ctx) const {
         int64_t index = ctx->get_cur_batch() - 1;
         DCHECK(index >= 0);
         DCHECK_LT(index, _pre_ctx_same_bit.size());
-        if (ctx->is_same()) {
-            _pre_ctx_same_bit[index] = 1;
-        } else {
-            _pre_ctx_same_bit[index] = 0;
-        }
+        _pre_ctx_same_bit[index] = ctx->is_same();
     }
 
     size_t get_cur_batch() { return _cur_batch_num; }
@@ -171,7 +167,7 @@ private:
     std::shared_ptr<Block> _block;
     // used to store data still on block view
     std::list<std::shared_ptr<Block>> _block_list;
-    mutable std::vector<uint64_t> _pre_ctx_same_bit;
+    mutable std::vector<bool> _pre_ctx_same_bit;
 };
 
 class VMergeIterator : public RowwiseIterator {

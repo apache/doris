@@ -418,10 +418,7 @@ bool BlockReader::_get_next_row_same() {
         return true;
     else {
         auto block = _next_row.block.get();
-        if (block->get_same_bit(_next_row.row_pos))
-            return true;
-        else
-            return false;
+        return block->get_same_bit(_next_row.row_pos);
     }
 }
 

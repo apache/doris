@@ -164,7 +164,7 @@ void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
     auto tmp_pre_ctx_same_bit = get_pre_ctx_same();
     for (size_t i = 0; i < _cur_batch_num; ++i) {
         view->push_back({_block, static_cast<int>(start + i),
-                         (tmp_pre_ctx_same_bit[i] > 0 ? true : false)});
+                         tmp_pre_ctx_same_bit[i]});
     }
 
     _cur_batch_num = 0;
@@ -261,7 +261,7 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
         RETURN_IF_ERROR(advance());
     }
     _pre_ctx_same_bit.reserve(_block_row_max);
-    _pre_ctx_same_bit.assign(_block_row_max, 0);
+    _pre_ctx_same_bit.assign(_block_row_max, false);
     return Status::OK();
 }
 
