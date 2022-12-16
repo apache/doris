@@ -17,90 +17,19 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
-import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.StringReader;
-import java.util.Arrays;
-import java.util.List;
 
 public class StreamLoadPlannerTest {
-    @Injectable
-    Database db;
-
-    @Injectable
-    OlapTable destTable;
-
-    @Mocked
-    StreamLoadScanNode scanNode;
-
-    @Mocked
-    OlapTableSink sink;
-
-    @Mocked
-    Partition partition;
-
-    @Test
-    public void testNormalPlan() throws UserException {
-        List<Column> columns = Lists.newArrayList();
-        Column c1 = new Column("c1", PrimitiveType.BIGINT, false);
-        columns.add(c1);
-        Column c2 = new Column("c2", PrimitiveType.BIGINT, true);
-        columns.add(c2);
-        new Expectations() {
-            {
-                destTable.getBaseSchema();
-                minTimes = 0;
-                result = columns;
-                destTable.getPartitions();
-                minTimes = 0;
-                result = Arrays.asList(partition);
-                scanNode.init((Analyzer) any);
-                minTimes = 0;
-                scanNode.getChildren();
-                minTimes = 0;
-                result = Lists.newArrayList();
-                scanNode.getId();
-                minTimes = 0;
-                result = new PlanNodeId(5);
-                partition.getId();
-                minTimes = 0;
-                result = 0;
-            }
-        };
-        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
-        request.setTxnId(1);
-        request.setLoadId(new TUniqueId(2, 3));
-        request.setFileType(TFileType.FILE_STREAM);
-        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadPlanner planner = new StreamLoadPlanner(db, destTable, streamLoadTask);
-        planner.plan(streamLoadTask.getId());
-    }
-
     @Test
     public void testParseStmt() throws Exception {
         String sql = new String("COLUMNS (k1, k2, k3=abc(), k4=default_value())");
