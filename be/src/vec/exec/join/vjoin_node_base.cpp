@@ -159,11 +159,16 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
-    std::thread([this, state, thread_status_p = &thread_status,
-                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-        OpentelemetryScope scope {parent_span};
-        this->_probe_side_open_thread(state, thread_status_p);
-    }).detach();
+    try {
+        std::thread([this, state, thread_status_p = &thread_status,
+                     parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+            OpentelemetryScope scope {parent_span};
+            this->_probe_side_open_thread(state, thread_status_p);
+        }).detach();
+    } catch (const std::system_error& e) {
+        LOG(WARNING) << "In VJoinNodeBase::open create thread fail, " << e.what();
+        return Status::InternalError(e.what());
+    }
 
     // Open the probe-side child so that it may perform any initialisation in parallel.
     // Don't exit even if we see an error, we still need to wait for the build thread
