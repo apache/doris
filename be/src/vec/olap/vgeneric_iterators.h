@@ -133,7 +133,7 @@ public:
         _pre_ctx_same_bit[index] = ctx->is_same();
     }
 
-    size_t get_cur_batch() { return _cur_batch_num; }
+    size_t get_cur_batch() const { return _cur_batch_num; }
 
     void add_cur_batch() { _cur_batch_num++; }
 

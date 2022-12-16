@@ -198,7 +198,9 @@ void Block::erase_impl(size_t position) {
             ++it;
         }
     }
-    if (position < row_same_bit.size()) row_same_bit.erase(row_same_bit.begin() + position);
+    if (position < row_same_bit.size()) {
+        row_same_bit.erase(row_same_bit.begin() + position);
+    }
 }
 
 void Block::erase(const String& name) {
