@@ -38,6 +38,16 @@ suite("test_dup_tab_basic_varchar_nullable") {
     )
     """
 
+    sql """insert into ${table1} values(null,'qie3','yy','lj'),
+            (null,'hehe',null,'lala'),
+            ('beijing','xuanwu','wugui',null),
+            ('beijing','fengtai','fengtai1','fengtai2'),
+            ('beijing','chaoyang','wangjing','donghuqu'),
+            ('shanghai','hehe',null,'haha'),
+            ('tengxun','qie','gg','lj'),
+            ('tengxun2','qie',null,'lj')
+    """
+
     // read single column
     test {
         sql "select city from ${table1} order by city"

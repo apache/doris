@@ -18,6 +18,41 @@
 suite("test_bitmap_intersect", "p0") {
 
     def tbName = "test_bitmap_intersect"
+    sql """ DROP TABLE IF EXISTS ${tbName} """
+    sql """ create table if not exists ${tbName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) distributed by hash (tag) PROPERTIES("replication_num" = "1"); """
+    sql """ insert into ${tbName} values('A', to_bitmap(1)); """
+    sql """ insert into ${tbName} values('A', to_bitmap(2)); """
+    sql """ insert into ${tbName} values('A', to_bitmap(3)); """
+    sql """ insert into ${tbName} values('B', to_bitmap(1)); """
+    sql """ insert into ${tbName} values('B', to_bitmap(2)); """
+
+
+   qt_sql  """ select
+       bitmap_to_string(bitmap_intersect(user_ids))
+       from
+       (
+           select
+             tag,
+             bitmap_union(user_ids) user_ids
+           from
+             ${tbName}
+           group by
+             tag
+       ) t
+       """
+   qt_sql  """ select
+       bitmap_to_string(bitmap_intersect(user_ids))
+       from
+       (
+           select
+             tag,
+             bitmap_union(user_ids) user_ids
+           from
+             ${tbName}
+           group by
+             tag having tag not in ("A","B")
+       ) t
+       """
     qt_sql  """ select
        bitmap_to_string(bitmap_intersect(user_ids))
        from
