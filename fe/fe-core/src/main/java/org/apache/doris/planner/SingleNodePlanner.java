@@ -1608,7 +1608,9 @@ public class SingleNodePlanner {
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);
-
+        if (rootNode instanceof UnionNode && ((UnionNode) rootNode).isConstantUnion()) {
+            rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
+        }
         // rootNode.setOutputSmap(ExprSubstitutionMap.compose(inlineViewRef.getBaseTblSmap(),
         //         rootNode.getOutputSmap(), analyzer));
         // Expr.substituteList(inlineViewRef.getViewStmt().getResultExprs(), analyzer.getChangeResSmap());
