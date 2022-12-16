@@ -43,8 +43,7 @@ suite("test_schema_change_with_delete") {
      sql """ delete from ${tbName} where username='aaa';"""
      sql """ insert into ${tbName} values(3, 3, 3, 'ccc');"""
 
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName};"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tbName};"""
+    qt_sql """select * from ${tbName};"""
 
     // Change column type to string
     sql """ alter  table ${tbName} modify column citycode string """
@@ -62,7 +61,6 @@ suite("test_schema_change_with_delete") {
           }
      }
     sql """ insert into ${tbName} values(4, 4, 'efg', 'ddd');"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName};"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tbName};"""
+    qt_sql """select * from ${tbName};"""
     sql """ DROP TABLE  ${tbName} force"""
 }

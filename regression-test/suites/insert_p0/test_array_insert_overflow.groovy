@@ -17,7 +17,6 @@
 
 suite("test_array_insert_overflow") {
     def testTable = "test_array_insert_overflow"
-    sql """ set enable_vectorized_engine = true """
 
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (

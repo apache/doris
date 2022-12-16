@@ -17,9 +17,6 @@
 
 suite ("sub_query_correlated") {
     // enable nereids and vectorized engine
-    sql """
-        SET enable_vectorized_engine=true
-    """
 
     sql """
         SET enable_nereids_planner=true

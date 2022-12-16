@@ -17,10 +17,6 @@
 
 suite("nereids_explain") {
     sql """
-        SET enable_vectorized_engine=true
-    """
-
-    sql """
         SET enable_nereids_planner=true
     """
 

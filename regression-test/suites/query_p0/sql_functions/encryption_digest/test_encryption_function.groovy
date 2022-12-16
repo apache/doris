@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_encryption_function") {
-    sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
     sql "set block_encryption_mode=\"AES_256_CBC\";"
