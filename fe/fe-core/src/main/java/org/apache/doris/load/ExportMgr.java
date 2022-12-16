@@ -35,6 +35,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -117,7 +118,7 @@ public class ExportMgr {
     }
 
     private List<ExportJob> getWaitingCancelJobs(CancelExportStmt stmt) throws AnalysisException {
-        Predicate<ExportJob> jobFilter = buildJobFilter(stmt);
+        Predicate<ExportJob> jobFilter = buildCancelJobFilter(stmt);
         readLock();
         try {
             return getJobs().stream().filter(jobFilter).collect(Collectors.toList());
@@ -126,27 +127,28 @@ public class ExportMgr {
         }
     }
 
-    private Predicate<ExportJob> buildJobFilter(CancelExportStmt stmt) throws AnalysisException {
+    @VisibleForTesting
+    public static Predicate<ExportJob> buildCancelJobFilter(CancelExportStmt stmt) throws AnalysisException {
         String label = stmt.getLabel();
         String state = stmt.getState();
         PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
 
         return job -> {
-            if (stmt.getOperator() != null) {
-                // compound
-                boolean labelFilter =
-                        label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-                boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                return CompoundPredicate.Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
-                        labelFilter || stateFilter;
-            }
+            boolean labelFilter = true;
+            boolean stateFilter = true;
             if (StringUtils.isNotEmpty(label)) {
-                return label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
+                labelFilter = label.contains("%") ? matcher.match(job.getLabel()) :
+                        job.getLabel().equalsIgnoreCase(label);
             }
             if (StringUtils.isNotEmpty(state)) {
-                return job.getState().name().equalsIgnoreCase(state);
+                stateFilter = job.getState().name().equalsIgnoreCase(state);
             }
-            return false;
+
+            if (stmt.getOperator() != null && CompoundPredicate.Operator.OR.equals(stmt.getOperator())) {
+                return labelFilter || stateFilter;
+            }
+
+            return labelFilter && stateFilter;
         };
     }
 
