@@ -85,7 +85,7 @@ The following example is used to create a Catalog named hive to connect the spec
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hadoop.username' = 'hive'
+    'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
@@ -591,7 +591,7 @@ The privilege management of Doris provides an extension to the Cataloig level. F
 
 Metadata changes of external data sources, such as creating, dropping tables, adding or dropping columns, etc., will not be synchronized to Doris.
 
-Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) command.
+Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
 Automatic synchronization of metadata will be supported soon.
 
