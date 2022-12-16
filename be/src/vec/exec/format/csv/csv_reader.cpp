@@ -302,7 +302,8 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* ro
         // col idx is out of range, fill with null.
         const Slice& value =
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        IColumn* col_ptr = const_cast<IColumn*>(block->get_by_position(i).column.get());
+        IColumn* col_ptr =
+                const_cast<IColumn*>(block->get_by_name(src_slot_desc->col_name()).column.get());
         _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
                                           false);
     }
@@ -395,7 +396,7 @@ void CsvReader::_split_line(const Slice& line) {
         //     curpos
 
         while (curpos < line.size) {
-            if (*(value + curpos + p1) != _value_separator[p1]) {
+            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
                 // Not match, move forward:
                 curpos += (p1 == 0 ? 1 : p1);
                 p1 = 0;

@@ -18,7 +18,6 @@
 suite("test_array_column_delete") {
     def tableName = "test_array_column_delete"
 
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """

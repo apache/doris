@@ -121,8 +121,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             status = FileUtils::md5sum(src_path + "/" + local_file, &md5sum);
             if (!status.ok()) {
                 std::stringstream ss;
-                ss << "failed to get md5sum of file: " << local_file << ": "
-                   << status.get_error_msg();
+                ss << "failed to get md5sum of file: " << local_file << ": " << status;
                 LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
@@ -253,7 +252,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                     Status st = FileUtils::md5sum(local_path + "/" + remote_file, &local_md5sum);
                     if (!st.ok()) {
                         LOG(WARNING) << "failed to get md5sum of local file: " << remote_file
-                                     << ". msg: " << st.get_error_msg() << ". download it";
+                                     << ". msg: " << st << ". download it";
                         need_download = true;
                     } else {
                         VLOG_CRITICAL << "get local file checksum: " << remote_file << ": "
@@ -295,8 +294,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             status = FileUtils::md5sum(full_local_file, &downloaded_md5sum);
             if (!status.ok()) {
                 std::stringstream ss;
-                ss << "failed to get md5sum of file: " << full_local_file
-                   << ", err: " << status.get_error_msg();
+                ss << "failed to get md5sum of file: " << full_local_file << ", err: " << status;
                 LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
@@ -323,8 +321,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             std::string new_name;
             Status st = _replace_tablet_id(local_file, remote_tablet_id, &new_name);
             if (!st.ok()) {
-                LOG(WARNING) << "failed to replace tablet id. unknown local file: "
-                             << st.get_error_msg() << ". ignore it";
+                LOG(WARNING) << "failed to replace tablet id. unknown local file: " << st
+                             << ". ignore it";
                 continue;
             }
             VLOG_CRITICAL << "new file name after replace tablet id: " << new_name;
@@ -542,8 +540,7 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     Status status = FileUtils::list_files(Env::Default(), local_path, local_files);
     if (!status.ok()) {
         std::stringstream ss;
-        ss << "failed to list files in local path: " << local_path
-           << ", msg: " << status.get_error_msg();
+        ss << "failed to list files in local path: " << local_path << ", msg: " << status;
         LOG(WARNING) << ss.str();
         return status;
     }

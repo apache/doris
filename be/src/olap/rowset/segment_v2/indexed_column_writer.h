@@ -82,7 +82,7 @@ public:
     Status finish(IndexedColumnMetaPB* meta);
 
 private:
-    Status _finish_current_data_page();
+    Status _finish_current_data_page(size_t& num_val);
 
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 

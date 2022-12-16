@@ -17,8 +17,11 @@
 
 #include "vec/exec/scan/new_olap_scan_node.h"
 
+#include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -34,14 +37,22 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
+    statistics->add_scan_rows(_raw_rows_counter->value());
+    statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
+    return Status::OK();
+}
+
 Status NewOlapScanNode::prepare(RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     return Status::OK();
 }
 
 Status NewOlapScanNode::_init_profile() {
-    VScanNode::_init_profile();
+    RETURN_IF_ERROR(VScanNode::_init_profile());
 
     _num_disks_accessed_counter = ADD_COUNTER(_runtime_profile, "NumDiskAccess", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
@@ -65,6 +76,7 @@ Status NewOlapScanNode::_init_profile() {
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
+    _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
 
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
@@ -135,6 +147,18 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     return filters_string;
 }
 
+inline std::string push_down_agg_to_string(const TPushAggOp::type& op) {
+    if (op == TPushAggOp::MINMAX) {
+        return "MINMAX";
+    } else if (op == TPushAggOp::COUNT) {
+        return "COUNT";
+    } else if (op == TPushAggOp::MIX) {
+        return "MIX";
+    } else {
+        return "NONE";
+    }
+}
+
 static std::string tablets_id_to_string(
         const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
     if (scan_ranges.empty()) {
@@ -160,54 +184,64 @@ Status NewOlapScanNode::_process_conjuncts() {
 }
 
 Status NewOlapScanNode::_build_key_ranges_and_filters() {
-    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
-    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
-    DCHECK(column_types.size() == column_names.size());
+    if (!_olap_scan_node.__isset.push_down_agg_type_opt ||
+        _olap_scan_node.push_down_agg_type_opt == TPushAggOp::NONE) {
+        const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
+        const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
+        DCHECK(column_types.size() == column_names.size());
 
-    // 1. construct scan key except last olap engine short key
-    _scan_keys.set_is_convertible(limit() == -1);
+        // 1. construct scan key except last olap engine short key
+        _scan_keys.set_is_convertible(limit() == -1);
 
-    // we use `exact_range` to identify a key range is an exact range or not when we convert
-    // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
-    bool exact_range = true;
-    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
-         ++column_index) {
-        auto iter = _colname_to_value_range.find(column_names[column_index]);
-        if (_colname_to_value_range.end() == iter) {
-            break;
-        }
+        // we use `exact_range` to identify a key range is an exact range or not when we convert
+        // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
+        bool exact_range = true;
+        bool eos = false;
+        for (int column_index = 0;
+             column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+             ++column_index) {
+            auto iter = _colname_to_value_range.find(column_names[column_index]);
+            if (_colname_to_value_range.end() == iter) {
+                break;
+            }
 
-        RETURN_IF_ERROR(std::visit(
-                [&](auto&& range) {
-                    // make a copy or range and pass to extend_scan_key, keep the range unchanged
-                    // because extend_scan_key method may change the first parameter.
-                    // but the original range may be converted to olap filters, if it's not a exact_range.
-                    auto temp_range = range;
-                    if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
-                        RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
-                                                                   &exact_range));
-                        if (exact_range) {
-                            _colname_to_value_range.erase(iter->first);
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto&& range) {
+                        // make a copy or range and pass to extend_scan_key, keep the range unchanged
+                        // because extend_scan_key method may change the first parameter.
+                        // but the original range may be converted to olap filters, if it's not a exact_range.
+                        auto temp_range = range;
+                        if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
+                                    temp_range, _max_scan_key_num, &exact_range, &eos));
+                            if (exact_range) {
+                                _colname_to_value_range.erase(iter->first);
+                            }
                         }
-                    }
-                    return Status::OK();
-                },
-                iter->second));
-    }
-
-    for (auto& iter : _colname_to_value_range) {
-        std::vector<TCondition> filters;
-        std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
-
-        for (const auto& filter : filters) {
-            _olap_filters.push_back(filter);
+                        return Status::OK();
+                    },
+                    iter->second));
         }
-    }
+        _eos |= eos;
 
-    // Append value ranges in "_not_in_value_ranges"
-    for (auto& range : _not_in_value_ranges) {
-        std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
-                   range);
+        for (auto& iter : _colname_to_value_range) {
+            std::vector<TCondition> filters;
+            std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
+
+            for (const auto& filter : filters) {
+                _olap_filters.push_back(filter);
+            }
+        }
+
+        // Append value ranges in "_not_in_value_ranges"
+        for (auto& range : _not_in_value_ranges) {
+            std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
+                       range);
+        }
+    } else {
+        _runtime_profile->add_info_string(
+                "PushDownAggregate",
+                push_down_agg_to_string(_olap_scan_node.push_down_agg_type_opt));
     }
 
     if (_state->enable_profile()) {
@@ -221,12 +255,15 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
-        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringVal* constant_str,
-        doris_udf::FunctionContext** fn_ctx) {
+Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                          VExprContext* expr_ctx,
+                                                          StringVal* constant_str,
+                                                          doris_udf::FunctionContext** fn_ctx,
+                                                          VScanNode::PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
-        return PushDownType::UNACCEPTABLE;
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
     }
 
     const auto& children = fn_call->children();
@@ -240,19 +277,24 @@ VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
         }
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
-            return PushDownType::UNACCEPTABLE;
+            pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
+            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
+            if (const ColumnConst* const_column =
+                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
-                return PushDownType::UNACCEPTABLE;
+                pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
             }
         }
     }
     *fn_ctx = func_cxt;
-    return PushDownType::ACCEPTABLE;
+    pdt = PushDownType::ACCEPTABLE;
+    return Status::OK();
 }
 
 // PlanFragmentExecutor will call this method to set scan range
@@ -347,8 +389,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
-                                             _olap_filters, _bloom_filters_push_down,
-                                             _in_filters_push_down, _push_down_functions));
+                                             _olap_filters, _filter_predicates,
+                                             _push_down_functions));
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

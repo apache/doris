@@ -185,7 +185,7 @@ private:
     //        jsonpath             simdjson pointer
     // `["$.k1[0]", "$.k2.a"]` -> ["/k1/0", "/k2/a"]
     // notice array index not support `*`
-    // so we are not fully compatible with previous inplementation by rapidjson
+    // so we are not fully compatible with previous implementation by rapidjson
     std::vector<std::string> _parsed_jsonpaths;
     std::string _parsed_json_root;
 

@@ -245,11 +245,17 @@ ARROW_NAME="apache-arrow-7.0.0.tar.gz"
 ARROW_SOURCE="apache-arrow-7.0.0"
 ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
 
+# Abseil
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20220623.1.tar.gz"
+ABSEIL_NAME=abseil-cpp-20220623.1.tar.gz
+ABSEIL_SOURCE=abseil-cpp-20220623.1
+ABSEIL_MD5SUM="2aea7c1171c4c280f755de170295afd6"
+
 # S2
-S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
-S2_NAME=s2geometry-0.9.0.tar.gz
-S2_SOURCE=s2geometry-0.9.0
-S2_MD5SUM="293552c7646193b8b4a01556808fe155"
+S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
+S2_NAME=s2geometry-0.10.0.tar.gz
+S2_SOURCE=s2geometry-0.10.0
+S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
 BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
@@ -270,10 +276,10 @@ FMT_SOURCE="fmt-7.1.3"
 FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
 
 # parallel-hashmap
-PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/1.33.tar.gz"
-PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
-PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
-PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
+PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/refs/tags/v1.3.8.tar.gz"
+PARALLEL_HASHMAP_NAME="parallel-hashmap-1.3.8.tar.gz"
+PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.3.8"
+PARALLEL_HASHMAP_MD5SUM="1b8130d0b4f656257ef654699bfbf941"
 
 # orc
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.7.2/orc-1.7.2.tar.gz"
@@ -339,13 +345,13 @@ XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
 
 # idn
-IDN_DOWNLOAD="https://ftp.gnu.org/gnu/libidn/libidn-1.38.tar.gz"
+IDN_DOWNLOAD="https://ftpmirror.gnu.org/libidn/libidn-1.38.tar.gz"
 IDN_NAME="libidn-1.38.tar.gz"
 IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_DOWNLOAD="https://ftpmirror.gnu.org/gsasl/libgsasl-1.8.0.tar.gz"
 GSASL_NAME="libgsasl-1.8.0.tar.gz"
 GSASL_SOURCE="libgsasl-1.8.0"
 GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
@@ -467,6 +473,7 @@ export TP_ARCHIVES=(
     'ARROW'
     'BROTLI'
     'ZSTD'
+    'ABSEIL'
     'S2'
     'BITSHUFFLE'
     'CROARINGBITMAP'
@@ -502,13 +509,13 @@ export TP_ARCHIVES=(
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils
-    BINUTILS_DOWNLOAD='https://mirrors.aliyun.com/gnu/binutils/binutils-2.39.tar.gz'
+    BINUTILS_DOWNLOAD='https://ftpmirror.gnu.org/gnu/binutils/binutils-2.39.tar.gz'
     BINUTILS_NAME=binutils-2.39.tar.gz
     BINUTILS_SOURCE=binutils-2.39
     BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
 
     #gettext
-    GETTEXT_DOWNLOAD='https://mirrors.aliyun.com/gnu/gettext/gettext-0.21.tar.gz'
+    GETTEXT_DOWNLOAD='https://ftpmirror.gnu.org/gettext/gettext-0.21.tar.gz'
     GETTEXT_NAME='gettext-0.21.tar.gz'
     GETTEXT_SOURCE='gettext-0.21'
     GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'

@@ -62,7 +62,7 @@ public:
     virtual Status send(RuntimeState* state, RowBatch* batch) = 0;
 
     // Send a Block into this sink.
-    virtual Status send(RuntimeState* state, vectorized::Block* block) {
+    virtual Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return Status::NotSupported("Not support send block");
     };
     // Releases all resources that were allocated in prepare()/send().
@@ -80,7 +80,7 @@ public:
     static Status create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                    const std::vector<TExpr>& output_exprs,
                                    const TPlanFragmentExecParams& params,
-                                   const RowDescriptor& row_desc, bool is_vec,
+                                   const RowDescriptor& row_desc, RuntimeState* state,
                                    std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.

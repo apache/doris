@@ -437,6 +437,14 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof PrimitiveType;
     }
 
+    public boolean isDateV2() {
+        return this instanceof DateV2Type;
+    }
+
+    public boolean isDateTimeV2() {
+        return this instanceof DateTimeV2Type;
+    }
+
     public DataType promotion() {
         if (PROMOTION_MAP.containsKey(this.getClass())) {
             return PROMOTION_MAP.get(this.getClass()).get();

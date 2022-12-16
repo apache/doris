@@ -72,6 +72,8 @@ gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
 sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 ```
+> 注意： gpg --import 如果报错 **no valid user IDs**, 此时可能是gpg版本不匹配，可升级版本至2.2.x或以上
+
 
 ## 3. 验证源码协议头
 

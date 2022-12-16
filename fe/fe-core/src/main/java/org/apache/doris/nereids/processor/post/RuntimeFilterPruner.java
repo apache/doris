@@ -130,9 +130,16 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
     public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan olapScan, CascadesContext context) {
-        List<Slot> slots = context.getRuntimeFilterContext().getTargetOnOlapScanNodeMap().get(olapScan.getId());
-        if (slots != null && !slots.isEmpty()) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(olapScan);
+        RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
+        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(olapScan.getId());
+        if (slots != null) {
+            for (Slot slot : slots) {
+                //if this scan node is the target of any effective RF, it is effective source
+                if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
+                    context.getRuntimeFilterContext().addEffectiveSrcNode(olapScan);
+                    break;
+                }
+            }
         }
         return olapScan;
     }
@@ -187,15 +194,19 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         Slot leftSlot = leftSlots.iterator().next();
         Slot rightSlot = rightSlots.iterator().next();
-        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlotId(leftSlot.getExprId());
-        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlotId(rightSlot.getExprId());
+        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
+        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
         //TODO remove these code when we ensure left child if from probe side
         if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.getColumnStatsBySlotId(rightSlot.getExprId());
-            buildColumnStat = rightStats.getColumnStatsBySlotId(leftSlot.getExprId());
+            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
+            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
             if (probeColumnStat == null || buildColumnStat == null) {
                 return false;
             }
+        }
+        //without column statistics, we can not judge if the rf is effective.
+        if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
+            return true;
         }
         return buildColumnStat.selectivity < 1
                 || probeColumnStat.coverage(buildColumnStat) < 1

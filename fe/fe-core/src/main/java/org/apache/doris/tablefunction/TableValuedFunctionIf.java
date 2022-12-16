@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
@@ -42,14 +41,16 @@ public abstract class TableValuedFunctionIf {
 
     // All table functions should be registered here
     public static TableValuedFunctionIf getTableFunction(String funcName, Map<String, String> params)
-                                                        throws UserException {
+                                                        throws AnalysisException {
         switch (funcName.toLowerCase()) {
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);
             case S3TableValuedFunction.NAME:
                 return new S3TableValuedFunction(params);
+            case HdfsTableValuedFunction.NAME:
+                return new HdfsTableValuedFunction(params);
             default:
-                throw new UserException("Could not find table function " + funcName);
+                throw new AnalysisException("Could not find table function " + funcName);
         }
     }
 

@@ -227,8 +227,8 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
-    // So we should use diffrent creator to get data from value.
-    // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
+    // So we should use different creator to get data from value.
+    // We should use create_from_olap_xxx only at binary data scanned from storage engine and convert to typed data.
     // At other case, we just use binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>.
 
     // olap storage layer date data format:

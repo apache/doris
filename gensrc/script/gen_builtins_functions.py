@@ -115,6 +115,12 @@ def generate_fe_datatype(str_type):
             return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
     if str_type == "DECIMALV2":
         return "Type.MAX_DECIMALV2_TYPE"
+    if str_type == "DECIMAL32":
+        return "Type.DECIMAL32"
+    if str_type == "DECIMAL64":
+        return "Type.DECIMAL64"
+    if str_type == "DECIMAL128":
+        return "Type.DECIMAL128"
     return "Type." + str_type
 
 """

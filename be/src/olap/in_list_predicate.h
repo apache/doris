@@ -99,7 +99,7 @@ public:
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
                 tmp = convert(*col, condition, pool);
             } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                                 Type == TYPE_DECIMAL128) {
+                                 Type == TYPE_DECIMAL128I) {
                 tmp = convert(*col, condition);
             } else {
                 tmp = convert(condition);
@@ -114,7 +114,8 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
+        using HybridSetType =
+                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
 
         CHECK(hybrid_set != nullptr);
 
@@ -220,7 +221,7 @@ public:
             bool exact_match;
             Status s = iterator->seek_dictionary(&value, &exact_match);
             rowid_t seeked_ordinal = iterator->current_ordinal();
-            if (!s.is_not_found()) {
+            if (!s.is<ErrorCode::NOT_FOUND>()) {
                 if (!s.ok()) {
                     return s;
                 }
@@ -458,11 +459,18 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                auto& value_in_dict_flags =
-                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                auto segid = column->get_rowset_segment_id();
+                DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
+                auto& value_in_dict_flags = _segment_id_to_value_in_dict_flags[segid];
                 if (value_in_dict_flags.empty()) {
                     nested_col_ptr->find_codes(*_values, value_in_dict_flags);
                 }
+
+                CHECK(value_in_dict_flags.size() == nested_col_ptr->dict_size())
+                        << "value_in_dict_flags.size()!=nested_col_ptr->dict_size(), "
+                        << value_in_dict_flags.size() << " vs " << nested_col_ptr->dict_size()
+                        << " rowsetid=" << segid.first << " segmentid=" << segid.second
+                        << "dict_info" << nested_col_ptr->dict_debug_string();
 
                 for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
@@ -489,9 +497,8 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -566,9 +573,8 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -602,7 +608,7 @@ private:
         }
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         std::string info =
                 "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
         return info;
@@ -623,13 +629,9 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 
     // temp string for char type column
     std::list<std::string> _temp_datas;
 };
-
-template <PrimitiveType Type, PredicateType PT>
-constexpr PrimitiveType InListPredicateBase<Type, PT>::EvalType;
 
 } //namespace doris

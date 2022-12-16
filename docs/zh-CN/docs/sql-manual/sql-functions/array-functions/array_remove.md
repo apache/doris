@@ -24,6 +24,12 @@ under the License.
 
 ## array_remove
 
+<version since="1.2.0">
+
+array_remove
+
+</version>
+
 ### description
 
 #### Syntax

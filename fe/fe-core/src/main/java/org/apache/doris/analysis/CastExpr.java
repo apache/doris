@@ -150,8 +150,7 @@ public class CastExpr extends Expr {
 
     private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
         // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDecimalV3()
-                || toType.isDateType())) {
+        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDateType())) {
             return true;
         }
 
@@ -160,7 +159,7 @@ public class CastExpr extends Expr {
             return true;
         }
         // Disable no-op casting
-        return fromType.equals(toType);
+        return fromType.equals(toType) && !fromType.isDecimalV3();
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -304,7 +303,8 @@ public class CastExpr extends Expr {
 
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(collectChildReturnTypes())),
+                Type.INVALID, false);
         if (type.isScalarType()) {
             if (isImplicit) {
                 fn = Env.getCurrentEnv().getFunction(
@@ -330,7 +330,8 @@ public class CastExpr extends Expr {
         }
 
         if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
-            Preconditions.checkState(type.getPrimitiveType() == fn.getReturnType().getPrimitiveType(),
+            Preconditions.checkState(type.isDecimalV3() == fn.getReturnType().isDecimalV3()
+                            || type.isDatetimeV2() == fn.getReturnType().isDatetimeV2(),
                     type + " != " + fn.getReturnType());
         } else {
             Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
@@ -421,7 +422,12 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            return new DecimalLiteral(value.getStringValue());
+            if (targetTypeDef != null) {
+                return new DecimalLiteral(value.getStringValue(),
+                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
+            } else {
+                return new DecimalLiteral(value.getStringValue());
+            }
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {

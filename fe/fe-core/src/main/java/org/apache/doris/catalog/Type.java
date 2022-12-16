@@ -65,9 +65,9 @@ public abstract class Type {
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
     public static final ScalarType TIMEV2 = new ScalarType(PrimitiveType.TIMEV2);
     public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
-    public static final ScalarType STRING = new ScalarType(PrimitiveType.STRING);
+    public static final ScalarType STRING = ScalarType.createStringType();
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
-                    ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
+            ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
 
     public static final ScalarType MAX_DECIMALV2_TYPE = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
             ScalarType.MAX_DECIMALV2_PRECISION, ScalarType.MAX_DECIMALV2_SCALE);
@@ -142,6 +142,9 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
+        trivialTypes.add(DECIMAL32);
+        trivialTypes.add(DECIMAL64);
+        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -762,7 +765,7 @@ public abstract class Type {
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
                         || scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128) {
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),

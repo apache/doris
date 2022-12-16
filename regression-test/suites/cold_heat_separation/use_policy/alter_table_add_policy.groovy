@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
-
 suite("add_table_policy_by_alter_table") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
     def create_table_not_have_policy_result = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_not_have_policy
         (
@@ -58,12 +56,12 @@ suite("add_table_policy_by_alter_table") {
             CREATE RESOURCE "test_create_alter_table_use_resource"
             PROPERTIES(
                 "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket"
             );
         """
         def create_succ_1 = try_sql """
@@ -93,12 +91,12 @@ suite("add_table_policy_by_alter_table") {
             CREATE RESOURCE "test_create_alter_table_use_resource_1"
             PROPERTIES(
                 "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket"
             );
         """
         def create_succ_1 = try_sql """
@@ -125,7 +123,7 @@ suite("add_table_policy_by_alter_table") {
     """
     // change s3 resource, ak、sk by alter resource
     def modify_storage_policy_property_result_1 = try_sql """
-        ALTER RESOURCE "test_create_alter_table_use_resource_1" PROPERTIES("s3_access_key" = "has_been_changed");
+        ALTER RESOURCE "test_create_alter_table_use_resource_1" PROPERTIES("AWS_ACCESS_KEY" = "has_been_changed");
     """
 
     sql """

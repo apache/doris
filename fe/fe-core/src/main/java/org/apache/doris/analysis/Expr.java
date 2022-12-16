@@ -1259,6 +1259,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+    protected void compactForLiteral(Type type) throws AnalysisException {
+        for (Expr expr : children) {
+            expr.compactForLiteral(type);
+        }
+    }
+
     /**
      * Return true if this expr is a scalar subquery.
      */
@@ -1489,6 +1495,24 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return sourceExpr.get(0).getSrcSlotRef();
     }
 
+    // same as getSrcSlotRef, but choose first expr if has multiple src exprs
+    // only used in RewriteInPredicateRule
+    public SlotRef tryGetSrcSlotRef() {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null) {
+            return null;
+        }
+        List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
+        if (sourceExpr == null || sourceExpr.isEmpty()) {
+            return unwrapSloRef;
+        }
+        return sourceExpr.get(0).tryGetSrcSlotRef();
+    }
+
     public boolean comeFrom(Expr srcExpr) {
         SlotRef unwrapSloRef = this.unwrapSlotRef();
         if (unwrapSloRef == null) {
@@ -1631,7 +1655,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
         Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
@@ -1743,7 +1767,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FUNCTION_CALL(12),
         ARRAY_LITERAL(13),
         CAST_EXPR(14),
-        JSON_LITERAL(15);
+        JSON_LITERAL(15),
+        ARITHMETIC_EXPR(16);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1797,8 +1822,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else if (expr instanceof CastExpr) {
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
+        } else if (expr instanceof ArithmeticExpr) {
+            output.writeInt(ExprSerCode.ARITHMETIC_EXPR.getCode());
         } else {
-            throw new IOException("Unknown class " + expr.getClass().getName());
+            throw new IOException("Unsupported writable expr class: " + expr.getClass().getName());
         }
         expr.write(output);
     }
@@ -1844,8 +1871,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return ArrayLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
+            case ARITHMETIC_EXPR:
+                return ArithmeticExpr.read(in);
             default:
-                throw new IOException("Unknown code: " + code);
+                throw new IOException("Unknown wriable expr code: " + code);
         }
     }
 
@@ -2033,6 +2062,25 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else {
             return this instanceof LiteralExpr;
         }
+    }
+
+    protected Type[] getActualArgTypes(Type[] originType) {
+        return Arrays.stream(originType).map(
+                (Type type) -> {
+                    if (type == null) {
+                        return null;
+                    }
+                    if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+                        return Type.DECIMAL32;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+                        return Type.DECIMAL64;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+                        return Type.DECIMAL128;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                        return Type.DATETIMEV2;
+                    }
+                    return type;
+                }).toArray(Type[]::new);
     }
 }
 

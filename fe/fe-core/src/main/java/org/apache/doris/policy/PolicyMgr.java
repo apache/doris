@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -279,6 +280,26 @@ public class PolicyMgr implements Writable {
                 return null;
             }
             return dbIdToMergeTablePolicyMap.get(dbId).get(key);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     *  Match all row policy and return them.
+     **/
+    public List<RowPolicy> getMatchRowPolicy(long dbId, long tableId, UserIdentity user) {
+        RowPolicy checkedPolicy = new RowPolicy();
+        checkedPolicy.setDbId(dbId);
+        checkedPolicy.setTableId(tableId);
+        checkedPolicy.setUser(user);
+        readLock();
+        try {
+            return getPoliciesByType(PolicyTypeEnum.ROW).stream()
+                .filter(p -> p.matchPolicy(checkedPolicy))
+                .filter(p -> !p.isInvalid())
+                .map(p -> (RowPolicy) p)
+                .collect(Collectors.toList());
         } finally {
             readUnlock();
         }

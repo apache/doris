@@ -44,10 +44,7 @@ suite("test_hdfs_json_load", "p0") {
 
     def load_from_hdfs1 = {new_json_reader_flag, strip_flag, fuzzy_flag, testTablex, label, fileName,
                             fsPath, hdfsUser, exprs, jsonpaths, json_root, columns_parameter, where ->
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
-        
-        def hdfsFilePath = "${fsPath}/user/doris/json_format_test/${fileName}"
+        def hdfsFilePath = "${fsPath}/user/doris/preinstalled_data/json_format_test/${fileName}"
         def result1= sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
@@ -76,24 +73,21 @@ suite("test_hdfs_json_load", "p0") {
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
-
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 30000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
-                log.info("LOAD FINISHED!")
+                log.info("LOAD FINISHED: ${checklabel}")
                 break
             } else {
                 sleep(1000) // wait 1 second every time
                 max_try_milli_secs -= 1000
                 if(max_try_milli_secs <= 0) {
                     log.info("Broker load result: ${result}".toString())
-                    assertEquals(1, 2)
+                    assertEquals(1 == 2, "load timeout: ${checklabel}")
                 }
             }
         }

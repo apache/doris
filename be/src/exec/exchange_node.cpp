@@ -29,6 +29,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 ExchangeNode::ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
@@ -60,7 +61,7 @@ Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _convert_row_batch_timer = ADD_TIMER(runtime_profile(), "ConvertRowBatchTime");
     // TODO: figure out appropriate buffer size
     DCHECK_GT(_num_senders, 0);
@@ -79,7 +80,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
 Status ExchangeNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     if (_is_merging) {
         RETURN_IF_ERROR(_sort_exec_exprs.open(state));
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
@@ -125,14 +126,14 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
     }
     VLOG_FILE << "exch: has batch=" << (_input_batch == nullptr ? "false" : "true")
               << " #rows=" << (_input_batch != nullptr ? _input_batch->num_rows() : 0)
-              << " is_cancelled=" << (ret_status.is_cancelled() ? "true" : "false")
+              << " is_cancelled=" << (ret_status.is<CANCELLED>() ? "true" : "false")
               << " instance_id=" << state->fragment_instance_id();
     return ret_status;
 }
 
 Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (reached_limit()) {
         _stream_recvr->transfer_all_resources(output_batch);

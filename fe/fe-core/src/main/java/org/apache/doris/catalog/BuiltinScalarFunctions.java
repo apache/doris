@@ -103,6 +103,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -224,6 +226,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
@@ -352,6 +355,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(GetJsonInt.class, "get_json_int"),
             scalar(GetJsonString.class, "get_json_string"),
             scalar(Greatest.class, "greatest"),
+            scalar(Grouping.class, "grouping"),
+            scalar(GroupingId.class, "grouping_id"),
             scalar(Hex.class, "hex"),
             scalar(HllCardinality.class, "hll_cardinality"),
             scalar(HllEmpty.class, "hll_empty"),
@@ -473,6 +478,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StrRight.class, "strright"),
             scalar(StrToDate.class, "str_to_date"),
             scalar(SubBitmap.class, "sub_bitmap"),
+            scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring"),
             scalar(Tan.class, "tan"),
             scalar(TimeDiff.class, "timediff"),

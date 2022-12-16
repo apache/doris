@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostEstimate;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -41,6 +44,9 @@ import java.util.Optional;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
+    private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
+                    EventChannel.LOG)));
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
@@ -48,6 +54,8 @@ public class GroupExpression {
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
+
+    private long estOutputRowCount = -1;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     // key is the physical properties the group expression support for its parent
@@ -103,6 +111,11 @@ public class GroupExpression {
 
     public Group child(int i) {
         return children.get(i);
+    }
+
+    public void setChild(int i, Group group) {
+        children.set(i, group);
+        group.addParentExpression(this);
     }
 
     public List<Group> children() {
@@ -165,6 +178,7 @@ public class GroupExpression {
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties, double cost) {
+        COST_STATE_TRACER.log(CostStateUpdateEvent.of(this, cost, outputProperties));
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first > cost) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
@@ -218,10 +232,6 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        // TODO: add relation id to UnboundRelation
-        if (plan instanceof UnboundRelation) {
-            return false;
-        }
         return children.equals(that.children) && plan.equals(that.plan)
                 && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
     }
@@ -235,27 +245,32 @@ public class GroupExpression {
         return new StatsDeriveResult(child(idx).getStatistics());
     }
 
+    public void setEstOutputRowCount(long estOutputRowCount) {
+        this.estOutputRowCount = estOutputRowCount;
+    }
+
+    public long getEstOutputRowCount() {
+        return estOutputRowCount;
+    }
+
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
-            builder.append(ownerGroup.getGroupId()).append(" cost=").append((long) cost);
+            builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
 
         if (costEstimate != null) {
-            builder.append(" est=").append(costEstimate);
+            builder.append(" cost=").append((long) cost).append(" (").append(costEstimate).append(")");
         }
+        builder.append(" estRows=").append(estOutputRowCount);
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }
         builder.append("]");
-        if (ownerGroup != null) {
-            builder.append(" stats=").append(ownerGroup.getStatistics());
-        }
         return builder.toString();
     }
 }

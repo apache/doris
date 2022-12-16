@@ -320,6 +320,18 @@ size_t Block::rows() const {
     return 0;
 }
 
+std::string Block::each_col_size() {
+    std::stringstream ss;
+    for (const auto& elem : data) {
+        if (elem.column) {
+            ss << elem.column->size() << " | ";
+        } else {
+            ss << "-1 | ";
+        }
+    }
+    return ss.str();
+}
+
 void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
@@ -479,7 +491,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+        columns[i] = data[i].column ? (*std::move(data[i].column)).assume_mutable()
                                     : data[i].type->create_column();
     }
     return columns;
@@ -876,7 +888,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                     DateTimeVal datetime_val;
                     datetime_value.to_datetime_val(&datetime_val);
                     iterator.set(&datetime_val);
-                } else if (item_type_desc.is_decimal_type()) {
+                } else if (item_type_desc.is_decimal_v2_type()) {
                     // In CollectionValue, decimal type data is stored as decimal12_t.
                     DecimalV2Value decimal_value;
                     deep_copy_slot(&decimal_value, pool, item_type_desc, data_ref, item_column,

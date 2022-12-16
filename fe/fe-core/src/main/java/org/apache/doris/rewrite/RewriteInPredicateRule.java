@@ -26,7 +26,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.collect.Lists;
@@ -61,7 +60,7 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
         // The newly added InPredicteRewriteRule requires that expr must be analyzed before being rewritten
         if (!inPredicate.isAnalyzed() || inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren()
                 || inPredicate.isNotIn() || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)
-                || (slotRef = inPredicate.getChild(0).getSrcSlotRef()) == null || slotRef.getColumn() == null) {
+                || (slotRef = inPredicate.getChild(0).tryGetSrcSlotRef()) == null || slotRef.getColumn() == null) {
             return expr;
         }
         Type columnType = slotRef.getColumn().getType();
@@ -87,8 +86,7 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             // cannot be directly converted to LargeIntLiteral, so it is converted to decimal first.
             if (childExpr.getType().getPrimitiveType().isCharFamily() || childExpr.getType().isFloatingPointType()) {
                 try {
-                    childExpr = (LiteralExpr) childExpr.castTo(Config.enable_decimalv3
-                            ? Type.DECIMAL32 : Type.DECIMALV2);
+                    childExpr = (LiteralExpr) childExpr.castTo(Type.DECIMALV2);
                 } catch (AnalysisException e) {
                     continue;
                 }

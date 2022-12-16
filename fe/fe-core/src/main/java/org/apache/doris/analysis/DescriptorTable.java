@@ -211,10 +211,10 @@ public class DescriptorTable {
         StringBuilder out = new StringBuilder();
         out.append("tuples:\n");
         for (TupleDescriptor desc : tupleDescs.values()) {
-            out.append(desc + "\n");
+            out.append(desc).append("\n");
         }
         out.append("\n ");
-        out.append("slotDesc size: " + slotDescs.size() + "\n");
+        out.append("slotDesc size: ").append(slotDescs.size()).append("\n");
         for (SlotDescriptor desc : slotDescs.values()) {
             out.append(desc.debugString());
             out.append("\n");
@@ -227,7 +227,9 @@ public class DescriptorTable {
         StringBuilder out = new StringBuilder();
         out.append("\nTuples:\n");
         for (TupleDescriptor desc : tupleDescs.values()) {
-            out.append(desc.getExplainString() + "\n");
+            if (desc.isMaterialized()) {
+                out.append(desc.getExplainString()).append("\n");
+            }
         }
         return out.toString();
     }

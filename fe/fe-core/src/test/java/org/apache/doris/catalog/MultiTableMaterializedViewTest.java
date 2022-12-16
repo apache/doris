@@ -41,6 +41,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 
@@ -50,26 +52,12 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
     protected void setUp() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
+        connectContext.getState().reset();
     }
 
     @AfterEach
     public void tearDown() {
         Env.getCurrentEnv().clear();
-    }
-
-    @Test
-    public void testCreate() throws Exception {
-        createTable("create table test.t1 (pk int, v1 int sum) aggregate key (pk) "
-                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
-        createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
-                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
-
-        ExceptionChecker.expectThrowsNoException(() ->
-                connectContext.getEnv().createMultiTableMaterializedView(
-                    (CreateMultiTableMaterializedViewStmt) parseAndAnalyzeStmt("create materialized view mv "
-                        + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
-                        + "properties ('replication_num' = '1') "
-                        + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk")));
     }
 
     @Test
@@ -80,13 +68,13 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
 
         String sql = "create materialized view mv build immediate refresh complete "
-                + "key (mv_pk) distributed by hash (mv_pk) "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk";
+                + "key (mpk) distributed by hash (mpk) "
+                + "as select test.t1.pk as mpk from test.t1, test.t2 where test.t1.pk = test.t2.pk";
         testSerialization(sql);
 
         sql = "create materialized view mv1 build immediate refresh complete start with '1:00' next 1 day "
-                + "key (mv_pk) distributed by hash (mv_pk) "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk";
+                + "key (mpk) distributed by hash (mpk) "
+                + "as select test.t1.pk as mpk from test.t1, test.t2 where test.t1.pk = test.t2.pk";
         testSerialization(sql);
     }
 
@@ -157,11 +145,11 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
         createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
-        StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
-                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+        new StmtExecutor(connectContext, "create materialized view mv "
+                + "build immediate refresh complete key (mpk) distributed by hash (mpk) "
                 + "properties ('replication_num' = '1') "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
-        ExceptionChecker.expectThrowsNoException(executor::execute);
+                + "as select test.t1.pk as mpk from test.t1, test.t2 where test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
 
         ShowExecutor showExecutor = new ShowExecutor(connectContext,
                 (ShowStmt) parseAndAnalyzeStmt("show create table mv"));
@@ -169,8 +157,8 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         String result = resultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(result.contains("CREATE MATERIALIZED VIEW `mv`\n"
                 + "BUILD IMMEDIATE REFRESH COMPLETE ON DEMAND\n"
-                + "KEY(`mv_pk`)\n"
-                + "DISTRIBUTED BY HASH(`mv_pk`) BUCKETS 10"));
+                + "KEY(`mpk`)\n"
+                + "DISTRIBUTED BY HASH(`mpk`) BUCKETS 10"));
     }
 
     @Test
@@ -179,11 +167,11 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
         createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
-        StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
-                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+        new StmtExecutor(connectContext, "create materialized view mv "
+                + "build immediate refresh complete key (mpk) distributed by hash (mpk) "
                 + "properties ('replication_num' = '1') "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
-        ExceptionChecker.expectThrowsNoException(executor::execute);
+                + "as select test.t1.pk as mpk from test.t1, test.t2 where test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "is not TABLE",
                 () -> Env.getCurrentInternalCatalog()
@@ -191,5 +179,129 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
 
         ExceptionChecker.expectThrowsNoException(() -> connectContext.getEnv().dropMaterializedView(
                 (DropMaterializedViewStmt) parseAndAnalyzeStmt("drop materialized view mv")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AGGREGATE", "UNIQUE", "DUPLICATE"})
+    public void testCreate(String keyType) throws Exception {
+        String aggregation = keyType.equals("AGGREGATE") ? "SUM" : "";
+        createTable("CREATE TABLE test.t1 ("
+                + "  pk INT,"
+                + "  v1 INT " + aggregation
+                + ") " + keyType + " KEY (pk)"
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE test.t2 ("
+                + "  pk INT,"
+                + "  v2 INT " + aggregation
+                + ") " + keyType + " KEY (pk)"
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE KEY (pk) DISTRIBUTED BY HASH(pk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.pk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+
+        connectContext.getEnv().dropMaterializedView(
+                (DropMaterializedViewStmt) parseAndAnalyzeStmt("DROP MATERIALIZED VIEW mv"));
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE DISTRIBUTED BY HASH(pk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.pk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AGGREGATE", "UNIQUE", "DUPLICATE"})
+    public void testCreateWithAliases(String keyType) throws Exception {
+        String aggregation = keyType.equals("AGGREGATE") ? "SUM" : "";
+        createTable("CREATE TABLE test.t1 ("
+                + "  pk INT,"
+                + "  v1 INT " + aggregation
+                + ") " + keyType + " KEY (pk)"
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE test.t2 ("
+                + "  pk INT,"
+                + "  v2 INT " + aggregation
+                + ") " + keyType + " KEY (pk)"
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE KEY (mpk) DISTRIBUTED BY HASH(mpk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.pk AS mpk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+
+        connectContext.getEnv().dropMaterializedView(
+                (DropMaterializedViewStmt) parseAndAnalyzeStmt("DROP MATERIALIZED VIEW mv"));
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE DISTRIBUTED BY HASH(mpk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.pk as mpk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AGGREGATE", "UNIQUE", "DUPLICATE"})
+    public void testCreateWithPartition(String keyType) throws Exception {
+        String aggregation = keyType.equals("AGGREGATE") ? "SUM" : "";
+        createTable("CREATE TABLE test.t1 ("
+                + "  pk INT NOT NULL,"
+                + "  v1 INT " + aggregation
+                + ") " + keyType + " KEY (pk)"
+                + "PARTITION BY RANGE(pk) ("
+                + "  PARTITION p1 VALUES LESS THAN ('10'),"
+                + "  PARTITION p2 VALUES LESS THAN ('20')"
+                + ")"
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE test.t2 ("
+                + "  pk INT NOT NULL,"
+                + "  v2 INT " + aggregation
+                + ") " + keyType + " KEY (pk)"
+                + "PARTITION BY LIST(pk) ("
+                + "  PARTITION odd VALUES IN ('10', '30', '50', '70', '90'),"
+                + "  PARTITION even VALUES IN ('20', '40', '60', '80')"
+                + ")"
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE KEY (pk) "
+                + "PARTITION BY (t1.pk)"
+                + "DISTRIBUTED BY HASH(pk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.pk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+
+        connectContext.getEnv().dropMaterializedView(
+                (DropMaterializedViewStmt) parseAndAnalyzeStmt("DROP MATERIALIZED VIEW mv"));
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE KEY (pk) "
+                + "PARTITION BY (t2.pk)"
+                + "DISTRIBUTED BY HASH(pk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t2.pk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+
+        connectContext.getEnv().dropMaterializedView(
+                (DropMaterializedViewStmt) parseAndAnalyzeStmt("DROP MATERIALIZED VIEW mv"));
+
+        connectContext.getState().reset();
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE KEY (pk) "
+                + "PARTITION BY (t1.pk)"
+                + "DISTRIBUTED BY HASH(pk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t2.pk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertTrue(
+                connectContext.getState().getErrorMessage().contains("Failed to map the partition column name"));
+
+        connectContext.getState().reset();
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE KEY (pk) "
+                + "PARTITION BY (v1)"
+                + "DISTRIBUTED BY HASH(pk) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t2.pk, v1, v2 FROM test.t1, test.t2 WHERE test.t1.pk = test.t2.pk").execute();
+        Assertions.assertTrue(
+                connectContext.getState().getErrorMessage()
+                        .contains("The partition columns doesn't match the ones in base table"));
     }
 }

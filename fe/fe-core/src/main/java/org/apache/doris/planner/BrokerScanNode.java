@@ -31,6 +31,8 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -277,9 +279,13 @@ public class BrokerScanNode extends LoadScanNode {
                 columnDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
             // add columnExpr for sequence column
-            if (context.fileGroup.hasSequenceCol()) {
+            if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
+                String sequenceCol = ((OlapTable) targetTable).getSequenceMapCol();
+                if (sequenceCol == null) {
+                    sequenceCol = context.fileGroup.getSequenceCol();
+                }
                 columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                        new SlotRef(null, context.fileGroup.getSequenceCol())));
+                        new SlotRef(null, sequenceCol)));
             }
         }
 
@@ -585,7 +591,7 @@ public class BrokerScanNode extends LoadScanNode {
         rangeDesc.setHeaderType(headerType);
         // set hdfs params for hdfs file type.
         if (brokerDesc.getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(brokerDesc.getProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(brokerDesc.getProperties());
             rangeDesc.setHdfsParams(tHdfsParams);
         }
         return rangeDesc;

@@ -272,7 +272,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("isolation", new Integer(SqlParserSymbols.KW_ISOLATION));
         keywordMap.put("job", new Integer(SqlParserSymbols.KW_JOB));
         keywordMap.put("join", new Integer(SqlParserSymbols.KW_JOIN));
-        keywordMap.put("json", new Integer(SqlParserSymbols.KW_JSON));
+        keywordMap.put("jsonb", new Integer(SqlParserSymbols.KW_JSONB));
         keywordMap.put("key", new Integer(SqlParserSymbols.KW_KEY));
         keywordMap.put("keys", new Integer(SqlParserSymbols.KW_KEYS));
         keywordMap.put("kill", new Integer(SqlParserSymbols.KW_KILL));
@@ -465,6 +465,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
+        keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
    }
     
   // map from token id to token description

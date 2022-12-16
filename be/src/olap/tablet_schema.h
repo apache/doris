@@ -45,7 +45,6 @@ public:
     void init_from_pb(const ColumnPB& column);
     void init_from_thrift(const TColumn& column);
     void to_schema_pb(ColumnPB* column) const;
-    uint32_t mem_size() const;
 
     int32_t unique_id() const { return _unique_id; }
     std::string name() const { return _col_name; }
@@ -165,7 +164,7 @@ public:
     void append_column(TabletColumn column, bool is_dropped_column = false);
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
-    uint32_t mem_size() const;
+    int64_t mem_size() const { return _mem_size; };
 
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
@@ -260,6 +259,7 @@ private:
     int32_t _sequence_col_idx = -1;
     int32_t _schema_version = -1;
     bool _disable_auto_compaction = false;
+    int64_t _mem_size = 0;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -14,15 +14,15 @@ CREATE TABLE IF NOT EXISTS web_returns (
     wr_reason_sk bigint,
     wr_order_number bigint,
     wr_return_quantity integer,
-    wr_return_amt decimal(7,2),
-    wr_return_tax decimal(7,2),
-    wr_return_amt_inc_tax decimal(7,2),
-    wr_fee decimal(7,2),
-    wr_return_ship_cost decimal(7,2),
-    wr_refunded_cash decimal(7,2),
-    wr_reversed_charge decimal(7,2),
-    wr_account_credit decimal(7,2),
-    wr_net_loss decimal(7,2)
+    wr_return_amt decimalv3(7,2),
+    wr_return_tax decimalv3(7,2),
+    wr_return_amt_inc_tax decimalv3(7,2),
+    wr_fee decimalv3(7,2),
+    wr_return_ship_cost decimalv3(7,2),
+    wr_refunded_cash decimalv3(7,2),
+    wr_reversed_charge decimalv3(7,2),
+    wr_account_credit decimalv3(7,2),
+    wr_net_loss decimalv3(7,2)
 )
 DUPLICATE KEY(wr_returned_date_sk, wr_returned_time_sk, wr_item_sk, wr_refunded_customer_sk)
 DISTRIBUTED BY HASH(wr_refunded_customer_sk) BUCKETS 3

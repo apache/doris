@@ -60,7 +60,9 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 1. Arbitrarily select a BE node and deploy the latest doris_be binary file.
 2. Restart the BE node and check the BE log be.INFO to see if the boot was successful.
-3. If the startup fails, you can check the reason first. If the error is not recoverable, you can delete the BE directly through DROP BACKEND, clean up the data, and restart the BE using the previous version of doris_be. Then re-ADD BACKEND. (**This method will result in the loss of a copy of the data, please make sure that three copies are complete, and perform this operation!!!**
+3. If the startup fails, you can check the reason first. If the error is not recoverable, you can delete the BE directly through DROP BACKEND, clean up the data, and restart the BE using the previous version of doris_be. Then re-ADD BACKEND. (**This method will result in the loss of a copy of the data, please make sure that three copies are complete, and perform this operation!!!**)
+4. Install Java UDF function
+<version since="1.2.0">Install Java UDF function: </version>, because Java UDF function is supported from version 1.2, you need to download the JAR package of Java UDF function from the official website and put it in the lib directory of BE, otherwise it may will fail to start.
 
 ## Testing FE Metadata Compatibility
 

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -72,17 +73,17 @@ public class PlanEqualsTest {
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                true, false, true, AggPhase.GLOBAL, child);
+                true, false, true, AggPhase.GLOBAL, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, true, true, AggPhase.GLOBAL, child);
+                false, true, true, AggPhase.GLOBAL, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, false, true, AggPhase.LOCAL, child);
+                false, false, true, AggPhase.LOCAL, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -247,20 +248,20 @@ public class PlanEqualsTest {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
 
-        RelationId id = RelationId.createGenerator().getNextId();
+        RelationId id = RelationUtil.newRelationId();
 
         PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), Optional.empty(), logicalProperties);
+                PreAggStatus.on(), PushDownAggOperator.NONE, Optional.empty(), logicalProperties);
 
         PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), Optional.empty(), logicalProperties);
+                PreAggStatus.on(), PushDownAggOperator.NONE, Optional.empty(), logicalProperties);
         Assertions.assertEquals(expected, actual);
 
         PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), Optional.empty(), logicalProperties);
+                PreAggStatus.on(), PushDownAggOperator.NONE, Optional.empty(), logicalProperties);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

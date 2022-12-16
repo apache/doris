@@ -53,12 +53,17 @@ public:
     }
 
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
-        _rowset_meta_pb = rowset_meta_pb;
-        if (_rowset_meta_pb.has_tablet_schema()) {
+        if (rowset_meta_pb.has_tablet_schema()) {
             _schema = TabletSchemaCache::instance()->insert(
-                    _rowset_meta_pb.tablet_schema().SerializeAsString());
-            _rowset_meta_pb.clear_tablet_schema();
+                    rowset_meta_pb.tablet_schema().SerializeAsString());
         }
+        // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
+        // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
+        // before and after call this method.
+        auto& mut_rowset_meta_pb = const_cast<RowsetMetaPB&>(rowset_meta_pb);
+        auto schema = mut_rowset_meta_pb.release_tablet_schema();
+        _rowset_meta_pb = mut_rowset_meta_pb;
+        mut_rowset_meta_pb.set_allocated_tablet_schema(schema);
         _init();
         return true;
     }
@@ -319,6 +324,22 @@ public:
         for (const KeyBoundsPB& key_range : _rowset_meta_pb.segments_key_bounds()) {
             segments_key_bounds->push_back(key_range);
         }
+    }
+    virtual bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
+        // for compatibility, old version has not segment key bounds
+        if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
+            return false;
+        }
+        *key_bounds = _rowset_meta_pb.segments_key_bounds(0);
+        return true;
+    }
+    virtual bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
+        if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
+            return false;
+        }
+        *key_bounds =
+                _rowset_meta_pb.segments_key_bounds(_rowset_meta_pb.segments_key_bounds_size() - 1);
+        return true;
     }
 
     void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {

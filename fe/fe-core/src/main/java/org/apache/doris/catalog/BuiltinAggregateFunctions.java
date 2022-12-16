@@ -18,7 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitmapXor;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -34,7 +41,14 @@ import com.google.common.collect.ImmutableList;
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(Avg.class),
+            agg(BitmapIntersect.class, "bitmap_intersect"),
+            agg(BitmapUnion.class, "bitmap_union"),
+            agg(BitmapUnionCount.class, "bitmap_union_count"),
+            agg(BitmapUnionInt.class, "bitmap_union_int"),
             agg(Count.class),
+            agg(GroupBitmapXor.class, "group_bitmap_xor"),
+            agg(HllUnion.class, "hll_union", "hll_raw_agg"),
+            agg(HllUnionAgg.class, "hll_union_agg"),
             agg(Max.class),
             agg(Min.class),
             agg(Sum.class)

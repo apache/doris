@@ -26,6 +26,7 @@
 #include "util/time.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 void TimestampedVersionTracker::_construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas) {
@@ -517,7 +518,7 @@ Status VersionGraph::delete_version_from_graph(const Version& version) {
         _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
         LOG(WARNING) << "vertex for version does not exists. "
                      << "version=" << version.first << "-" << version.second;
-        return Status::OLAPInternalError(OLAP_ERR_HEADER_DELETE_VERSION);
+        return Status::Error<HEADER_DELETE_VERSION>();
     }
 
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
@@ -563,7 +564,7 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specified version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     int64_t cur_idx = -1;

@@ -33,6 +33,15 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
     }
 }
 
+OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema,
+                                               const std::vector<uint32_t>& col_ids) {
+    assert(tablet_schema);
+    for (const auto& id : col_ids) {
+        const auto& col = tablet_schema->column(id);
+        _convertors.emplace_back(create_olap_column_data_convertor(col));
+    }
+}
+
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
     switch (column.type()) {
@@ -75,11 +84,11 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal64>>();
     }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128: {
-        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128>>();
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128I>>();
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        return std::make_unique<OlapColumnDataConvertorJsonb>();
+        return std::make_unique<OlapColumnDataConvertorVarChar>(true);
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt8>>();
@@ -532,77 +541,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
             ++datetime_cur;
         }
         assert(value == _values.get_end_ptr());
-    }
-    return Status::OK();
-}
-
-// class OlapBlockDataConvertor::OlapColumnDataConvertorJsonb
-void OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::set_source_column(
-        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
-    OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
-                                                                           num_rows);
-    _slice.resize(num_rows);
-}
-
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::get_data() const {
-    return _slice.data();
-}
-
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::get_data_at(size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
-    UInt8 null_flag = 0;
-    if (_nullmap) {
-        null_flag = _nullmap[offset];
-    }
-    return null_flag ? nullptr : _slice.data() + offset;
-}
-
-Status OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::convert_to_olap() {
-    assert(_typed_column.column);
-    const vectorized::ColumnJsonb* column_json = nullptr;
-    if (_nullmap) {
-        auto nullable_column =
-                assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_json = assert_cast<const vectorized::ColumnJsonb*>(
-                nullable_column->get_nested_column_ptr().get());
-    } else {
-        column_json = assert_cast<const vectorized::ColumnJsonb*>(_typed_column.column.get());
-    }
-
-    assert(column_json);
-
-    const char* char_data = (const char*)(column_json->get_chars().data());
-    const ColumnJsonb::Offset* offset_cur = column_json->get_offsets().data() + _row_pos;
-    const ColumnJsonb::Offset* offset_end = offset_cur + _num_rows;
-
-    Slice* slice = _slice.data();
-    size_t string_offset = *(offset_cur - 1);
-    if (_nullmap) {
-        const UInt8* nullmap_cur = _nullmap + _row_pos;
-        while (offset_cur != offset_end) {
-            if (!*nullmap_cur) {
-                slice->data = const_cast<char*>(char_data + string_offset);
-                slice->size = *offset_cur - string_offset - 1;
-            } else {
-                // TODO: this may not be necessary, check and remove later
-                slice->data = nullptr;
-                slice->size = 0;
-            }
-            string_offset = *offset_cur;
-            ++nullmap_cur;
-            ++slice;
-            ++offset_cur;
-        }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
-    } else {
-        while (offset_cur != offset_end) {
-            slice->data = const_cast<char*>(char_data + string_offset);
-            slice->size = *offset_cur - string_offset - 1;
-            string_offset = *offset_cur;
-            ++slice;
-            ++offset_cur;
-        }
-        assert(slice == _slice.get_end_ptr());
     }
     return Status::OK();
 }

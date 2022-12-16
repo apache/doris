@@ -65,7 +65,7 @@ public:
             break;
 
         default:
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
         }
         return Status::OK();
     }
@@ -81,7 +81,7 @@ public:
             break;
 
         default:
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
         }
         return Status::OK();
     }
@@ -93,7 +93,7 @@ public:
             break;
 
         default:
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
         }
         return Status::OK();
     }
@@ -115,7 +115,7 @@ public:
     // Derived class implements the load logic by overriding the `do_load_once()` method.
     Status load(bool use_cache = true);
 
-    // returns Status::OLAPInternalError(OLAP_ERR_ROWSET_CREATE_READER) when failed to create reader
+    // returns Status::Error<ErrorCode::ROWSET_CREATE_READER>() when failed to create reader
     virtual Status create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
@@ -161,6 +161,7 @@ public:
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     int64_t oldest_write_timestamp() const { return rowset_meta()->oldest_write_timestamp(); }
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
+    bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
@@ -198,7 +199,8 @@ public:
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
-    virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
+    virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
+                                 size_t new_rowset_start_seg_id = 0) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -264,6 +266,24 @@ public:
     virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) {
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
         return Status::OK();
+    }
+    bool min_key(std::string* min_key) {
+        KeyBoundsPB key_bounds;
+        bool ret = _rowset_meta->get_first_segment_key_bound(&key_bounds);
+        if (!ret) {
+            return false;
+        }
+        *min_key = key_bounds.min_key();
+        return true;
+    }
+    bool max_key(std::string* max_key) {
+        KeyBoundsPB key_bounds;
+        bool ret = _rowset_meta->get_last_segment_key_bound(&key_bounds);
+        if (!ret) {
+            return false;
+        }
+        *max_key = key_bounds.max_key();
+        return true;
     }
 
     bool check_rowset_segment();

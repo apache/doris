@@ -72,15 +72,12 @@ public:
     // otherwise the capacity of chunk allocator will be wrong.
     void free(uint8_t* data, size_t size);
 
+    void clear();
+
+    int64_t mem_consumption() { return _reserved_bytes; }
+
 private:
-    friend class MemPool;
-
     ChunkAllocator(size_t reserve_limit);
-
-    // Allocate a Chunk with a power-of-two length "size".
-    // Return true if success and allocated chunk is saved in "chunk".
-    // Otherwise return false.
-    Status allocate(size_t size, Chunk* Chunk);
 
 private:
     static ChunkAllocator* _s_instance;

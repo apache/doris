@@ -65,6 +65,8 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<DecimalField<Decimal64>>());
     case Field::Types::Decimal128:
         return visitor(field.template get<DecimalField<Decimal128>>());
+    case Field::Types::Decimal128I:
+        return visitor(field.template get<DecimalField<Decimal128I>>());
     case Field::Types::AggregateFunctionState:
         return visitor(field.template get<AggregateFunctionStateData>());
 
@@ -101,6 +103,8 @@ static typename std::decay_t<Visitor>::ResultType apply_binary_visitor_impl(Visi
         return visitor(field1, field2.template get<DecimalField<Decimal64>>());
     case Field::Types::Decimal128:
         return visitor(field1, field2.template get<DecimalField<Decimal128>>());
+    case Field::Types::Decimal128I:
+        return visitor(field1, field2.template get<DecimalField<Decimal128I>>());
     case Field::Types::AggregateFunctionState:
         return visitor(field1, field2.template get<AggregateFunctionStateData>());
 
@@ -150,6 +154,10 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F1&&
         return apply_binary_visitor_impl(std::forward<Visitor>(visitor),
                                          field1.template get<DecimalField<Decimal128>>(),
                                          std::forward<F2>(field2));
+    case Field::Types::Decimal128I:
+        return apply_binary_visitor_impl(std::forward<Visitor>(visitor),
+                                         field1.template get<DecimalField<Decimal128I>>(),
+                                         std::forward<F2>(field2));
     case Field::Types::AggregateFunctionState:
         return apply_binary_visitor_impl(std::forward<Visitor>(visitor),
                                          field1.template get<AggregateFunctionStateData>(),
@@ -175,6 +183,7 @@ public:
     String operator()(const DecimalField<Decimal32>& x) const;
     String operator()(const DecimalField<Decimal64>& x) const;
     String operator()(const DecimalField<Decimal128>& x) const;
+    String operator()(const DecimalField<Decimal128I>& x) const;
     String operator()(const AggregateFunctionStateData& x) const;
 };
 
@@ -192,10 +201,11 @@ public:
     String operator()(const DecimalField<Decimal32>& x) const;
     String operator()(const DecimalField<Decimal64>& x) const;
     String operator()(const DecimalField<Decimal128>& x) const;
+    String operator()(const DecimalField<Decimal128I>& x) const;
     String operator()(const AggregateFunctionStateData& x) const;
 };
 
-/** Converts numberic value of any type to specified type. */
+/** Converts numeric value of any type to specified type. */
 template <typename T>
 class FieldVisitorConvertToNumber : public StaticVisitor<T> {
 public:
@@ -232,8 +242,9 @@ public:
     T operator()(const DecimalField<U>& x) const {
         if constexpr (std::is_floating_point_v<T>)
             return static_cast<T>(x.get_value()) / x.get_scale_multiplier();
-        else
+        else {
             return x.get_value() / x.get_scale_multiplier();
+        }
     }
 
     T operator()(const AggregateFunctionStateData&) const {
@@ -261,6 +272,7 @@ public:
     void operator()(const DecimalField<Decimal32>& x) const;
     void operator()(const DecimalField<Decimal64>& x) const;
     void operator()(const DecimalField<Decimal128>& x) const;
+    void operator()(const DecimalField<Decimal128I>& x) const;
     void operator()(const AggregateFunctionStateData& x) const;
 };
 
@@ -278,6 +290,10 @@ constexpr bool is_decimalField<DecimalField<Decimal64>>() {
 }
 template <>
 constexpr bool is_decimalField<DecimalField<Decimal128>>() {
+    return true;
+}
+template <>
+constexpr bool is_decimalField<DecimalField<Decimal128I>>() {
     return true;
 }
 

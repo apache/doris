@@ -57,7 +57,7 @@ public:
                     auto item = std::string("item") + std::to_string(i);
                     input_col->insert_data(item.c_str(), item.size());
                 } else {
-                    auto item = FieldType(i);
+                    auto item = FieldType(static_cast<uint64_t>(i));
                     input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
                 }
             }

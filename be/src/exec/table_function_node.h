@@ -18,6 +18,8 @@
 #pragma once
 
 #include "exec/exec_node.h"
+#include "exprs/expr.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -30,13 +32,26 @@ class TupleRow;
 class TableFunctionNode : public ExecNode {
 public:
     TableFunctionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~TableFunctionNode();
+    ~TableFunctionNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override {
+        START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
+        RETURN_IF_ERROR(alloc_resource(state));
+        return _children[0]->open(state);
+    }
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
-    Status close(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(doris::RuntimeState* state) override {
+        Expr::close(_fn_ctxs, state);
+        vectorized::VExpr::close(_vfn_ctxs, state);
+
+        if (_num_rows_filtered_counter != nullptr) {
+            COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
+        }
+        ExecNode::release_resource(state);
+    }
 
 protected:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);

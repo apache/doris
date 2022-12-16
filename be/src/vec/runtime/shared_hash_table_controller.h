@@ -29,60 +29,52 @@ namespace doris {
 
 class RuntimeState;
 class TUniqueId;
-
-template <typename ExprCtxType>
-class RuntimeFilterSlotsBase;
+class MinMaxFuncBase;
+class HybridSetBase;
+class BloomFilterFuncBase;
+class BitmapFilterFuncBase;
 
 namespace vectorized {
 
 class VExprContext;
 
-struct SharedHashTableEntry {
-    SharedHashTableEntry(Status status_, void* hash_table_ptr_, std::vector<Block>* blocks_,
-                         RuntimeFilterSlotsBase<VExprContext>* runtime_filter_slots_)
-            : status(status_),
-              hash_table_ptr(hash_table_ptr_),
-              blocks(blocks_),
-              runtime_filter_slots(runtime_filter_slots_) {}
-    SharedHashTableEntry(SharedHashTableEntry&& entry)
-            : status(entry.status),
-              hash_table_ptr(entry.hash_table_ptr),
-              blocks(entry.blocks),
-              runtime_filter_slots(entry.runtime_filter_slots) {}
+struct SharedRuntimeFilterContext {
+    std::shared_ptr<MinMaxFuncBase> minmax_func;
+    std::shared_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
+    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
+};
 
-    static SharedHashTableEntry empty_entry_with_status(const Status& status) {
-        return SharedHashTableEntry(status, nullptr, nullptr, nullptr);
-    }
+struct SharedHashTableContext {
+    SharedHashTableContext()
+            : hash_table_variants(nullptr),
+              signaled(false),
+              short_circuit_for_null_in_probe_side(false) {}
 
     Status status;
-    void* hash_table_ptr;
-    std::vector<Block>* blocks;
-    RuntimeFilterSlotsBase<VExprContext>* runtime_filter_slots;
+    std::shared_ptr<Arena> arena;
+    std::shared_ptr<void> hash_table_variants;
+    std::shared_ptr<std::vector<Block>> blocks;
+    std::map<int, SharedRuntimeFilterContext> runtime_filters;
+    bool signaled;
+    bool short_circuit_for_null_in_probe_side;
 };
+
+using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
 
 class SharedHashTableController {
 public:
-    bool should_build_hash_table(RuntimeState* state, int my_node_id);
-    bool supposed_to_build_hash_table(RuntimeState* state, int my_node_id);
-    void acquire_ref_count(RuntimeState* state, int my_node_id);
-    SharedHashTableEntry& wait_for_hash_table(int my_node_id);
-    Status release_ref_count(RuntimeState* state, int my_node_id);
-    Status release_ref_count_if_need(TUniqueId fragment_id, Status status);
-    void put_hash_table(SharedHashTableEntry&& entry, int my_node_id);
-    Status wait_for_closable(RuntimeState* state, int my_node_id);
-
-private:
-    // If the fragment instance was supposed to build hash table, but it didn't build.
-    // To avoid deadlocking other fragment instances,
-    // here need to put an empty SharedHashTableEntry with canceled status.
-    void _put_an_empty_entry_if_need(Status status, TUniqueId fragment_id, int node_id);
+    TUniqueId get_builder_fragment_instance_id(int my_node_id);
+    SharedHashTableContextPtr get_context(int my_node_id);
+    void signal(int my_node_id);
+    Status wait_for_signal(RuntimeState* state, const SharedHashTableContextPtr& context);
+    bool should_build_hash_table(const TUniqueId& fragment_instance_id, int my_node_id);
 
 private:
     std::mutex _mutex;
     std::condition_variable _cv;
-    std::map<int /*node id*/, TUniqueId /*fragment id*/> _builder_fragment_ids;
-    std::map<int /*node id*/, SharedHashTableEntry> _hash_table_entries;
-    std::map<int /*node id*/, std::vector<TUniqueId>> _ref_fragments;
+    std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
+    std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
 };
 
 } // namespace vectorized

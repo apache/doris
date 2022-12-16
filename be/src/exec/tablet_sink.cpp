@@ -153,7 +153,7 @@ void NodeChannel::open() {
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
-    LOG(WARNING) << channel_info() << ", " << msg;
+    LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);
         if (_cancel_msg == "") {
@@ -205,14 +205,18 @@ Status NodeChannel::open_wait() {
             }
             // If rpc failed, mark all tablets on this node channel as failed
             _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                           _add_batch_closure->cntl.ErrorText(), -1);
+                                           fmt::format("rpc failed, error coed:{}, error text:{}",
+                                                       _add_batch_closure->cntl.ErrorCode(),
+                                                       _add_batch_closure->cntl.ErrorText()),
+                                           -1);
             Status st = _index_channel->check_intolerable_failure();
             if (!st.ok()) {
-                _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+                _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             } else if (is_last_rpc) {
                 // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
                 // will be blocked.
                 _add_batches_finished = true;
+                VLOG_PROGRESS << "node channel " << channel_info() << "add_batches_finished";
             }
         });
 
@@ -229,13 +233,14 @@ Status NodeChannel::open_wait() {
             if (status.ok()) {
                 // if has error tablet, handle them first
                 for (auto& error : result.tablet_errors()) {
-                    _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
+                    _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                                   "tablet error: " + error.msg(),
                                                    error.tablet_id());
                 }
 
                 Status st = _index_channel->check_intolerable_failure();
                 if (!st.ok()) {
-                    _cancel_with_msg(st.get_error_msg());
+                    _cancel_with_msg(st.to_string());
                 } else if (is_last_rpc) {
                     for (auto& tablet : result.tablet_vec()) {
                         TTabletCommitInfo commit_info;
@@ -267,11 +272,14 @@ Status NodeChannel::open_wait() {
                         }
                     }
                     _add_batches_finished = true;
+                    VLOG_PROGRESS << "node channel " << channel_info()
+                                  << "add_batches_finished and handled "
+                                  << result.tablet_errors().size() << " tablets errors";
                 }
             } else {
                 _cancel_with_msg(
                         fmt::format("{}, add batch req success but status isn't ok, err: {}",
-                                    channel_info(), status.get_error_msg()));
+                                    channel_info(), status.to_string()));
             }
 
             if (result.has_execution_time_us()) {
@@ -353,6 +361,12 @@ Status NodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
         }
     }
 
+    while (!_cancelled && _pending_batches_num > 0 &&
+           _pending_batches_bytes > _max_pending_batches_bytes) {
+        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     constexpr size_t BATCH_SIZE_FOR_SEND = 2 * 1024 * 1024; //2M
     auto row_no = _cur_batch->add_row();
     if (row_no == RowBatch::INVALID_ROW_INDEX ||
@@ -398,7 +412,8 @@ void NodeChannel::mark_close() {
         DCHECK(_pending_batches.back().second.eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_batches.size();
+                  << " mark closed, left pending batch size: " << _pending_batches.size()
+                  << " left pending batch size: " << _pending_batches_bytes;
     }
 
     _eos_is_produced = true;
@@ -541,7 +556,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
                                          &compressed_bytes, _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
-            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             _add_batch_closure->clear_in_flight();
             return;
         }
@@ -611,7 +626,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
                 PTabletWriterAddBatchRequest, ReusableClosure<PTabletWriterAddBatchResult>>(
                 &request, _add_batch_closure);
         if (!st.ok()) {
-            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             _add_batch_closure->clear_in_flight();
             return;
         }
@@ -708,6 +723,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
+    VLOG_PROGRESS << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+                  << " as failed, err: " << err;
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -940,6 +957,10 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
         }
+        if (UNLIKELY(tablets.empty())) {
+            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id
+                         << " would open 0 tablet";
+        }
         _channels.emplace_back(new IndexChannel(this, index->index_id, use_vec));
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
@@ -969,10 +990,10 @@ Status OlapTableSink::open(RuntimeState* state) {
                 // The open() phase is mainly to generate DeltaWriter instances on the nodes corresponding to each node channel.
                 // This phase will not fail due to a single tablet.
                 // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
-                index_channel->mark_as_failed(ch->node_id(), ch->host(),
-                                              fmt::format("{}, open failed, err: {}",
-                                                          ch->channel_info(), st.get_error_msg()),
-                                              -1);
+                index_channel->mark_as_failed(
+                        ch->node_id(), ch->host(),
+                        fmt::format("{}, open failed, err: {}", ch->channel_info(), st.to_string()),
+                        -1);
             }
         });
 
@@ -1112,13 +1133,13 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                          &total_add_batch_num](const std::shared_ptr<NodeChannel>& ch) {
                             auto s = ch->close_wait(state);
                             if (!s.ok()) {
-                                index_channel->mark_as_failed(ch->node_id(), ch->host(),
-                                                              s.get_error_msg(), -1);
+                                auto err_msg = s.to_string();
+                                index_channel->mark_as_failed(ch->node_id(), ch->host(), err_msg,
+                                                              -1);
                                 // cancel the node channel in best effort
-                                ch->cancel(s.get_error_msg());
-                                LOG(WARNING)
-                                        << ch->channel_info()
-                                        << ", close channel failed, err: " << s.get_error_msg();
+                                ch->cancel(err_msg);
+                                LOG(WARNING) << ch->channel_info()
+                                             << ", close channel failed, err: " << err_msg;
                             }
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                             &mem_exceeded_block_ns, &queue_push_lock_ns,
@@ -1176,9 +1197,12 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     } else {
         for (auto channel : _channels) {
             channel->for_each_node_channel([&status](const std::shared_ptr<NodeChannel>& ch) {
-                ch->cancel(status.get_error_msg());
+                ch->cancel(status.to_string());
             });
         }
+        LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
+                  << ", txn_id=" << _txn_id
+                  << ", canceled all node channels due to error: " << status;
     }
 
     // Sender join() must put after node channels mark_close/cancel.

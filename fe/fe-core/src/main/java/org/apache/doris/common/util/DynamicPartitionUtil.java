@@ -99,7 +99,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkPrefix(String prefix) throws DdlException {
+    public static void checkPrefix(String prefix) throws DdlException {
         try {
             FeNameFormat.checkPartitionName(prefix);
         } catch (AnalysisException e) {
@@ -157,7 +157,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static boolean checkCreateHistoryPartition(String create) throws DdlException {
+    public static boolean checkCreateHistoryPartition(String create) throws DdlException {
         if (Strings.isNullOrEmpty(create)
                 || (!Boolean.TRUE.toString().equalsIgnoreCase(create)
                 && !Boolean.FALSE.toString().equalsIgnoreCase(create))) {
@@ -181,7 +181,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkStartDayOfMonth(String val) throws DdlException {
+    public static void checkStartDayOfMonth(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
         }
@@ -197,7 +197,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkStartDayOfWeek(String val) throws DdlException {
+    public static void checkStartDayOfWeek(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_WEEK);
         }
@@ -346,22 +346,22 @@ public class DynamicPartitionUtil {
 
     private static void checkRemoteStoragePolicy(String policyName) throws DdlException {
         if (Strings.isNullOrEmpty(policyName)) {
-            LOG.info(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is null, remove this key");
+            LOG.info(DynamicPartitionProperty.STORAGE_POLICY + " is null, remove this key");
             return;
         }
         if (policyName.isEmpty()) {
-            throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is empty.");
+            throw new DdlException(DynamicPartitionProperty.STORAGE_POLICY + " is empty.");
         }
         StoragePolicy checkedPolicyCondition = StoragePolicy.ofCheck(policyName);
         if (!Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedPolicyCondition)) {
             throw new DdlException(
-                    DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName + " doesn't exist.");
+                    DynamicPartitionProperty.STORAGE_POLICY + ": " + policyName + " doesn't exist.");
         }
         StoragePolicy storagePolicy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
                 .getPolicy(checkedPolicyCondition);
         if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
             throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
-                    + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName);
+                    + DynamicPartitionProperty.STORAGE_POLICY + ": " + policyName);
         }
     }
 
@@ -616,12 +616,12 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
             analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
         }
-        if (properties.containsKey(DynamicPartitionProperty.REMOTE_STORAGE_POLICY)) {
-            String remoteStoragePolicy = properties.get(DynamicPartitionProperty.REMOTE_STORAGE_POLICY);
+        if (properties.containsKey(DynamicPartitionProperty.STORAGE_POLICY)) {
+            String remoteStoragePolicy = properties.get(DynamicPartitionProperty.STORAGE_POLICY);
             checkRemoteStoragePolicy(remoteStoragePolicy);
-            properties.remove(DynamicPartitionProperty.REMOTE_STORAGE_POLICY);
+            properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
             if (!Strings.isNullOrEmpty(remoteStoragePolicy)) {
-                analyzedProperties.put(DynamicPartitionProperty.REMOTE_STORAGE_POLICY, remoteStoragePolicy);
+                analyzedProperties.put(DynamicPartitionProperty.STORAGE_POLICY, remoteStoragePolicy);
             }
         }
         return analyzedProperties;

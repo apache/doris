@@ -96,7 +96,7 @@ public class TableFunctionNode extends PlanNode {
         }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
-        List<Expr> baseTblResultExprs = selectStmt.getBaseTblResultExprs();
+        List<Expr> baseTblResultExprs = selectStmt.getResultExprs();
         for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
@@ -168,7 +168,7 @@ public class TableFunctionNode extends PlanNode {
         output.append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
             return output.toString();
         }
 
@@ -182,7 +182,7 @@ public class TableFunctionNode extends PlanNode {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
         }
-        output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         return output.toString();
     }
 

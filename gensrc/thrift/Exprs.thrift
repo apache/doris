@@ -54,6 +54,9 @@ enum TExprNodeType {
 
   // for josn
   JSON_LITERAL,
+
+  // only used in runtime filter
+  BITMAP_PRED,
 }
 
 //enum TAggregationOp {

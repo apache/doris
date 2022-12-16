@@ -18,8 +18,6 @@
 suite("test_array_aggregation_functions") {
     def tableName = "tbl_test_array_aggregation_functions"
     // array functions only supported in vectorized engine
-    sql """ set enable_vectorized_engine = true """
-
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

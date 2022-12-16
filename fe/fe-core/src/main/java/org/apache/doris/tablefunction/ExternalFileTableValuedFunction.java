@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -45,10 +46,12 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import org.apache.log4j.LogManager;
@@ -75,20 +78,37 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String JSON_PATHS = "jsonpaths";
     protected static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     protected static final String READ_JSON_BY_LINE = "read_json_by_line";
+    protected static final String NUM_AS_STRING = "num_as_string";
+    protected static final String FUZZY_PARSE = "fuzzy_parse";
+
+    protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
+            .add(FORMAT)
+            .add(JSON_ROOT)
+            .add(JSON_PATHS)
+            .add(STRIP_OUTER_ARRAY)
+            .add(READ_JSON_BY_LINE)
+            .add(NUM_AS_STRING)
+            .add(FUZZY_PARSE)
+            .add(COLUMN_SEPARATOR)
+            .add(LINE_DELIMITER)
+            .build();
+
 
     protected List<Column> columns = null;
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
 
-    protected TFileFormatType fileFormatType;
-    protected String headerType = "";
+    private TFileFormatType fileFormatType;
+    private String headerType = "";
 
-    protected String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
-    protected String lineDelimiter = DEFAULT_LINE_DELIMITER;
-    protected String jsonRoot = "";
-    protected String jsonPaths = "";
-    protected String stripOuterArray = "";
-    protected String readJsonByLine = "";
+    private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
+    private String lineDelimiter = DEFAULT_LINE_DELIMITER;
+    private String jsonRoot = "";
+    private String jsonPaths = "";
+    private boolean stripOuterArray;
+    private boolean readJsonByLine;
+    private boolean numAsString;
+    private boolean fuzzyParse;
 
 
     public abstract TFileType getTFileType();
@@ -105,13 +125,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return locationProperties;
     }
 
-    protected void parseFile() throws UserException {
-        String path = getFilePath();
-        BrokerDesc brokerDesc = getBrokerDesc();
-        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+    public String getFsName() {
+        TFileType fileType = getTFileType();
+        if (fileType == TFileType.FILE_HDFS) {
+            return locationProperties.get(HdfsTableValuedFunction.HADOOP_FS_NAME);
+        } else if (fileType == TFileType.FILE_S3) {
+            return locationProperties.get(S3TableValuedFunction.S3_ENDPOINT);
+        }
+        return "";
     }
 
-    protected void parseProperties(Map<String, String> validParams) throws UserException {
+    protected void parseFile() throws AnalysisException {
+        String path = getFilePath();
+        BrokerDesc brokerDesc = getBrokerDesc();
+        try {
+            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+        } catch (UserException e) {
+            throw new AnalysisException("parse file failed, path = " + path);
+        }
+    }
+
+    protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
         String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
         switch (formatString) {
             case "csv":
@@ -142,8 +176,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
         jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
-        stripOuterArray = validParams.getOrDefault(STRIP_OUTER_ARRAY, "false").toLowerCase();
-        readJsonByLine = validParams.getOrDefault(READ_JSON_BY_LINE, "true").toLowerCase();
+        readJsonByLine = Boolean.valueOf(validParams.get(READ_JSON_BY_LINE)).booleanValue();
+        stripOuterArray = Boolean.valueOf(validParams.get(STRIP_OUTER_ARRAY)).booleanValue();
+        numAsString = Boolean.valueOf(validParams.get(NUM_AS_STRING)).booleanValue();
+        fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
     }
 
     public List<TBrokerFileStatus> getFileStatuses() {
@@ -161,17 +197,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
             fileAttributes.setJsonRoot(jsonRoot);
             fileAttributes.setJsonpaths(jsonPaths);
-            if (readJsonByLine.equalsIgnoreCase("true")) {
-                fileAttributes.setReadJsonByLine(true);
-            } else {
-                fileAttributes.setReadJsonByLine(false);
-            }
-            if (stripOuterArray.equalsIgnoreCase("true")) {
-                fileAttributes.setStripOuterArray(true);
-            } else {
-                fileAttributes.setStripOuterArray(false);
-            }
-            // TODO(ftw): num_as_string/fuzzy_parser?
+            fileAttributes.setReadJsonByLine(readJsonByLine);
+            fileAttributes.setStripOuterArray(stripOuterArray);
+            fileAttributes.setNumAsString(numAsString);
+            fileAttributes.setFuzzyParse(fuzzyParse);
         }
         return fileAttributes;
     }
@@ -254,6 +283,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
+        if (getTFileType() == TFileType.FILE_HDFS) {
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
+            String fsNmae = getLocationProperties().get(HdfsTableValuedFunction.HADOOP_FS_NAME);
+            tHdfsParams.setFsName(fsNmae);
+            fileScanRangeParams.setHdfsParams(tHdfsParams);
+        }
 
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
@@ -265,7 +300,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             break;
         }
         if (firstFile == null) {
-            throw new AnalysisException("Can not get first file, please check s3 uri.");
+            throw new AnalysisException("Can not get first file, please check uri.");
         }
 
         // set TFileRangeDesc

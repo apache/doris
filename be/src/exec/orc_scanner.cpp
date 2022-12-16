@@ -259,7 +259,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
 
                         std::string v;
                         if (decimal_scale_length <= scale) {
-                            // decimal(5,2) : the integer of 0.01 is 1, so we should fill 0 befor integer
+                            // decimal(5,2) : the integer of 0.01 is 1, so we should fill 0 before integer
                             v = std::string(negative ? "-0." : "0.");
                             int fill_zero = scale - decimal_scale_length;
                             while (fill_zero--) {

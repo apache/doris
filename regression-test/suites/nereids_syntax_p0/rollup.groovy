@@ -59,14 +59,12 @@ suite("rollup") {
             }
         }
     }
-    Thread.sleep(200)
+    Thread.sleep(2000)
 
     sql "insert into rollup_t1 values(1, 2, 3, 4)"
     sql "insert into rollup_t1 values(1, 2, 3, 2)"
     sql "insert into rollup_t1 values(2, 3, 4, 1)"
     sql "insert into rollup_t1 values(2, 3, 4, 3)"
-
-    sql "set enable_vectorized_engine=true"
 
     sql "set enable_nereids_planner=true"
 

@@ -23,14 +23,26 @@ if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     exit 1
 fi
 
+# put data file
+## put tpch1
 echo "hadoop fs -mkdir /user/doris/"
 hadoop fs -mkdir -p /user/doris/
 echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
-echo "hadoop fs -put /mnt/scripts/json_format_test.db /user/doris/"
-hadoop fs -put /mnt/scripts/json_format_test /user/doris/
-echo "hive -f /mnt/scripts/create.hql"
-hive -f /mnt/scripts/create.hql
+
+## put other preinstalled data
+echo "hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/"
+hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
+
+# create table
+echo "hive -f /mnt/scripts/create_tpch1_orc.hql"
+hive -f /mnt/scripts/create_tpch1_orc.hql
+
+echo "hive -f /mnt/scripts/create_tpch1_parquet.hql"
+hive -f /mnt/scripts/create_tpch1_parquet.hql
+
+echo "hive -f /mnt/scripts/create_preinstalled_table.hql"
+hive -f /mnt/scripts/create_preinstalled_table.hql
 
 echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS

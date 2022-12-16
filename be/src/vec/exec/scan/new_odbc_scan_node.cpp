@@ -38,7 +38,7 @@ std::string NewOdbcScanNode::get_name() {
 Status NewOdbcScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCAN_NODE_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     return Status::OK();
 }
 
@@ -53,7 +53,7 @@ Status NewOdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     }
     NewOdbcScanner* scanner = new NewOdbcScanner(_state, this, _limit_per_scanner, _odbc_scan_node);
     _scanner_pool.add(scanner);
-    RETURN_IF_ERROR(scanner->prepare(_state));
+    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
     scanners->push_back(static_cast<VScanner*>(scanner));
     return Status::OK();
 }

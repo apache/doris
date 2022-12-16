@@ -72,13 +72,12 @@
 #include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
-#include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vintersect_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
@@ -87,10 +86,6 @@
 namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
-
-int ExecNode::get_node_id_from_profile(RuntimeProfile* p) {
-    return p->metadata();
-}
 
 ExecNode::RowBatchQueue::RowBatchQueue(int max_batches) : BlockingQueue<RowBatch*>(max_batches) {}
 
@@ -127,7 +122,7 @@ int ExecNode::RowBatchQueue::Cleanup() {
     //   delete batch;
     // }
 
-    lock_guard<std::mutex> l(lock_);
+    std::lock_guard<std::mutex> l(lock_);
     for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin(); it != cleanup_queue_.end();
          ++it) {
         // num_io_buffers += (*it)->num_io_buffers();
@@ -149,8 +144,8 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _rows_returned_counter(nullptr),
           _rows_returned_rate(nullptr),
           _memory_used_counter(nullptr),
-          _get_next_span(),
-          _is_closed(false) {
+          _is_closed(false),
+          _ref(0) {
     if (tnode.__isset.output_tuple_id) {
         _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
     }
@@ -196,7 +191,9 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
     }
-    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
+    }
 
     // create the projections expr
     if (tnode.__isset.projections) {
@@ -211,14 +208,24 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_shared<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                                _runtime_profile.get());
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    _mem_tracker_held =
+            std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
+                                         _runtime_profile.get(), nullptr, "PeakMemoryUsage");
+    // Only when the query profile is enabled, the node allocated memory will be track through the mem hook,
+    // otherwise _mem_tracker_growh is nullptr, and SCOPED_CONSUME_MEM_TRACKER will do nothing.
+    if (state->query_options().__isset.is_report_success &&
+        state->query_options().is_report_success) {
+        _mem_tracker_growh = std::make_shared<MemTracker>(
+                "ExecNode:MemoryOnlyTrackAlloc:" + _runtime_profile->name(), _runtime_profile.get(),
+                nullptr, "MemoryOnlyTrackAllocNoConsiderFree", true);
+    }
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
@@ -239,8 +246,8 @@ Status ExecNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExecNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+Status ExecNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
@@ -250,6 +257,10 @@ Status ExecNode::open(RuntimeState* state) {
     } else {
         return Status::OK();
     }
+}
+
+Status ExecNode::open(RuntimeState* state) {
+    return alloc_resource(state);
 }
 
 Status ExecNode::reset(RuntimeState* state) {
@@ -268,15 +279,34 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     return Status::OK();
 }
 
+void ExecNode::release_resource(doris::RuntimeState* state) {
+    if (!_is_resource_released) {
+        if (_rows_returned_counter != nullptr) {
+            COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+        }
+
+        if (_vconjunct_ctx_ptr) {
+            (*_vconjunct_ctx_ptr)->close(state);
+        }
+        if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+            Expr::close(_conjunct_ctxs, state);
+        }
+        vectorized::VExpr::close(_projections, state);
+
+        if (_buffer_pool_client.is_registered()) {
+            state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
+        }
+
+        runtime_profile()->add_to_span();
+        _is_resource_released = true;
+    }
+}
+
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
     _is_closed = true;
-
-    if (_rows_returned_counter != nullptr) {
-        COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    }
 
     Status result;
     for (int i = 0; i < _children.size(); ++i) {
@@ -285,26 +315,12 @@ Status ExecNode::close(RuntimeState* state) {
             result = st;
         }
     }
-
-    if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->close(state);
-    }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        Expr::close(_conjunct_ctxs, state);
-    }
-    vectorized::VExpr::close(_projections, state);
-
-    if (_buffer_pool_client.is_registered()) {
-        state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
-    }
-
-    runtime_profile()->add_to_span();
-
+    release_resource(state);
     return result;
 }
 
 void ExecNode::add_runtime_exec_option(const std::string& str) {
-    lock_guard<mutex> l(_exec_options_lock);
+    std::lock_guard<std::mutex> l(_exec_options_lock);
 
     if (_runtime_exec_options.empty()) {
         _runtime_exec_options = str;
@@ -639,7 +655,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         }
 
     default:
-        map<int, const char*>::const_iterator i =
+        std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
         const char* str = "unknown node type";
 
@@ -806,6 +822,7 @@ std::string ExecNode::get_name() {
 }
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+    SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
@@ -833,14 +850,17 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 }
 
 Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    // delete the UNLIKELY after support new optimizers
-    if (UNLIKELY(_output_row_descriptor)) {
+    if (_output_row_descriptor) {
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
         auto status = get_next(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);
     }
     return get_next(state, block, eos);
+}
+
+Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    return Status::NotSupported("{} not implements sink", get_name());
 }
 
 } // namespace doris

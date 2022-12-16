@@ -24,6 +24,12 @@ under the License.
 
 ## array_sort
 
+<version since="1.2.0">
+
+array_sort
+
+</version>
+
 ### description
 
 #### Syntax
@@ -76,3 +82,4 @@ mysql> select k1, k2, array_sort(k2) from array_test01;
 ### keywords
 
 ARRAY, SORT, ARRAY_SORT
+

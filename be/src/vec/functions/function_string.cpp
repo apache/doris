@@ -666,6 +666,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLTrim>();
     factory.register_function<FunctionRTrim>();
     factory.register_function<FunctionTrim>();
+    factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
     factory.register_function<FunctionLeft>();
@@ -682,7 +683,9 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
+    factory.register_function<FunctionSplitByString>();
     factory.register_function<FunctionStringMd5AndSM3<MD5Sum>>();
+    factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();

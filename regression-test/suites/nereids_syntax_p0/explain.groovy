@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("explain") {
-    sql """
-        SET enable_vectorized_engine=true
-    """
-
+suite("nereids_explain") {
     sql """
         SET enable_nereids_planner=true
     """
@@ -28,8 +24,33 @@ suite("explain") {
 
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
-        contains "projections: lo_suppkey"
-        contains "project output tuple id: 1"
+        contains "(sum(2) + sum(lo_suppkey))[#24]"
+        contains "project output tuple id: 3"
     }
 
+
+    explain {
+        sql("physical plan select 100")
+        contains "PhysicalOneRowRelation"
+    }
+
+    explain {
+        sql("logical plan select 100")
+        contains "LogicalOneRowRelation"
+    }
+
+    explain {
+        sql("parsed plan select 100")
+        contains "UnboundOneRowRelation"
+    }
+
+    explain {
+        sql("plan select * from lineorder where lo_orderkey > (select avg(lo_orderkey) from lineorder)")
+        contains "*LogicalSubQueryAlias"
+    }
+
+    explain {
+        sql("plan with s as (select * from supplier) select * from s as s1, s as s2")
+        contains "*LogicalSubQueryAlias"
+    }
 }

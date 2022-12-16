@@ -40,6 +40,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
 public class PartitionKey implements Comparable<PartitionKey>, Writable {
@@ -58,7 +59,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax));
+            partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
         return partitionKey;
@@ -70,15 +71,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         Preconditions.checkArgument(keys.size() <= columns.size());
         int i;
         for (i = 0; i < keys.size(); ++i) {
-            partitionKey.keys.add(keys.get(i).getValue(
-                    Type.fromPrimitiveType(columns.get(i).getDataType())));
+            partitionKey.keys.add(keys.get(i).getValue(columns.get(i).getType()));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
-            Type type = Type.fromPrimitiveType(columns.get(i).getDataType());
-            partitionKey.keys.add(LiteralExpr.createInfinity(type, false));
+            partitionKey.keys.add(LiteralExpr.createInfinity(columns.get(i).getType(), false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -86,7 +85,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return partitionKey;
     }
 
-    public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
+    public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types)
             throws AnalysisException {
         // for multi list partition:
         //
@@ -108,16 +107,22 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         //     PARTITION p6 VALUES IN ("26")
         // )
         //
-        Preconditions.checkArgument(values.size() == columns.size(),
-                "in value size[" + values.size() + "] is not equal to partition column size[" + columns.size() + "].");
+        Preconditions.checkArgument(values.size() == types.size(),
+                "in value size[" + values.size() + "] is not equal to partition column size[" + types.size() + "].");
 
         PartitionKey partitionKey = new PartitionKey();
         for (int i = 0; i < values.size(); i++) {
-            partitionKey.keys.add(values.get(i).getValue(Type.fromPrimitiveType(columns.get(i).getDataType())));
-            partitionKey.types.add(columns.get(i).getDataType());
+            partitionKey.keys.add(values.get(i).getValue(types.get(i)));
+            partitionKey.types.add(types.get(i).getPrimitiveType());
         }
 
         return partitionKey;
+    }
+
+    public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
+            throws AnalysisException {
+        List<Type> types = columns.stream().map(c -> c.getType()).collect(Collectors.toList());
+        return createListPartitionKeyWithTypes(values, types);
     }
 
     public void pushColumn(LiteralExpr keyValue, PrimitiveType keyType) {
@@ -161,6 +166,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             }
         }
         return true;
+    }
+
+    public List<String> getPartitionValuesAsStringList() {
+        return keys.stream().map(k -> k.getStringValue()).collect(Collectors.toList());
     }
 
     public static int compareLiteralExpr(LiteralExpr key1, LiteralExpr key2) {
@@ -326,7 +335,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         throw new IOException("type[" + type.name() + "] not supported: ");
                 }
             }
-            literal.setType(Type.fromPrimitiveType(type));
+            if (type != PrimitiveType.DATETIMEV2) {
+                literal.setType(Type.fromPrimitiveType(type));
+            }
             keys.add(literal);
         }
     }

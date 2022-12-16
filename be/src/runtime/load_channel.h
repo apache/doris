@@ -63,8 +63,7 @@ public:
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
     // The method will not return until the chosen tablet channels finished memtable
     // flush.
-    template <typename TabletWriterAddResult>
-    Status handle_mem_exceed_limit(TabletWriterAddResult* response);
+    void handle_mem_exceed_limit();
 
     int64_t mem_consumption() {
         int64_t mem_usage = 0;
@@ -181,27 +180,6 @@ inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
-}
-
-template <typename TabletWriterAddResult>
-Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
-    bool found = false;
-    std::shared_ptr<TabletsChannel> channel;
-    {
-        // lock so that only one thread can check mem limit
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
-        found = _find_largest_consumption_channel(&channel);
-    }
-    // Release lock so that other threads can still call add_batch concurrently.
-    if (found) {
-        DCHECK(channel != nullptr);
-        return channel->reduce_mem_usage(response);
-    } else {
-        // should not happen, add log to observe
-        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
-                     << "load_id=" << _load_id;
-    }
-    return Status::OK();
 }
 
 } // namespace doris

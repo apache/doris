@@ -17,7 +17,7 @@ FROM
 , store
 , customer
 WHERE (ctr1.ctr_total_return > (
-      SELECT (avg(ctr_total_return) * CAST('1.2' AS DECIMAL))
+      SELECT (avg(ctr_total_return) * 1.2)
       FROM
         customer_total_return ctr2
       WHERE (ctr1.ctr_store_sk = ctr2.ctr_store_sk)

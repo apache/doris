@@ -26,6 +26,13 @@ under the License.
 
 ## array_intersect
 
+<version since="1.2.0">
+
+array_intersect
+
+</version>
+
+
 ### description
 
 #### Syntax
@@ -87,3 +94,4 @@ mysql> select k1,k2,k3,array_intersect(k2,k3) from array_type_table_decimal;
 ### keywords
 
 ARRAY,INTERSECT,ARRAY_INTERSECT
+

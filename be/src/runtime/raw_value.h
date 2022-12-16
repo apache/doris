@@ -181,7 +181,7 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
         return *reinterpret_cast<const int32_t*>(v1) < *reinterpret_cast<const int32_t*>(v2);
     case TYPE_DECIMAL64:
         return *reinterpret_cast<const int64_t*>(v1) < *reinterpret_cast<const int64_t*>(v2);
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
                reinterpret_cast<const PackedInt128*>(v2)->value;
 
@@ -254,7 +254,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
         return *reinterpret_cast<const int32_t*>(v1) == *reinterpret_cast<const int32_t*>(v2);
     case TYPE_DECIMAL64:
         return *reinterpret_cast<const int64_t*>(v1) == *reinterpret_cast<const int64_t*>(v2);
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
                reinterpret_cast<const PackedInt128*>(v2)->value;
 
@@ -327,7 +327,7 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
         return HashUtil::hash(v, 4, seed);
     case TYPE_DECIMAL64:
         return HashUtil::hash(v, 8, seed);
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return HashUtil::hash(v, 16, seed);
 
     case TYPE_LARGEINT:
@@ -396,7 +396,7 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
         return HashUtil::fnv_hash(v, 4, seed);
     case TYPE_DECIMAL64:
         return HashUtil::fnv_hash(v, 8, seed);
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return HashUtil::fnv_hash(v, 16, seed);
 
     case TYPE_LARGEINT:
@@ -450,7 +450,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_DECIMAL64:
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_LARGEINT:
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return HashUtil::zlib_crc_hash(v, 16, seed);
     case TYPE_FLOAT:
         return HashUtil::zlib_crc_hash(v, 4, seed);
@@ -519,18 +519,11 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
     }
 
     case TYPE_DATEV2: {
-        auto* date_v2_val = (const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)v;
-        char buf[64];
-        int date_v2_len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);
+        return HashUtil::zlib_crc_hash(v, 4, seed);
     }
 
     case TYPE_DATETIMEV2: {
-        auto* date_v2_val =
-                (const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*)v;
-        char buf[64];
-        int date_v2_len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);
+        return HashUtil::zlib_crc_hash(v, 8, seed);
     }
 
     case TYPE_DECIMALV2: {
@@ -544,7 +537,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
         return HashUtil::zlib_crc_hash(v, 4, seed);
     case TYPE_DECIMAL64:
         return HashUtil::zlib_crc_hash(v, 8, seed);
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         return HashUtil::zlib_crc_hash(v, 16, seed);
     default:
         DCHECK(false) << "invalid type: " << type;

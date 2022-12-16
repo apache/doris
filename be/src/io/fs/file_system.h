@@ -37,6 +37,8 @@ using ResourceId = std::string;
 enum class FileSystemType : uint8_t {
     LOCAL,
     S3,
+    HDFS,
+    BROKER,
 };
 
 class FileSystem {

@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Expectations;
@@ -46,7 +47,7 @@ public class CacheTest extends TestWithFeService {
                     try {
                         Thread.sleep(50);
                     } catch (InterruptedException e) {
-                        return ColumnStatistic.UNKNOWN;
+                        return ColumnStatistic.DEFAULT;
                     }
                     return ColumnStatistic.DEFAULT;
                 });
@@ -54,7 +55,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
+        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
         Thread.sleep(100);
         c = statisticsCache.getColumnStatistics(1, "col");
         Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
@@ -65,7 +66,7 @@ public class CacheTest extends TestWithFeService {
         new MockUp<ColumnStatistic>() {
 
             @Mock
-            public Column findColumn(long catalogId, long dbId, long tblId, String columnName) {
+            public Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
                 return new Column("abc", PrimitiveType.BIGINT);
             }
         };
@@ -85,6 +86,7 @@ public class CacheTest extends TestWithFeService {
                 colNames.add("data_size_in_bytes");
                 colNames.add("catalog_id");
                 colNames.add("db_id");
+                colNames.add("idx_id");
                 colNames.add("tbl_id");
                 colNames.add("col_id");
                 colNames.add("min");
@@ -106,6 +108,7 @@ public class CacheTest extends TestWithFeService {
                 values.add("3");
                 values.add("4");
                 values.add("5");
+                values.add("-1");
                 values.add("6");
                 values.add("7");
                 values.add("8");
@@ -117,7 +120,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
-        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
+        Assertions.assertEquals(ColumnStatistic.DEFAULT, columnStatistic);
         Thread.sleep(100);
         columnStatistic = statisticsCache.getColumnStatistics(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);

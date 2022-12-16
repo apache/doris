@@ -23,17 +23,22 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -66,12 +71,16 @@ import java.util.stream.Collectors;
 public class CatalogMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
+    private static final String YES = "yes";
+
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
     private final Map<Long, CatalogIf> idToCatalog = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
     private final Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
+    // record last used database of every catalog
+    private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToDataSource and nameToDataSource
@@ -79,6 +88,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public CatalogMgr() {
         initInternalCatalog();
+    }
+
+    public static CatalogMgr read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
     private void initInternalCatalog() {
@@ -94,17 +108,20 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
+            catalog.onClose();
             nameToCatalog.remove(catalog.getName());
+            lastDBOfCatalog.remove(catalog.getName());
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
         }
         return catalog;
     }
 
-    private void unprotectedRefreshCatalog(long catalogId) {
+    private void unprotectedRefreshCatalog(long catalogId, boolean invalidCache) {
         CatalogIf catalog = idToCatalog.get(catalogId);
         if (catalog != null) {
             String catalogName = catalog.getName();
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                ((ExternalCatalog) catalog).setUninitialized();
+                ((ExternalCatalog) catalog).setUninitialized(invalidCache);
             }
         }
     }
@@ -133,6 +150,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return getCatalogOrException(name,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
                         ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
+    public void addLastDBOfCatalog(String catalog, String db) {
+        lastDBOfCatalog.put(catalog, db);
+    }
+
+    public String getLastDB(String catalog) {
+        return lastDBOfCatalog.get(catalog);
     }
 
     public List<Long> getCatalogIds() {
@@ -230,6 +255,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
+
+            lastDBOfCatalog.remove(stmt.getCatalogName());
         } finally {
             writeUnlock();
         }
@@ -245,9 +272,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
+            if (nameToCatalog.get(stmt.getNewCatalogName()) != null) {
+                throw new DdlException("Catalog with name " + stmt.getNewCatalogName() + " already exist");
+            }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
+
+            String db = lastDBOfCatalog.get(stmt.getCatalogName());
+            if (db != null) {
+                lastDBOfCatalog.remove(stmt.getCatalogName());
+                lastDBOfCatalog.put(log.getNewCatalogName(), db);
+            }
         } finally {
             writeUnlock();
         }
@@ -263,7 +299,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
-            if (!catalog.getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
+            if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
+                    .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
@@ -285,19 +322,44 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * List all catalog or get the special catalog with a name.
      */
     public ShowResultSet showCatalogs(ShowCatalogStmt showStmt) throws AnalysisException {
+        return showCatalogs(showStmt, InternalCatalog.INTERNAL_CATALOG_NAME);
+    }
+
+    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
             if (showStmt.getCatalogName() == null) {
+                PatternMatcher matcher = null;
+                if (showStmt.getPattern() != null) {
+                    matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                            CaseSensibility.CATALOG.getCaseSensibility());
+                }
+
                 for (CatalogIf catalog : nameToCatalog.values()) {
                     if (Env.getCurrentEnv().getAuth()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
+                        String name = catalog.getName();
+                        // Filter catalog name
+                        if (matcher != null && !matcher.match(name)) {
+                            continue;
+                        }
                         List<String> row = Lists.newArrayList();
                         row.add(String.valueOf(catalog.getId()));
-                        row.add(catalog.getName());
+                        row.add(name);
                         row.add(catalog.getType());
+                        if (name.equals(currentCtlg)) {
+                            row.add(YES);
+                        } else {
+                            row.add("");
+                        }
                         rows.add(row);
                     }
+
+                    // sort by catalog name
+                    rows.sort((x, y) -> {
+                        return x.get(1).compareTo(y.get(1));
+                    });
                 }
             } else {
                 if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
@@ -316,6 +378,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     rows.add(row);
                 }
             }
+        } finally {
+            readUnlock();
+        }
+
+        return new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        readLock();
+        try {
+            CatalogIf catalog = nameToCatalog.get(showStmt.getCatalog());
+            if (catalog == null) {
+                throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("CREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+                    .append("`");
+            if (catalog.getProperties().size() > 0) {
+                sb.append(" PROPERTIES (\n");
+                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, false));
+                sb.append("\n);");
+            }
+
+            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()), sb.toString()));
         } finally {
             readUnlock();
         }
@@ -372,7 +459,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void replayRefreshCatalog(CatalogLog log) throws DdlException {
         writeLock();
         try {
-            unprotectedRefreshCatalog(log.getCatalogId());
+            unprotectedRefreshCatalog(log.getCatalogId(), log.isInvalidCache());
         } finally {
             writeUnlock();
         }
@@ -423,48 +510,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.replayInitDb(log, catalog);
     }
 
-    public void replayInitExternalTable(InitTableLog log) {
-        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        Preconditions.checkArgument(catalog != null);
-        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        Preconditions.checkArgument(db != null);
-        ExternalTable table = db.getTableForReplay(log.getTableId());
-        Preconditions.checkArgument(table != null);
-        table.replayInitTable(log.getSchema());
-    }
-
     public void replayRefreshExternalDb(ExternalObjectLog log) {
         writeLock();
         try {
             ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
             ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            db.setUnInitialized();
+            db.setUnInitialized(log.isInvalidCache());
         } finally {
             writeUnlock();
         }
     }
 
     public void replayRefreshExternalTable(ExternalObjectLog log) {
-        writeLock();
-        try {
-            ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-            ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            ExternalTable table = db.getTableForReplay(log.getTableId());
-            table.setUnInitialized();
-        } finally {
-            writeUnlock();
-        }
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public static CatalogMgr read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
     @Override

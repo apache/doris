@@ -52,6 +52,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
@@ -123,7 +124,7 @@ public class StreamLoadPlanner {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
+        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
             throw new UserException("Table " + destTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
@@ -180,9 +181,15 @@ public class StreamLoadPlanner {
             fileGroup.parse(db, dataDescription);
             // 2. create dummy file status
             TBrokerFileStatus fileStatus = new TBrokerFileStatus();
-            fileStatus.setPath("");
-            fileStatus.setIsDir(false);
-            fileStatus.setSize(-1); // must set to -1, means stream.
+            if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
+                fileStatus.setPath(taskInfo.getPath());
+                fileStatus.setIsDir(false);
+                fileStatus.setSize(taskInfo.getFileSize()); // must set to -1, means stream.
+            } else {
+                fileStatus.setPath("");
+                fileStatus.setIsDir(false);
+                fileStatus.setSize(-1); // must set to -1, means stream.
+            }
             fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                     fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
             scanNode = fileScanNode;
@@ -193,7 +200,7 @@ public class StreamLoadPlanner {
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {
-            scanNode.convertToVectoriezd();
+            scanNode.convertToVectorized();
         }
         descTable.computeStatAndMemLayout();
 
@@ -250,6 +257,7 @@ public class StreamLoadPlanner {
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
+        queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
 
         params.setQueryOptions(queryOptions);
@@ -323,3 +331,4 @@ public class StreamLoadPlanner {
         return null;
     }
 }
+

@@ -22,7 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_parquet") {
-    def dbName = "test_query_db"
+    def dbName = "test_outfile_parquet"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
     StringBuilder strBuilder = new StringBuilder()

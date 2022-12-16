@@ -79,6 +79,7 @@ enum class TypeIndex {
     TimeV2,
     FixedLengthObject,
     JSONB,
+    Decimal128I,
 };
 
 struct Consted {
@@ -263,6 +264,8 @@ using DateTime = Int64;
 using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
 
+struct Int128I {};
+
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
 template <typename T>
@@ -273,7 +276,17 @@ struct Decimal {
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
-    Decimal(const T& value_) : value(value_) {}
+#define DECLARE_NUMERIC_CTOR(TYPE) \
+    Decimal(const TYPE& value_) : value(value_) {}
+
+    DECLARE_NUMERIC_CTOR(Int128)
+    DECLARE_NUMERIC_CTOR(Int32)
+    DECLARE_NUMERIC_CTOR(Int64)
+    DECLARE_NUMERIC_CTOR(UInt32)
+    DECLARE_NUMERIC_CTOR(UInt64)
+    DECLARE_NUMERIC_CTOR(Float32)
+    DECLARE_NUMERIC_CTOR(Float64)
+#undef DECLARE_NUMERIC_CTOR
 
     static Decimal double_to_decimal(double value_) {
         DecimalV2Value decimal_value;
@@ -282,7 +295,9 @@ struct Decimal {
     }
 
     template <typename U>
-    Decimal(const Decimal<U>& x) : value(x) {}
+    Decimal(const Decimal<U>& x) {
+        value = x;
+    }
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
     constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
@@ -313,9 +328,32 @@ struct Decimal {
     T value;
 };
 
+template <>
+struct Decimal<Int128I> : public Decimal<Int128> {
+    Decimal() = default;
+
+#define DECLARE_NUMERIC_CTOR(TYPE) \
+    Decimal(const TYPE& value_) : Decimal<Int128>(value_) {}
+
+    DECLARE_NUMERIC_CTOR(Int128)
+    DECLARE_NUMERIC_CTOR(Int32)
+    DECLARE_NUMERIC_CTOR(Int64)
+    DECLARE_NUMERIC_CTOR(UInt32)
+    DECLARE_NUMERIC_CTOR(UInt64)
+    DECLARE_NUMERIC_CTOR(Float32)
+    DECLARE_NUMERIC_CTOR(Float64)
+#undef DECLARE_NUMERIC_CTOR
+
+    template <typename U>
+    Decimal(const Decimal<U>& x) {
+        value = x;
+    }
+};
+
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
+using Decimal128I = Decimal<Int128I>;
 
 template <>
 struct TypeName<Decimal32> {
@@ -328,6 +366,10 @@ struct TypeName<Decimal64> {
 template <>
 struct TypeName<Decimal128> {
     static const char* get() { return "Decimal128"; }
+};
+template <>
+struct TypeName<Decimal128I> {
+    static const char* get() { return "Decimal128I"; }
 };
 
 template <>
@@ -342,6 +384,10 @@ template <>
 struct TypeId<Decimal128> {
     static constexpr const TypeIndex value = TypeIndex::Decimal128;
 };
+template <>
+struct TypeId<Decimal128I> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+};
 
 template <typename T>
 constexpr bool IsDecimalNumber = false;
@@ -351,6 +397,25 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal64> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128> = true;
+template <>
+inline constexpr bool IsDecimalNumber<Decimal128I> = true;
+
+template <typename T>
+constexpr bool IsDecimal128 = false;
+template <>
+inline constexpr bool IsDecimal128<Decimal128> = true;
+
+template <typename T>
+constexpr bool IsDecimal128I = false;
+template <>
+inline constexpr bool IsDecimal128I<Decimal128I> = true;
+
+template <typename T>
+constexpr bool IsDecimalV2 = IsDecimal128<T> && !IsDecimal128I<T>;
+
+template <typename T, typename U>
+using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128,
+                                          std::conditional_t<IsDecimalNumber<T>, Decimal128I, U>>;
 
 template <typename T>
 constexpr bool IsFloatNumber = false;
@@ -373,6 +438,10 @@ struct NativeType<Decimal64> {
 };
 template <>
 struct NativeType<Decimal128> {
+    using Type = Int128;
+};
+template <>
+struct NativeType<Decimal128I> {
     using Type = Int128;
 };
 
@@ -428,6 +497,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return TypeName<Decimal64>::get();
     case TypeIndex::Decimal128:
         return TypeName<Decimal128>::get();
+    case TypeIndex::Decimal128I:
+        return TypeName<Decimal128I>::get();
     case TypeIndex::UUID:
         return "UUID";
     case TypeIndex::Array:

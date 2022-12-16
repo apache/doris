@@ -10,7 +10,7 @@ LEFT JOIN catalog_returns ON (cs_order_number = cr_order_number)
 , warehouse
 , item
 , date_dim
-WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL) AND CAST('1.49' AS DECIMAL))
+WHERE (i_current_price BETWEEN 0.99 AND 1.49)
    AND (i_item_sk = cs_item_sk)
    AND (cs_warehouse_sk = w_warehouse_sk)
    AND (cs_sold_date_sk = d_date_sk)

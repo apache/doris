@@ -18,13 +18,8 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.EsExternalCatalog;
-import org.apache.doris.datasource.InitTableLog;
-import org.apache.doris.external.elasticsearch.EsUtil;
-import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -54,82 +49,11 @@ public class EsExternalTable extends ExternalTable {
         super(id, name, catalog, dbName, TableType.ES_EXTERNAL_TABLE);
     }
 
-
-    public synchronized void makeSureInitialized() {
-        if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                fullSchema = null;
-                // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                try {
-                    remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
-                } catch (Exception e) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("failed to forward init external table %s operation to master", name), e);
-                }
-            } else {
-                init();
-            }
-        }
+    protected synchronized void makeSureInitialized() {
         if (!objectCreated) {
             esTable = toEsTable();
             objectCreated = true;
         }
-    }
-
-    private void init() {
-        boolean schemaChanged = false;
-        List<Column> tmpSchema = EsUtil.genColumnsFromEs(
-                ((EsExternalCatalog) catalog).getEsRestClient(), name, null);
-        if (fullSchema == null || fullSchema.size() != tmpSchema.size()) {
-            schemaChanged = true;
-        } else {
-            for (int i = 0; i < fullSchema.size(); i++) {
-                if (!fullSchema.get(i).equals(tmpSchema.get(i))) {
-                    schemaChanged = true;
-                    break;
-                }
-            }
-        }
-        if (schemaChanged) {
-            timestamp = System.currentTimeMillis();
-            fullSchema = tmpSchema;
-            esTable = toEsTable();
-        }
-        initialized = true;
-        InitTableLog initTableLog = new InitTableLog();
-        initTableLog.setCatalogId(catalog.getId());
-        initTableLog.setDbId(catalog.getDbNameToId().get(dbName));
-        initTableLog.setTableId(id);
-        initTableLog.setSchema(fullSchema);
-        Env.getCurrentEnv().getEditLog().logInitExternalTable(initTableLog);
-    }
-
-    @Override
-    public List<Column> getFullSchema() {
-        makeSureInitialized();
-        return fullSchema;
-    }
-
-    @Override
-    public List<Column> getBaseSchema() {
-        return getFullSchema();
-    }
-
-    @Override
-    public List<Column> getBaseSchema(boolean full) {
-        return getFullSchema();
-    }
-
-    @Override
-    public Column getColumn(String name) {
-        makeSureInitialized();
-        for (Column column : fullSchema) {
-            if (name.equals(column.getName())) {
-                return column;
-            }
-        }
-        return null;
     }
 
     public EsTable getEsTable() {
@@ -142,25 +66,20 @@ public class EsExternalTable extends ExternalTable {
         return type.name();
     }
 
-    /**
-     * get database name of es table.
-     */
-    public String getDbName() {
-        return dbName;
-    }
-
     @Override
     public TTableDescriptor toThrift() {
+        List<Column> schema = getFullSchema();
         TEsTable tEsTable = new TEsTable();
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, fullSchema.size(), 0,
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, schema.size(), 0,
                 getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }
 
     private EsTable toEsTable() {
+        List<Column> schema = getFullSchema();
         EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
-        EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE);
+        EsTable esTable = new EsTable(this.id, this.name, schema, TableType.ES_EXTERNAL_TABLE);
         esTable.setIndexName(name);
         esTable.setClient(esCatalog.getEsRestClient());
         esTable.setUserName(esCatalog.getUsername());

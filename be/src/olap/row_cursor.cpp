@@ -28,6 +28,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 RowCursor::RowCursor()
         : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
 
@@ -47,7 +48,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
     for (auto cid : columns) {
         if (_schema->column(cid) == nullptr) {
             LOG(WARNING) << "Fail to create field.";
-            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+            return Status::Error<INIT_FAILED>();
         }
         _variable_len += column_schema(cid)->get_variable_len();
         if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING) {
@@ -59,7 +60,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
     _fixed_buf = new (nothrow) char[_fixed_len]();
     if (_fixed_buf == nullptr) {
         LOG(WARNING) << "Fail to malloc _fixed_buf.";
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     _owned_fixed_buf = _fixed_buf;
 
@@ -140,7 +141,7 @@ Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << column_count
                 << ", schema.num_columns=" << schema->num_columns();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns;
@@ -156,7 +157,7 @@ Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_co
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << column_count << ", schema.num_columns=" << schema.size();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns;
@@ -180,7 +181,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
                 << ", schema.num_columns=" << schema->num_columns();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -258,7 +259,7 @@ Status RowCursor::from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
         LOG(WARNING) << "column count does not match. tuple_size=" << tuple.size()
                      << ", field_count=" << _schema->num_column_ids();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     for (size_t i = 0; i < tuple.size(); ++i) {
@@ -328,19 +329,19 @@ Status RowCursor::_alloc_buf() {
     _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
         LOG(WARNING) << "Fail to malloc _variable_buf.";
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {
             LOG(WARNING) << "Fail to malloc _long_text_buf.";
-            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            return Status::Error<MEM_ALLOC_FAILED>();
         }
         for (int i = 0; i < _string_field_count; ++i) {
             _long_text_buf[i] = (char*)malloc(DEFAULT_TEXT_LENGTH * sizeof(char));
             if (_long_text_buf[i] == nullptr) {
                 LOG(WARNING) << "Fail to malloc _long_text_buf.";
-                return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+                return Status::Error<MEM_ALLOC_FAILED>();
             }
         }
     }

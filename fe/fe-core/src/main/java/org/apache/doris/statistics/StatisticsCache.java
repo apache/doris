@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -33,30 +32,43 @@ public class StatisticsCache {
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
 
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnStatistic> cache = Caffeine.newBuilder()
-            .maximumSize(Config.statistics_cache_max_size)
-            .expireAfterAccess(Duration.ofHours(Config.statistics_cache_valid_duration_in_hours))
-            .refreshAfterWrite(Duration.ofHours(Config.statistics_cache_refresh_interval))
+            .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+            .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
+            .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
             .buildAsync(new StatisticsCacheLoader());
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
+        return getColumnStatistics(tblId, -1, colName);
+    }
+
+    public ColumnStatistic getColumnStatistics(long tblId, long idxId, String colName) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
-        StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
-        CompletableFuture<ColumnStatistic> f = cache.get(k);
-        if (f.isDone()) {
-            try {
+        StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
+        try {
+            CompletableFuture<ColumnStatistic> f = cache.get(k);
+            if (f.isDone()) {
                 return f.get();
-            } catch (Exception e) {
-                LOG.warn("Unexpected exception while returning ColumnStatistic", e);
-                return ColumnStatistic.UNKNOWN;
             }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+            return ColumnStatistic.DEFAULT;
         }
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.DEFAULT;
     }
 
     // TODO: finish this method.
-    public void eraseExpiredCache(long tblId, String colName) {
-        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, colName));
+    public void eraseExpiredCache(long tblId, long idxId, String colName) {
+        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
+    }
+
+    public void updateCache(long tblId, long idxId, String colName, ColumnStatistic statistic) {
+
+        cache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), statistic);
+    }
+
+    public void refreshSync(long tblId, long idxId, String colName) {
+        cache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
 }

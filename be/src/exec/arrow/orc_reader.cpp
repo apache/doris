@@ -152,7 +152,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     // which may cause OOM issues by loading the whole stripe into memory.
     // Note this will only read rows for the current stripe, not the entire file.
     arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> maybe_rb_reader =
-            _reader->NextStripeReader(_state->batch_size(), _include_column_ids);
+            _reader->NextStripeReader(_state->batch_size(), _include_cols);
     if (!maybe_rb_reader.ok()) {
         LOG(WARNING) << "Get RecordBatch Failed. " << maybe_rb_reader.status();
         return Status::InternalError(maybe_rb_reader.status().ToString());

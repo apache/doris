@@ -84,6 +84,7 @@ set(RUNTIME_FILES
     stream_load/stream_load_executor.cpp
     stream_load/stream_load_recorder.cpp
     stream_load/load_stream_mgr.cpp
+    stream_load/new_load_stream_mgr.cpp
     routine_load/data_consumer.cpp
     routine_load/data_consumer_group.cpp
     routine_load/data_consumer_pool.cpp
@@ -113,7 +114,7 @@ if (WITH_MYSQL)
         )
 endif()
 
-if (USE_JEMALLOC)
+if (USE_JEMALLOC AND USE_MEM_TRACKER)
     set(RUNTIME_FILES ${RUNTIME_FILES}
         memory/jemalloc_hook.cpp
         )

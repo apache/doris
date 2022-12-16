@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 
@@ -26,6 +27,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.logging.log4j.LogManager;
@@ -65,15 +68,9 @@ import java.util.List;
 import java.util.Map;
 
 public class S3Storage extends BlobStorage {
-    public static final String S3_PROPERTIES_PREFIX = "AWS";
-    public static final String S3_AK = "AWS_ACCESS_KEY";
-    public static final String S3_SK = "AWS_SECRET_KEY";
-    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
-    public static final String S3_REGION = "AWS_REGION";
-    public static final String USE_PATH_STYLE = "use_path_style";
-
     private static final Logger LOG = LogManager.getLogger(S3Storage.class);
-    private final CaseInsensitiveMap caseInsensitiveProperties;
+    private FileSystem dfsFileSystem = null;
+    private final Map<String, String> caseInsensitiveProperties;
     private S3Client client;
     // false: the s3 client will automatically convert endpoint to virtual-hosted style, eg:
     //          endpoint:           http://s3.us-east-2.amazonaws.com
@@ -97,14 +94,14 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
-        // Virtual hosted-sytle is recommended in the s3 protocol.
+        // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
         // the s3 client will determine whether the endpiont starts with `s3`
         // when generating a virtual hosted-sytle request.
         // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
         // but the endpoints of many cloud service providers for object storage do not start with s3,
         // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-sytle,
+        // Some of them, such as aliyun's oss, only support virtual hosted-style,
         // and some of them(ceph) may only support
         // path-style, so we need to do some additional conversion.
         //
@@ -115,39 +112,65 @@ public class S3Storage extends BlobStorage {
         // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
         // virtual hosted-sytle.
         // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
-        if (!caseInsensitiveProperties.get(S3_ENDPOINT).toString().toLowerCase().startsWith("s3")) {
-            if (caseInsensitiveProperties.getOrDefault(USE_PATH_STYLE, "false").toString().equalsIgnoreCase("true")) {
-                forceHostedStyle = false;
-            } else {
-                forceHostedStyle = true;
-            }
+        if (!caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT).toLowerCase().startsWith("s3")) {
+            forceHostedStyle = !caseInsensitiveProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "false")
+                    .equalsIgnoreCase("true");
         } else {
             forceHostedStyle = false;
         }
     }
 
-    public static void checkS3(CaseInsensitiveMap caseInsensitiveProperties) throws UserException {
-        if (!caseInsensitiveProperties.containsKey(S3_REGION)) {
-            throw new UserException("AWS_REGION not found.");
+    public static void checkS3(Map<String, String> properties) throws UserException {
+        for (String field : S3Resource.REQUIRED_FIELDS) {
+            if (!properties.containsKey(field)) {
+                throw new UserException(field + " not found.");
+            }
         }
-        if (!caseInsensitiveProperties.containsKey(S3_ENDPOINT)) {
-            throw new UserException("AWS_ENDPOINT not found.");
+    }
+
+    @Override
+    public FileSystem getFileSystem(String remotePath) throws UserException {
+        if (dfsFileSystem == null) {
+            checkS3(caseInsensitiveProperties);
+            Configuration conf = new Configuration();
+            System.setProperty("com.amazonaws.services.s3.enableV4", "true");
+            conf.set("fs.s3a.access.key", caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY));
+            conf.set("fs.s3a.secret.key", caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
+            conf.set("fs.s3a.endpoint", caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
+            conf.set("fs.s3a.endpoint.region", caseInsensitiveProperties.get(S3Resource.S3_REGION));
+            if (caseInsensitiveProperties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
+                conf.set("fs.s3a.connection.maximum",
+                        caseInsensitiveProperties.get(S3Resource.S3_MAX_CONNECTIONS));
+            }
+            if (caseInsensitiveProperties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
+                conf.set("fs.s3a.connection.request.timeout",
+                        caseInsensitiveProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
+            }
+            if (caseInsensitiveProperties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
+                conf.set("fs.s3a.connection.timeout",
+                        caseInsensitiveProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
+            }
+            conf.set("fs.s3.impl.disable.cache", "true");
+            conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+            // introducing in hadoop aws 2.8.0
+            conf.set("fs.s3a.path.style.access", forceHostedStyle ? "false" : "true");
+            conf.set("fs.s3a.attempts.maximum", "2");
+            try {
+                dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
+            } catch (Exception e) {
+                throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+            }
         }
-        if (!caseInsensitiveProperties.containsKey(S3_AK)) {
-            throw new UserException("AWS_ACCESS_KEY not found.");
-        }
-        if (!caseInsensitiveProperties.containsKey(S3_SK)) {
-            throw new UserException("AWS_SECRET_KEY not found.");
-        }
+        return dfsFileSystem;
     }
 
     private S3Client getClient(String bucket) throws UserException {
         if (client == null) {
             checkS3(caseInsensitiveProperties);
-            URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3_ENDPOINT).toString());
+            URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
             AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                    caseInsensitiveProperties.get(S3_AK).toString(),
-                    caseInsensitiveProperties.get(S3_SK).toString());
+                    caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
+                    caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
             StaticCredentialsProvider scp = StaticCredentialsProvider.create(awsBasic);
             EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                     .builder()
@@ -172,7 +195,7 @@ public class S3Storage extends BlobStorage {
             client = S3Client.builder()
                     .endpointOverride(endpoint)
                     .credentialsProvider(scp)
-                    .region(Region.of(caseInsensitiveProperties.get(S3_REGION).toString()))
+                    .region(Region.of(caseInsensitiveProperties.get(S3Resource.S3_REGION)))
                     .overrideConfiguration(clientConf)
                     // disable chunkedEncoding because of bos not supported
                     // use virtual hosted-style access
@@ -322,28 +345,25 @@ public class S3Storage extends BlobStorage {
     }
 
     @Override
+    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
+        FileSystem fileSystem = getFileSystem(remotePath);
+        try {
+            return fileSystem.listLocatedStatus(new org.apache.hadoop.fs.Path(remotePath));
+        } catch (IOException e) {
+            throw new UserException("Failed to list located status for path: " + remotePath, e);
+        }
+    }
+
+    @Override
     public Status list(String remotePath, List<RemoteFile> result) {
         return list(remotePath, result, true);
     }
 
     // broker file pattern glob is too complex, so we use hadoop directly
+    @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            checkS3(caseInsensitiveProperties);
-            Configuration conf = new Configuration();
-            String s3AK = caseInsensitiveProperties.get(S3_AK).toString();
-            String s3Sk = caseInsensitiveProperties.get(S3_SK).toString();
-            String s3Endpoint = caseInsensitiveProperties.get(S3_ENDPOINT).toString();
-            System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            conf.set("fs.s3a.access.key", s3AK);
-            conf.set("fs.s3a.secret.key", s3Sk);
-            conf.set("fs.s3a.endpoint", s3Endpoint);
-            conf.set("fs.s3.impl.disable.cache", "true");
-            conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-            // introducing in hadoop aws 2.8.0
-            conf.set("fs.s3a.path.style.access", forceHostedStyle ? "false" : "true");
-            conf.set("fs.s3a.attempts.maximum", "2");
-            FileSystem s3AFileSystem = FileSystem.get(new URI(remotePath), conf);
+            FileSystem s3AFileSystem = getFileSystem(remotePath);
             org.apache.hadoop.fs.Path pathPattern = new org.apache.hadoop.fs.Path(remotePath);
             FileStatus[] files = s3AFileSystem.globStatus(pathPattern);
             if (files == null) {

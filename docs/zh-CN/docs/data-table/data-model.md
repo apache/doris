@@ -312,7 +312,9 @@ PROPERTIES (
 
 即Unique 模型的读时合并实现完全可以用聚合模型中的 REPLACE 方式替代。其内部的实现方式和数据存储方式也完全一样。这里不再继续举例说明。
 
-### 写时合并（1.2版本新增）
+<version since="1.2">
+
+### 写时合并
 
 Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种模型了，查询性能更接近于duplicate模型，在有主键约束需求的场景上相比聚合模型有较大的查询性能优势，尤其是在聚合查询以及需要用索引过滤大量数据的查询中。
 
@@ -363,6 +365,8 @@ PROPERTIES (
 1. 新的Merge-on-write实现默认关闭，且只能在建表时通过指定property的方式打开。
 2. 旧的Merge-on-read的实现无法无缝升级到新版本的实现（数据组织方式完全不同），如果需要改为使用写时合并的实现版本，需要手动执行`insert into unique-mow-table select * from source table`.
 3. 在Unique模型上独有的delete sign 和 sequence col，在写时合并的新版实现中仍可以正常使用，用法没有变化。
+
+</version>
 
 ## Duplicate 模型
 

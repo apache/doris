@@ -18,21 +18,19 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,7 +63,6 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
         Map<Long, EsExternalTable> tmpIdToTbl = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             EsExternalTable table = getTableForReplay(log.getRefreshTableIds().get(i));
-            table.setUnInitialized();
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
         }
@@ -86,24 +83,8 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
         }
     }
 
-    public synchronized void makeSureInitialized() {
-        if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                try {
-                    remoteExecutor.forward(extCatalog.getId(), id, -1);
-                } catch (Exception e) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("failed to forward init external db %s operation to master", name), e);
-                }
-                return;
-            }
-            init();
-        }
-    }
-
-    private void init() {
+    @Override
+    protected void init() {
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
         initDatabaseLog.setType(InitDatabaseLog.Type.ES);
         initDatabaseLog.setCatalogId(extCatalog.getId());
@@ -118,7 +99,6 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     EsExternalTable table = idToTbl.get(tblId);
-                    table.setUnInitialized();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {
@@ -138,14 +118,14 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
 
     @Override
     public Set<String> getTableNamesWithLock() {
-        // Doesn't need to lock because everytime we call the hive metastore api to get table names.
-        return new HashSet<>(extCatalog.listTableNames(null, name));
+        makeSureInitialized();
+        return Sets.newHashSet(tableNameToId.keySet());
     }
 
     @Override
     public List<EsExternalTable> getTables() {
         makeSureInitialized();
-        return new ArrayList<>(idToTbl.values());
+        return Lists.newArrayList(idToTbl.values());
     }
 
     @Override

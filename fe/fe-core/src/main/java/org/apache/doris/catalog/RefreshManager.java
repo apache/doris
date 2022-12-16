@@ -23,7 +23,6 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -77,7 +76,7 @@ public class RefreshManager {
             refreshInternalCtlIcebergDb(dbName, env);
         } else {
             // Process external catalog db refresh
-            refreshExternalCtlDb(dbName, catalog);
+            refreshExternalCtlDb(dbName, catalog, stmt.isInvalidCache());
         }
         LOG.info("Successfully refresh db: {}", dbName);
     }
@@ -108,7 +107,7 @@ public class RefreshManager {
         env.getIcebergTableCreationRecordMgr().registerDb(db);
     }
 
-    private void refreshExternalCtlDb(String dbName, CatalogIf catalog) throws DdlException {
+    private void refreshExternalCtlDb(String dbName, CatalogIf catalog, boolean invalidCache) throws DdlException {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh ExternalCatalog Database");
         }
@@ -117,10 +116,11 @@ public class RefreshManager {
         if (db == null) {
             throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
         }
-        ((ExternalDatabase) db).setUnInitialized();
+        ((ExternalDatabase) db).setUnInitialized(invalidCache);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
+        log.setInvalidCache(invalidCache);
         Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
     }
 
@@ -160,7 +160,7 @@ public class RefreshManager {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
-        ((ExternalTable) table).setUnInitialized();
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());

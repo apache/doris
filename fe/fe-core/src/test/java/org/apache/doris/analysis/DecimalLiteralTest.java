@@ -46,7 +46,7 @@ public class DecimalLiteralTest {
 
         // if DecimalLiteral need to cast to Decimal and Decimalv2, need to cast
         // to themselves
-        if (!(Config.enable_decimalv3 && Config.enable_decimal_conversion)) {
+        if (!Config.enable_decimal_conversion) {
             Assert.assertEquals(literal, literal.uncheckedCastTo(Type.DECIMALV2));
         }
 

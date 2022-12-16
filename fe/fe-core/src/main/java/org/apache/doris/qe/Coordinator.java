@@ -287,6 +287,7 @@ public class Coordinator {
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
@@ -318,6 +319,7 @@ public class Coordinator {
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
+        this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
     }
 
@@ -339,6 +341,10 @@ public class Coordinator {
 
     public void setExecVecEngine(boolean vec) {
         this.queryOptions.setEnableVectorizedEngine(vec);
+    }
+
+    public void setExecPipEngine(boolean vec) {
+        this.queryOptions.setEnablePipelineEngine(vec);
     }
 
     public Status getExecStatus() {
@@ -632,6 +638,7 @@ public class Coordinator {
                                     profileFragmentId, tParam, this.addressToBackendID);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
+                    // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
                     tParam.setBackendId(execState.backend.getId());
                     tParam.setNeedWaitExecutionTrigger(twoPhaseExecution);
@@ -1694,8 +1701,9 @@ public class Coordinator {
         // and returned_all_results_ is true.
         // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
         if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-            LOG.warn("one instance report fail, query_id={} instance_id={}",
-                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+            LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
+                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
+                    status.getErrorMsg());
             updateStatus(status, params.getFragmentInstanceId());
         }
         if (execState.done) {

@@ -21,10 +21,10 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -44,7 +44,7 @@ class BindSlotReferenceTest {
     @Test
     public void testCannotFindSlot() {
         LogicalProject project = new LogicalProject<>(ImmutableList.of(new UnboundSlot("foo")),
-                new LogicalOlapScan(new RelationId(0), PlanConstructor.student));
+                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
         Assertions.assertEquals("Cannot find column foo.", exception.getMessage());
@@ -52,8 +52,8 @@ class BindSlotReferenceTest {
 
     @Test
     public void testAmbiguousSlot() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
-        LogicalOlapScan scan2 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
+        LogicalOlapScan scan1 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan2 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
                 JoinType.CROSS_JOIN, scan1, scan2);
         LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
@@ -61,6 +61,8 @@ class BindSlotReferenceTest {
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
-        Assertions.assertEquals("id is ambiguous: id#8, id#12.", exception.getMessage());
+        Assertions.assertTrue(exception.getMessage().contains("id is ambiguous: "));
+        Assertions.assertTrue(exception.getMessage().contains("id#4"));
+        Assertions.assertTrue(exception.getMessage().contains("id#0"));
     }
 }
