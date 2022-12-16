@@ -67,7 +67,6 @@ Status StreamingAggSinkOperator::close(RuntimeState* state) {
     COUNTER_SET(_queue_size_counter, _agg_context->max_size_of_queue());
     COUNTER_SET(_queue_byte_size_counter, _agg_context->max_bytes_in_queue());
     return StreamingOperator::close(state);
-    ;
 }
 
 StreamingAggSinkOperatorBuilder::StreamingAggSinkOperatorBuilder(

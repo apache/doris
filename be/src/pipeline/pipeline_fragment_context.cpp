@@ -133,11 +133,11 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
-        _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-        _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
-        COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
-        _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
-        SCOPED_TIMER(_prepare_timer);
+    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
+    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
+    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
+    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
+    SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
@@ -592,7 +592,6 @@ std::string PipelineFragmentContext::to_http_path(const std::string& file_name) 
 // TODO pipeline dump copy from FragmentExecState::coordinator_callback
 // TODO pipeline this callback should be placed in a thread pool
 void PipelineFragmentContext::send_report(bool done) {
-
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);

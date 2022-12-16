@@ -52,9 +52,9 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::memory_buffer operator_ids_str;
     for (size_t i = 0; i < _operators.size(); i++) {
         if (i == 0) {
-            fmt::format_to(operator_ids_str, fmt::format("[{}", op->id()));
+            fmt::format_to(operator_ids_str, fmt::format("[{}", _operators[i]->id()));
         } else {
-            fmt::format_to(operator_ids_str, fmt::format(", {}", op->id()));
+            fmt::format_to(operator_ids_str, fmt::format(", {}", _operators[i]->id()));
         }
     }
     fmt::format_to(operator_ids_str, "]");

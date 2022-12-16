@@ -71,8 +71,7 @@ PipelineTask* WorkTaskQueue::try_take_unprotected() {
     DCHECK(idx != -1);
     // update empty queue's schedule time, to avoid too high priority
     for (int i = 0; i < SUB_QUEUE_LEVEL; ++i) {
-        if (_sub_queues[i].empty() &&
-            normal_schedule_times[i] < min_schedule_time) {
+        if (_sub_queues[i].empty() && normal_schedule_times[i] < min_schedule_time) {
             _sub_queues[i]._schedule_time = min_schedule_time / _sub_queues[i]._factor_for_normal;
         }
     }
