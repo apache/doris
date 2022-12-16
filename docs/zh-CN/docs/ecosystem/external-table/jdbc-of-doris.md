@@ -169,6 +169,7 @@ PROPERTIES (
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
+| BIT(1)   | BOOLEAN  |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
