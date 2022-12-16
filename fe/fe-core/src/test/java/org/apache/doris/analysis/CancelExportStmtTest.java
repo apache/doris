@@ -149,7 +149,7 @@ public class CancelExportStmtTest extends TestWithFeService {
     }
 
     @Test
-    public void testCancelJobFilter() throws AnalysisException {
+    public void testCancelJobFilter() throws UserException {
         List<ExportJob> exportJobList1 = Lists.newLinkedList();
         List<ExportJob> exportJobList2 = Lists.newLinkedList();
         ExportJob job1 = new ExportJob();
@@ -162,7 +162,6 @@ public class CancelExportStmtTest extends TestWithFeService {
         exportJobList1.add(job2);
         exportJobList1.add(job3);
         exportJobList1.add(job4);
-
         exportJobList2.add(job1);
         exportJobList2.add(job2);
 
@@ -171,6 +170,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         BinaryPredicate stateEqPredicate =
                 new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
         CancelExportStmt stmt = new CancelExportStmt(null, stateEqPredicate);
+        stmt.analyze(analyzer);
         Predicate<ExportJob> filter = ExportMgr.buildCancelJobFilter(stmt);
 
         Assert.assertTrue(exportJobList1.stream().filter(filter).count() == 2);
@@ -180,7 +180,9 @@ public class CancelExportStmtTest extends TestWithFeService {
         stateEqPredicate =
                 new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
         stmt = new CancelExportStmt(null, stateEqPredicate);
+        stmt.analyze(analyzer);
         filter = ExportMgr.buildCancelJobFilter(stmt);
+
         Assert.assertTrue(exportJobList1.stream().filter(filter).count() == 1);
 
     }
