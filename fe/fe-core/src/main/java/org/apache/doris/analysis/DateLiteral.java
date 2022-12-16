@@ -774,10 +774,10 @@ public class DateLiteral extends LiteralExpr {
         if (year < 0 || year > 9999) {
             throw new AnalysisException("DateLiteral has invalid year value: " + year);
         }
-        if (month < 0 || month > 12) {
+        if (month < 1 || month > 12) {
             throw new AnalysisException("DateLiteral has invalid month value: " + month);
         }
-        if (day < 0 || day > 31) {
+        if (day < 1 || day > 31) {
             throw new AnalysisException("DateLiteral has invalid day value: " + day);
         }
         if (type.isDatetimeV2() || type.isDatetime()) {
