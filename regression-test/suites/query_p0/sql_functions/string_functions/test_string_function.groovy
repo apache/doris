@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_string_function") {
-    sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
     qt_sql "select elt(0, \"hello\", \"doris\");"

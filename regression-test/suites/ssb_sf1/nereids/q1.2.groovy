@@ -24,7 +24,6 @@ suite("ssb_sf1_q1_2_nereids") {
 
     sql 'set enable_nereids_planner=true'
     // nereids need vectorized
-    sql 'set enable_vectorized_engine=true'
 
     sql 'set exec_mem_limit=2147483648*2'
 

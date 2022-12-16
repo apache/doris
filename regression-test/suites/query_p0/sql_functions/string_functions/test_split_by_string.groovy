@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_split_by_string") {
-    sql "set enable_vectorized_engine = true;"
-
     // split by char
     qt_sql "select split_by_string('abcde','');"
     qt_sql "select split_by_string('12553','');"

@@ -21,14 +21,7 @@ suite("test_array_insert", "load") {
     def testTable01 = "tbl_test_array_insert01"
     def testTable02 = "tbl_test_array_insert02"
 
-    def create_test_table = {testTablex, enable_vectorized_flag ->
-        
-        if (enable_vectorized_flag) {
-            sql """ set enable_vectorized_engine = true """
-        } else {
-            sql """ set enable_vectorized_engine = false """
-        }
-
+    def create_test_table = {testTablex ->
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL COMMENT "",
@@ -139,26 +132,12 @@ suite("test_array_insert", "load") {
         assertTrue(result2[0].size() == 1)
         assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
     }
-
-    // case1: enable_vectorized_flag = false
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(testTable, false)
-        sql "INSERT INTO ${testTable} VALUES (1, [117341182548128045443221445, 170141183460469231731687303715884105727])"
-
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
     
     // case2: enable_vectorized_flag = true
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         
-        create_test_table.call(testTable, true)
+        create_test_table.call(testTable)
         sql "INSERT INTO ${testTable} VALUES (1, [117341182548128045443221446, 170141183460469231731687303715884105727])"
 
         // select the table and check whether the data is correct

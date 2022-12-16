@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_nereids_dup_tab_decimal_nullable") {
-
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -42,8 +40,6 @@ suite("test_nereids_dup_tab_decimal_nullable") {
         )
     """
 
-    sql "set enable_vectorized_engine = false"
-
     sql """insert into ${table1} values(1.1,1.2,1.3,1.4),
         (1.1,2.2,2.3,3.4),
         (2.1,2.2,2.3,2.4),
@@ -51,8 +47,6 @@ suite("test_nereids_dup_tab_decimal_nullable") {
         (4.1,4.2,4.3,4.4),
         (null,2,null,4)
     """
-
-    sql "set enable_vectorized_engine = true"
 
     // query decimal
     test {
