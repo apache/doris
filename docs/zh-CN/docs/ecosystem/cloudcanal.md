@@ -106,11 +106,3 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 - 查看任务状态。任务创建后，会自动完成结构迁移、全量、增量阶段。
 
 ![image.png](/images/cloudcanal/cloudcanal-8.jpg)
-
-## 参考资料
-
-更多关于 CloudCanal 同步 Doris 的资料，可以查看
-
-- [5 分钟搞定 MySQL/PostgreSQL/Oracle 到 Doris 数据迁移同步-CloudCanal 实战](https://www.askcug.com/topic/262)
-
-- [CloudCanal 官方社区](https://www.askcug.com/)
