@@ -271,7 +271,7 @@ OLAPStatus DeltaWriter::close() {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
         // in same partition has data loaded.
-        // so we have to also init this DeltaWriter, so that it can create a empty rowset
+        // so we have to also init this DeltaWriter, so that it can create an empty rowset
         // for this tablet when being closed.
         RETURN_NOT_OK(init());
     }
@@ -326,7 +326,7 @@ OLAPStatus DeltaWriter::close_wait() {
 
 OLAPStatus DeltaWriter::cancel() {
     std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init || _is_cancelled) {
+    if (_is_cancelled) {
         return OLAP_SUCCESS;
     }
     _mem_table.reset();

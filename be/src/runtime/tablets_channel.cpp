@@ -140,6 +140,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_to_rowidxs_it.first);
             error->set_msg(err_msg);
+            tablet_writer_it->second->cancel_with_status(st);
             _broken_tablets.insert(tablet_to_rowidxs_it.first);
             // continue write to other tablet.
             // the error will return back to sender.
@@ -188,6 +189,14 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
+                // to make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
+                // `close_wait` might create the rowset and commit txn directly, and the subsequent
+                // publish version task will success, which can cause the replica inconsistency.
+                if (_broken_tablets.find(it.second->tablet_id()) != _broken_tablets.end()) {
+                    LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
+                                 << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
+                    continue;
+                }
                 need_wait_writers.push_back(it.second);
             } else {
                 auto st = it.second->cancel();
@@ -219,11 +228,9 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
                                  google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
     OLAPStatus st = writer->close_wait();
     if (st == OLAP_SUCCESS) {
-        if (_broken_tablets.find(writer->tablet_id()) == _broken_tablets.end()) {
-            PTabletInfo* tablet_info = tablet_vec->Add();
-            tablet_info->set_tablet_id(writer->tablet_id());
-            tablet_info->set_schema_hash(writer->schema_hash());
-        }
+        PTabletInfo* tablet_info = tablet_vec->Add();
+        tablet_info->set_tablet_id(writer->tablet_id());
+        tablet_info->set_schema_hash(writer->schema_hash());
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
