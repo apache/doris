@@ -103,8 +103,14 @@ public interface NormalizeToSlot {
 
     /** NormalizeToSlotTriplet */
     class NormalizeToSlotTriplet {
+        // which expression need to normalized to slot?
+        // e.g. `a + 1`
         public final Expression originExpr;
+        // the slot already normalized.
+        // e.g. new Alias(`a + 1`).toSlot()
         public final Slot remainExpr;
+        // the output expression need to push down to the bottom project.
+        // e.g. new Alias(`a + 1`)
         public final NamedExpression pushedExpr;
 
         public NormalizeToSlotTriplet(Expression originExpr, Slot remainExpr, NamedExpression pushedExpr) {

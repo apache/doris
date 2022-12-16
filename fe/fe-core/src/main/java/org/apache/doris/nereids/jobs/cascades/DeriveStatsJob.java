@@ -66,6 +66,8 @@ public class DeriveStatsJob extends Job {
             pushJob(new DeriveStatsJob(groupExpression, true, context));
 
             List<Group> children = groupExpression.children();
+            // rule maybe return new logical plans to wrap some new physical plans,
+            // so we should check derive stats for it if no stats
             for (int i = children.size() - 1; i >= 0; i--) {
                 Group childGroup = children.get(i);
 

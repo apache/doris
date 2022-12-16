@@ -236,6 +236,10 @@ public abstract class AggregateInfoBase {
         return outputTupleDesc.getId();
     }
 
+    public List<String> getMaterializedAggregateExprLabels() {
+        return Lists.newArrayList(materializedSlotLabels);
+    }
+
     public boolean requiresIntermediateTuple() {
         Preconditions.checkNotNull(intermediateTupleDesc);
         Preconditions.checkNotNull(outputTupleDesc);

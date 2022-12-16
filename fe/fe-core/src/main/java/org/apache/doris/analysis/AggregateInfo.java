@@ -394,10 +394,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         return result;
     }
 
-    public List<String> getMaterializedAggregateExprLabels() {
-        return Lists.newArrayList(materializedSlotLabels);
-    }
-
     public AggregateInfo getMergeAggInfo() {
         return mergeAggInfo;
     }
