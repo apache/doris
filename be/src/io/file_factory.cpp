@@ -17,6 +17,7 @@
 
 #include "io/file_factory.h"
 
+#include "common/status.h"
 #include "io/broker_reader.h"
 #include "io/broker_writer.h"
 #include "io/buffered_reader.h"
@@ -201,7 +202,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id,
 Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                        io::FileSystem** hdfs_file_system,
                                        io::FileReaderSPtr* reader) {
-    *hdfs_file_system = new io::HdfsFileSystem(hdfs_params, path);
+    *hdfs_file_system = new io::HdfsFileSystem(hdfs_params, "");
     RETURN_IF_ERROR((dynamic_cast<io::HdfsFileSystem*>(*hdfs_file_system))->connect());
     RETURN_IF_ERROR((*hdfs_file_system)->open_file(path, reader));
     return Status::OK();
