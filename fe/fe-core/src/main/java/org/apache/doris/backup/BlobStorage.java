@@ -50,7 +50,7 @@ public abstract class BlobStorage implements Writable {
     public static BlobStorage create(String name, StorageBackend.StorageType type, Map<String, String> properties) {
         if (type == StorageBackend.StorageType.S3) {
             return new S3Storage(properties);
-        } else if (type == StorageBackend.StorageType.HDFS) {
+        } else if (type == StorageBackend.StorageType.HDFS || type == StorageBackend.StorageType.OFS) {
             return new HdfsStorage(properties);
         } else if (type == StorageBackend.StorageType.BROKER) {
             return new BrokerStorage(name, properties);
