@@ -25,12 +25,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -44,10 +42,6 @@ import java.util.Set;
 public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
 
     private final Set<Expression> conjuncts;
-
-    public LogicalHaving(Expression expression, CHILD_TYPE child) {
-        this(ImmutableSet.copyOf(ExpressionUtils.extractConjunction(expression)), child);
-    }
 
     public LogicalHaving(Set<Expression> conjuncts, CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), Optional.empty(), child);

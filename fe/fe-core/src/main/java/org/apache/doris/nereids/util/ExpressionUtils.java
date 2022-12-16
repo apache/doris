@@ -63,6 +63,12 @@ public class ExpressionUtils {
         return extract(And.class, expr);
     }
 
+    public static Set<Expression> extractConjunctionToSet(Expression expr) {
+        Set<Expression> exprSet = Sets.newHashSet();
+        extract(And.class, expr, exprSet);
+        return exprSet;
+    }
+
     public static List<Expression> extractDisjunction(Expression expr) {
         return extract(Or.class, expr);
     }

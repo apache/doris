@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PlannerContext;
 
 import com.google.common.base.Preconditions;
@@ -118,8 +119,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
-                    Expression boundConjuncts = bind(filter.getPredicate(), filter.children(),
-                            filter, ctx.cascadesContext);
+                    Set<Expression> boundConjuncts = ExpressionUtils.extractConjunctionToSet(
+                            bind(filter.getPredicate(), filter.children(), filter, ctx.cascadesContext));
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
@@ -278,7 +279,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .collect(Collectors.toSet());
                     SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), having,
                             ctx.cascadesContext);
-                    Expression boundConjuncts = binder.bind(having.getPredicate());
+                    Set<Expression> boundConjuncts = ExpressionUtils.extractConjunctionToSet(
+                            binder.bind(having.getPredicate()));
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
