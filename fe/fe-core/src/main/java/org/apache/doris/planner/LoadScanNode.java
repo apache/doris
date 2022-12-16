@@ -207,6 +207,8 @@ public abstract class LoadScanNode extends ScanNode {
                 expr.analyze(analyzer);
             }
 
+            // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
+            // and if input string is not a valid json string, return null.
             PrimitiveType dstType = destSlotDesc.getType().getPrimitiveType();
             PrimitiveType srcType = expr.getType().getPrimitiveType();
             if (dstType == PrimitiveType.JSONB
@@ -217,7 +219,7 @@ public abstract class LoadScanNode extends ScanNode {
                 if (destSlotDesc.getIsNullable() || expr.isNullable()) {
                     nullable = "nullable";
                 }
-                String name = "jsonb_parse_" + nullable + "_error_to_invalid";
+                String name = "jsonb_parse_" + nullable + "_error_to_null";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
             } else {
@@ -251,3 +253,4 @@ public abstract class LoadScanNode extends ScanNode {
         planNode.setBrokerScanNode(brokerScanNode);
     }
 }
+

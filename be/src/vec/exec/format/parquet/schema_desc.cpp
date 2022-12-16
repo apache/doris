@@ -168,20 +168,24 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
         switch (physical_schema.type) {
         case tparquet::Type::BOOLEAN:
             type.type = TYPE_BOOLEAN;
-            return type;
+            break;
         case tparquet::Type::INT32:
             type.type = TYPE_INT;
-            return type;
+            break;
         case tparquet::Type::INT64:
         case tparquet::Type::INT96:
             type.type = TYPE_BIGINT;
-            return type;
+            break;
         case tparquet::Type::FLOAT:
             type.type = TYPE_FLOAT;
-            return type;
+            break;
         case tparquet::Type::DOUBLE:
             type.type = TYPE_DOUBLE;
-            return type;
+            break;
+        case tparquet::Type::BYTE_ARRAY:
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            type.type = TYPE_STRING;
+            break;
         default:
             break;
         }

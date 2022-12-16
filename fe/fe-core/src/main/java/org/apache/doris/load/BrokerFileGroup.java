@@ -155,6 +155,7 @@ public class BrokerFileGroup implements Writable {
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
         this.sequenceCol = dataDescription.getSequenceCol();
+        this.filePaths = dataDescription.getFilePaths();
     }
 
     // NOTE: DBLock will be held
@@ -598,3 +599,4 @@ public class BrokerFileGroup implements Writable {
         return fileGroup;
     }
 }
+
