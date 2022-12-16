@@ -531,6 +531,9 @@ Status VFileScanner::_get_next_reader() {
         if (init_status.is<END_OF_FILE>()) {
             continue;
         } else if (!init_status.ok()) {
+            if (init_status.is<ErrorCode::NOT_FOUND>()) {
+                return init_status;
+            }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
