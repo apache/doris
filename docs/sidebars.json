@@ -200,6 +200,7 @@
                 "ecosystem/logstash",
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
+                "ecosystem/cloudcanal",
                 {
                     "type": "category",
                     "label": "Doris Manager",

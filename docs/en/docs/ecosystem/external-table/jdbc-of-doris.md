@@ -167,6 +167,7 @@ There are different data types among different databases. Here is a list of the 
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
+| BIT(1)   | BOOLEAN  |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
