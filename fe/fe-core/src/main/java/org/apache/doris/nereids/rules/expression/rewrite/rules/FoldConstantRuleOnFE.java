@@ -218,6 +218,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        //functions, like current_date, do not have arg
+        if (boundFunction.getArguments().isEmpty()) {
+            return boundFunction;
+        }
         List<Expression> newArgs = boundFunction.getArguments().stream().map(arg -> process(arg, context))
                 .collect(Collectors.toList());
         if (ExpressionUtils.isAllLiteral(newArgs)) {

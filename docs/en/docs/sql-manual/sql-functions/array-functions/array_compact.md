@@ -21,9 +21,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_compact
+
+<version since="1.2.0">
+
+array_compact
+
+</version>
 
 ### description
 
@@ -81,4 +86,3 @@ select array_compact(['2015-03-13','2015-03-13']);
 
 ARRAY,COMPACT,ARRAY_COMPACT
 
-</version>

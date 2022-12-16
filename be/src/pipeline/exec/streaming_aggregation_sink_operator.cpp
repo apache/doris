@@ -24,10 +24,10 @@ namespace doris::pipeline {
 StreamingAggSinkOperator::StreamingAggSinkOperator(OperatorBuilderBase* operator_builder,
                                                    ExecNode* agg_node,
                                                    std::shared_ptr<AggContext> agg_context)
-        : Operator(operator_builder, agg_node), _agg_context(std::move(agg_context)) {}
+        : StreamingOperator(operator_builder, agg_node), _agg_context(std::move(agg_context)) {}
 
 Status StreamingAggSinkOperator::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::prepare(state));
+    RETURN_IF_ERROR(StreamingOperator::prepare(state));
     _queue_byte_size_counter =
             ADD_COUNTER(_runtime_profile.get(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(_runtime_profile.get(), "MaxSizeOfBlockQueue", TUnit::UNIT);
@@ -44,12 +44,12 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {
-        auto bock_from_ctx = _agg_context->get_free_block();
-        RETURN_IF_ERROR(_node->do_pre_agg(in_block, bock_from_ctx.get()));
-        if (bock_from_ctx->rows() == 0) {
-            _agg_context->return_free_block(std::move(bock_from_ctx));
+        auto block_from_ctx = _agg_context->get_free_block();
+        RETURN_IF_ERROR(_node->do_pre_agg(in_block, block_from_ctx.get()));
+        if (block_from_ctx->rows() == 0) {
+            _agg_context->return_free_block(std::move(block_from_ctx));
         } else {
-            _agg_context->push_block(std::move(bock_from_ctx));
+            _agg_context->push_block(std::move(block_from_ctx));
         }
     }
 
@@ -60,14 +60,14 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
 }
 
 Status StreamingAggSinkOperator::close(RuntimeState* state) {
-    Operator::close(state);
     if (_agg_context && !_agg_context->is_finish()) {
         // finish should be set, if not set here means error.
         _agg_context->set_canceled();
     }
     COUNTER_SET(_queue_size_counter, _agg_context->max_size_of_queue());
     COUNTER_SET(_queue_byte_size_counter, _agg_context->max_bytes_in_queue());
-    return Status::OK();
+    return StreamingOperator::close(state);
+    ;
 }
 
 StreamingAggSinkOperatorBuilder::StreamingAggSinkOperatorBuilder(

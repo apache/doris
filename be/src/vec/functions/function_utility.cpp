@@ -16,6 +16,7 @@
 // under the License.
 #include <thread>
 
+#include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
@@ -103,7 +104,8 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto res_column = ColumnString::create();
         res_column->insert_data(version.c_str(), version.length());
-        block.replace_by_position(result, std::move(res_column));
+        auto col_const = ColumnConst::create(std::move(res_column), input_rows_count);
+        block.replace_by_position(result, std::move(col_const));
         return Status::OK();
     }
 };

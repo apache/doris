@@ -32,6 +32,8 @@ under the License.
 SWITCH
 
 </version>
+
+
 ### Description
 
 该语句用于切换数据目录（catalog）

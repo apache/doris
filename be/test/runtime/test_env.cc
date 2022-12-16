@@ -48,7 +48,7 @@ void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool o
     DiskInfo::init();
     // will use DiskInfo::num_disks(), DiskInfo should be initialized before
     auto st = _tmp_file_mgr->init_custom(tmp_dirs, one_dir_per_device);
-    DCHECK(st.ok()) << st.get_error_msg();
+    DCHECK(st.ok()) << st;
 }
 
 void TestEnv::init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit) {
@@ -138,7 +138,7 @@ void TestEnv::init_storage_engine(bool need_open, const std::vector<std::string>
     } else {
         _engine = new StorageEngine(options);
     }
-    DCHECK(st.ok()) << st.get_error_msg();
+    DCHECK(st.ok()) << st;
     _exec_env->set_storage_engine(_engine);
 }
 

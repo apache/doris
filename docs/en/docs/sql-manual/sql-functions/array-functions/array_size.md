@@ -23,9 +23,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_size (size, cardinality)
+
+<version since="1.2.0">
+
+array_size (size, cardinality)
+
+</version>
 
 ### description
 
@@ -81,4 +86,3 @@ mysql> select k1,k2,cardinality(k2) from array_test;
 
 ARRAY_SIZE, SIZE, CARDINALITY
 
-</version>

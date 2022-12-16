@@ -82,6 +82,8 @@ public:
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
+    int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
+
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
@@ -175,7 +177,7 @@ protected:
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 
-    std::atomic<ErrorCode> _segcompaction_status;
+    std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
 };

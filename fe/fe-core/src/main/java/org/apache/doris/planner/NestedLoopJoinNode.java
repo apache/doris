@@ -156,12 +156,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     }
 
     @Override
-    public void convertToVectoriezd() {
+    public void convertToVectorized() {
         if (!joinConjuncts.isEmpty()) {
             vJoinConjunct = convertConjunctsToAndCompoundPredicate(joinConjuncts);
             initCompoundPredicate(vJoinConjunct);
         }
-        super.convertToVectoriezd();
+        super.convertToVectorized();
     }
 
     @Override
@@ -244,7 +244,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (!runtimeFilters.isEmpty()) {
             output.append(detailPrefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(true));
-            output.append("isOutputLeftSideOnly: ").append(isOutputLeftSideOnly).append("\n");
+            output.append(detailPrefix).append("is output left side only: ").append(isOutputLeftSideOnly).append("\n");
         }
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         // todo unify in plan node

@@ -17,12 +17,18 @@
 
 #pragma once
 
-#include "pipeline.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 class ExecNode;
 class DataSink;
+
+namespace vectorized {
+template <bool is_intersect>
+class VSetOperationNode;
+}
 
 namespace pipeline {
 
@@ -32,9 +38,10 @@ class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFrag
 public:
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx,
-                            ExecEnv* exec_env);
+                            ExecEnv* exec_env,
+                            std::function<void(RuntimeState*, Status*)> call_back);
 
-    virtual ~PipelineFragmentContext();
+    ~PipelineFragmentContext() { _call_back(_runtime_state.get(), &_exec_status); }
 
     PipelinePtr add_pipeline();
 
@@ -75,13 +82,11 @@ public:
 private:
     // Id of this query
     TUniqueId _query_id;
-    // Id of this instance
-    TUniqueId _fragment_instance_id;
+    TUniqueId _fragment_id;
 
     int _backend_num;
 
     ExecEnv* _exec_env;
-    TUniqueId _fragment_id;
 
     bool _prepared = false;
     bool _submitted = false;
@@ -118,10 +123,13 @@ private:
     //    RuntimeProfile::Counter* _start_timer;
     //    RuntimeProfile::Counter* _prepare_timer;
 
-private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
+
+    template <bool is_intersect>
+    Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
+    std::function<void(RuntimeState*, Status*)> _call_back;
 };
 } // namespace pipeline
 } // namespace doris

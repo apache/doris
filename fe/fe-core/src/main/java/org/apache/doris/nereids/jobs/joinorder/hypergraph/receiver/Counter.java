@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import com.google.common.base.Preconditions;
 
@@ -31,9 +32,9 @@ import java.util.List;
  */
 public class Counter implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
-    private int limit;
+    private final int limit;
     private int emitCount = 0;
-    private HashMap<Long, Integer> counter = new HashMap<>();
+    private final HashMap<Long, Integer> counter = new HashMap<>();
 
     public Counter() {
         this.limit = Integer.MAX_VALUE;
@@ -51,7 +52,8 @@ public class Counter implements AbstractReceiver {
      * @param edges the join operator
      * @return the left and the right can be connected by the edge
      */
-    public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
+    public boolean emitCsgCmp(long left, long right, List<Edge> edges,
+            HashMap<Long, NamedExpression> projectExpression) {
         Preconditions.checkArgument(counter.containsKey(left));
         Preconditions.checkArgument(counter.containsKey(right));
         emitCount += 1;

@@ -26,6 +26,12 @@ under the License.
 
 ## array_join
 
+<version since="1.2.0">
+
+array_join
+
+</version>
+
 ### description
 
 #### Syntax

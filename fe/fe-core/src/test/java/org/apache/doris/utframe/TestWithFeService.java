@@ -95,6 +95,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -120,6 +121,7 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        FeConstants.disableInternalSchemaDb = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
@@ -494,7 +496,12 @@ public abstract class TestWithFeService {
     }
 
     public void createTable(String sql) throws Exception {
-        createTables(sql);
+        try {
+            createTables(sql);
+        } catch (ConcurrentModificationException e) {
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     public void dropTable(String table, boolean force) throws Exception {

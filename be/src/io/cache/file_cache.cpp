@@ -22,6 +22,7 @@
 #include "olap/iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace io {
 
 Status FileCache::download_cache_to_local(const Path& cache_file, const Path& cache_done_file,
@@ -58,7 +59,7 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
                 LOG(ERROR) << "read remote file failed: " << remote_file_reader->path().native()
                            << ", bytes read: " << bytes_read
                            << " vs need read size: " << need_req_size;
-                return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+                return Status::Error<OS_ERROR>();
             }
             count_bytes_read += bytes_read;
             RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -83,6 +84,35 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
     RETURN_NOT_OK_STATUS_WITH_WARN(
             done_file_writer->close(),
             fmt::format("Close local done file failed: {}", cache_done_file.native()));
+    return Status::OK();
+}
+
+Status FileCache::_remove_file(const Path& cache_file, const Path& cache_done_file,
+                               size_t* cleaned_size) {
+    bool done_file_exist = false;
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            io::global_local_filesystem()->exists(cache_done_file, &done_file_exist),
+            "Check local done file exist failed.");
+    if (done_file_exist) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->delete_file(cache_done_file),
+                fmt::format("Delete local done file failed: {}", cache_done_file.native()));
+    }
+    bool cache_file_exist = false;
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
+            "Check local cache file exist failed.");
+    if (cache_file_exist) {
+        if (cleaned_size) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    io::global_local_filesystem()->file_size(cache_file, cleaned_size),
+                    fmt::format("get local cache file size failed: {}", cache_file.native()));
+        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->delete_file(cache_file),
+                fmt::format("Delete local cache file failed: {}", cache_file.native()));
+    }
+    LOG(INFO) << "Delete local cache file successfully: " << cache_file.native();
     return Status::OK();
 }
 

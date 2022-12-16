@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -50,6 +51,7 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
             List<NamedExpression> outputExprs = aggregate.getOutputExpressions();
             Set<Expression> slotGroupByExprs = Sets.newLinkedHashSet();
             for (Expression expression : groupByExprs) {
+                expression = FoldConstantRule.INSTANCE.rewrite(expression);
                 if (!(expression instanceof Literal)) {
                     slotGroupByExprs.add(expression);
                 }

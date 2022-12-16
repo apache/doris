@@ -52,6 +52,7 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
                                            const report_status_callback& report_status_cb)
@@ -215,7 +216,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size()));
-    _block.reset(new doris::vectorized::Block());
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
@@ -252,13 +252,13 @@ Status PlanFragmentExecutor::open() {
         status = open_internal();
     }
 
-    if (!status.ok() && !status.is_cancelled() && _runtime_state->log_has_space()) {
+    if (!status.ok() && !status.is<CANCELLED>() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not
         // fetch results (e.g. insert) may not receive the message directly and can
         // only retrieve the log.
-        _runtime_state->log_error(status.get_error_msg());
+        _runtime_state->log_error(status.to_string());
     }
-    if (status.is_cancelled()) {
+    if (status.is<CANCELLED>()) {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
@@ -276,6 +276,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         SCOPED_CPU_TIMER(_fragment_cpu_timer);
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
+        RETURN_IF_CANCELLED(_runtime_state);
     }
     if (_sink == nullptr) {
         return Status::OK();
@@ -287,16 +288,15 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
     {
         auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
-        while (true) {
-            doris::vectorized::Block* block;
+        doris::vectorized::Block block;
+        bool eos = false;
+
+        while (!eos) {
+            RETURN_IF_CANCELLED(_runtime_state);
 
             {
                 SCOPED_CPU_TIMER(_fragment_cpu_timer);
-                RETURN_IF_ERROR(get_vectorized_internal(&block));
-            }
-
-            if (block == nullptr) {
-                break;
+                RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
             }
 
             SCOPED_TIMER(profile()->total_time_counter());
@@ -306,11 +306,13 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
                 _collect_query_statistics();
             }
 
-            auto st = _sink->send(runtime_state(), block);
-            if (st.is_end_of_file()) {
-                break;
+            if (!eos || block.rows() > 0) {
+                auto st = _sink->send(runtime_state(), &block);
+                if (st.is<END_OF_FILE>()) {
+                    break;
+                }
+                RETURN_IF_ERROR(st);
             }
-            RETURN_IF_ERROR(st);
         }
     }
 
@@ -335,27 +337,20 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     return Status::OK();
 }
 
-Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block** block) {
-    if (_done) {
-        *block = nullptr;
-        return Status::OK();
-    }
-
+Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block* block, bool* eos) {
     while (!_done) {
-        _block->clear_column_data(_plan->row_desc().num_materialized_slots());
+        block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _plan->get_next_after_projects(_runtime_state.get(), _block.get(), &_done),
+                _plan->get_next_after_projects(_runtime_state.get(), block, &_done),
                 _plan->get_next_span(), _done);
 
-        if (_block->rows() > 0) {
-            COUNTER_UPDATE(_rows_produced_counter, _block->rows());
-            *block = _block.get();
+        if (block->rows() > 0) {
+            COUNTER_UPDATE(_rows_produced_counter, block->rows());
             break;
         }
-
-        *block = nullptr;
     }
+    *eos = _done;
 
     return Status::OK();
 }
@@ -405,7 +400,7 @@ Status PlanFragmentExecutor::open_internal() {
             _collect_query_statistics();
         }
         const Status& st = _sink->send(runtime_state(), batch);
-        if (st.is_end_of_file()) {
+        if (st.is<END_OF_FILE>()) {
             break;
         }
         RETURN_IF_ERROR(st);
@@ -607,8 +602,8 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
         std::lock_guard<std::mutex> l(_status_lock);
         // if current `_status` is ok, set it to `new_status` to record the error.
         if (_status.ok()) {
-            if (new_status.is_mem_limit_exceeded()) {
-                _runtime_state->set_mem_limit_exceeded(new_status.get_error_msg());
+            if (new_status.is<MEM_LIMIT_EXCEEDED>()) {
+                _runtime_state->set_mem_limit_exceeded(new_status.to_string());
             }
             _status = new_status;
             if (_runtime_state->query_type() == TQueryType::EXTERNAL) {

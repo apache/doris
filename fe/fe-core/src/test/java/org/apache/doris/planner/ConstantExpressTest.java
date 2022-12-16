@@ -167,13 +167,6 @@ public class ConstantExpressTest {
     }
 
     @Test
-    public void testMath() throws Exception {
-        testConstantExpressResult(
-                "select floor(2.3);",
-                "2");
-    }
-
-    @Test
     public void testPredicate() throws Exception {
         testConstantExpressResult(
                 "select 1 > 2",

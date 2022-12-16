@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_aggregate_collect") {
-    sql "set enable_vectorized_engine = true"
-
     def tableName = "collect_test"
     def tableCTAS = "collect_test_ctas"
     sql "DROP TABLE IF EXISTS ${tableName}"

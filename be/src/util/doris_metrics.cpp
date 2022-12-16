@@ -170,6 +170,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(upload_fail_count, MetricUnit::ROWSETS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(local_file_reader_total, MetricUnit::FILESYSTEM);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(s3_file_reader_total, MetricUnit::FILESYSTEM);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(hdfs_file_reader_total, MetricUnit::FILESYSTEM);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(broker_file_reader_total, MetricUnit::FILESYSTEM);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(local_file_writer_total, MetricUnit::FILESYSTEM);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(s3_file_writer_total, MetricUnit::FILESYSTEM);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(file_created_total, MetricUnit::FILESYSTEM);
@@ -181,6 +183,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(s3_bytes_written_total, MetricUnit::FILESYS
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_file_open_reading, MetricUnit::FILESYSTEM);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_reading, MetricUnit::FILESYSTEM);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(hdfs_file_open_reading, MetricUnit::FILESYSTEM);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(broker_file_open_reading, MetricUnit::FILESYSTEM);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_file_open_writing, MetricUnit::FILESYSTEM);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM);
 
@@ -298,6 +302,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_file_reader_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, s3_file_reader_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, hdfs_file_reader_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, broker_file_reader_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_file_writer_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, s3_file_writer_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, file_created_total);
@@ -308,6 +314,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, s3_bytes_written_total);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, local_file_open_reading);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, s3_file_open_reading);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, hdfs_file_open_reading);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, broker_file_open_reading);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, local_file_open_writing);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, s3_file_open_writing);
 }

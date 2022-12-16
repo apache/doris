@@ -75,9 +75,8 @@ bool PipelineTask::has_dependency() {
     if (_pipeline->has_dependency()) {
         return true;
     }
-    // FE do not call execute
-    if (!_state->get_query_fragments_ctx()
-                 ->is_ready_to_execute()) { // TODO pipeline config::s_ready_to_execute
+
+    if (!query_fragments_context()->is_ready_to_execute()) {
         return true;
     }
 
@@ -146,7 +145,6 @@ Status PipelineTask::execute(bool* eos) {
                 break;
             }
         }
-        *eos = false;
     }
 
     return Status::OK();

@@ -28,6 +28,7 @@
 #include "util/storage_backend.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 Status StorageBackendMgr::init(const std::string& storage_param_dir) {
     if (_is_inited) {
@@ -35,7 +36,7 @@ Status StorageBackendMgr::init(const std::string& storage_param_dir) {
     }
     Status exist_status = Env::Default()->path_exists(storage_param_dir);
     if (!exist_status.ok() &&
-        (!exist_status.is_not_found() || !Env::Default()->create_dirs(storage_param_dir).ok())) {
+        (!exist_status.is<NOT_FOUND>() || !Env::Default()->create_dirs(storage_param_dir).ok())) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::IOError("failed to create remote storage_param root path {}",
                                 storage_param_dir),

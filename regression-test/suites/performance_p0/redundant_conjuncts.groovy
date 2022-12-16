@@ -17,10 +17,6 @@
 
 suite("redundant_conjuncts") {
     sql """
-        SET enable_vectorized_engine = true;
-    """
-
-    sql """
     DROP TABLE IF EXISTS redundant_conjuncts;
     """
     sql """

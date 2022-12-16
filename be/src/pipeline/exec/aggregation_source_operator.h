@@ -34,9 +34,13 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AggSourceOperator final : public Operator<AggSourceOperatorBuilder> {
+class AggSourceOperator final : public SourceOperator<AggSourceOperatorBuilder> {
 public:
     AggSourceOperator(OperatorBuilderBase*, ExecNode*);
+    // if exec node split to: sink, source operator. the source operator
+    // should skip `alloc_resoucre()` function call, only sink operator
+    // call the function
+    Status open(RuntimeState*) override { return Status::OK(); }
 };
 
 } // namespace pipeline

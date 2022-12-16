@@ -714,7 +714,7 @@ public class DeleteHandler implements Writable {
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
                                 ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE)));
                     }
-                    LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                    LiteralExpr.create(value, column.getType());
                 } catch (AnalysisException e) {
                     // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
                     throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
@@ -730,10 +730,10 @@ public class DeleteHandler implements Writable {
                                 || column.getDataType() == PrimitiveType.DATEV2
                                 || column.getDataType() == PrimitiveType.DATETIMEV2) {
                             DateLiteral dateLiteral = new DateLiteral(value,
-                                    Type.fromPrimitiveType(column.getDataType()));
+                                    column.getType());
                             value = dateLiteral.getStringValue();
                             inPredicate.setChild(i, LiteralExpr.create(value,
-                                    Type.fromPrimitiveType(column.getDataType())));
+                                    column.getType()));
                         } else {
                             LiteralExpr.create(value,
                                     Type.fromPrimitiveType(column.getDataType()));

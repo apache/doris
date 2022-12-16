@@ -40,6 +40,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                            const TFileScanRange& scan_range, RuntimeProfile* profile)
@@ -209,7 +210,11 @@ Status VFileScanner::_init_src_block(Block* block) {
             data_type = DataTypeFactory::instance().create_data_type(it->second, true);
         }
         if (data_type == nullptr) {
-            return Status::NotSupported(fmt::format("Not support arrow type:{}", slot->col_name()));
+            return Status::NotSupported(
+                    fmt::format("Not support data type:{} for column: {}",
+                                (it == _name_to_col_type.end() ? slot->type().debug_string()
+                                                               : it->second.debug_string()),
+                                slot->col_name()));
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
@@ -487,11 +492,11 @@ Status VFileScanner::_get_next_reader() {
             }
             init_status = parquet_reader->init_reader(_file_col_names, _colname_to_value_range,
                                                       _push_down_expr);
-            if (_params.__isset.table_format_params &&
-                _params.table_format_params.table_format_type == "iceberg") {
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "iceberg") {
                 IcebergTableReader* iceberg_reader = new IcebergTableReader(
                         (GenericReader*)parquet_reader, _profile, _state, _params);
-                iceberg_reader->init_row_filters();
+                iceberg_reader->init_row_filters(range);
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 _cur_reader.reset((GenericReader*)parquet_reader);
@@ -527,11 +532,14 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params.format_type);
         }
 
-        if (init_status.is_end_of_file()) {
+        if (init_status.is<END_OF_FILE>()) {
             continue;
         } else if (!init_status.ok()) {
+            if (init_status.is<ErrorCode::NOT_FOUND>()) {
+                return init_status;
+            }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
-                                         init_status.get_error_msg());
+                                         init_status.to_string());
         }
 
         _name_to_col_type.clear();

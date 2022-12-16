@@ -250,9 +250,8 @@ private:
             func_id = env->GetMethodID(executor_cl, func_name, func_sign);
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) {
-                return Status::InternalError(
-                        strings::Substitute("Java-Udaf register_func_id meet error and error is $0",
-                                            s.get_error_msg()));
+                return Status::InternalError(strings::Substitute(
+                        "Java-Udaf register_func_id meet error and error is $0", s.to_string()));
             }
             return s;
         };

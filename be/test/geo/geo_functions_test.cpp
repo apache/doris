@@ -22,10 +22,8 @@
 
 #include <vector>
 
-#include "common/logging.h"
 #include "geo/geo_types.h"
 #include "geo/wkt_parse.h"
-#include "geo/wkt_parse_ctx.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"

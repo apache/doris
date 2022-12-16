@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.CounterType;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -108,7 +110,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public String treeString() {
         return TreeStringUtils.treeString(this,
                 plan -> plan.toString(),
-                plan -> (List) ((Plan) plan).children());
+                plan -> (List) ((Plan) plan).children(),
+                plan -> (List) ((Plan) plan).extraPlans(),
+                plan -> ((Plan) plan).displayExtraPlanFirst());
     }
 
     @Override
@@ -152,6 +156,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public LogicalProperties getLogicalProperties() {
+        if (this instanceof UnboundRelation) {
+            return UnboundLogicalProperties.INSTANCE;
+        }
         return logicalPropertiesSupplier.get();
     }
 }

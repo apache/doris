@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.cascades;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -29,22 +28,17 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStat;
-import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
-import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -60,8 +54,6 @@ public class DeriveStatsJobTest {
     ConnectContext context;
     @Mocked
     Env env;
-    @Mocked
-    StatisticsManager statisticsManager;
 
     SlotReference slot1;
 
@@ -80,16 +72,7 @@ public class DeriveStatsJobTest {
         Assertions.assertEquals(1, statistics.getRowCount());
     }
 
-    private LogicalOlapScan constructOlapSCan() throws AnalysisException {
-        ColumnStat columnStats1 = new ColumnStat(10, 0, 0, 5,
-                Double.NaN, Double.NaN);
-        new MockUp<TableStats>(TableStats.class) {
-            @Mock
-            public ColumnStat getColumnStats(String columnName) {
-                return columnStats1;
-            }
-        };
-
+    private LogicalOlapScan constructOlapSCan() {
         long tableId1 = 0;
 
         List<String> qualifier = ImmutableList.of("test", "t");
@@ -100,7 +83,7 @@ public class DeriveStatsJobTest {
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), table1, Collections.emptyList()).withLogicalProperties(
+        return new LogicalOlapScan(RelationUtil.newRelationId(), table1, Collections.emptyList()).withLogicalProperties(
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
     }
 

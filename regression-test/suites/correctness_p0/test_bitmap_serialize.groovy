@@ -30,10 +30,7 @@
      sql " insert into ${tableName} values('B', to_bitmap(1)); "
      sql " insert into ${tableName} values('B', to_bitmap(2)); "
 
-     // test no vectorized
-     sql """ set enable_vectorized_engine = false; """
-
-     qt_select_default """ 
-     select bitmap_to_string(bitmap_intersect(user_ids)) from ( select tag, bitmap_union(user_ids) user_ids 
+     qt_select_default """
+     select bitmap_to_string(bitmap_intersect(user_ids)) from ( select tag, bitmap_union(user_ids) user_ids
      from ${tableName} group by tag having tag not in("A","B") ) t; """
  } 

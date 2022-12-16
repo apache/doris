@@ -236,15 +236,14 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .analyze(sql4)
                 .matchesFromRoot(
                     logicalProject(
-                        logicalJoin(
+                        crossLogicalJoin(
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias)))
                             ).when(a -> a.getAlias().equals("cte1")),
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skInCTE2)))
                             ).when(a -> a.getAlias().equals("cte2"))
-                        ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                            .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
+                        ).when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
                     ).when(p -> p.getProjects().equals(ImmutableList.of(skInCTE1, skInCTE2)))
                 );
     }
@@ -341,6 +340,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testDifferenceRelationId() {
+        final Integer[] integer = {0};
         PlanChecker.from(connectContext)
                 .analyze("with s as (select * from supplier) select * from s as s1, s as s2")
                 .matchesFromRoot(
@@ -349,14 +349,17 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                             logicalSubQueryAlias(// as s1
                                 logicalSubQueryAlias(// as s
                                     logicalProject(// select * from supplier
-                                        logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                                        logicalOlapScan().when(scan -> {
+                                            integer[0] = scan.getId().asInt();
+                                            return true;
+                                        })
                                     )
                                 ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s1")),
                             logicalSubQueryAlias(
                                 logicalSubQueryAlias(
                                      logicalProject(
-                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                         logicalOlapScan().when(scan -> scan.getId().asInt() != integer[0])
                                      )
                                  ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s2"))

@@ -42,6 +42,8 @@ public class PartitionDesc {
 
     protected PartitionType type;
 
+    public PartitionDesc() {}
+
     public PartitionDesc(List<String> partitionColNames,
                          List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
         this.partitionColNames = partitionColNames;
@@ -154,7 +156,7 @@ public class PartitionDesc {
     }
 
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
-            throws DdlException {
+            throws DdlException, AnalysisException {
         throw new NotImplementedException();
     }
 }

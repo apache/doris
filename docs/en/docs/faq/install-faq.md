@@ -302,3 +302,11 @@ Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/
 Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
 ```
 You need to download the Java UDF function dependency package of `apache-doris-java-udf-jar-with-dependencies-1.2.0` from the official website, put it in the lib directory under the BE installation directory, and then restart BE
+
+### Q16. After upgrading to version 1.2, BE startup shows Failed to initialize JNI
+<version since="1.2"></version>  
+If the following `Failed to initialize JNI` error occurs when starting BE after upgrading 
+```
+Failed to initialize JNI: Failed to find the library libjvm.so.
+```
+You need to set the `JAVA_HOME` environment variable, or add `export JAVA_HOME=your_java_home_path` in the first line of the `start_be.sh` startup script, and then restart the BE node.

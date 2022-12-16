@@ -205,6 +205,9 @@ void Daemon::memory_maintenance_thread() {
     int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
+        if (!MemInfo::initialized()) {
+            continue;
+        }
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
@@ -228,11 +231,13 @@ void Daemon::memory_maintenance_thread() {
                     doris::MemInfo::sys_mem_available_low_water_mark() ||
             doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit()) {
             interval_milliseconds = 100;
+            doris::MemInfo::process_full_gc();
         } else if (doris::MemInfo::sys_mem_available() <
                            doris::MemInfo::sys_mem_available_warning_water_mark() ||
                    doris::MemInfo::proc_mem_no_allocator_cache() >=
                            doris::MemInfo::soft_mem_limit()) {
             interval_milliseconds = 200;
+            doris::MemInfo::process_minor_gc();
         } else {
             interval_milliseconds = config::memory_maintenance_sleep_time_ms;
         }
@@ -243,8 +248,10 @@ void Daemon::load_channel_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::load_channel_memory_refresh_sleep_time_ms))) {
-        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+            std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms))) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+        }
     }
 }
 
@@ -316,12 +323,12 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     if (init_system_metrics) {
         auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
         if (!st.ok()) {
-            LOG(WARNING) << "get disk devices failed, status=" << st.get_error_msg();
+            LOG(WARNING) << "get disk devices failed, status=" << st;
             return;
         }
         st = get_inet_interfaces(&network_interfaces);
         if (!st.ok()) {
-            LOG(WARNING) << "get inet interfaces failed, status=" << st.get_error_msg();
+            LOG(WARNING) << "get inet interfaces failed, status=" << st;
             return;
         }
     }
@@ -411,20 +418,20 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
             &_tcmalloc_gc_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
             &_buffer_pool_gc_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
             &_memory_maintenance_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "load_channel_tracker_refresh_thread",
             [this]() { this->load_channel_tracker_refresh_thread(); },
             &_load_channel_tracker_refresh_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {
         CHECK(DorisMetrics::instance()->is_inited())
@@ -436,7 +443,7 @@ void Daemon::start() {
         st = Thread::create(
                 "Daemon", "calculate_metrics_thread",
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);
-        CHECK(st.ok()) << st.to_string();
+        CHECK(st.ok()) << st;
     }
 }
 

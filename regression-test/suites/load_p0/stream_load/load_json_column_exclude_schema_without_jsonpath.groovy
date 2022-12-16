@@ -19,13 +19,7 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
     // define a sql table
     def testTable = "tbl_test_load_json_column_exclude_schema_without_jsonpath"
     
-    def create_test_table = {enable_vectorized_flag ->
-        if (enable_vectorized_flag) {
-            sql """ set enable_vectorized_engine = true """
-        } else {
-            sql """ set enable_vectorized_engine = false """
-        }
-
+    def create_test_table = {
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               k1 TINYINT NULL,
@@ -51,8 +45,6 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
 
     def load_array_data = {new_json_reader_flag, table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
 
         // load the json data
         streamLoad {
@@ -92,30 +84,13 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         
-        create_test_table.call(true)
+        create_test_table.call()
 
         load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
 
         // test new json load, should be deleted after new_load_scan ready
         sql "DROP TABLE IF EXISTS ${testTable}"
-        create_test_table.call(true)
-        load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
-
-    // case2: import array data in json format and disable vectorized engine
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(false)
-
-        load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
-
-        // test new json load, should be deleted after new_load_scan ready
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        create_test_table.call(false)
+        create_test_table.call()
         load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
 
     } finally {

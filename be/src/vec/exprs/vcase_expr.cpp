@@ -63,23 +63,11 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) {
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
-    if (scope == doris_udf::FunctionContext::FRAGMENT_LOCAL) {
-        auto* case_state = new CaseState {_data_type};
-        context->fn_context(_fn_context_index)
-                ->set_function_state(FunctionContext::FRAGMENT_LOCAL, case_state);
-    }
     return Status::OK();
 }
 
 void VCaseExpr::close(RuntimeState* state, VExprContext* context,
                       FunctionContext::FunctionStateScope scope) {
-    if (scope == doris_udf::FunctionContext::FRAGMENT_LOCAL) {
-        auto* case_state = reinterpret_cast<CaseState*>(
-                context->fn_context(_fn_context_index)
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        delete case_state;
-    }
-
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(state, context, scope);
 }

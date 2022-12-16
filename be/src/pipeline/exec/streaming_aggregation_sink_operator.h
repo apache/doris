@@ -42,7 +42,7 @@ private:
     std::shared_ptr<AggContext> _agg_context;
 };
 
-class StreamingAggSinkOperator final : public Operator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                              std::shared_ptr<AggContext>);

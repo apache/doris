@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -35,9 +37,11 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -80,6 +84,7 @@ public class NereidsPlanner extends Planner {
         }
 
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
+
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
         Plan resultPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY, explainLevel);
         if (explainLevel.isPlanLevel) {
@@ -140,44 +145,45 @@ public class NereidsPlanner extends Planner {
         plan = preprocess(plan);
 
         initCascadesContext(plan);
-
-        // resolve column, table and function
-        analyze();
-        if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-            analyzedPlan = cascadesContext.getMemo().copyOut(false);
-            if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
-                return analyzedPlan;
+        try (Lock lock = new Lock(plan, cascadesContext)) {
+            // resolve column, table and function
+            analyze();
+            if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                analyzedPlan = cascadesContext.getMemo().copyOut(false);
+                if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
+                    return analyzedPlan;
+                }
             }
-        }
 
-        // rule-based optimize
-        rewrite();
-        if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-            rewrittenPlan = cascadesContext.getMemo().copyOut(false);
-            if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
-                return rewrittenPlan;
+            // rule-based optimize
+            rewrite();
+            if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                rewrittenPlan = cascadesContext.getMemo().copyOut(false);
+                if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
+                    return rewrittenPlan;
+                }
             }
+
+            deriveStats();
+
+            // We need to do join reorder before cascades and after deriving stats
+            // joinReorder();
+            // TODO: What is the appropriate time to set physical properties? Maybe before enter.
+            // cascades style optimize phase.
+
+            // cost-based optimize and explore plan space
+            optimize();
+
+            PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
+
+            // post-process physical plan out of memo, just for future use.
+            physicalPlan = postProcess(physicalPlan);
+            if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                optimizedPlan = physicalPlan;
+            }
+
+            return physicalPlan;
         }
-
-        deriveStats();
-
-        // We need to do join reorder before cascades and after deriving stats
-        // joinReorder();
-        // TODO: What is the appropriate time to set physical properties? Maybe before enter.
-        // cascades style optimize phase.
-
-        // cost-based optimize and explore plan space
-        optimize();
-
-        PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
-
-        // post-process physical plan out of memo, just for future use.
-        physicalPlan = postProcess(physicalPlan);
-        if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-            optimizedPlan = physicalPlan;
-        }
-
-        return physicalPlan;
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
@@ -206,6 +212,24 @@ public class NereidsPlanner extends Planner {
     }
 
     private void joinReorder() {
+        Group root = getRoot();
+        boolean changeRoot = false;
+        if (root.isJoinGroup()) {
+            // If the root group is join group, DPHyp can change the root group.
+            // To keep the root group is not changed, we add a project operator above join
+            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            GroupExpression newExpr = new GroupExpression(
+                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
+                    Lists.newArrayList(root));
+            root = new Group();
+            root.addGroupExpression(newExpr);
+            changeRoot = true;
+        }
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (changeRoot) {
+            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        }
     }
 
     /**

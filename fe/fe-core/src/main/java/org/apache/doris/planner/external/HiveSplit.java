@@ -23,6 +23,7 @@ import org.apache.hadoop.mapred.FileSplit;
 
 @Data
 public class HiveSplit extends FileSplit {
+    public HiveSplit() {}
 
     public HiveSplit(Path file, long start, long length, String[] hosts) {
         super(file, start, length, hosts);

@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 // Process push command, the main logical is as follows:
 //    a. related tablets not exist:
@@ -84,12 +85,12 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
     if (tablet == nullptr) {
-        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+        return Status::Error<TABLE_NOT_FOUND>();
     }
 
     std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
-        return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
+        return Status::Error<TRY_LOCK_FAILED>();
     }
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -131,7 +132,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         LOG(WARNING) << "failed to push data. version count: " << tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << tablet->full_name();
-        return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
+        return Status::Status::Error<TOO_MANY_VERSION>();
     }
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
@@ -172,8 +173,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     }
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
             request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
-    if (commit_status != Status::OK() &&
-        commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+    if (commit_status != Status::OK() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         res = commit_status;
     }
     return res;
@@ -215,7 +215,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             std::unique_ptr<PushBrokerReader> reader(new (std::nothrow) PushBrokerReader());
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
-                res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+                res = Status::Error<MEM_ALLOC_FAILED>();
                 break;
             }
 
@@ -223,7 +223,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
                 LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
-                res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+                res = Status::Error<MEM_ALLOC_FAILED>();
                 break;
             }
 
@@ -232,7 +232,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                                      _request.desc_tbl))) {
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name();
-                res = Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+                res = Status::Error<PUSH_INIT_ERROR>();
                 break;
             }
 
@@ -278,7 +278,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         *cur_rowset = rowset_writer->build();
         if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
@@ -312,7 +312,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
             if (!(res = raw_file.init(_request.http_file_path.c_str()))) {
                 LOG(WARNING) << "failed to read raw file. res=" << res
                              << ", file=" << _request.http_file_path;
-                res = Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+                res = Status::Error<INVALID_ARGUMENT>();
                 break;
             }
 
@@ -325,7 +325,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
 #ifndef DORIS_WITH_LZO
             if (need_decompress) {
                 // if lzo is disabled, compressed data is not allowed here
-                res = Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
+                res = Status::Error<VERSION_ALREADY_MERGED>();
                 break;
             }
 #endif
@@ -334,7 +334,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
-                res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+                res = Status::Error<MEM_ALLOC_FAILED>();
                 break;
             }
 
@@ -343,7 +343,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
-                res = Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+                res = Status::Error<PUSH_INIT_ERROR>();
                 break;
             }
         }
@@ -393,7 +393,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
 
             if (!reader->validate_checksum()) {
                 LOG(WARNING) << "pushed delta file has wrong checksum.";
-                res = Status::OLAPInternalError(OLAP_ERR_PUSH_BUILD_DELTA_ERROR);
+                res = Status::Error<PUSH_BUILD_DELTA_ERROR>();
                 break;
             }
         }
@@ -406,7 +406,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
 
         if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
@@ -424,14 +424,14 @@ Status BinaryFile::init(const char* path) {
     // open file
     if (!open(path, "rb")) {
         LOG(WARNING) << "fail to open file. file=" << path;
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     // load header
     if (!_header.unserialize(this)) {
         LOG(WARNING) << "fail to read file header. file=" << path;
         close();
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        return Status::Error<PUSH_INIT_ERROR>();
     }
 
     return Status::OK();
@@ -462,13 +462,13 @@ Status BinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
         _row_buf = new (std::nothrow) char[_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc one row buf. size=" << _row_buf_size;
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
         if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
             LOG(WARNING) << "skip header, seek fail.";
-            res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            res = Status::Error<IO_ERROR>();
             break;
         }
 
@@ -493,7 +493,7 @@ Status BinaryReader::next(RowCursor* row) {
 
     if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     const TabletSchema& schema = *_tablet_schema;
@@ -539,7 +539,7 @@ Status BinaryReader::next(RowCursor* row) {
                 LOG(WARNING) << "invalid data length for VARCHAR! "
                              << "max_len=" << column.length() - sizeof(VarcharLengthType)
                              << ", real_len=" << field_size;
-                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+                return Status::Error<PUSH_INPUT_DATA_ERROR>();
             }
         } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
             // Read string length buffer first
@@ -555,7 +555,7 @@ Status BinaryReader::next(RowCursor* row) {
                 LOG(WARNING) << "invalid data length for string! "
                              << "max_len=" << column.length() - sizeof(StringLengthType)
                              << ", real_len=" << field_size;
-                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+                return Status::Error<PUSH_INPUT_DATA_ERROR>();
             }
         } else {
             field_size = column.length();
@@ -604,13 +604,13 @@ Status LzoBinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
         _row_info_buf = new (std::nothrow) char[row_info_buf_size];
         if (_row_info_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows info buf. size=" << row_info_buf_size;
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
         if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
             LOG(WARNING) << "skip header, seek fail.";
-            res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            res = Status::Error<IO_ERROR>();
             break;
         }
 
@@ -637,7 +637,7 @@ Status LzoBinaryReader::next(RowCursor* row) {
 
     if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     if (_row_num == 0) {
@@ -681,7 +681,7 @@ Status LzoBinaryReader::next(RowCursor* row) {
                 LOG(WARNING) << "invalid data length for VARCHAR! "
                              << "max_len=" << column.length() - sizeof(VarcharLengthType)
                              << ", real_len=" << field_size;
-                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+                return Status::Error<PUSH_INPUT_DATA_ERROR>();
             }
         } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
             // Get string field size
@@ -692,7 +692,7 @@ Status LzoBinaryReader::next(RowCursor* row) {
                 LOG(WARNING) << "invalid data length for string! "
                              << "max_len=" << column.length() - sizeof(StringLengthType)
                              << ", real_len=" << field_size;
-                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+                return Status::Error<PUSH_INPUT_DATA_ERROR>();
             }
         } else {
             field_size = column.length();
@@ -742,7 +742,7 @@ Status LzoBinaryReader::_next_block() {
         _row_buf = new (std::nothrow) char[_max_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows buf. size=" << _max_row_buf_size;
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             return res;
         }
     }
@@ -755,7 +755,7 @@ Status LzoBinaryReader::_next_block() {
         _row_compressed_buf = new (std::nothrow) char[_max_compressed_buf_size];
         if (_row_compressed_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows compressed buf. size=" << _max_compressed_buf_size;
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             return res;
         }
     }
@@ -803,14 +803,14 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to create descriptor table, msg: " << status.get_error_msg();
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        LOG(WARNING) << "Failed to create descriptor table, msg: " << status;
+        return Status::Error<PUSH_INIT_ERROR>();
     }
     _runtime_state->set_desc_tbl(desc_tbl);
     status = _runtime_state->init_mem_trackers(dummy_id);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
+        return Status::Error<PUSH_INIT_ERROR>();
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
@@ -827,13 +827,13 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        return Status::Error<PUSH_INIT_ERROR>();
     }
     _scanner.reset(scanner);
     status = _scanner->open();
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to open scanner, msg: " << status.get_error_msg();
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        LOG(WARNING) << "Failed to open scanner, msg: " << status;
+        return Status::Error<PUSH_INIT_ERROR>();
     }
 
     // init tuple
@@ -842,14 +842,14 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
         LOG(WARNING) << "Failed to get tuple descriptor, tuple_id: " << tuple_id;
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        return Status::Error<PUSH_INIT_ERROR>();
     }
 
     int tuple_buffer_size = _tuple_desc->byte_size();
     void* tuple_buffer = _mem_pool->allocate(tuple_buffer_size);
     if (tuple_buffer == nullptr) {
         LOG(WARNING) << "Allocate memory for tuple failed";
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
+        return Status::Error<PUSH_INIT_ERROR>();
     }
     _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
 
@@ -917,7 +917,7 @@ Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, boo
         break;
     }
     default:
-        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
+        return Status::Error<INVALID_SCHEMA>();
     }
 
     return Status::OK();
@@ -925,7 +925,7 @@ Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, boo
 
 Status PushBrokerReader::next(ContiguousRow* row) {
     if (!_ready || row == nullptr) {
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     memset(_tuple, 0, _tuple_desc->num_null_bytes());
@@ -933,7 +933,7 @@ Status PushBrokerReader::next(ContiguousRow* row) {
     Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof, &_fill_tuple);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Scanner get next tuple failed";
-        return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+        return Status::Error<PUSH_INPUT_DATA_ERROR>();
     }
     if (_eof || !_fill_tuple) {
         return Status::OK();
@@ -953,7 +953,7 @@ Status PushBrokerReader::next(ContiguousRow* row) {
         if (field_status != Status::OK()) {
             LOG(WARNING) << "fill field row failed in spark load, slot index: " << i
                          << ", type: " << type;
-            return Status::OLAPInternalError(OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID);
+            return Status::Error<SCHEMA_SCHEMA_FIELD_INVALID>();
         }
     }
 

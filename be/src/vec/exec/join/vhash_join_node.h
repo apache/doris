@@ -194,7 +194,7 @@ public:
     static constexpr int PREFETCH_STEP = 64;
 
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~HashJoinNode();
+    ~HashJoinNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
@@ -204,6 +204,14 @@ public:
     Status close(RuntimeState* state) override;
     void add_hash_buckets_info(const std::string& info);
     void add_hash_buckets_filled_info(const std::string& info);
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    bool need_more_input_data();
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    void prepare_for_next() override;
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
@@ -281,6 +289,11 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+
+    uint8_t _build_block_idx = 0;
+    int64_t _build_side_mem_used = 0;
+    int64_t _build_side_last_mem_used = 0;
+    MutableBlock _build_side_mutable_block;
 
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 

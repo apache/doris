@@ -114,7 +114,8 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
+        using HybridSetType =
+                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
 
         CHECK(hybrid_set != nullptr);
 
@@ -220,7 +221,7 @@ public:
             bool exact_match;
             Status s = iterator->seek_dictionary(&value, &exact_match);
             rowid_t seeked_ordinal = iterator->current_ordinal();
-            if (!s.is_not_found()) {
+            if (!s.is<ErrorCode::NOT_FOUND>()) {
                 if (!s.ok()) {
                     return s;
                 }
@@ -496,9 +497,8 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -573,9 +573,8 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -630,7 +629,6 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 
     // temp string for char type column
     std::list<std::string> _temp_datas;

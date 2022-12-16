@@ -16,6 +16,9 @@
 // under the License.
 #pragma once
 
+#include <atomic>
+#include <mutex>
+
 #include "common/status.h"
 
 namespace doris {
@@ -27,8 +30,8 @@ namespace pipeline {
 
 class AggContext {
 public:
-    AggContext() = default;
-    ~AggContext() { DCHECK(_is_finished); }
+    AggContext();
+    ~AggContext();
 
     std::unique_ptr<vectorized::Block> get_free_block();
 
@@ -57,12 +60,13 @@ private:
     std::mutex _transfer_lock;
     std::list<std::pair<std::unique_ptr<vectorized::Block>, size_t>> _blocks_queue;
 
-    bool _data_exhausted = false;
-    bool _is_finished = false;
-    bool _is_canceled = false;
+    bool _data_exhausted = false; // only used by streaming agg source operator
+    std::atomic<bool> _is_finished;
+    std::atomic<bool> _is_canceled;
 
     // int64_t just for counter of profile
-    int64_t _cur_bytes_in_queue = 0;
+    std::atomic<int64_t> _cur_bytes_in_queue;
+    std::atomic<uint32_t> _cur_blocks_in_queue;
     int64_t _max_bytes_in_queue = 0;
     int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
