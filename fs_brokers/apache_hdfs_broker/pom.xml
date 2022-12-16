@@ -69,7 +69,7 @@ under the License.
         <maven.compiler.target>1.8</maven.compiler.target>
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
-        <hadoop.version>2.9.1</hadoop.version>
+        <hadoop.version>2.10.2</hadoop.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->

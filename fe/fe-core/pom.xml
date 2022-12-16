@@ -85,7 +85,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client</artifactId>
-                <version>2.7.4</version>
+                <version>${hadoop.version}</version>
                 <scope>compile</scope>
             </dependency>
         </dependencies>
@@ -618,6 +618,12 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-auth</artifactId>
+            <version>${hadoop.version}</version>
             <scope>provided</scope>
         </dependency>
 
