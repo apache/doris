@@ -769,6 +769,33 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    @Override
+    public void checkValueValid() throws AnalysisException {
+        if (year < 0 || year > 9999) {
+            throw new AnalysisException("DateLiteral has invalid year value: " + year);
+        }
+        if (month < 0 || month > 12) {
+            throw new AnalysisException("DateLiteral has invalid month value: " + month);
+        }
+        if (day < 0 || day > 31) {
+            throw new AnalysisException("DateLiteral has invalid day value: " + day);
+        }
+        if (type.isDatetimeV2() || type.isDatetime()) {
+            if (hour < 0 || hour > 24) {
+                throw new AnalysisException("DateLiteral has invalid hour value: " + hour);
+            }
+            if (minute < 0 || minute > 60) {
+                throw new AnalysisException("DateLiteral has invalid minute value: " + minute);
+            }
+            if (second < 0 || second > 60) {
+                throw new AnalysisException("DateLiteral has invalid second value: " + second);
+            }
+            if (type.isDatetimeV2() && (microsecond < 0 || microsecond > 999999)) {
+                throw new AnalysisException("DateLiteral has invalid microsecond value: " + microsecond);
+            }
+        }
+    }
+
     public static DateLiteral read(DataInput in) throws IOException {
         DateLiteral literal = new DateLiteral();
         literal.readFields(in);
@@ -1620,5 +1647,15 @@ public class DateLiteral extends LiteralExpr {
         if (checkRange() || checkDate()) {
             throw new AnalysisException("Datetime value is out of range: " + dateStr);
         }
+    }
+
+    public void setMinValue() {
+        year = 0;
+        month = 1;
+        day = 1;
+        hour = 0;
+        minute = 0;
+        second = 0;
+        microsecond = 0;
     }
 }
