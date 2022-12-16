@@ -79,7 +79,7 @@ public class HiveTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of hive table, "
-                + "they are: database, table and 'hive.metastore.uris'");
+                    + "they are: database, table and 'hive.metastore.uris'");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
@@ -146,7 +146,8 @@ public class HiveTable extends Table {
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 String key = entry.getKey();
-                if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX) || key.startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
+                if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX) || key.startsWith(S3Resource.S3_PROPERTIES_PREFIX)
+                        || key.equalsIgnoreCase(HdfsResource.HADOOP_FS_NAME)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }
