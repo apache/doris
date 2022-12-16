@@ -93,7 +93,7 @@ public:
 
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
-    bool runtime_filters_are_ready_or_timeout() override;
+    bool runtime_filters_are_ready_or_timeout();
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source

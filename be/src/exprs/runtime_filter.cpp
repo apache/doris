@@ -1244,23 +1244,23 @@ bool IRuntimeFilter::await() {
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
                                     ? _state->query_options().query_timeout
                                     : _state->runtime_filter_wait_time_ms();
-    if (_state->enable_pipeline_exec() &&
-        _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::NOT_READY) {
-        auto expected = RuntimeFilterState::NOT_READY;
-        if (!_rf_state_atomic.compare_exchange_strong(
-                    expected,
-                    MonotonicMillis() - registration_time_ >= wait_times_ms
-                            ? RuntimeFilterState::TIME_OUT
-                            : RuntimeFilterState::NOT_READY,
-                    std::memory_order_acq_rel)) {
-            DCHECK(expected == RuntimeFilterState::READY);
-            return true;
+    if (_state->enable_pipeline_exec()) {
+        auto expected = _rf_state_atomic.load(std::memory_order_acquire);
+        if (expected == RuntimeFilterState::NOT_READY) {
+            if (!_rf_state_atomic.compare_exchange_strong(
+                        expected,
+                        MonotonicMillis() - registration_time_ >= wait_times_ms
+                                ? RuntimeFilterState::TIME_OUT
+                                : RuntimeFilterState::NOT_READY,
+                        std::memory_order_acq_rel)) {
+                DCHECK(expected == RuntimeFilterState::READY);
+                return true;
+            }
+            return false;
+        } else if (expected == RuntimeFilterState::TIME_OUT) {
+            return false;
         }
-        return false;
-    } else if (_state->enable_pipeline_exec() &&
-               _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::TIME_OUT) {
-        return false;
-    } else if (!_state->enable_pipeline_exec()) {
+    } else {
         SCOPED_TIMER(_await_time_cost);
         std::unique_lock<std::mutex> lock(_inner_mutex);
         if (_rf_state != RuntimeFilterState::READY) {

@@ -96,8 +96,6 @@ public:
     // so only vectorized exec node need to impl
     virtual Status alloc_resource(RuntimeState* state);
 
-    virtual bool runtime_filters_are_ready_or_timeout() { return true; }
-
     // Retrieves rows and returns them via row_batch. Sets eos to true
     // if subsequent calls will not retrieve any more rows.
     // Data referenced by any tuples returned in row_batch must not be overwritten
