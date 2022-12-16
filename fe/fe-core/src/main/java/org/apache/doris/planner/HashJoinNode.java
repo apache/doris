@@ -843,8 +843,8 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {
-        if (vSrcToOutputSMap != null) {
-            Expr mappedExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
+        if (outputSmap != null) {
+            Expr mappedExpr = outputSmap.mappingForRhsExpr(slotRef);
             if (mappedExpr != null && mappedExpr instanceof SlotRef) {
                 return (SlotRef) mappedExpr;
             } else {
