@@ -204,14 +204,14 @@ void PipelineTask::set_state(PipelineTaskState state) {
 }
 
 std::string PipelineTask::debug_string() const {
-    std::stringstream ss;
-    ss << "PipelineTask[id = " << _index << ", state = " << get_state_name(_cur_state)
-       << "]\noperators: ";
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
+                   get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
-        ss << "\n" << string(i * 2, ' ') << _operators[i]->debug_string();
+        fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
+                       _operators[i]->debug_string());
     }
-    ss << "\n" << string(_operators.size() * 2, ' ') << _sink->debug_string();
-    return ss.str();
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace doris::pipeline
