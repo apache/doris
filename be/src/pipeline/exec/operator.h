@@ -262,7 +262,8 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -316,7 +317,8 @@ public:
     std::string get_name() const override { return "StreamingOperator"; }
 
     Status prepare(RuntimeState* state) override {
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
                                                     _runtime_profile.get());

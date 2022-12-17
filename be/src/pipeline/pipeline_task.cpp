@@ -48,7 +48,6 @@ Status PipelineTask::prepare(RuntimeState* state) {
     }
 
     _task_profile->add_info_string("SinkId", fmt::format("{}", _sink->id()));
-    bool first = true;
     fmt::memory_buffer operator_ids_str;
     for (size_t i = 0; i < _operators.size(); i++) {
         if (i == 0) {
