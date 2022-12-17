@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## DECIMALV3
+
+<version since="1.2.1">
+
+DECIMALV3
+
+</version>
+
 ### Description
 DECIMALV3 (M [,D])
 
