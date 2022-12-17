@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -105,7 +106,7 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
     }
     if (which.idx == TypeIndex::Decimal128) {
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<DecimalV2Value>>(
+                                                         SingleValueDataDecimal<Decimal128>>(
                 argument_types);
     }
     if (which.idx == TypeIndex::Decimal32) {
@@ -120,7 +121,7 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
     }
     if (which.idx == TypeIndex::Decimal128I) {
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int128I>>(
+                                                         SingleValueDataDecimal<Decimal128I>>(
                 argument_types);
     }
     return nullptr;

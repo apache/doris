@@ -36,7 +36,7 @@ public:
 
     void wait() {
         std::unique_lock<std::mutex> lock(_mutex);
-        _cv.wait(lock, [=] { return _count > 0; });
+        _cv.wait(lock, [this] { return _count > 0; });
         --_count;
     }
 
