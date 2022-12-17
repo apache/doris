@@ -378,6 +378,13 @@ TEST(MathFunctionTest, round_bankers_test) {
         DataSet data_set = {{{0.4}, 0.0}, {{-3.5}, -4.0}, {{4.5}, 4.0}};
         check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
     }
+
+    {
+        InputTypeSet input_types = {TypeIndex::Float64, TYpeIndex::Int32};
+
+        DataSet data_set = {{{3.55, 1}, 3.6}, {{3.65, 1}, 3.6}, {{10.35, 1}, 10.4}, {{10.755, 2}, 10.76}};
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
 }
 
 TEST(MathFunctionTest, least_test) {
