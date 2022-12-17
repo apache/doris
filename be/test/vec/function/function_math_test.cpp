@@ -380,7 +380,7 @@ TEST(MathFunctionTest, round_bankers_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Float64, TYpeIndex::Int32};
+        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Int32};
 
         DataSet data_set = {{{3.55, 1}, 3.6}, {{3.65, 1}, 3.6}, {{10.35, 1}, 10.4}, {{10.755, 2}, 10.76}};
         check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
