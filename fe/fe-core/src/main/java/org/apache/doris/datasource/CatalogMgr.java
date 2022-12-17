@@ -387,7 +387,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .append("`");
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, false));
+                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true));
                 sb.append("\n);");
             }
 
