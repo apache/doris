@@ -17,6 +17,8 @@
 
 #include "vec/exec/vunion_node.h"
 
+#include <gen_cpp/AgentService_types.h>
+
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
@@ -73,7 +75,6 @@ Status VUnionNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
-    _child_could_closed_idxs.resize(_children.size(), false);
     return Status::OK();
 }
 
@@ -191,7 +192,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             mem_reuse ? MutableBlock::build_mutable_block(block)
                       : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
                                 _row_descriptor)));
-    for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
+    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
+         ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
@@ -204,6 +206,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         tmp_block.erase_not_in(result_list);
         if (tmp_block.rows() > 0) {
             mblock.merge(tmp_block);
+            tmp_block.clear();
         }
     }
 
@@ -227,11 +230,17 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
                                            vectorized::Block* output_block) {
     DCHECK_LT(child_id, _children.size());
     DCHECK(!is_child_passthrough(child_id));
-    MutableBlock mblock = MutableBlock(
-            Block(VectorizedUtils::create_columns_with_type_and_name(_row_descriptor)));
+    bool mem_reuse = output_block->mem_reuse();
+    MutableBlock mblock =
+            mem_reuse ? MutableBlock::build_mutable_block(output_block)
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
+
     if (input_block->rows() > 0) {
         mblock.merge(materialize_block(input_block, child_id));
-        output_block->swap(mblock.to_block());
+        if (!mem_reuse) {
+            output_block->swap(mblock.to_block());
+        }
     }
     return Status::OK();
 }

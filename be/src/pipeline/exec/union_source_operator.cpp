@@ -39,20 +39,40 @@ OperatorPtr UnionSourceOperatorBuilder::build_operator() {
 
 UnionSourceOperator::UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
                                          std::shared_ptr<DataQueue> queue)
-        : SourceOperator(operator_builder, node), _data_queue(queue) {};
+        : SourceOperator(operator_builder, node),
+          _data_queue(queue),
+          _need_read_for_const_expr(true) {};
 
-//queue have data, could read
+// we assumed it can read to process const expr， Although we don't know whether there is
+// ,and queue have data, could read also
 bool UnionSourceOperator::can_read() {
-    return _data_queue->remaining_has_data();
+    return _need_read_for_const_expr || _data_queue->remaining_has_data();
 }
 
 Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
-    auto output_block = _data_queue->get_block_from_queue();
-    block->swap(*output_block);
+    // here we precess const expr firstly
+    if (this->_node->has_more_const(state)) {
+        this->_node->get_next_const(state, block);
+        _need_read_for_const_expr = this->_node->has_more_const(state);
+    } else {
+        // the first assumed it can read for const expr failed, so skill it
+        if (UNLIKELY(_need_read_for_const_expr)) {
+            _need_read_for_const_expr = false;
+            return Status::OK();
+        }
 
-    //queue have no data any more, child could be colsed, and have exectue const expr
-    source_state = (!_data_queue->remaining_has_data() && this->_node->check_node_eos(state))
+        std::unique_ptr<vectorized::Block> output_block;
+        int child_idx = 0;
+        _data_queue->get_block_from_queue(&output_block, &child_idx);
+        block->swap(*output_block);
+        output_block->clear_column_data(_node->row_desc().num_materialized_slots());
+        _data_queue->push_free_block(std::move(output_block), child_idx);
+    }
+
+    //have exectue const expr, queue have no data any more, and child could be colsed
+    source_state = (!_need_read_for_const_expr && !_data_queue->remaining_has_data() &&
+                    _data_queue->is_all_finish())
                            ? SourceState::FINISHED
                            : SourceState::DEPEND_ON_SOURCE;
     return Status::OK();

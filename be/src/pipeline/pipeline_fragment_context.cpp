@@ -20,7 +20,6 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "exec/agg_context.h"
 #include "exec/aggregation_sink_operator.h"
 #include "exec/aggregation_source_operator.h"
 #include "exec/analytic_sink_operator.h"
@@ -375,13 +374,13 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
         if (agg_node->is_streaming_preagg()) {
-            auto agg_ctx = std::make_shared<AggContext>();
+            auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
-                    next_operator_builder_id(), agg_node, agg_ctx);
+                    next_operator_builder_id(), agg_node, data_queue);
             RETURN_IF_ERROR(new_pipe->set_sink(pre_agg_sink));
 
             OperatorBuilderPtr pre_agg_source = std::make_shared<StreamingAggSourceOperatorBuilder>(
-                    next_operator_builder_id(), agg_node, agg_ctx);
+                    next_operator_builder_id(), agg_node, data_queue);
             RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
         } else {
             OperatorBuilderPtr agg_sink =

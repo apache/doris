@@ -38,30 +38,48 @@ OperatorPtr UnionSinkOperatorBuilder::build_operator() {
 Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    auto output_block = std::make_unique<vectorized::Block>();
-    if (_cur_child_id < _node->get_first_materialized_child_idx()) { //pass_through
-        output_block->swap(*in_block);
-    } else if (_node->get_first_materialized_child_idx() !=
-                       _node->children_count() && //need materialized
-               _cur_child_id < _node->children_count()) {
-        this->_node->materialize_child_block(state, _cur_child_id, in_block, output_block.get());
-    } else {
-        LOG(WARNING) << "maybe can't reach here, execute const expr: " << _cur_child_id << " "
-                     << _node->get_first_materialized_child_idx() << " " << _node->children_count();
+    if (_output_block == nullptr) {
+        _output_block = _data_queue->get_free_block(_cur_child_id);
     }
-    _data_queue->push_block(_cur_child_id, std::move(output_block));
+
+    if (_cur_child_id < _node->get_first_materialized_child_idx()) { //pass_through
+        if (in_block->rows() > 0) {
+            _output_block->swap(*in_block);
+            _data_queue->push_block(std::move(_output_block), _cur_child_id);
+            _output_block.reset(nullptr);
+        }
+    } else if (_node->get_first_materialized_child_idx() != _node->children_count() &&
+               _cur_child_id < _node->children_count()) { //need materialized
+        this->_node->materialize_child_block(state, _cur_child_id, in_block, _output_block.get());
+    } else {
+        return Status::InternalError("maybe can't reach here, execute const expr: {}, {}, {}",
+                                     _cur_child_id, _node->get_first_materialized_child_idx(),
+                                     _node->children_count());
+    }
 
     if (UNLIKELY(source_state == SourceState::FINISHED)) {
-        this->_node->set_child_close(_cur_child_id);
-        //check last child idx and doing const expr
-        if ((this->_node->children_count() == (_cur_child_id + 1)) &&
-            (this->_node->has_more_const(state))) {
-            output_block.reset(new vectorized::Block());
-            this->_node->get_next_const(state, output_block.get());
-            _data_queue->push_block(_cur_child_id, std::move(output_block));
+        //if _cur_child_id eos, need check to push block
+        if (_output_block) {
+            _data_queue->push_block(std::move(_output_block), _cur_child_id);
+            _output_block.reset(nullptr);
         }
+        _data_queue->set_finish(_cur_child_id);
+        return Status::OK();
+    }
+    // not eos and block rows is enough to output,so push block
+    if (_output_block && (_output_block->rows() > state->batch_size())) {
+        _data_queue->push_block(std::move(_output_block), _cur_child_id);
+        _output_block.reset(nullptr);
     }
     return Status::OK();
+}
+
+Status UnionSinkOperator::close(RuntimeState* state) {
+    if (_data_queue && !_data_queue->is_finish(_cur_child_id)) {
+        // finish should be set, if not set here means error.
+        _data_queue->set_canceled(_cur_child_id);
+    }
+    return StreamingOperator::close(state);
 }
 
 } // namespace doris::pipeline

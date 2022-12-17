@@ -19,7 +19,6 @@
 
 #include <mutex>
 
-#include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -30,22 +29,62 @@ namespace pipeline {
 
 DataQueue::DataQueue(int child_count) {
     _child_count = child_count;
+    _flag_queue_idx = 0;
     _queue_blocks.resize(child_count);
+    _free_blocks.resize(child_count);
     _queue_blocks_lock.resize(child_count);
+    _free_blocks_lock.resize(child_count);
+    _is_finished.resize(child_count);
+    _is_canceled.resize(child_count);
+    _cur_bytes_in_queue.resize(child_count);
+    _cur_blocks_nums_in_queue.resize(child_count);
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
+        _free_blocks_lock[i].reset(new std::mutex());
+        _is_finished[i] = false;
+        _is_canceled[i] = false;
+        _cur_bytes_in_queue[i] = 0;
+        _cur_blocks_nums_in_queue[i] = 0;
     }
 }
 
+std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
+    {
+        std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
+        if (!_free_blocks[child_idx].empty()) {
+            auto block = std::move(_free_blocks[child_idx].front());
+            _free_blocks[child_idx].pop_front();
+            return block;
+        }
+    }
+
+    return std::make_unique<vectorized::Block>();
+}
+
+void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
+    DCHECK(block->rows() == 0);
+    std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
+    _free_blocks[child_idx].emplace_back(std::move(block));
+}
+
+//use sink to check can_write
+bool DataQueue::has_enough_space_to_push(int child_idx) {
+    return _cur_bytes_in_queue[child_idx].load() < MAX_BYTE_OF_QUEUE / 2;
+}
+
+//use source to check can_read
+bool DataQueue::has_data_or_finished(int child_idx) {
+    return remaining_has_data() || _is_finished[child_idx];
+}
+
+//check which queue have data, and save the idx in _flag_queue_idx,
+//so next loop, will check the record idx + 1 first
+//maybe it's useful with many queue, others maybe always 0
 bool DataQueue::remaining_has_data() {
     int count = _child_count - 1;
-    //check which queue have data, and save the idx in _flag_queue_idx,
-    //so next loop, will check the record idx + 1 first
     while (count >= 0) {
         _flag_queue_idx = (_flag_queue_idx + 1) % _child_count;
-        std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
-        if (!_queue_blocks[count].empty()) {
-            _flag_queue_idx = count;
+        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
             return true;
         }
         count--;
@@ -53,18 +92,69 @@ bool DataQueue::remaining_has_data() {
     return false;
 }
 
-std::unique_ptr<vectorized::Block> DataQueue::get_block_from_queue() {
-    std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
-    auto block = std::move(_queue_blocks[_flag_queue_idx].front());
-    _queue_blocks[_flag_queue_idx].pop_front();
-    return block;
+//the _flag_queue_idx indicate which queue has data, and in check can_read
+//will be set idx in remaining_has_data function
+Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* output_block,
+                                       int* child_idx) {
+    if (_is_canceled[_flag_queue_idx]) {
+        return Status::InternalError("AggContext canceled");
+    }
+
+    if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
+        {
+            std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
+            *output_block = std::move(_queue_blocks[_flag_queue_idx].front());
+            _queue_blocks[_flag_queue_idx].pop_front();
+        }
+        if (child_idx) {
+            *child_idx = _flag_queue_idx;
+        }
+        _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
+        _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
+    } else {
+        if (_is_finished[_flag_queue_idx]) {
+            _data_exhausted = true;
+        }
+    }
+    return Status::OK();
 }
 
-//TODO: Now it's can write to deque without any limit
-//need to control the deque size and limit all block used bytes, and maybe add free blocks queue
-void DataQueue::push_block(int child_idx, std::unique_ptr<vectorized::Block> block) {
-    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
-    _queue_blocks[child_idx].push_back(std::move(block));
+void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
+    if (!block) {
+        return;
+    }
+    _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
+    {
+        std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
+        _queue_blocks[child_idx].emplace_back(std::move(block));
+        //this only use to record the queue[0] for profile
+        _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
+        _max_size_of_queue = std::max(_max_size_of_queue, (int64)_queue_blocks[0].size());
+    }
+    _cur_blocks_nums_in_queue[child_idx] += 1;
+}
+
+void DataQueue::set_finish(int child_idx) {
+    _is_finished[child_idx] = true;
+}
+
+void DataQueue::set_canceled(int child_idx) {
+    DCHECK(!_is_finished[child_idx]);
+    _is_canceled[child_idx] = true;
+    _is_finished[child_idx] = true;
+}
+
+bool DataQueue::is_finish(int child_idx) {
+    return _is_finished[child_idx];
+}
+
+bool DataQueue::is_all_finish() {
+    for (int i = 0; i < _child_count; ++i) {
+        if (_is_finished[i] == false) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace pipeline

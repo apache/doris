@@ -54,9 +54,12 @@ public:
     // this operator in sink open directly return, do this work in source
     Status open(RuntimeState* /*state*/) override { return Status::OK(); }
 
+    Status close(RuntimeState* state) override;
+
 private:
     int _cur_child_id;
     std::shared_ptr<DataQueue> _data_queue;
+    std::unique_ptr<vectorized::Block> _output_block;
 };
 } // namespace pipeline
 } // namespace doris
