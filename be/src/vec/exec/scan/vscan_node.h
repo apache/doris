@@ -91,6 +91,10 @@ public:
     const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
 
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    bool runtime_filters_are_ready_or_timeout();
+
     enum class PushDownType {
         // The predicate can not be pushed down to data source
         UNACCEPTABLE,
@@ -202,6 +206,7 @@ protected:
 
     // indicate this scan node has no more data to return
     bool _eos = false;
+    bool _opened = false;
 
     FilterPredicates _filter_predicates {};
 
@@ -223,6 +228,7 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
+    bool _blocked_by_rf = false;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.

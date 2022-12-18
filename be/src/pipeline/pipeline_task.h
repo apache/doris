@@ -57,7 +57,8 @@ enum PipelineTaskState : uint8_t {
     PENDING_FINISH =
             5, // compute task is over, but still hold resource. like some scan and sink task
     FINISHED = 6,
-    CANCELED = 7
+    CANCELED = 7,
+    BLOCKED_FOR_RF = 8,
 };
 
 inline const char* get_state_name(PipelineTaskState idx) {
@@ -78,6 +79,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
         return "FINISHED";
     case PipelineTaskState::CANCELED:
         return "CANCELED";
+    case PipelineTaskState::BLOCKED_FOR_RF:
+        return "BLOCKED_FOR_RF";
     }
     __builtin_unreachable();
 }
@@ -117,20 +120,14 @@ public:
 
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
-    bool is_blocking_state() {
-        switch (_cur_state) {
-        case BLOCKED_FOR_DEPENDENCY:
-        case BLOCKED_FOR_SOURCE:
-        case BLOCKED_FOR_SINK:
-            return true;
-        default:
-            return false;
-        }
-    }
 
     bool is_pending_finish() { return _source->is_pending_finish() || _sink->is_pending_finish(); }
 
     bool source_can_read() { return _source->can_read(); }
+
+    bool runtime_filters_are_ready_or_timeout() {
+        return _source->runtime_filters_are_ready_or_timeout();
+    }
 
     bool sink_can_write() { return _sink->can_write(); }
 
@@ -165,7 +162,6 @@ public:
 private:
     Status open();
     void _init_profile();
-    void _init_state();
 
     uint32_t _index;
     PipelinePtr _pipeline;

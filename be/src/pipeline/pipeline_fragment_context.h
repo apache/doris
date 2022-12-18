@@ -77,6 +77,11 @@ public:
 
     std::string to_http_path(const std::string& file_name);
 
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
     void send_report(bool);
 
 private:
@@ -118,6 +123,7 @@ private:
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
     //    RuntimeProfile::Counter* _start_timer;
