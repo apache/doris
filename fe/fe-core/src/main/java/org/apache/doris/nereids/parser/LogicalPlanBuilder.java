@@ -37,7 +37,6 @@ import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
-import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
@@ -134,6 +133,7 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -158,7 +158,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -207,7 +207,6 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -543,15 +542,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression right = getExpression(ctx.right);
 
             int type = ctx.operator.getType();
-            if (left instanceof IntervalLiteral) {
+            if (left instanceof Interval) {
                 if (type != DorisParser.PLUS) {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
-                IntervalLiteral interval = (IntervalLiteral) left;
+                Interval interval = (Interval) left;
                 return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
             }
 
-            if (right instanceof IntervalLiteral) {
+            if (right instanceof Interval) {
                 Operator op;
                 if (type == DorisParser.PLUS) {
                     op = Operator.ADD;
@@ -560,7 +559,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
-                IntervalLiteral interval = (IntervalLiteral) right;
+                Interval interval = (Interval) right;
                 return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
             }
 
@@ -741,32 +740,39 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.field.getText();
-            return new UnboundFunction(functionName, false, false,
+            return new UnboundFunction(functionName, false,
                     Collections.singletonList(getExpression(ctx.source)));
         });
     }
 
     @Override
-    public UnboundFunction visitFunctionCall(DorisParser.FunctionCallContext ctx) {
+    public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO:In the future, instead of specifying the function name,
-            //      the function information is obtained by parsing the catalog. This method is more scalable.
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
-            List<ExpressionContext> expressionContexts = ctx.expression();
-            List<Expression> params = visit(expressionContexts, Expression.class);
-            for (Expression expression : params) {
-                if (expression instanceof UnboundStar && functionName.equalsIgnoreCase("count") && !isDistinct) {
-                    return new UnboundFunction(functionName, false, true, new ArrayList<>());
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
+            if (unboundStars.size() > 0) {
+                if (functionName.equalsIgnoreCase("count")) {
+                    if (unboundStars.size() > 1) {
+                        throw new ParseException(
+                                "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
+                    }
+                    if (!unboundStars.get(0).getQualifier().isEmpty()) {
+                        throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
+                    }
+                    return new Count();
                 }
+                throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
+            } else {
+                return new UnboundFunction(functionName, isDistinct, params);
             }
-            return new UnboundFunction(functionName, isDistinct, false, params);
         });
     }
 
     @Override
     public Expression visitInterval(IntervalContext ctx) {
-        return new IntervalLiteral(getExpression(ctx.value), visitUnitIdentifier(ctx.unit));
+        return new Interval(getExpression(ctx.value), visitUnitIdentifier(ctx.unit));
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -274,5 +275,11 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitBoundFunction(BoundFunction boundFunction, StatsDeriveResult context) {
         return ColumnStatistic.DEFAULT;
+    }
+
+    @Override
+    public ColumnStatistic visitAggregateExpression(AggregateExpression aggregateExpression,
+            StatsDeriveResult context) {
+        return aggregateExpression.child().accept(this, context);
     }
 }

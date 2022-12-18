@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransp
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
-import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
@@ -40,8 +39,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepe
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
-import org.apache.doris.nereids.rules.rewrite.DistinctAggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
@@ -73,8 +71,7 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            .add(new AggregateDisassemble())
-            .add(new DistinctAggregateDisassemble())
+            // .add(new DisassembleDistinctAggregate())
             .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
             .build();
@@ -93,7 +90,6 @@ public class RuleSet {
             new MergeLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
-            .add(new LogicalAggToPhysicalHashAgg())
             .add(new LogicalRepeatToPhysicalRepeat())
             .add(new LogicalFilterToPhysicalFilter())
             .add(new LogicalJoinToHashJoin())
@@ -107,6 +103,7 @@ public class RuleSet {
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
+            .add(new AggregateStrategies())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()

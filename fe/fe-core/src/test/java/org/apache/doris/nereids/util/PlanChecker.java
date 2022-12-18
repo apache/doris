@@ -268,6 +268,46 @@ public class PlanChecker {
         }
     }
 
+    public PlanChecker applyImplementation(Rule rule) {
+        return applyImplementation(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    private PlanChecker applyImplementation(Group group, Rule rule) {
+        // copy groupExpressions can prevent ConcurrentModificationException
+        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
+            applyImplementation(logicalExpression, rule);
+        }
+
+        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
+            applyImplementation(physicalExpression, rule);
+        }
+        return this;
+    }
+
+    private PlanChecker applyImplementation(GroupExpression groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+
+        for (Plan before : matchResult) {
+            List<Plan> afters = rule.transform(before, cascadesContext);
+            for (Plan after : afters) {
+                if (before != after) {
+                    cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+                }
+            }
+        }
+
+        for (Group childGroup : groupExpression.children()) {
+            for (GroupExpression logicalExpression : childGroup.getLogicalExpressions()) {
+                applyImplementation(logicalExpression, rule);
+            }
+
+            for (GroupExpression physicalExpression : childGroup.getPhysicalExpressions()) {
+                applyImplementation(physicalExpression, rule);
+            }
+        }
+        return this;
+    }
+
     public PlanChecker deriveStats() {
         cascadesContext.pushJob(
                 new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),

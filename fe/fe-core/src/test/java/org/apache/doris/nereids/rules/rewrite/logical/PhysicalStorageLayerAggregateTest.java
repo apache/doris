@@ -18,69 +18,87 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.pattern.GeneratedPatterns;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
-import org.apache.doris.nereids.trees.plans.PushDownAggOperator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Optional;
 
-public class PushAggregateToOlapScanTest {
+public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
 
     @Test
     public void testWithoutProject() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalAggregate<LogicalOlapScan> aggregate;
         CascadesContext context;
-        LogicalOlapScan pushedOlapScan;
 
         // min max
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Min(olapScan.getOutput().get(0)), "min")),
-                olapScan);
+                true, Optional.empty(), olapScan);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0));
-        Assertions.assertTrue(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.MIN_MAX, pushedOlapScan.getPushDownAggOperator());
-
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithoutProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIN_MAX)
+                    )
+                );
         // count
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(olapScan.getOutput().get(0)), "count")),
-                olapScan);
+                true, Optional.empty(), olapScan);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0));
-        Assertions.assertTrue(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.COUNT, pushedOlapScan.getPushDownAggOperator());
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithoutProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                    )
+                );
 
         // mix
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(olapScan.getOutput().get(0)), "count"),
                         new Alias(new Max(olapScan.getOutput().get(0)), "max")),
-                olapScan);
+                true, Optional.empty(), olapScan);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0));
-        Assertions.assertTrue(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.MIX, pushedOlapScan.getPushDownAggOperator());
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithoutProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIX)
+                    )
+                );
+    }
+
+    @Override
+    public RulePromise defaultPromise() {
+        return RulePromise.IMPLEMENT;
     }
 
     @Test
@@ -90,44 +108,53 @@ public class PushAggregateToOlapScanTest {
                 ImmutableList.of(olapScan.getOutput().get(0)), olapScan);
         LogicalAggregate<LogicalProject<LogicalOlapScan>> aggregate;
         CascadesContext context;
-        LogicalOlapScan pushedOlapScan;
 
         // min max
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Min(project.getOutput().get(0)), "min")),
-                project);
+                true, Optional.empty(), project);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0).child(0));
-        Assertions.assertTrue(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.MIN_MAX, pushedOlapScan.getPushDownAggOperator());
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIN_MAX)
+                    )
+                );
 
         // count
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count")),
-                project);
+                true, Optional.empty(), project);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0).child(0));
-        Assertions.assertTrue(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.COUNT, pushedOlapScan.getPushDownAggOperator());
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                    )
+                );
 
         // mix
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count"),
                         new Alias(new Max(olapScan.getOutput().get(0)), "max")),
+                true, Optional.empty(),
                 project);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0).child(0));
-        Assertions.assertTrue(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.MIX, pushedOlapScan.getPushDownAggOperator());
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithProject())
+                .matches(
+                    logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIX)
+                    )
+                );
     }
 
     @Test
@@ -137,7 +164,6 @@ public class PushAggregateToOlapScanTest {
                 ImmutableList.of(new Alias(new Ln(olapScan.getOutput().get(0)), "alias")), olapScan);
         LogicalAggregate<LogicalProject<LogicalOlapScan>> aggregate;
         CascadesContext context;
-        LogicalOlapScan pushedOlapScan;
 
         // min max
         aggregate = new LogicalAggregate<>(
@@ -146,9 +172,30 @@ public class PushAggregateToOlapScanTest {
                 project);
         context = MemoTestUtils.createCascadesContext(aggregate);
 
-        context.topDownRewrite(new PushAggregateToOlapScan());
-        pushedOlapScan = (LogicalOlapScan) (context.getMemo().copyOut().child(0).child(0));
-        Assertions.assertFalse(pushedOlapScan.isAggPushed());
-        Assertions.assertEquals(PushDownAggOperator.NONE, pushedOlapScan.getPushDownAggOperator());
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithProject())
+                .matches(
+                    logicalAggregate(
+                        logicalProject(
+                            logicalOlapScan()
+                        )
+                    )
+                );
+    }
+
+    private Rule storageLayerAggregateWithoutProject() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT)
+                .findFirst()
+                .get();
+    }
+
+    private Rule storageLayerAggregateWithProject() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT)
+                .findFirst()
+                .get();
     }
 }

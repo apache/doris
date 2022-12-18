@@ -47,11 +47,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
@@ -195,7 +196,7 @@ public abstract class PlanVisitor<R, C> {
     // Physical plans
     // *******************************
 
-    public R visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, C context) {
+    public R visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, C context) {
         return visit(agg, context);
     }
 
@@ -217,6 +218,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalScan(olapScan, context);
+    }
+
+    public R visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
+        return storageLayerAggregate.getRelation().accept(this, context);
     }
 
     public R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {

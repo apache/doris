@@ -28,6 +28,8 @@ import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.stats.StatsCalculator;
 
+import java.util.List;
+
 /**
  * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
@@ -45,31 +47,44 @@ public class DeriveStatsJob extends Job {
      * @param context context of current job
      */
     public DeriveStatsJob(GroupExpression groupExpression, JobContext context) {
-        super(JobType.DERIVE_STATS, context);
-        this.groupExpression = groupExpression;
-        this.deriveChildren = false;
+        this(groupExpression, false, context);
     }
 
-    /**
-     * Copy constructor for DeriveStatsJob.
-     *
-     * @param other DeriveStatsJob copied from
-     */
-    public DeriveStatsJob(DeriveStatsJob other) {
-        super(JobType.DERIVE_STATS, other.context);
-        this.groupExpression = other.groupExpression;
-        this.deriveChildren = other.deriveChildren;
+    private DeriveStatsJob(GroupExpression groupExpression, boolean deriveChildren, JobContext context) {
+        super(JobType.DERIVE_STATS, context);
+        this.groupExpression = groupExpression;
+        this.deriveChildren = deriveChildren;
     }
 
     @Override
     public void execute() {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
-        if (!deriveChildren) {
-            deriveChildren = true;
-            pushJob(new DeriveStatsJob(this));
-            for (Group child : groupExpression.children()) {
-                if (!child.getLogicalExpressions().isEmpty()) {
-                    pushJob(new DeriveStatsJob(child.getLogicalExpressions().get(0), context));
+        if (groupExpression.isStatDerived()) {
+            return;
+        }
+        if (!deriveChildren && groupExpression.arity() > 0) {
+            pushJob(new DeriveStatsJob(groupExpression, true, context));
+
+            List<Group> children = groupExpression.children();
+            // rule maybe return new logical plans to wrap some new physical plans,
+            // so we should check derive stats for it if no stats
+            for (int i = children.size() - 1; i >= 0; i--) {
+                Group childGroup = children.get(i);
+
+                List<GroupExpression> logicalExpressions = childGroup.getLogicalExpressions();
+                for (int j = logicalExpressions.size() - 1; j >= 0; j--) {
+                    GroupExpression logicalChild = logicalExpressions.get(j);
+                    if (!logicalChild.isStatDerived()) {
+                        pushJob(new DeriveStatsJob(logicalChild, context));
+                    }
+                }
+
+                List<GroupExpression> physicalExpressions = childGroup.getPhysicalExpressions();
+                for (int j = physicalExpressions.size() - 1; j >= 0; j--) {
+                    GroupExpression physicalChild = physicalExpressions.get(j);
+                    if (!physicalChild.isStatDerived()) {
+                        pushJob(new DeriveStatsJob(physicalChild, context));
+                    }
                 }
             }
         } else {

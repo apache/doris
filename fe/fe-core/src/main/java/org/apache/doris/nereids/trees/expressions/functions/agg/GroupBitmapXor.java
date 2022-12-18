@@ -41,24 +41,20 @@ public class GroupBitmapXor extends AggregateFunction
         super("group_bitmap_xor", arg0);
     }
 
-    public GroupBitmapXor(AggregateParam aggregateParam, Expression arg0) {
-        super("group_bitmap_xor", aggregateParam, arg0);
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(BitmapType.INSTANCE);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return ImmutableList.of(BitmapType.INSTANCE);
+    public GroupBitmapXor withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
     }
 
     @Override
     public GroupBitmapXor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitmapXor(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public GroupBitmapXor withAggregateParam(AggregateParam aggregateParam) {
-        return new GroupBitmapXor(aggregateParam, child());
+        return new GroupBitmapXor(children.get(0));
     }
 
     @Override
