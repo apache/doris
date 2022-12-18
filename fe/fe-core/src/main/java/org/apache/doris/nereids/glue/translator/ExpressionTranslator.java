@@ -33,6 +33,7 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
@@ -69,6 +70,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -197,6 +202,24 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.analysis.NullLiteral nullLit = new org.apache.doris.analysis.NullLiteral();
         nullLit.setType(nullLiteral.getDataType().toCatalogDataType());
         return nullLit;
+    }
+
+    @Override
+    public Expr visitDateLiteral(DateLiteral dateLiteral, PlanTranslatorContext context) {
+        // BE not support date v2 literal and datetime v2 literal
+        if (dateLiteral instanceof DateV2Literal) {
+            return new CastExpr(Type.DATEV2, new StringLiteral(dateLiteral.toString()));
+        }
+        return super.visitDateLiteral(dateLiteral, context);
+    }
+
+    @Override
+    public Expr visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, PlanTranslatorContext context) {
+        // BE not support date v2 literal and datetime v2 literal
+        if (dateTimeLiteral instanceof DateTimeV2Literal) {
+            return new CastExpr(Type.DATETIMEV2, new StringLiteral(dateTimeLiteral.toString()));
+        }
+        return super.visitDateTimeLiteral(dateTimeLiteral, context);
     }
 
     @Override
