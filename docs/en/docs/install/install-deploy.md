@@ -220,7 +220,7 @@ See the section on `lower_case_table_names` variables in [Variables](../../advan
 
 * BE webserver_port configuration
 
-	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
+	If the BE component is installed in hadoop cluster, you need to change configuration `webserver_port=8040` to avoid port used.
 
 * Set JAVA_HOME environment variable
 
