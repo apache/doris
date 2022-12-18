@@ -24,10 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -59,7 +59,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     // Physical plans
     // *******************************
     @Override
-    public PhysicalAggregate visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, CascadesContext context) {
+    public PhysicalHashAggregate visitPhysicalHashAggregate(
+            PhysicalHashAggregate<? extends Plan> agg, CascadesContext context) {
         agg.child().accept(this, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(agg);
         return agg;

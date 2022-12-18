@@ -77,10 +77,11 @@ public class ApplyRuleJob extends Job {
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
-                    pushJob(new DeriveStatsJob(newGroupExpression, context));
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
+                // we should derive stats for new logical/physical plan if the plan missing the stats
+                pushJob(new DeriveStatsJob(newGroupExpression, context));
                 APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
                         rule::isRewrite);
             }

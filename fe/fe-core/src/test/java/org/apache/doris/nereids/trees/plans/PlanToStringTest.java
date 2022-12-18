@@ -56,7 +56,7 @@ public class PlanToStringTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[], hasRepeat=false \\)"));
+                .matches("LogicalAggregate \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false \\)"));
     }
 
     @Test
@@ -81,7 +81,7 @@ public class PlanToStringTest {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
-                        + "output=\\[id#\\d+, name#\\d+], candidateIndexIds=\\[], selectedIndexId=-1, preAgg=ON, pushAgg=NONE \\)"));
+                        + "output=\\[id#\\d+, name#\\d+], candidateIndexIds=\\[], selectedIndexId=-1, preAgg=ON \\)"));
     }
 
     @Test
