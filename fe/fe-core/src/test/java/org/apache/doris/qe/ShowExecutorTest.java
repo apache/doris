@@ -309,7 +309,18 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTable() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", null, false, null);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("testTbl", resultSet.getString(0));
+        Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowTableFromCatalog() throws AnalysisException {
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", "internal", false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -320,7 +331,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTableFromUnknownDatabase() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:emptyDb", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:emptyDb", null, false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
@@ -329,7 +340,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTablePattern() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", false, "empty%");
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", null, false, "empty%");
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -416,7 +427,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTableVerbose() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", true, null);
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", null, true, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
