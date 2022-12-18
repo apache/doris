@@ -664,8 +664,7 @@ public class ExportJob implements Writable {
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState, boolean isReplay) {
-        JobState currentState = getState();
-        if (currentState == ExportJob.JobState.CANCELLED || currentState == ExportJob.JobState.FINISHED) {
+        if (isFinalState()) {
             return false;
         }
         state = newState;
@@ -689,6 +688,10 @@ public class ExportJob implements Writable {
             Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
+    }
+
+    public synchronized boolean isFinalState() {
+        return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
     }
 
     public Status releaseSnapshotPaths() {

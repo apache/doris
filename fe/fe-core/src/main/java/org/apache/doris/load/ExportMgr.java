@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -104,9 +105,17 @@ public class ExportMgr {
         LOG.info("add export job. {}", job);
     }
 
-    public void cancelExportJob(CancelExportStmt stmt) throws AnalysisException {
+    public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
         // List of export jobs waiting to be cancelled
         List<ExportJob> matchExportJobs = getWaitingCancelJobs(stmt);
+        if (matchExportJobs.isEmpty()) {
+            throw new DdlException("Export job(s) do not exist");
+        }
+        matchExportJobs = matchExportJobs.stream()
+                .filter(job -> !job.isFinalState()).collect(Collectors.toList());
+        if (matchExportJobs.isEmpty()) {
+            throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
+        }
         for (ExportJob exportJob : matchExportJobs) {
             exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
         }
