@@ -55,12 +55,30 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         super(Optional.empty(), children);
     }
 
+    /**
+     * check input data types
+     */
     public TypeCheckResult checkInputDataTypes() {
         if (this instanceof ExpectsInputTypes) {
             ExpectsInputTypes expectsInputTypes = (ExpectsInputTypes) this;
             return checkInputDataTypes(children, expectsInputTypes.expectedInputTypes());
+        } else {
+            List<String> errorMessages = Lists.newArrayList();
+            // check all of its children recursively.
+            for (int i = 0; i < this.children.size(); ++i) {
+                Expression expression = this.children.get(i);
+                TypeCheckResult childResult = expression.checkInputDataTypes();
+                if (childResult != TypeCheckResult.SUCCESS) {
+                    errorMessages.add(String.format("argument %d type check fail: %s",
+                            i + 1, childResult.getMessage()));
+                }
+            }
+            if (errorMessages.isEmpty()) {
+                return TypeCheckResult.SUCCESS;
+            } else {
+                return new TypeCheckResult(false, StringUtils.join(errorMessages, ", "));
+            }
         }
-        return TypeCheckResult.SUCCESS;
     }
 
     private TypeCheckResult checkInputDataTypes(List<Expression> inputs, List<AbstractDataType> inputTypes) {
