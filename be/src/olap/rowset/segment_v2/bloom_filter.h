@@ -57,7 +57,9 @@ public:
     BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) {}
 
     virtual ~BloomFilter() {
-        if (_data) delete[] _data;
+        if (_data) {
+            delete[] _data;
+        }
     }
 
     virtual bool is_ngram_bf() const { return false; }

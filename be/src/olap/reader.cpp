@@ -471,8 +471,9 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
         if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
-            dynamic_cast<LikeColumnPredicate<true>*>(_pred))
+            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
             return true;
+        }
 
         return false;
     };
@@ -493,8 +494,10 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
             NgramTokenExtractor _token_extractor(gram_size);
 
-            if (_token_extractor.stringLikeToBloomFilter(pattern.data(), pattern.length(), *ng_bf))
+            if (_token_extractor.stringLikeToBloomFilter(pattern.data(), pattern.length(),
+                                                         *ng_bf)) {
                 pred->set_page_ng_bf(std::move(ng_bf));
+            }
         }
     }
 }

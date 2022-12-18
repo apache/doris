@@ -28,10 +28,8 @@ namespace doris {
 
 class TestITokenExtractor : public testing::Test {
 public:
-    virtual ~TestITokenExtractor() {}
-
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    void SetUp() {}
+    void TearDown() {}
 };
 
 void runNextInString(const ITokenExtractor& extractor, std::string statement,

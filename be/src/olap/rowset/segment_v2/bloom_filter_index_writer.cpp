@@ -175,7 +175,6 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
         : _bf_options(bf_options),
           _gram_size(gram_size),
           _bf_size(bf_size),
-          _pool(),
           _bf_buffer_size(0),
           _token_extractor(gram_size) {
     BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size);
@@ -184,7 +183,9 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
 void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
     const Slice* src = reinterpret_cast<const Slice*>(values);
     for (int i = 0; i < count; ++i, ++src) {
-        if (src->size < _gram_size) continue;
+        if (src->size < _gram_size) {
+            continue;
+        }
         _token_extractor.stringToBloomFilter(src->data, src->size, *_bf);
     }
 }

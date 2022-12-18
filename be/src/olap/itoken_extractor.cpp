@@ -58,7 +58,9 @@ bool NgramTokenExtractor::nextInStringLike(const char* data, size_t length, size
             ++i;
         } else {
             const size_t sz = get_utf8_byte_length(static_cast<uint8_t>(data[i]));
-            for (size_t j = 0; j < sz; ++j) token += data[i + j];
+            for (size_t j = 0; j < sz; ++j) {
+                token += data[i + j];
+            }
             i += sz;
             ++code_points;
             escaped = false;

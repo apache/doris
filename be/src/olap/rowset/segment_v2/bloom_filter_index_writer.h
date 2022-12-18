@@ -74,8 +74,6 @@ public:
     Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
     uint64_t size() override;
 
-    ~NGramBloomFilterIndexWriterImpl() = default;
-
 private:
     BloomFilterOptions _bf_options;
     uint8_t _gram_size;

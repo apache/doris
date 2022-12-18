@@ -133,16 +133,18 @@ public:
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
-        if (_properties.count("gram_size"))
+        if (_properties.count("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
-        else
-            return 0;
+        }
+
+        return 0;
     }
     int32_t get_gram_bf_size() const {
-        if (_properties.count("bf_size"))
+        if (_properties.count("bf_size")) {
             return std::stoi(_properties.at("bf_size"));
-        else
-            return 0;
+        }
+
+        return 0;
     }
 
 private:

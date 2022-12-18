@@ -84,9 +84,11 @@ public:
     explicit NgramTokenExtractor(size_t n_) : n(n_) {}
 
     bool nextInString(const char* data, size_t length, size_t* __restrict pos,
-                      size_t* __restrict token_start, size_t* __restrict token_length) const;
+                      size_t* __restrict token_start,
+                      size_t* __restrict token_length) const override;
 
-    bool nextInStringLike(const char* data, size_t length, size_t* pos, std::string& token) const;
+    bool nextInStringLike(const char* data, size_t length, size_t* pos,
+                          std::string& token) const override;
 
 private:
     size_t n;

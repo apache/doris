@@ -63,7 +63,9 @@ void NGramBloomFilter::add_bytes(const char* data, uint32_t len) {
 bool NGramBloomFilter::contains(const BloomFilter& bf_) const {
     const NGramBloomFilter& bf = static_cast<const NGramBloomFilter&>(bf_);
     for (size_t i = 0; i < words; ++i) {
-        if ((filter[i] & bf.filter[i]) != bf.filter[i]) return false;
+        if ((filter[i] & bf.filter[i]) != bf.filter[i]) {
+            return false;
+        }
     }
     return true;
 }

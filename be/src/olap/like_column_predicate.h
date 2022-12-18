@@ -62,7 +62,9 @@ public:
         _page_ng_bf = std::move(src);
     }
     bool evaluate_and(const BloomFilter* bf) const override {
-        if (_page_ng_bf) return bf->contains(*_page_ng_bf);
+        if (_page_ng_bf) {
+            return bf->contains(*_page_ng_bf);
+        }
         return true;
     }
     bool can_do_bloom_filter() const override { return true; }

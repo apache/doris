@@ -30,7 +30,7 @@ public:
     NGramBloomFilter(size_t size);
     void add_bytes(const char* data, uint32_t len) override;
     bool contains(const BloomFilter& bf_) const override;
-    virtual Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;
+    Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;
     char* data() const override {
         return reinterpret_cast<char*>(const_cast<uint64_t*>(filter.data()));
     }
