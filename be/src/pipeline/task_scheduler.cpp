@@ -120,6 +120,12 @@ void BlockedTaskScheduler::_schedule() {
                 } else {
                     iter++;
                 }
+            } else if (state == BLOCKED_FOR_RF) {
+                if (task->runtime_filters_are_ready_or_timeout()) {
+                    _make_task_run(local_blocked_tasks, iter, ready_tasks);
+                } else {
+                    iter++;
+                }
             } else if (state == BLOCKED_FOR_SINK) {
                 if (task->sink_can_write()) {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks);
@@ -193,11 +199,7 @@ Status TaskScheduler::start() {
 }
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
-    if (task->is_blocking_state()) {
-        _blocked_task_scheduler->add_blocked_task(task);
-    } else {
-        _task_queue->push_back(task);
-    }
+    _task_queue->push_back(task);
     // TODO control num of task
     return Status::OK();
 }
@@ -225,8 +227,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         auto check_state = task->get_state();
         if (check_state == PENDING_FINISH) {
-            bool is_pending = task->is_pending_finish();
-            DCHECK(!is_pending) << "must not pending close " << task->debug_string();
+            DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
             _try_close_task(task, canceled ? CANCELED : FINISHED);
             continue;
         }
@@ -245,7 +246,8 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = task->execute(&eos);
         task->set_previous_core_id(index);
         if (!status.ok()) {
-            LOG(WARNING) << "Pipeline taks execute task fail " << task->debug_string();
+            LOG(WARNING) << "Pipeline task execute task fail " << task->debug_string() << " "
+                         << status.to_string();
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "execute fail");
             _try_close_task(task, CANCELED);
@@ -272,6 +274,8 @@ void TaskScheduler::_do_work(size_t index) {
         switch (pipeline_state) {
         case BLOCKED_FOR_SOURCE:
         case BLOCKED_FOR_SINK:
+        case BLOCKED_FOR_RF:
+        case BLOCKED_FOR_DEPENDENCY:
             _blocked_task_scheduler->add_blocked_task(task);
             break;
         case RUNNABLE:
@@ -294,6 +298,11 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         auto status = task->close();
         if (!status.ok()) {
             // TODO: LOG warning
+        }
+        if (task->is_pending_finish()) {
+            task->set_state(PENDING_FINISH);
+            _blocked_task_scheduler->add_blocked_task(task);
+            return;
         }
         task->set_state(state);
         // TODO: rethink the logic
