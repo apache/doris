@@ -99,6 +99,12 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     return status;
 }
 
+Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->merge(_sub_plan_query_statistics_recvr.get());
+    return Status::OK();
+}
+
 Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
