@@ -77,6 +77,6 @@ public class RoundBankers extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitRound(this, context);
+        return visitor.visitRoundBankers(this, context);
     }
 }
