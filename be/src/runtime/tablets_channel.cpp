@@ -118,6 +118,9 @@ Status TabletsChannel::close(
                 if (!st.ok()) {
                     LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
                                  << ", transaction_id=" << _txn_id << ", err=" << st;
+                    PTabletError* tablet_error = tablet_errors->Add();
+                    tablet_error->set_tablet_id(it.first);
+                    tablet_error->set_msg(st.to_string());
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
