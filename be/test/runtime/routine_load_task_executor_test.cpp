@@ -23,7 +23,7 @@
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "util/cpu_info.h"
 
@@ -48,7 +48,7 @@ public:
         k_stream_load_put_result = TStreamLoadPutResult();
 
         _env._master_info = new TMasterInfo();
-        _env._load_stream_mgr = new LoadStreamMgr();
+        _env._new_load_stream_mgr = new NewLoadStreamMgr();
         _env._stream_load_executor = new StreamLoadExecutor(&_env);
 
         config::routine_load_thread_pool_size = 5;
@@ -58,8 +58,8 @@ public:
     void TearDown() override {
         delete _env._master_info;
         _env._master_info = nullptr;
-        delete _env._load_stream_mgr;
-        _env._load_stream_mgr = nullptr;
+        delete _env._new_load_stream_mgr;
+        _env._new_load_stream_mgr = nullptr;
         delete _env._stream_load_executor;
         _env._stream_load_executor = nullptr;
     }

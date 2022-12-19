@@ -18,7 +18,6 @@
 #include "vec/exec/format/json/new_json_reader.h"
 
 #include "common/compiler_util.h"
-#include "exec/plain_text_line_reader.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
 #include "io/fs/stream_load_pipe.h"
@@ -26,6 +25,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
 namespace doris::vectorized {
 using namespace ErrorCode;
@@ -315,9 +315,9 @@ Status NewJsonReader::_open_line_reader() {
     } else {
         _skip_first_line = false;
     }
-    _line_reader.reset(new PlainTextLineReader(_profile, _file_reader, nullptr, size,
-                                               _line_delimiter, _line_delimiter_length,
-                                               _current_offset));
+    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, nullptr, size,
+                                                  _line_delimiter, _line_delimiter_length,
+                                                  _current_offset));
     return Status::OK();
 }
 

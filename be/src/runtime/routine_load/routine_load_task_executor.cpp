@@ -292,7 +292,6 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     ctx->body_sink = pipe;
 
     // must put pipe before executing plan fragment
-    // HANDLE_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
     HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
 
 #ifndef BE_TEST

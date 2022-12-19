@@ -23,15 +23,14 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/decompressor.h"
-#include "exec/plain_binary_line_reader.h"
-#include "exec/plain_text_line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "io/file_factory.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
 #include "vec/core/block.h"
-#include "vec/exec/format/file_reader/new_file_factory.h"
+#include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
@@ -144,13 +143,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new PlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                   _size, _line_delimiter, _line_delimiter_length,
-                                                   start_offset));
+        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                      _size, _line_delimiter,
+                                                      _line_delimiter_length, start_offset));
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new PlainBinaryLineReader(_file_reader, _params.file_type));
+        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type));
         break;
     default:
         return Status::InternalError(
@@ -533,9 +532,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _line_reader.reset(new PlainTextLineReader(_profile, _file_reader, _decompressor.get(), _size,
-                                               _line_delimiter, _line_delimiter_length,
-                                               start_offset));
+    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                  _size, _line_delimiter, _line_delimiter_length,
+                                                  start_offset));
 
     return Status::OK();
 }

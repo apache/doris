@@ -30,7 +30,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
 #include "runtime/types.h"
@@ -372,7 +371,6 @@ public:
         _env = ExecEnv::GetInstance();
         _env->_thread_mgr = new ThreadResourceMgr();
         _env->_master_info = new TMasterInfo();
-        _env->_load_stream_mgr = new LoadStreamMgr();
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         ThreadPoolBuilder("SendBatchThreadPool")
@@ -387,7 +385,6 @@ public:
     void TearDown() override {
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_function_client_cache);
-        SAFE_DELETE(_env->_load_stream_mgr);
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
         if (_server) {
