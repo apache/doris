@@ -99,6 +99,7 @@ public class FileGroupInfo {
         this.filesAdded = filesAdded;
         this.strictMode = strictMode;
         this.loadParallelism = loadParallelism;
+        this.fileType = brokerDesc.getFileType();
     }
 
     // for stream load
