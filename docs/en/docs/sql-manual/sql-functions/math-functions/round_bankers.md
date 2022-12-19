@@ -27,7 +27,7 @@ under the License.
 ### description
 #### Syntax
 
-`roundBankers(x), roundBankers(x, d)`
+`round_bankers(x), round_bankers(x, d)`
 Rounds the argument `x` to `d` specified decimal places. `d` defaults to 0 if not specified. If d is negative, the left d digits of the decimal point are 0. If x or d is null, null is returned.
 
 + If the rounding number is halfway between two numbers, the function uses banker’s rounding.
@@ -38,42 +38,42 @@ Rounds the argument `x` to `d` specified decimal places. `d` defaults to 0 if no
 ### example
 
 ```
-mysql> select roundBankers(0.4);
-+-------------------+
-| roundBankers(0.4) |
-+-------------------+
-|                 0 |
-+-------------------+
-mysql> select roundBankers(-3.5);
+mysql> select round_bankers(0.4);
 +--------------------+
-| roundBankers(-3.5) |
+| round_bankers(0.4) |
 +--------------------+
-|                 -4 |
+|                  0 |
 +--------------------+
-mysql> select roundBankers(-3.4);
-+--------------------+
-| roundBankers(-3.4) |
-+--------------------+
-|                 -3 |
-+--------------------+
-mysql> select roundBankers(10.755, 2);
-+-------------------------+
-| roundBankers(10.755, 2) |
-+-------------------------+
-|                   10.76 |
-+-------------------------+
-mysql> select roundBankers(1667.2725, 2);
-+----------------------------+
-| roundBankers(1667.2725, 2) |
-+----------------------------+
-|                    1667.27 |
-+----------------------------+
-mysql> select roundBankers(1667.2725, -2);
+mysql> select round_bankers(-3.5);
++---------------------+
+| round_bankers(-3.5) |
++---------------------+
+|                  -4 |
++---------------------+
+mysql> select round_bankers(-3.4);
++---------------------+
+| round_bankers(-3.4) |
++---------------------+
+|                  -3 |
++---------------------+
+mysql> select round_bankers(10.755, 2);
++--------------------------+
+| round_bankers(10.755, 2) |
++--------------------------+
+|                    10.76 |
++--------------------------+
+mysql> select round_bankers(1667.2725, 2);
 +-----------------------------+
-| roundBankers(1667.2725, -2) |
+| round_bankers(1667.2725, 2) |
 +-----------------------------+
-|                        1700 |
+|                     1667.27 |
 +-----------------------------+
+mysql> select round_bankers(1667.2725, -2);
++------------------------------+
+| round_bankers(1667.2725, -2) |
++------------------------------+
+|                         1700 |
++------------------------------+
 ```
 
 ### keywords
