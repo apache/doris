@@ -127,7 +127,13 @@ class RecorderEventListener implements EventListener {
         def pipelineId = config.pipelineId.toString()
         log.info(config.buildId.toString())
         def buildId = config.buildId.toString()
-        def teamcityLink = "http://${serverUrl}/buildConfiguration/${pipelineId}/${buildId}?buildTab=tests"
+
+        def teamcityLink
+        if (serverUrl.startsWith("http") is true) {
+            teamcityLink = "${serverUrl}/buildConfiguration/${pipelineId}/${buildId}?buildTab=tests"
+        }else {
+            teamcityLink = "http://${serverUrl}/buildConfiguration/${pipelineId}/${buildId}?buildTab=tests"
+        }
 
         // these params id defined in regression-conf.groovy
         log.info(config.feHttpAddress.toString())
