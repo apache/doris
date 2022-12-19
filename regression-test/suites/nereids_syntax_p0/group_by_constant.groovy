@@ -26,12 +26,12 @@ suite("group_by_constant") {
         select 'str', sum(lo_tax), lo_orderkey, max(lo_discount), 1 from lineorder, customer group by 3, 5, 'str', 1, lo_orderkey order by lo_orderkey;
     """
 
-    qt_sql """SELECT lo_custkey, lo_partkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2"""
+    qt_sql """SELECT lo_custkey, lo_partkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2 order by lo_custkey"""
 
-    qt_sql """SELECT lo_partkey, lo_custkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2"""
+    qt_sql """SELECT lo_partkey, lo_custkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2 order by lo_partkey, lo_custkey"""
 
-    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 1,  1 + 1"""
+    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 1,  1 + 1 order by lo_partkey"""
 
-    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 'g',  1"""
+    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 'g',  1 order by lo_partkey"""
 
 }
