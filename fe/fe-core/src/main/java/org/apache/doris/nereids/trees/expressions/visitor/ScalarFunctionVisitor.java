@@ -1006,8 +1006,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(round, context);
     }
 
-    default R visitRound(RoundBankers round_bankers, C context) {
-        return visitScalarFunction(round_bankers, context);
+    default R visitRoundBankers(RoundBankers roundBankers, C context) {
+        return visitScalarFunction(roundBankers, context);
     }
 
     default R visitRpad(Rpad rpad, C context) {
