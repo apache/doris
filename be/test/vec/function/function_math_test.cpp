@@ -370,7 +370,7 @@ TEST(MathFunctionTest, round_test) {
 }
 
 TEST(MathFunctionTest, round_bankers_test) {
-    std::string func_name = "roundBankers";
+    std::string func_name = "round_bankers";
 
     {
         InputTypeSet input_types = {TypeIndex::Float64};
