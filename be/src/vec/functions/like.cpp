@@ -76,7 +76,7 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
         *result = true;
         return Status::OK();
     }
-    StringValue pattern_value = StringValue::from_string_val(val.ptr);
+    StringValue pattern_value(val.ptr, val.len);
     *result = state->substring_pattern.search(&pattern_value) != -1;
     return Status::OK();
 }
