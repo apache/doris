@@ -2231,17 +2231,6 @@ In order not to wait too long for create table(index), set a max timeout.
 
 ### External Table
 
-#### `enable_multi_catalog`
-
-Default：false
-
-IsMutable：true
-
-MasterOnly：true
-
-Whether to enable the multi catalog function, it is disabled by default. 
-Subsequent versions may enable multi catalog by default, and this configuration will be deleted
-
 #### `file_scan_node_split_num`
 
 Default：128

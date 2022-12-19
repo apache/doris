@@ -71,7 +71,6 @@ suite("test_hive_orc", "all_types") {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "hive_test_orc"
-            sql """admin set frontend config ("enable_multi_catalog" = "true")"""
             sql """drop catalog if exists ${catalog_name}"""
             sql """
             create catalog if not exists ${catalog_name} properties (

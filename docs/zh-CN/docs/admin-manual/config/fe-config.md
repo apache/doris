@@ -2231,17 +2231,6 @@ OlapTable在做schema change时，允许的最大副本数，副本数过大会�
 
 ### 外部表
 
-#### `enable_multi_catalog`
-
-默认值：false
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-是否开启 multi catalog 功能，默认关闭
-后续版本可能会默认开启 multi catalog， 此配置将被删除
-
 #### `file_scan_node_split_num`
 
 默认值：128
