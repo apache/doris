@@ -2233,7 +2233,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` = 1 OR `query_time` = 2 OR `scan_bytes` = 2, `scan_bytes` IN (2, 3)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: (`query_time` = 1 OR `query_time` = 2 OR `scan_bytes` = 2), `scan_bytes` IN (2, 3)"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
