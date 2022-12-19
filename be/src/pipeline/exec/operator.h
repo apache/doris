@@ -287,6 +287,7 @@ public:
         }
         _fresh_exec_timer(_sink);
         RETURN_IF_ERROR(_sink->close(state, Status::OK()));
+        _is_closed = true;
         return Status::OK();
     }
 
