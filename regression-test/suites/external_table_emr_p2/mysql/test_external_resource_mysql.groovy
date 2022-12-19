@@ -63,7 +63,7 @@ suite("test_external_resource_mysql", "p2") {
             CREATE EXTERNAL TABLE ${mysqlTableName02} LIKE ${mysqlTableName01};
             """
         res = sql """select count(*) from ${mysqlTableName02};"""
-        logger.info("recoding select: " + res.toString())    
+        logger.info("recoding select: " + res.toString())
 
         sql """drop table if exists ${mysqlTableName01}"""
         sql """drop table if exists ${mysqlTableName02}"""
