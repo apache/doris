@@ -67,7 +67,7 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 
     // The following procedure would last for long time, half of one day, etc.
     int64_t output_rows = 0;
-    while (true) {
+    while (!StorageEngine::instance()->stopped()) {
         ObjectPool objectPool;
         bool eof = false;
         // Read one row into row_cursor
@@ -88,6 +88,10 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         // the memory allocate by mem pool has been copied,
         // so we should release memory immediately
         mem_pool->clear();
+    }
+    if (StorageEngine::instance()->stopped()) {
+        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
+        return Status::InternalError("engine stopped");
     }
 
     if (stats_output != nullptr) {
@@ -155,7 +159,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
-    while (!eof) {
+    while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_LOG(
                 reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
@@ -173,6 +177,10 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 
         output_rows += block.rows();
         block.clear_column_data();
+    }
+    if (StorageEngine::instance()->stopped()) {
+        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
+        return Status::InternalError("engine stopped");
     }
 
     if (stats_output != nullptr) {
