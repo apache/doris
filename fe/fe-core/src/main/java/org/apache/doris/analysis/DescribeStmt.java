@@ -134,7 +134,7 @@ public class DescribeStmt extends ShowStmt {
                     dbTableName.toString());
         }
 
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(dbTableName.getCtl());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 

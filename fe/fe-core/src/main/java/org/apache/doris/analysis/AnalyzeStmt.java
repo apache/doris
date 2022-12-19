@@ -208,7 +208,7 @@ public class AnalyzeStmt extends DdlStmt {
             String catalogName = optTableName.getCtl();
             String dbName = optTableName.getDb();
             String tblName = optTableName.getTbl();
-            CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(catalogName);
+            CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
             DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
             TableIf table = db.getTableOrAnalysisException(tblName);
 
