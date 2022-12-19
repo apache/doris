@@ -93,10 +93,6 @@ public class RuntimeFilterTranslator {
         context.getLegacyFilters().add(finalize(origFilter));
     }
 
-    public RuntimeFilterContext getRuntimeFilterContext() {
-        return context;
-    }
-
     private org.apache.doris.planner.RuntimeFilter finalize(org.apache.doris.planner.RuntimeFilter origFilter) {
         origFilter.markFinalized();
         origFilter.assignToPlanNodes();
