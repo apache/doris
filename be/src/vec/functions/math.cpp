@@ -369,7 +369,7 @@ struct RoundName {
 };
 
 struct RoundBankersName {
-    static constexpr auto name = "roundBankers";
+    static constexpr auto name = "round_bankers";
 };
 
 /// round(double,int32)-->double
