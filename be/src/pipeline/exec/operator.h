@@ -428,7 +428,7 @@ public:
         if (node->need_more_input_data()) {
             RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
-            if (_child_block->rows() == 0) {
+            if (_child_block->rows() == 0 && source_state != SourceState::FINISHED) {
                 return Status::OK();
             }
             node->prepare_for_next();
