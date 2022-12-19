@@ -20,11 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -52,9 +50,7 @@ public class ShowCreateCatalogStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        Util.checkCatalogEnabled();
-
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(catalog)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CATALOG_NAME, catalog);

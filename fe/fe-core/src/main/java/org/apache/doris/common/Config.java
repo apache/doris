@@ -1686,13 +1686,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
-    /**
-     * Temp config for multi catalog feature.
-     * Should be removed when this feature is ready.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_multi_catalog = false;
-
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
 

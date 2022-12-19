@@ -2133,8 +2133,6 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 如果设置为true，将关闭副本修复和均衡逻辑。
 
-
-
 ### `enable_force_drop_redundant_replica`
 
 默认值：false

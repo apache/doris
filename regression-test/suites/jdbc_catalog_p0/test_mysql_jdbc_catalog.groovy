@@ -18,8 +18,6 @@
 suite("test_mysql_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";

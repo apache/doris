@@ -802,7 +802,6 @@ order by
         String hms_port = context.config.otherConfigs.get("hms_port")
         String catalog_name = "test_catalog_hive_orc"
 
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists ${catalog_name}"""
         sql """
             create catalog ${catalog_name} properties (

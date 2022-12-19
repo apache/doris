@@ -56,7 +56,6 @@ suite("test_hive_other", "p0") {
         String hdfs_port = context.config.otherConfigs.get("hdfs_port")
         String catalog_name = "hive_test_other"
 
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists ${catalog_name}"""
         sql """
             create catalog ${catalog_name} properties (
