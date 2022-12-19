@@ -231,7 +231,7 @@ public class PolicyMgr implements Writable {
         return typeToPolicyMap.getOrDefault(policyType, new ArrayList<>());
     }
 
-    public void replayCreate(Policy policy) throws AnalysisException {
+    public void replayCreate(Policy policy) {
         unprotectedAdd(policy);
         if (policy instanceof StoragePolicy) {
             ((StoragePolicy) policy).addResourceReference();

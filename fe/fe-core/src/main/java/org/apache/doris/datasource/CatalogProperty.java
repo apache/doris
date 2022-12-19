@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -33,10 +32,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * CatalogProperty to store the properties for catalog.
@@ -57,12 +54,11 @@ public class CatalogProperty implements Writable {
         this.properties = properties;
     }
 
-    private Resource catalogResource() throws UserException {
+    private Resource catalogResource() {
         if (catalogResource == null) {
             synchronized (this) {
                 if (catalogResource == null) {
-                    catalogResource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(resource))
-                            .orElseThrow(() -> new UserException("Resource doesn't exist: " + resource));
+                    catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(resource);
                 }
             }
         }
@@ -73,11 +69,7 @@ public class CatalogProperty implements Writable {
         if (resource == null) {
             return properties.getOrDefault(key, defaultVal);
         } else {
-            try {
-                return catalogResource().getCopiedProperties().getOrDefault(key, defaultVal);
-            } catch (UserException e) {
-                return defaultVal;
-            }
+            return catalogResource().getCopiedProperties().getOrDefault(key, defaultVal);
         }
     }
 
@@ -85,12 +77,7 @@ public class CatalogProperty implements Writable {
         if (resource == null) {
             return new HashMap<>(properties);
         } else {
-            try {
-                return catalogResource().getCopiedProperties();
-            } catch (UserException e) {
-                LOG.warn(e.getMessage(), e);
-                return Collections.emptyMap();
-            }
+            return catalogResource().getCopiedProperties();
         }
     }
 
@@ -98,7 +85,7 @@ public class CatalogProperty implements Writable {
         if (resource == null) {
             properties.putAll(props);
         } else {
-            LOG.warn("Please change the resource {} properties directly", resource);
+            LOG.error("Please change the resource {} properties directly", resource);
         }
     }
 
@@ -106,12 +93,7 @@ public class CatalogProperty implements Writable {
         if (resource == null) {
             return S3Resource.getS3HadoopProperties(properties);
         } else {
-            try {
-                return S3Resource.getS3HadoopProperties(catalogResource().getCopiedProperties());
-            } catch (UserException e) {
-                LOG.warn(e.getMessage(), e);
-                return Collections.emptyMap();
-            }
+            return S3Resource.getS3HadoopProperties(catalogResource().getCopiedProperties());
         }
     }
 

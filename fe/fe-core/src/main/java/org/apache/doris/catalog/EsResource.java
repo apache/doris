@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.external.elasticsearch.EsUtil;
@@ -68,17 +67,6 @@ public class EsResource extends Resource {
     public EsResource(String name) {
         super(name, Resource.ResourceType.ES);
         properties = Maps.newHashMap();
-    }
-
-    @Override
-    public boolean addReference(String referenceName, ReferenceType type) throws AnalysisException {
-        if (type == ReferenceType.TABLE) {
-            if (StringUtils.isEmpty(properties.get(INDEX))) {
-                throw new AnalysisException(
-                        "Index of ES table is null. " + "Please add properties('index'='xxxx') when create table");
-            }
-        }
-        return super.addReference(referenceName, type);
     }
 
     @Override

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
@@ -78,19 +77,6 @@ public class S3Resource extends Resource {
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
-
-    @Override
-    public boolean addReference(String referenceName, ReferenceType type) throws AnalysisException {
-        if (type == ReferenceType.POLICY) {
-            if (!properties.containsKey(S3_ROOT_PATH)) {
-                throw new AnalysisException(String.format("Missing [%s] in '%s' resource", S3_ROOT_PATH, name));
-            }
-            if (!properties.containsKey(S3_BUCKET)) {
-                throw new AnalysisException(String.format("Missing [%s] in '%s' resource", S3_BUCKET, name));
-            }
-        }
-        return super.addReference(referenceName, type);
-    }
 
     public S3Resource(String name) {
         this(name, Maps.newHashMap());

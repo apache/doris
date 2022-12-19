@@ -213,6 +213,15 @@ public class StoragePolicy extends Policy {
         if (resource.getType() != Resource.ResourceType.S3) {
             throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
         }
+        Map<String, String> properties = resource.getCopiedProperties();
+        if (!properties.containsKey(S3Resource.S3_ROOT_PATH)) {
+            throw new AnalysisException(String.format(
+                    "Missing [%s] in '%s' resource", S3Resource.S3_ROOT_PATH, storageResource));
+        }
+        if (!properties.containsKey(S3Resource.S3_BUCKET)) {
+            throw new AnalysisException(String.format(
+                    "Missing [%s] in '%s' resource", S3Resource.S3_BUCKET, storageResource));
+        }
         return resource;
     }
 
@@ -402,7 +411,7 @@ public class StoragePolicy extends Policy {
         return GsonUtils.GSON.fromJson(json, StoragePolicy.class);
     }
 
-    public boolean addResourceReference() throws AnalysisException {
+    public boolean addResourceReference() {
         if (storageResource != null) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(storageResource);
             if (resource != null) {

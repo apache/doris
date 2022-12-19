@@ -117,7 +117,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return false;
     }
 
-    public synchronized boolean addReference(String referenceName, ReferenceType type) throws AnalysisException {
+    public synchronized boolean addReference(String referenceName, ReferenceType type) {
         String fullName = referenceName + REFERENCE_SPLIT + type.name();
         if (references.put(fullName, type) == null) {
             LOG.info("Reference(type={}, name={}) is added to resource {}, current set: {}",
