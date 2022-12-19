@@ -287,6 +287,7 @@ struct TGetDbsParams {
   2: optional string user   // deprecated
   3: optional string user_ip    // deprecated
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  5: optional string catalog
 }
 
 // getDbNames returns a list of database names and catalog names

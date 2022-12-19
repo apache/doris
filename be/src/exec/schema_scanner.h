@@ -44,6 +44,7 @@ struct SchemaScannerParam {
     int32_t port;                            // frontend thrift port
     int64_t thread_id;
     const std::vector<TSchemaTableStructure>* table_structure;
+    const std::string* catalog;
 
     SchemaScannerParam()
             : db(nullptr),
@@ -53,7 +54,8 @@ struct SchemaScannerParam {
               user_ip(nullptr),
               current_user_ident(nullptr),
               ip(nullptr),
-              port(0) {}
+              port(0),
+              catalog(nullptr) {}
 };
 
 // virtual scanner for all schema table
