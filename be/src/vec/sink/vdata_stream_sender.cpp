@@ -279,11 +279,11 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
           _blocks_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc) {
     DCHECK_GT(destinations.size(), 0);
@@ -339,11 +339,11 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _brpc_send_timer(nullptr),
           _brpc_wait_timer(nullptr),
           _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
           _blocks_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
     _cur_pb_block = &_pb_block1;
     _name = "VDataStreamSender";
@@ -363,11 +363,11 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _brpc_send_timer(nullptr),
           _brpc_wait_timer(nullptr),
           _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
           _blocks_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
     _cur_pb_block = &_pb_block1;
     _name = "VDataStreamSender";
