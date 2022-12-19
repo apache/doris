@@ -135,19 +135,25 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     }
 
     Block* block = nullptr;
+    int64_t deserialize_time = 0;
     {
-        SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
+        SCOPED_RAW_TIMER(&deserialize_time);
         block = new Block(pblock);
-        COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
-        COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
     }
 
     auto block_byte_size = block->allocated_bytes();
     VLOG_ROW << "added #rows=" << block->rows() << " batch_size=" << block_byte_size << "\n";
 
+    std::lock_guard<std::mutex> l(_lock);
+    if (_is_cancelled) {
+        return;
+    }
+
+    COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
+    COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
+    COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
     _recvr->_blocks_memory_usage->add(block_byte_size);
 
-    std::lock_guard<std::mutex> l(_lock);
     _block_queue.emplace_back(block_byte_size, block);
     _update_block_queue_empty();
     // if done is nullptr, this function can't delay this response
@@ -172,8 +178,9 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
             return;
         }
     }
+
+    auto block_bytes_received = block->bytes();
     Block* nblock = new Block(block->get_columns_with_type_and_name());
-    COUNTER_UPDATE(_recvr->_local_bytes_received_counter, nblock->bytes());
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {
@@ -189,9 +196,13 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     size_t block_size = nblock->bytes();
 
+    std::unique_lock<std::mutex> l(_lock);
+    if (_is_cancelled) {
+        return;
+    }
+    COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_bytes_received);
     _recvr->_blocks_memory_usage->add(nblock->allocated_bytes());
 
-    std::unique_lock<std::mutex> l(_lock);
     _block_queue.emplace_back(block_size, nblock);
     _update_block_queue_empty();
     _data_arrival_cv.notify_one();
