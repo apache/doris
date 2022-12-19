@@ -26,7 +26,6 @@
 
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
-#include "common/signal_handler.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -485,10 +484,6 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     auto scope = opentelemetry::trace::Scope {span};
     span->SetAttribute("query_id", print_id(exec_state->query_id()));
     span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
-
-    // these two are used to output query_id when be cored dump.
-    doris::signal::query_id_hi = exec_state->query_id().hi;
-    doris::signal::query_id_lo = exec_state->query_id().lo;
 
     LOG_INFO(func_name)
             .tag("query_id", exec_state->query_id())
