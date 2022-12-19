@@ -376,7 +376,6 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
     auto mock_consumer = [this, ctx]() {
         ctx->ref();
         std::shared_ptr<io::StreamLoadPipe> pipe = _exec_env->new_load_stream_mgr()->get(ctx->id);
-        bool eof = false;
         std::stringstream ss;
         while (true) {
             char one;
@@ -391,7 +390,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
                 break;
             }
 
-            if (eof) {
+            if (read_bytes == 0) {
                 ctx->promise.set_value(Status::OK());
                 break;
             }

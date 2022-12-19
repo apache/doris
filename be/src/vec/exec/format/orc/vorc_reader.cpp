@@ -50,9 +50,9 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     SCOPED_RAW_TIMER(&_statistics.read_time);
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
+    IOContext io_ctx;
     while (has_read < length) {
         size_t loop_read;
-        IOContext io_ctx;
         Slice result(out + has_read, length - has_read);
         Status st = _file_reader->read_at(offset + has_read, result, io_ctx, &loop_read);
         if (!st.ok()) {
