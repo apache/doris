@@ -47,6 +47,7 @@ import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
+import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
@@ -1355,6 +1356,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitIsnull(IsnullContext context) {
         return ParserUtils.withOrigin(context, () -> new IsNull(typedVisit(context.valueExpression())));
+    }
+
+    @Override
+    public Expression visitIs_not_null_pred(Is_not_null_predContext context) {
+        return ParserUtils.withOrigin(context, () -> new Not(new IsNull(typedVisit(context.valueExpression()))));
     }
 
     public List<Expression> withInList(PredicateContext ctx) {
