@@ -115,6 +115,7 @@ Status Channel::send_local_block(bool eos) {
     if (recvr != nullptr) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block.rows());
+        COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         recvr->add_block(&block, _parent->_sender_id, true);
         if (eos) {
             recvr->remove_sender(_parent->_sender_id, _be_number);
@@ -131,6 +132,7 @@ Status Channel::send_local_block(Block* block) {
     if (recvr != nullptr) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block->bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block->rows());
+        COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         recvr->add_block(block, _parent->_sender_id, false);
     }
     return Status::OK();
@@ -138,6 +140,7 @@ Status Channel::send_local_block(Block* block) {
 
 Status Channel::send_block(PBlock* block, bool eos) {
     SCOPED_TIMER(_parent->_brpc_send_timer);
+    COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
     if (_closure == nullptr) {
         _closure = new RefCountClosure<PTransmitDataResult>();
         _closure->ref();
@@ -277,6 +280,10 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
+          _local_send_timer(nullptr),
+          _split_block_hash_compute_timer(nullptr),
+          _split_block_distribute_by_channel_timer(nullptr),
+          _blocks_sent_counter(nullptr),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc) {
     DCHECK_GT(destinations.size(), 0);
@@ -336,6 +343,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
+          _blocks_sent_counter(nullptr),
           _dest_node_id(0) {
     _cur_pb_block = &_pb_block1;
     _name = "VDataStreamSender";
@@ -359,6 +367,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
+          _blocks_sent_counter(nullptr),
           _dest_node_id(0) {
     _cur_pb_block = &_pb_block1;
     _name = "VDataStreamSender";
@@ -447,6 +456,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_hash_compute_timer = ADD_TIMER(profile(), "SplitBlockHashComputeTime");
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
+    _blocks_sent_counter = ADD_COUNTER(profile(), "BlocksSend", TUnit::UNIT);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,

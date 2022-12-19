@@ -157,6 +157,7 @@ protected:
     RuntimeProfile::Counter* _local_send_timer;
     RuntimeProfile::Counter* _split_block_hash_compute_timer;
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
+    RuntimeProfile::Counter* _blocks_sent_counter;
 
     std::unique_ptr<MemTracker> _mem_tracker;
 
