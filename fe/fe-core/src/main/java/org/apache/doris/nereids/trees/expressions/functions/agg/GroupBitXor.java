@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -37,29 +38,25 @@ public class GroupBitXor extends AggregateFunction implements UnaryExpression, P
         super("group_bit_xor", child);
     }
 
-    public GroupBitXor(AggregateParam aggregateParam, Expression child) {
-        super("group_bit_xor", aggregateParam, child);
+    @Override
+    public FunctionSignature customSignature() {
+        return FunctionSignature.of(IntegerType.INSTANCE, (List) getArgumentsTypes());
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(IntegerType.INSTANCE).args(argumentTypes.get(0));
-    }
-
-    @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes;
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(IntegerType.INSTANCE);
     }
 
     @Override
     public GroupBitXor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitXor(getAggregateParam(), children.get(0));
+        return new GroupBitXor(children.get(0));
     }
 
     @Override
-    public GroupBitXor withAggregateParam(AggregateParam aggregateParam) {
-        return new GroupBitXor(aggregateParam, child());
+    public GroupBitXor withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
     }
 
     @Override

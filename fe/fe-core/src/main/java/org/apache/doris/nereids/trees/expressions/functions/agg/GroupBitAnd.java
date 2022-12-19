@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -37,29 +38,25 @@ public class GroupBitAnd extends AggregateFunction implements UnaryExpression, P
         super("group_bit_and", child);
     }
 
-    public GroupBitAnd(AggregateParam aggregateParam, Expression child) {
-        super("group_bit_and", aggregateParam, child);
+    @Override
+    public FunctionSignature customSignature() {
+        return FunctionSignature.of(IntegerType.INSTANCE, (List) getArgumentsTypes());
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(IntegerType.INSTANCE).args(argumentTypes.get(0));
-    }
-
-    @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes;
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(IntegerType.INSTANCE);
     }
 
     @Override
     public GroupBitAnd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitAnd(getAggregateParam(), children.get(0));
+        return new GroupBitAnd(children.get(0));
     }
 
     @Override
-    public GroupBitAnd withAggregateParam(AggregateParam aggregateParam) {
-        return new GroupBitAnd(aggregateParam, child());
+    public GroupBitAnd withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
     }
 
     @Override
