@@ -382,12 +382,12 @@ void BetaRowsetWriter::compact_segments(SegCompactionCandidatesSharedPtr segment
 }
 
 Status BetaRowsetWriter::_load_noncompacted_segments(
-        std::vector<segment_v2::SegmentSharedPtr>* segments) {
+        std::vector<segment_v2::SegmentSharedPtr>* segments, size_t num) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
-    for (int seg_id = _segcompacted_point; seg_id < _num_segment; ++seg_id) {
+    for (int seg_id = _segcompacted_point; seg_id < num; ++seg_id) {
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
         auto cache_path =
@@ -414,7 +414,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
 Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         SegCompactionCandidatesSharedPtr segments) {
     std::vector<segment_v2::SegmentSharedPtr> all_segments;
-    RETURN_NOT_OK(_load_noncompacted_segments(&all_segments));
+    // subtract one to skip last (maybe active) segment
+    RETURN_NOT_OK(_load_noncompacted_segments(&all_segments, _num_segment - 1));
 
     if (VLOG_DEBUG_IS_ON) {
         vlog_buffer.clear();
@@ -472,7 +473,7 @@ Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSh
         VLOG_DEBUG << "segcompaction last few segments";
         // currently we only rename remaining segments to reduce wait time
         // so that transaction can be committed ASAP
-        RETURN_NOT_OK(_load_noncompacted_segments(segments.get()));
+        RETURN_NOT_OK(_load_noncompacted_segments(segments.get(), _num_segment));
         for (int i = 0; i < segments->size(); ++i) {
             RETURN_NOT_OK(_rename_compacted_segment_plain(_segcompacted_point++));
         }
