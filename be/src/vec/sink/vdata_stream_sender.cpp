@@ -195,9 +195,6 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
     int batch_size = _parent->state()->batch_size();
     const int* begin = &rows[0];
 
-    // It is not very accurate here, because this timer will contains send local time and send by brpc time
-    // should minus these time when profiling.
-    SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
     while (row_wait_add > 0) {
         int row_add = 0;
         int max_add = batch_size - _mutable_block->rows();
@@ -209,6 +206,7 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
 
         {
             SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+            SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
             _mutable_block->add_rows(block, begin, begin + row_add);
         }
 
