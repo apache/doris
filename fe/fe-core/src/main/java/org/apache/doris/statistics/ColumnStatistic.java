@@ -90,7 +90,7 @@ public class ColumnStatistic {
     public ColumnStatistic(double count, double ndv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr,
-            LiteralExpr maxExpr, boolean isNaN) {
+            LiteralExpr maxExpr, boolean isUnKnown) {
         this.count = count;
         this.ndv = ndv;
         this.avgSizeByte = avgSizeByte;
@@ -101,7 +101,7 @@ public class ColumnStatistic {
         this.selectivity = selectivity;
         this.minExpr = minExpr;
         this.maxExpr = maxExpr;
-        this.isUnKnown = isNaN;
+        this.isUnKnown = isUnKnown;
     }
 
     // TODO: use thrift
@@ -158,18 +158,29 @@ public class ColumnStatistic {
                 .setSelectivity(selectivity).setIsUnknown(isUnKnown).build();
     }
 
-    public ColumnStatistic multiply(double d) {
+    public ColumnStatistic updateByLimit(long limit, double rowCount) {
+        double ratio = 0;
+        if (rowCount != 0) {
+            ratio = limit / rowCount;
+        }
+        double newNdv = Math.ceil(Math.min(ndv, limit));
+        double newSelectivity = selectivity;
+        if (newNdv != 0) {
+            newSelectivity = newSelectivity * newNdv / ndv;
+        } else {
+            newSelectivity = 0;
+        }
         return new ColumnStatisticBuilder()
-                .setCount(Math.ceil(count * d))
-                .setNdv(Math.ceil(ndv * d))
-                .setAvgSizeByte(Math.ceil(avgSizeByte * d))
-                .setNumNulls(Math.ceil(numNulls * d))
-                .setDataSize(Math.ceil(dataSize * d))
+                .setCount(Math.ceil(limit))
+                .setNdv(newNdv)
+                .setAvgSizeByte(Math.ceil(avgSizeByte))
+                .setNumNulls(Math.ceil(numNulls * ratio))
+                .setDataSize(Math.ceil(dataSize * ratio))
                 .setMinValue(minValue)
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
-                .setSelectivity(selectivity)
+                .setSelectivity(newSelectivity)
                 .setIsUnknown(isUnKnown)
                 .build();
     }
