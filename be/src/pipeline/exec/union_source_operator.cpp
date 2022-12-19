@@ -52,16 +52,12 @@ bool UnionSourceOperator::can_read() {
 Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
     // here we precess const expr firstly
-    if (this->_node->has_more_const(state)) {
-        this->_node->get_next_const(state, block);
+    if (_need_read_for_const_expr) {
+        if (this->_node->has_more_const(state)) {
+            this->_node->get_next_const(state, block);
+        }
         _need_read_for_const_expr = this->_node->has_more_const(state);
     } else {
-        // the first assumed it can read for const expr failed, so skill it
-        if (UNLIKELY(_need_read_for_const_expr)) {
-            _need_read_for_const_expr = false;
-            return Status::OK();
-        }
-
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
         _data_queue->get_block_from_queue(&output_block, &child_idx);

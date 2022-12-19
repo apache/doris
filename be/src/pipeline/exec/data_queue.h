@@ -31,7 +31,7 @@ namespace pipeline {
 
 class DataQueue {
 public:
-    //always one is enough, but in union node it's has more childen
+    //always one is enough, but in union node it's has more children
     DataQueue(int child_count = 1);
     ~DataQueue() = default;
 

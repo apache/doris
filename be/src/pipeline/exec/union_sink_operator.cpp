@@ -46,7 +46,6 @@ Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
         if (in_block->rows() > 0) {
             _output_block->swap(*in_block);
             _data_queue->push_block(std::move(_output_block), _cur_child_id);
-            _output_block.reset(nullptr);
         }
     } else if (_node->get_first_materialized_child_idx() != _node->children_count() &&
                _cur_child_id < _node->children_count()) { //need materialized
@@ -59,17 +58,15 @@ Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
 
     if (UNLIKELY(source_state == SourceState::FINISHED)) {
         //if _cur_child_id eos, need check to push block
-        if (_output_block) {
+        if (_output_block && _output_block->rows() > 0) {
             _data_queue->push_block(std::move(_output_block), _cur_child_id);
-            _output_block.reset(nullptr);
         }
         _data_queue->set_finish(_cur_child_id);
         return Status::OK();
     }
     // not eos and block rows is enough to output,so push block
-    if (_output_block && (_output_block->rows() > state->batch_size())) {
+    if (_output_block && (_output_block->rows() >= state->batch_size())) {
         _data_queue->push_block(std::move(_output_block), _cur_child_id);
-        _output_block.reset(nullptr);
     }
     return Status::OK();
 }

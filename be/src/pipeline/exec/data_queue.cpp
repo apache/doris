@@ -97,23 +97,24 @@ bool DataQueue::remaining_has_data() {
 Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* output_block,
                                        int* child_idx) {
     if (_is_canceled[_flag_queue_idx]) {
-        return Status::InternalError("AggContext canceled");
+        return Status::InternalError("Current queue of idx {} have beed canceled: ",
+                                     _flag_queue_idx);
     }
 
-    if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
-        {
-            std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
+    {
+        std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
+        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
             *output_block = std::move(_queue_blocks[_flag_queue_idx].front());
             _queue_blocks[_flag_queue_idx].pop_front();
-        }
-        if (child_idx) {
-            *child_idx = _flag_queue_idx;
-        }
-        _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
-        _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
-    } else {
-        if (_is_finished[_flag_queue_idx]) {
-            _data_exhausted = true;
+            if (child_idx) {
+                *child_idx = _flag_queue_idx;
+            }
+            _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
+            _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
+        } else {
+            if (_is_finished[_flag_queue_idx]) {
+                _data_exhausted = true;
+            }
         }
     }
     return Status::OK();
@@ -123,15 +124,15 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
     if (!block) {
         return;
     }
-    _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
     {
         std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
+        _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
+        _cur_blocks_nums_in_queue[child_idx] += 1;
         //this only use to record the queue[0] for profile
         _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
         _max_size_of_queue = std::max(_max_size_of_queue, (int64)_queue_blocks[0].size());
     }
-    _cur_blocks_nums_in_queue[child_idx] += 1;
 }
 
 void DataQueue::set_finish(int child_idx) {
