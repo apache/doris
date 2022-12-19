@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 #pragma once
 
 #include "operator.h"
@@ -22,46 +21,35 @@
 
 namespace doris {
 namespace vectorized {
-class AggregationNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
+class VUnionNode;
+}
 
 namespace pipeline {
 
-class StreamingAggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
+class UnionSourceOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:
-    StreamingAggSinkOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<DataQueue>);
+    UnionSourceOperatorBuilder(int32_t id, ExecNode* node, std::shared_ptr<DataQueue>);
+
+    bool is_source() const override { return true; }
 
     OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; };
-    bool is_source() const override { return false; };
 
 private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class UnionSourceOperator final : public SourceOperator<UnionSourceOperatorBuilder> {
 public:
-    StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
-                             std::shared_ptr<DataQueue>);
+    UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
+                        std::shared_ptr<DataQueue>);
 
-    Status prepare(RuntimeState*) override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-
-    bool can_write() override;
-
-    Status close(RuntimeState* state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+    bool can_read() override;
 
 private:
-    vectorized::Block _preagg_block = vectorized::Block();
-
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
-
     std::shared_ptr<DataQueue> _data_queue;
+    bool _need_read_for_const_expr;
 };
 
 } // namespace pipeline

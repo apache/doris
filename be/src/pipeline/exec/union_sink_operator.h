@@ -19,50 +19,47 @@
 
 #include "operator.h"
 #include "pipeline/exec/data_queue.h"
-
+#include "vec/core/block.h"
 namespace doris {
 namespace vectorized {
-class AggregationNode;
-class VExprContext;
+class VUnionNode;
 class Block;
 } // namespace vectorized
 
 namespace pipeline {
 
-class StreamingAggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
+class UnionSinkOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:
-    StreamingAggSinkOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<DataQueue>);
+    UnionSinkOperatorBuilder(int32_t id, int child_id, ExecNode* node,
+                             std::shared_ptr<DataQueue> queue);
 
     OperatorPtr build_operator() override;
 
     bool is_sink() const override { return true; };
-    bool is_source() const override { return false; };
 
 private:
+    int _cur_child_id;
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class UnionSinkOperator final : public StreamingOperator<UnionSinkOperatorBuilder> {
 public:
-    StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
-                             std::shared_ptr<DataQueue>);
+    UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
+                      std::shared_ptr<DataQueue> queue);
 
-    Status prepare(RuntimeState*) override;
+    bool can_write() override { return true; };
 
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-
-    bool can_write() override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
+    // this operator in sink open directly return, do this work in source
+    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
 
     Status close(RuntimeState* state) override;
 
 private:
-    vectorized::Block _preagg_block = vectorized::Block();
-
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
-
+    int _cur_child_id;
     std::shared_ptr<DataQueue> _data_queue;
+    std::unique_ptr<vectorized::Block> _output_block;
 };
-
 } // namespace pipeline
 } // namespace doris
