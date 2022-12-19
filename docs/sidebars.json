@@ -600,6 +600,7 @@
                                 "sql-manual/sql-functions/math-functions/floor",
                                 "sql-manual/sql-functions/math-functions/pmod",
                                 "sql-manual/sql-functions/math-functions/round",
+                                "sql-manual/sql-functions/math-functions/round_bankers",
                                 "sql-manual/sql-functions/math-functions/truncate",
                                 "sql-manual/sql-functions/math-functions/abs",
                                 "sql-manual/sql-functions/math-functions/sqrt",
