@@ -991,21 +991,17 @@ public class SelectStmt extends QueryStmt {
              */
             if (groupByClause != null) {
                 // according to mysql
-                // if there is a group by clause, the having clause should use column name not alias
+                // 1. if there is a group by clause, the having clause should use column name not alias
                 // this is the same as group by clause
-                try {
-                    // use col name from tableRefs first
-                    havingClauseAfterAnaylzed = havingClause.clone();
-                    havingClauseAfterAnaylzed.analyze(analyzer);
-                    // according to mysql
-                    // following case we should use alias name k2 for having
-                    //     example: select k1, sum(k2) k2 from table group by k1 having k2 > 1;
-                    // in this case we will not get an exception, but we still need a substitute
-                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
-                } catch (AnalysisException ex) {
-                    // then consider alias name
-                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                // 2. but following case we should use alias name k2 for having
+                //     example: select k1, sum(k2) k2 from table group by k1 having k2 > 1;
+                ExprSubstitutionMap excludeGroupByAliasSMap = aliasSMap.clone();
+                for (Expr expr : groupByClause.getGroupingExprs()) {
+                    if (containAlias(expr)) {
+                        excludeGroupByAliasSMap.removeByLhsExpr(expr);
+                    }
                 }
+                havingClauseAfterAnaylzed = havingClause.substitute(excludeGroupByAliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
