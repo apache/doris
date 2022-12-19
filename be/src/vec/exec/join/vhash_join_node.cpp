@@ -572,7 +572,7 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
         if (_null_map_column == nullptr) {
             _null_map_column = ColumnUInt8::create();
         }
-        _null_map_column->get_data().assign(_probe_block.rows(), (uint8_t)0);
+        _null_map_column->get_data().assign(input_block->rows(), (uint8_t)0);
     }
 
     RETURN_IF_ERROR(_extract_join_column<false>(*input_block, _null_map_column, _probe_columns,
