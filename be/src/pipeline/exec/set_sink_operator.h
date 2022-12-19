@@ -50,8 +50,6 @@ public:
 
     bool can_write() override { return true; }
 
-    Status close(RuntimeState* /*state*/) override { return Status::OK(); };
-
 private:
     vectorized::VSetOperationNode<is_intersect>* _set_node;
 };

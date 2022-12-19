@@ -80,9 +80,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return TypeCheckResult.SUCCESS;
     }
 
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visit(this, context);
-    }
+    public abstract <R, C> R accept(ExpressionVisitor<R, C> visitor, C context);
 
     @Override
     public List<Expression> children() {
@@ -141,6 +139,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public boolean isSlot() {
         return this instanceof Slot;
+    }
+
+    public boolean isAlias() {
+        return this instanceof Alias;
     }
 
     @Override

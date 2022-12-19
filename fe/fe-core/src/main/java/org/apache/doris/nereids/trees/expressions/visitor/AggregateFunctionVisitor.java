@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 /** AggregateFunctionVisitor. */
@@ -42,6 +44,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitMin(Min min, C context) {
         return visitAggregateFunction(min, context);
+    }
+
+    default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
+        return visitAggregateFunction(multiDistinctCount, context);
+    }
+
+    default R visitMultiDistinctSum(MultiDistinctSum multiDistinctSum, C context) {
+        return visitAggregateFunction(multiDistinctSum, context);
     }
 
     default R visitSum(Sum sum, C context) {

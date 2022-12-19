@@ -416,7 +416,8 @@ bool MemTable::need_to_agg() {
                                              : memory_usage() >= config::memtable_max_buffer_size;
 }
 
-Status MemTable::_generate_delete_bitmap() {
+Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
+                                         int64_t atomic_num_segments_after_flush) {
     // generate delete bitmap, build a tmp rowset and load recent segment
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
@@ -424,12 +425,11 @@ Status MemTable::_generate_delete_bitmap() {
     auto rowset = _rowset_writer->build_tmp();
     auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    segment_v2::SegmentSharedPtr segment;
-    if (beta_rowset->num_segments() == 0) {
+    if (atomic_num_segments_before_flush >= atomic_num_segments_after_flush) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
-    segments.push_back(segment);
+    RETURN_IF_ERROR(beta_rowset->load_segments(atomic_num_segments_before_flush,
+                                               atomic_num_segments_after_flush, &segments));
     std::shared_lock meta_rlock(_tablet->get_header_lock());
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY &&
@@ -446,8 +446,15 @@ Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
+    // For merge_on_write table, it must get all segments in this flush.
+    // The id of new segment is set by the _num_segment of beta_rowset_writer,
+    // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
+    // and use the ids to load segment data file for calc delete bitmap.
+    int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
     RETURN_NOT_OK(_do_flush(duration_ns));
-    RETURN_NOT_OK(_generate_delete_bitmap());
+    int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
+    RETURN_NOT_OK(_generate_delete_bitmap(atomic_num_segments_before_flush,
+                                          atomic_num_segments_after_flush));
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << tablet_id()

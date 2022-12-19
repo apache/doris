@@ -217,8 +217,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             return false;
         }
 
-        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction function) {
-            return function.children().stream().anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
+        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction aggregateFunction) {
+            return aggregateFunction.children()
+                    .stream()
+                    .anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {

@@ -160,6 +160,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case VARCHAR:
                 return createVarcharType();
+            case BINARY:
+                return createStringType();
             case JSONB:
                 return createJsonbType();
             case STRING:

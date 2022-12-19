@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,5 +42,14 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
             newChildren.add(newChild);
         }
         return hasNewChildren ? plan.withChildren(newChildren) : plan;
+    }
+
+    @Override
+    public Plan visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
+        PhysicalOlapScan olapScan = (PhysicalOlapScan) storageLayerAggregate.getRelation().accept(this, context);
+        if (olapScan != storageLayerAggregate.getRelation()) {
+            return storageLayerAggregate.withPhysicalOlapScan(olapScan);
+        }
+        return storageLayerAggregate;
     }
 }

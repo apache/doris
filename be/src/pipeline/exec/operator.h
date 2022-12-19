@@ -87,10 +87,6 @@ public:
     virtual bool is_sink() const { return false; }
     virtual bool is_source() const { return false; }
 
-    virtual Status prepare(RuntimeState* state);
-
-    virtual void close(RuntimeState* state);
-
     std::string get_name() const { return _name; }
 
     RuntimeState* runtime_state() { return _state; }
@@ -184,6 +180,8 @@ public:
 
     virtual bool can_read() { return false; } // for source
 
+    virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
+
     virtual bool can_write() { return false; } // for sink
 
     /**
@@ -239,7 +237,6 @@ protected:
     // TODO pipeline Account for peak memory used by this operator
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
-private:
     bool _is_closed = false;
 };
 
@@ -285,8 +282,13 @@ public:
     }
 
     Status close(RuntimeState* state) override {
+        if (is_closed()) {
+            return Status::OK();
+        }
         _fresh_exec_timer(_sink);
-        return _sink->close(state, Status::OK());
+        RETURN_IF_ERROR(_sink->close(state, Status::OK()));
+        _is_closed = true;
+        return Status::OK();
     }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
@@ -338,10 +340,14 @@ public:
     }
 
     Status close(RuntimeState* state) override {
+        if (is_closed()) {
+            return Status::OK();
+        }
         _fresh_exec_timer(_node);
         if (!_node->decrease_ref()) {
             _node->release_resource(state);
         }
+        _is_closed = true;
         return Status::OK();
     }
 

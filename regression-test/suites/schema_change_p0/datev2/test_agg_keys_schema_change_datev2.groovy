@@ -129,7 +129,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek1`, `datek2`, `datev2`) values('2022-01-04', '2022-01-04 11:11:11', '2022-01-04 11:11:11');"""
     sql """ insert into ${tbName} (`datek1`, `datev1`, `datev2`) values('2022-01-05', '2022-01-05', '2022-01-05 11:11:11');"""
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ alter table ${tbName} add column `datev3` datev2 DEFAULT '2022-01-01' """
     int max_try_time = 1000
@@ -145,13 +145,13 @@ suite("test_agg_keys_schema_change_datev2") {
         }
     }
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     do_compact(tbName)
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01';"""
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter table ${tbName} drop column `datev3` """
     max_try_time = 1000
     while(max_try_time--){
@@ -179,7 +179,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek1`, `datev1`, `datev2`) values('2022-01-05', '2022-01-05', '2022-01-05 11:11:11');"""
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter  table ${tbName} add column `datev3` datetimev2 DEFAULT '2022-01-01 11:11:11' """
     max_try_time = 1000
     while(max_try_time--){
@@ -194,13 +194,13 @@ suite("test_agg_keys_schema_change_datev2") {
         }
     }
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     do_compact(tbName)
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01 11:11:11';"""
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter table ${tbName} drop column `datev3` """
     max_try_time = 1000
     while(max_try_time--){
@@ -228,7 +228,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek1`, `datev1`, `datev2`) values('2022-01-05', '2022-01-05', '2022-01-05 11:11:11');"""
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter  table ${tbName} add column `datev3` datetimev2(3) DEFAULT '2022-01-01 11:11:11.111' """
     max_try_time = 1000
     while(max_try_time--){
@@ -243,13 +243,13 @@ suite("test_agg_keys_schema_change_datev2") {
         }
     }
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     do_compact(tbName)
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01 11:11:11';"""
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ insert into ${tbName} values('2022-01-02', '2022-01-02 11:11:11', '2022-01-02 11:11:11.222', '2022-01-02', '2022-01-02 11:11:11');"""
     sql """ insert into ${tbName} (`datek1`, `datek2`, `datev3`, `datev1`) values('2022-01-03', '2022-01-03 11:11:11', '2022-01-02 11:11:11.222', '2022-01-03');"""
     sql """ insert into ${tbName} (`datek1`, `datek2`, `datev3`, `datev2`) values('2022-01-04', '2022-01-04 11:11:11', '2022-01-02 11:11:11.222', '2022-01-04 11:11:11');"""
@@ -257,7 +257,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek2`, `datev3`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-02 11:11:11.222', '2022-01-06', '2022-01-06 11:11:11');"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01 11:11:11.111';"""
     sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter table ${tbName} drop column `datev3` """
     max_try_time = 1000
     while(max_try_time--){

@@ -272,10 +272,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
 Status PipelineFragmentContext::_build_pipeline_tasks(
         const doris::TExecPlanFragmentParams& request) {
-    for (auto& pipeline : _pipelines) {
-        RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
-    }
-
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();

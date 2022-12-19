@@ -30,6 +30,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -40,6 +41,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,6 +72,9 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
+
+    private final IdentityHashMap<PlanFragment, PhysicalHashAggregate> firstAggInFragment
+            = new IdentityHashMap<>();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -131,6 +136,14 @@ public class PlanTranslatorContext {
 
     public List<ScanNode> getScanNodes() {
         return scanNodes;
+    }
+
+    public PhysicalHashAggregate getFirstAggregateInFragment(PlanFragment planFragment) {
+        return firstAggInFragment.get(planFragment);
+    }
+
+    public void setFirstAggregateInFragment(PlanFragment planFragment, PhysicalHashAggregate aggregate) {
+        firstAggInFragment.put(planFragment, aggregate);
     }
 
     /**

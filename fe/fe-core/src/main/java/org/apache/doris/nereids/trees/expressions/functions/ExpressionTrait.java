@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 /**
@@ -41,6 +43,13 @@ public interface ExpressionTrait extends TreeNode<Expression> {
 
     default Expression getArgument(int index) {
         return child(index);
+    }
+
+    default List<DataType> getArgumentsTypes() {
+        return getArguments()
+                .stream()
+                .map(Expression::getDataType)
+                .collect(ImmutableList.toImmutableList());
     }
 
     default DataType getDataType() throws UnboundException {

@@ -268,7 +268,10 @@ struct TIcebergFileDesc {
     1: optional i32 format_version;
     // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
     2: optional i32 content;
+    // When open a delete file, filter the data file path with the 'file_path' property
     3: optional list<TIcebergDeleteFileDesc> delete_files;
+    4: optional Types.TTupleId delete_table_tuple_id;
+    5: optional Exprs.TExpr file_select_conjunct;
 }
 
 struct TTableFormatFileDesc {
@@ -308,7 +311,7 @@ struct TFileScanRangeParams {
     14: optional list<Types.TNetworkAddress> broker_addresses
     15: optional TFileAttributes file_attributes
     16: optional Exprs.TExpr pre_filter_exprs
-    // For data lake table format
+    // Deprecated, For data lake table format
     17: optional TTableFormatFileDesc table_format_params
     // For csv query task, same the column index in file, order by dest_tuple
     18: optional list<i32> column_idxs
@@ -329,6 +332,8 @@ struct TFileRangeDesc {
     6: optional list<string> columns_from_path;
     // column names from file path, in the same order with columns_from_path
     7: optional list<string> columns_from_path_keys;
+    // For data lake table format
+    8: optional TTableFormatFileDesc table_format_params
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
@@ -496,6 +501,7 @@ struct TSchemaScanNode {
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
   13: optional list<TSchemaTableStructure> table_structure
+  14: optional string catalog
 }
 
 struct TMetaScanNode {

@@ -301,8 +301,6 @@ Status NewJsonReader::_open_line_reader() {
     int64_t size = _range.size;
     if (_range.start_offset != 0) {
         // When we fetch range doesn't start from 0, size will += 1.
-
-        // TODO(ftw): check what if file_reader is stream_pipe? Is `size+=1` is correct?
         size += 1;
         _skip_first_line = true;
     } else {

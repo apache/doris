@@ -18,7 +18,6 @@
 suite("order_by_const") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_vectorized_engine=true"
 
 
     qt_sql """SELECT lo_custkey, lo_partkey, lo_suppkey FROM lineorder ORDER BY 1, 2 LIMIT 3"""

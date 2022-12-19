@@ -364,7 +364,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements P
     public void testCountDistinctValueColumn() {
         singleTableTest("select k1, count(distinct v1) from from t group by k1", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Count distinct is only valid for key columns, but meet count(distinct v1).",
+            Assertions.assertEquals("Count distinct is only valid for key columns, but meet count(DISTINCT v1).",
                     scan.getReasonOfPreAggregation());
             Assertions.assertEquals("t", scan.getSelectedIndexName());
         });
