@@ -87,6 +87,10 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _scanner_param.table_structure = _pool->add(
                 new std::vector<TSchemaTableStructure>(tnode.schema_scan_node.table_structure));
     }
+
+    if (tnode.schema_scan_node.__isset.catalog) {
+        _scanner_param.catalog = _pool->add(new std::string(tnode.schema_scan_node.catalog));
+    }
     return Status::OK();
 }
 
