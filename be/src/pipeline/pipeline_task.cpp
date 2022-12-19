@@ -46,6 +46,20 @@ Status PipelineTask::prepare(RuntimeState* state) {
     for (auto& o : _operators) {
         RETURN_IF_ERROR(o->prepare(state));
     }
+
+    _task_profile->add_info_string("SinkId", fmt::format("{}", _sink->id()));
+    bool first = true;
+    fmt::memory_buffer operator_ids_str;
+    for (size_t i = 0; i < _operators.size(); i++) {
+        if (i == 0) {
+            fmt::format_to(operator_ids_str, fmt::format("[{}", op->id()));
+        } else {
+            fmt::format_to(operator_ids_str, fmt::format(", {}", op->id()));
+        }
+    }
+    fmt::format_to(operator_ids_str, "]");
+    _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
+
     _block.reset(new doris::vectorized::Block());
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).

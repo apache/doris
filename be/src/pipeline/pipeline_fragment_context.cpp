@@ -92,7 +92,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _backend_num(backend_num),
           _exec_env(exec_env),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
-          _closed_pipeline_cnt(0),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back) {
     _fragment_watcher.start();
@@ -134,11 +133,11 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
-    //    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-    //    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
-    //    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
-    //    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
-    //    SCOPED_TIMER(_prepare_timer);
+        _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
+        _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
+        COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
+        _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
+        SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
@@ -263,8 +262,10 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
         RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
+
     _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
+    _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _prepared = true;
     return Status::OK();
@@ -281,14 +282,16 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         Operators operators;
         RETURN_IF_ERROR(pipeline->build_operators(operators));
         auto task = std::make_unique<PipelineTask>(pipeline, 0, _runtime_state.get(), operators,
-                                                   sink, this, pipeline->runtime_profile());
+                                                   sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
+        _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
     }
 
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
+    _total_tasks = _tasks.size();
     return Status::OK();
 }
 
@@ -508,12 +511,28 @@ Status PipelineFragmentContext::submit() {
     if (_submitted) {
         return Status::InternalError("submitted");
     }
-
-    for (auto& task : _tasks) {
-        RETURN_IF_ERROR(_exec_env->pipeline_task_scheduler()->schedule_task(task.get()));
-    }
     _submitted = true;
-    return Status::OK();
+
+    int submit_tasks = 0;
+    Status st;
+    for (auto& task : _tasks) {
+        st = _exec_env->pipeline_task_scheduler()->schedule_task(task.get());
+        if (!st) {
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+            _total_tasks = submit_tasks;
+            break;
+        }
+        submit_tasks++;
+    }
+    if (!st.ok()) {
+        if (_closed_tasks == _total_tasks) {
+            std::call_once(_close_once_flag, [this] { _close_action(); });
+        }
+        return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
+                                     BackendOptions::get_localhost());
+    } else {
+        return st;
+    }
 }
 
 // construct sink operator
@@ -547,12 +566,17 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     return _root_pipeline->set_sink(sink_);
 }
 
+void PipelineFragmentContext::_close_action() {
+    _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    send_report(true);
+    // all submitted tasks done
+    _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+}
+
 void PipelineFragmentContext::close_a_pipeline() {
-    ++_closed_pipeline_cnt;
-    if (_closed_pipeline_cnt == _pipelines.size()) {
-        //        _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-        send_report(true);
-        _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+    ++_closed_tasks;
+    if (_closed_tasks == _total_tasks) {
+        std::call_once(_close_once_flag, [this] { _close_action(); });
     }
 }
 
@@ -568,7 +592,6 @@ std::string PipelineFragmentContext::to_http_path(const std::string& file_name) 
 // TODO pipeline dump copy from FragmentExecState::coordinator_callback
 // TODO pipeline this callback should be placed in a thread pool
 void PipelineFragmentContext::send_report(bool done) {
-    DCHECK(_closed_pipeline_cnt == _pipelines.size());
 
     Status exec_status = Status::OK();
     {

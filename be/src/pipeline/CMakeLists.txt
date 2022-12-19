@@ -25,6 +25,7 @@ set(PIPELINE_FILES
         pipeline.cpp
         pipeline_fragment_context.cpp
         pipeline_task.cpp
+        task_queue.cpp
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
