@@ -58,7 +58,10 @@ Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
 
     if (UNLIKELY(source_state == SourceState::FINISHED)) {
         //if _cur_child_id eos, need check to push block
-        if (_output_block && _output_block->rows() > 0) {
+        //Now here can't check _output_block rows, even it's row==0, also need push block
+        //because maybe sink is eos and queue have none data, if not push block
+        //the source can't can_read again and can't set source finished
+        if (_output_block) {
             _data_queue->push_block(std::move(_output_block), _cur_child_id);
         }
         _data_queue->set_finish(_cur_child_id);
