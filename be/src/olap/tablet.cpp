@@ -2032,10 +2032,10 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 RowLocation loc;
                 // first check if exist in pre segment
                 if (check_pre_segments) {
-                    auto st = _check_pk_in_pre_segments(pre_segments, *key, dummy_version,
-                                                        delete_bitmap, &loc);
+                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, *key,
+                                                        dummy_version, delete_bitmap, &loc);
                     if (st.ok()) {
-                        delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
+                        delete_bitmap->add({rowset_id, loc.segment_id, dummy_version.first},
                                            loc.row_id);
                         ++row_id;
                         continue;
@@ -2045,23 +2045,27 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                         continue;
                     }
                 }
-                auto st = lookup_row_key(*key, specified_rowset_ids, &loc, dummy_version.first - 1);
-                CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
-                if (st.is_not_found()) {
-                    ++row_id;
-                    continue;
-                }
 
-                // sequence id smaller than the previous one, so delete current row
-                if (st.is_already_exist()) {
-                    loc.rowset_id = rowset_id;
-                    loc.segment_id = seg->id();
-                    loc.row_id = row_id;
-                }
+                if (!specified_rowset_ids->empty()) {
+                    auto st = lookup_row_key(*key, specified_rowset_ids, &loc,
+                                             dummy_version.first - 1);
+                    CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
+                    if (st.is_not_found()) {
+                        ++row_id;
+                        continue;
+                    }
 
+                    // sequence id smaller than the previous one, so delete current row
+                    if (st.is_already_exist()) {
+                        loc.rowset_id = rowset_id;
+                        loc.segment_id = seg->id();
+                        loc.row_id = row_id;
+                    }
+
+                    delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
+                                       loc.row_id);
+                }
                 ++row_id;
-                delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
-                                   loc.row_id);
             }
             remaining -= num_read;
         }
@@ -2077,15 +2081,15 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
 }
 
 Status Tablet::_check_pk_in_pre_segments(
-        const std::vector<segment_v2::SegmentSharedPtr>& pre_segments, const Slice& key,
-        const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
+        RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+        const Slice& key, const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
         auto st = (*it)->lookup_row_key(key, loc);
         CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
         if (st.is_not_found()) {
             continue;
         } else if (st.ok() && _schema->has_sequence_col() &&
-                   delete_bitmap->contains({loc->rowset_id, loc->segment_id, version.first},
+                   delete_bitmap->contains({rowset_id, loc->segment_id, version.first},
                                            loc->row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all segments, util we find an existing key.
@@ -2159,10 +2163,9 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
-    if (!rowset_ids_to_add.empty()) {
-        RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &rowset_ids_to_add,
-                                           delete_bitmap, cur_version - 1, true));
-    }
+
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &rowset_ids_to_add,
+                                       delete_bitmap, cur_version - 1, true));
 
     // update version without write lock, compaction and publish_txn
     // will update delete bitmap, handle compaction with _rowset_update_lock
