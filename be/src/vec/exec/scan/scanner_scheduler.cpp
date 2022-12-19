@@ -236,13 +236,13 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
         if (!status.ok() && (typeid(*scanner) == typeid(doris::vectorized::VFileScanner) &&
-                             !status.is<ErrorCode::NOT_FOUND>())) {
+                             !status.is_not_found())) {
             LOG(WARNING) << "Scan thread read VOlapScanner failed: " << status.to_string();
             // Add block ptr in blocks, prevent mem leak in read failed
             blocks.push_back(block);
             break;
         }
-        if (status.is<ErrorCode::NOT_FOUND>()) {
+        if (status.is_not_found()) {
             // The only case in this if branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
             status = Status::OK();
