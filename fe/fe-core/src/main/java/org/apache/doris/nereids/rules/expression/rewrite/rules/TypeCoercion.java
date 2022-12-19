@@ -92,7 +92,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         Expression left = rewrite(op.left(), context);
         Expression right = rewrite(op.right(), context);
 
-        return Optional.of(TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
+        return Optional.of(TypeCoercionUtils.checkCanHandleCoercionForBinaryArithmeticChildren(binaryOperator)
+                        || TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
                 .filter(Boolean::booleanValue)
                 .map(b -> TypeCoercionUtils.findTightestCommonType(op, left.getDataType(), right.getDataType()))
                 .filter(Optional::isPresent)
