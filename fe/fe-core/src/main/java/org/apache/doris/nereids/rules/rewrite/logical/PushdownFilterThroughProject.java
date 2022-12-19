@@ -32,7 +32,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
  * output:
  * project(c+d as a, e as b) -> filter(c+d>2, e=0).
  */
-public class PushDownFilterThroughProject extends OneRewriteRuleFactory {
+public class PushdownFilterThroughProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalProject()).then(filter -> {

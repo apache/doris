@@ -47,10 +47,10 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.logical.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSetOperation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
@@ -81,7 +81,7 @@ public class RuleSet {
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
-            new PushDownFilterThroughProject(),
+            new PushdownFilterThroughProject(),
             new PushdownJoinOtherCondition(),
             new PushdownFilterThroughJoin(),
             new PushdownExpressionsInHashCondition(),

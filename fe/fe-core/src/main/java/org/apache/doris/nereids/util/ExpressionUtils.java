@@ -293,18 +293,18 @@ public class ExpressionUtils {
                 .collect(ImmutableList.toImmutableList());
     }
 
-    public static <E extends Expression> List<E> rewriteDownShortCircuit(
-            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
-        return exprs.stream()
-                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
-                .collect(ImmutableList.toImmutableList());
-    }
-
     public static Set<Expression> replace(Set<Expression> exprs,
             Map<? extends Expression, ? extends Expression> replaceMap) {
         return exprs.stream()
                 .map(expr -> replace(expr, replaceMap))
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static <E extends Expression> List<E> rewriteDownShortCircuit(
+            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+        return exprs.stream()
+                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
+                .collect(ImmutableList.toImmutableList());
     }
 
     private static class ExpressionReplacer
