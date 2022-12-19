@@ -158,7 +158,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     pushJob(new OptimizeGroupJob(childGroup, jobContext));
                     return;
                 }
-
                 // when the child group finish the optimizeGroupJob, the code will begin to run.
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
                 lowestCostChildren.add(lowestCostExpr);

@@ -17,16 +17,33 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.stats.StatsCalculator;
+import org.apache.doris.nereids.properties.RequestPropertyDeriver;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -34,6 +51,8 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -44,13 +63,21 @@ public class PlanReceiver implements AbstractReceiver {
     int limit;
     int emitCount = 0;
 
+    JobContext jobContext;
+
     public PlanReceiver() {
-        limit = Integer.MAX_VALUE;
+        throw new RuntimeException("");
     }
 
     public PlanReceiver(int limit) {
+        throw new RuntimeException("");
+    }
+
+    public PlanReceiver(JobContext jobContext, int limit) {
+        this.jobContext = jobContext;
         this.limit = limit;
     }
+
 
     /**
      * Emit a new plan from bottom to top
@@ -65,30 +92,132 @@ public class PlanReceiver implements AbstractReceiver {
             HashMap<Long, NamedExpression> projectExpression) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
+        Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
         if (emitCount > limit) {
             return false;
         }
+
+        GroupPlan leftPlan = new GroupPlan(planTable.get(left));
+        GroupPlan rightPlan = new GroupPlan(planTable.get(right));
+
+        // First, we implement all possible physical group expression and copy them in memo.
+        // In this step, we don't generate logical expression because they are useless in DPhy.
+        // In fact, we will do that after choosing the best physical plan for the cascades optimizer
+        List<Expression> hashConjuncts = new ArrayList<>();
+        List<Expression> otherConjuncts = new ArrayList<>();
+        JoinType joinType = extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+
+        LogicalProperties logicalProperties = new LogicalProperties(
+                () -> JoinUtils.getJoinOutput(joinType, leftPlan, rightPlan));
         long fullKey = LongBitmap.newBitmapUnion(left, right);
-        Group group1 = constructGroup(left, right, edges);
-        Group group2 = constructGroup(right, left, edges);
-        Group winnerGroup;
-        if (group1.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY) < group2.getLogicalExpression()
-                .getCostByProperties(PhysicalProperties.ANY)) {
-            winnerGroup = group1;
-        } else {
-            winnerGroup = group2;
+        if (!planTable.containsKey(fullKey)) {
+            planTable.put(fullKey, memo.newGroup(logicalProperties));
+        }
+        Group group = planTable.get(fullKey);
+
+        List<Plan> physicalJoins = proposePhysicalJoin(joinType, leftPlan, rightPlan, hashConjuncts, otherConjuncts,
+                logicalProperties);
+        List<GroupExpression> physicalExpressions = new ArrayList<>();
+        for (Plan plan : physicalJoins) {
+            CopyInResult copyInResult = memo.copyIn(plan, group, false);
+            physicalExpressions.add(copyInResult.correspondingExpression);
         }
 
-        if (!planTable.containsKey(fullKey)
-                || planTable.get(fullKey).getLogicalExpression().getCostByProperties(PhysicalProperties.ANY)
-                > winnerGroup.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY)) {
-            // When we decide to store the new Plan, we need to add the complex project to it.
-            winnerGroup = tryAddProject(winnerGroup, projectExpression, fullKey);
-            planTable.put(fullKey, winnerGroup);
+        // Then we generate all possible properties for distributed physical plan. In this step, we calculate
+        // cost and cache the winner for all possible properties.
+        for (GroupExpression groupExpression : physicalExpressions) {
+            List<PhysicalProperties> propertiesList = proposeDistributedJoin(groupExpression);
+            for (PhysicalProperties physicalProperties : propertiesList) {
+                group.setBestPlan(groupExpression, groupExpression.getCostByProperties(physicalProperties),
+                        physicalProperties);
+            }
         }
+
+        //Finally, we propose the project expression for this group
+        LogicalProject project = proposePhysicalProject(projectExpression, fullKey, new GroupPlan(group));
+        if (!project.getProjects().isEmpty()) {
+            memo.copyIn(project, null, false);
+        }
+
         return true;
+    }
 
+    private List<PhysicalProperties> proposeDistributedJoin(GroupExpression groupExpression) {
+        if (!groupExpression.isStatDerived()) {
+            jobContext.getCascadesContext().pushJob(new DeriveStatsJob(groupExpression,
+                    jobContext.getCascadesContext().getCurrentJobContext()));
+            jobContext.getCascadesContext().getJobScheduler().executeJobPool(jobContext.getCascadesContext());
+        }
+        List<PhysicalProperties> outputProperties = new ArrayList<>();
+        //TODO: consider more general property generated
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(this.jobContext);
+        List<List<PhysicalProperties>> requestChildrenPropertiesList
+                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+        // TODO: consider pruning
+        double cost = 0;
+        for (List<PhysicalProperties> childrenProperties : requestChildrenPropertiesList) {
+            PhysicalProperties leftProperties = childrenProperties.get(0);
+            Group leftGroup = groupExpression.child(0);
+            cost += costAndEnforce(leftGroup, leftProperties);
+
+            PhysicalProperties rightProperties = childrenProperties.get(1);
+            Group rightGroup = groupExpression.child(1);
+            cost += costAndEnforce(rightGroup, rightProperties);
+
+            cost += CostCalculator.calculateCost(groupExpression);
+            ChildOutputPropertyDeriver childOutputPropertyDeriver
+                    = new ChildOutputPropertyDeriver(childrenProperties);
+            PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
+            if (groupExpression.updateLowestCostTable(jobContext.getRequiredProperties(), childrenProperties, cost)) {
+                groupExpression.putOutputPropertiesMap(outputProperty, outputProperty);
+                groupExpression.putOutputPropertiesMap(outputProperty, PhysicalProperties.ANY);
+            }
+        }
+        return outputProperties;
+    }
+
+    private double costAndEnforce(Group group, PhysicalProperties requireProperty) {
+        Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt
+                = group.getLowestCostPlan(requireProperty);
+        if (!lowestCostPlanOpt.isPresent()) {
+            jobContext.getCascadesContext().pushJob(new OptimizeGroupJob(group,
+                    new JobContext(jobContext.getCascadesContext(), requireProperty, Double.MAX_VALUE)));
+            jobContext.getCascadesContext().getJobScheduler().executeJobPool(jobContext.getCascadesContext());
+            lowestCostPlanOpt = group.getLowestCostPlan(requireProperty);
+        }
+        return lowestCostPlanOpt.get().first;
+    }
+
+    private List<Plan> proposePhysicalJoin(JoinType joinType, Plan left, Plan right, List<Expression> hashConjuncts,
+            List<Expression> otherConjuncts, LogicalProperties logicalProperties) {
+        // Check whether only NSL can be performed
+        if ((joinType.isInnerJoin() && hashConjuncts.isEmpty()) || joinType.isCrossJoin()) {
+            return Lists.newArrayList(
+                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts, logicalProperties, left,
+                            right),
+                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, logicalProperties,
+                            right, left));
+        }
+        return Lists.newArrayList(
+                new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, logicalProperties, left, right),
+                new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, logicalProperties, right, left));
+    }
+
+    private JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Expression> hashConjuncts,
+            List<Expression> otherConjuncts) {
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            joinType = edge.getJoinType();
+            Expression expression = edge.getExpression();
+            if (expression instanceof EqualTo) {
+                hashConjuncts.add(edge.getExpression());
+            } else {
+                otherConjuncts.add(expression);
+            }
+        }
+        return joinType;
     }
 
     @Override
@@ -110,96 +239,51 @@ public class PlanReceiver implements AbstractReceiver {
     @Override
     public Group getBestPlan(long bitmap) {
         Preconditions.checkArgument(planTable.containsKey(bitmap));
-        return planTable.get(bitmap);
+        Group root = planTable.get(bitmap);
+        makeLogicalExpression(root);
+        return root;
     }
 
-    private double getSimpleCost(Group group) {
-        if (!group.isJoinGroup()) {
-            return group.getStatistics().getRowCount();
+    private void makeLogicalExpression(Group root) {
+        if (!root.getLogicalExpressions().isEmpty()) {
+            return;
         }
-        return group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY);
-    }
-
-    private Group tryAddProject(Group group, HashMap<Long, NamedExpression> projectExpression, long fullKey) {
-        List<NamedExpression> projects = new ArrayList<>();
-        List<Long> removedKey = new ArrayList<>();
-        for (Long bitmap : projectExpression.keySet()) {
-            if (LongBitmap.isSubset(bitmap, fullKey)) {
-                NamedExpression namedExpression = projectExpression.get(bitmap);
-                projects.add(namedExpression);
-                removedKey.add(bitmap);
+        Plan physicalPlan = root.getPhysicalExpressions().get(0).getPlan();
+        for (GroupExpression groupExpression : root.getPhysicalExpressions()) {
+            for (Group child : groupExpression.children()) {
+                makeLogicalExpression(child);
             }
         }
-        for (Long bitmap : removedKey) {
-            projectExpression.remove(bitmap);
+        Plan logicalPlan;
+        if (physicalPlan instanceof LogicalProject) {
+            PhysicalProject physicalProject = (PhysicalProject) physicalPlan;
+            logicalPlan = new LogicalProject<>(physicalProject.getProjects(),
+                    physicalProject.child(0));
+        } else if (physicalPlan instanceof PhysicalHashJoin) {
+            PhysicalHashJoin physicalJoin = (PhysicalHashJoin) physicalPlan;
+            logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
+                    physicalJoin.getOtherJoinConjuncts(), physicalJoin.child(0), physicalJoin.child(1));
+        } else if (physicalPlan instanceof PhysicalNestedLoopJoin) {
+            PhysicalNestedLoopJoin physicalJoin = (PhysicalNestedLoopJoin) physicalPlan;
+            logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
+                    physicalJoin.getOtherJoinConjuncts(), physicalJoin.child(0), physicalJoin.child(1));
+        } else {
+            throw new RuntimeException("DPhyp can only handle join and project operator");
         }
-        if (projects.size() != 0) {
-            LogicalProject logicalProject = new LogicalProject<>(projects,
-                    group.getLogicalExpression().getPlan());
-            GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
-            groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
-                    Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY),
-                    group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY));
-            Group projectGroup = new Group();
-            projectGroup.addGroupExpression(groupExpression);
-            StatsCalculator.estimate(groupExpression);
-            return projectGroup;
-        }
-        return group;
+        jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
     }
 
-    private Group tryAddProject(Group group, HashMap<Long, NamedExpression> projectExpression, long fullKey) {
+    private LogicalProject proposePhysicalProject(HashMap<Long, NamedExpression> projectExpression, long fullKey,
+            Plan child) {
+        List<Long> bitmaps = projectExpression.keySet().stream().filter(bitmap -> LongBitmap.isSubset(bitmap, fullKey))
+                .collect(Collectors.toList());
         List<NamedExpression> projects = new ArrayList<>();
-        List<Long> removedKey = new ArrayList<>();
-        for (Long bitmap : projectExpression.keySet()) {
-            if (LongBitmap.isSubset(bitmap, fullKey)) {
-                NamedExpression namedExpression = projectExpression.get(bitmap);
-                projects.add(namedExpression);
-                removedKey.add(bitmap);
-            }
-        }
-        for (Long bitmap : removedKey) {
+        for (long bitmap : bitmaps) {
+            projects.add(projectExpression.get(bitmap));
             projectExpression.remove(bitmap);
         }
-        if (projects.size() != 0) {
-            LogicalProject logicalProject = new LogicalProject<>(projects,
-                    group.getLogicalExpression().getPlan());
-            GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
-            groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
-                    Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY),
-                    group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY));
-            Group projectGroup = new Group();
-            projectGroup.addGroupExpression(groupExpression);
-            StatsCalculator.estimate(groupExpression);
-            return projectGroup;
-        }
-        return group;
-    }
 
-    private Group constructGroup(long left, long right, List<Edge> edges) {
-        Preconditions.checkArgument(planTable.containsKey(left));
-        Preconditions.checkArgument(planTable.containsKey(right));
-        Group leftGroup = planTable.get(left);
-        Group rightGroup = planTable.get(right);
-
-        double cost = getSimpleCost(leftGroup) + getSimpleCost(rightGroup);
-        List<Expression> conditions = new ArrayList<>();
-        for (Edge edge : edges) {
-            conditions.addAll(edge.getJoin().getExpressions());
-        }
-        LogicalJoin newJoin = new LogicalJoin(edges.get(0).getJoin().getJoinType(), conditions,
-                leftGroup.getLogicalExpression().getPlan(),
-                rightGroup.getLogicalExpression().getPlan());
-
-        GroupExpression groupExpression = new GroupExpression(newJoin, Lists.newArrayList(leftGroup, rightGroup));
-        Group group = new Group();
-        group.addGroupExpression(groupExpression);
-        StatsCalculator.estimate(groupExpression);
-        cost += group.getStatistics().getRowCount();
-
-        groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
-                Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY), cost);
-        return group;
+        return new LogicalProject(projects, child);
     }
 }
 

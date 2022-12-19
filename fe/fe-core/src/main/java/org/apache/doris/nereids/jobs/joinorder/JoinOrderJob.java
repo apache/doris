@@ -88,7 +88,7 @@ public class JoinOrderJob extends Job {
         buildGraph(group, hyperGraph);
         // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
         int limit = 10000;
-        PlanReceiver planReceiver = new PlanReceiver(limit);
+        PlanReceiver planReceiver = new PlanReceiver(this.context, limit);
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
         if (!subgraphEnumerator.enumerate()) {
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);

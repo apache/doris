@@ -128,7 +128,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public List<Slot> computeOutput() {
-
         List<Slot> newLeftOutput = left().getOutput().stream().map(o -> o.withNullable(true))
                 .collect(Collectors.toList());
 

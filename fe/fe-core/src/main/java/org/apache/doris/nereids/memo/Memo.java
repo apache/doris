@@ -495,6 +495,10 @@ public class Memo {
         return CopyInResult.of(false, existedLogicalExpression);
     }
 
+    public Group newGroup(LogicalProperties logicalProperties) {
+        return new Group(groupIdGenerator.getNextId(), logicalProperties);
+    }
+
     // This function is used to copy new group expression
     // It's used in DPHyp after construct new group expression
     public Group copyInGroupExpression(GroupExpression newGroupExpression) {

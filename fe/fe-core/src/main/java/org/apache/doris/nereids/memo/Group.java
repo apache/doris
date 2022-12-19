@@ -78,6 +78,16 @@ public class Group {
     }
 
     /**
+     * Construct a Group without any group expression
+     *
+     * @param groupId the groupId in memo
+     */
+    public Group(GroupId groupId, LogicalProperties logicalProperties) {
+        this.groupId = groupId;
+        this.logicalProperties = logicalProperties;
+    }
+
+    /**
      * For unit test only.
      */
     public Group() {
@@ -86,6 +96,10 @@ public class Group {
 
     public GroupId getGroupId() {
         return groupId;
+    }
+
+    public Map<PhysicalProperties, Pair<Double, GroupExpression>> getLowestCostPlans() {
+        return lowestCostPlans;
     }
 
     /**
@@ -126,8 +140,6 @@ public class Group {
     public GroupExpression getLogicalExpression() {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
-        Preconditions.checkArgument(physicalExpressions.isEmpty(),
-                "The Physical Expression list in Group should be empty");
         return logicalExpressions.get(0);
     }
 

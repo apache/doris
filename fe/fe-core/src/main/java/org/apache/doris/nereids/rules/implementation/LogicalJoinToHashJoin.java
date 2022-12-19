@@ -31,12 +31,12 @@ public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
         return logicalJoin()
                 .whenNot(JoinUtils::shouldNestedLoopJoin)
                 .then(join -> new PhysicalHashJoin<>(
-            join.getJoinType(),
-            join.getHashJoinConjuncts(),
-            join.getOtherJoinConjuncts(),
-            join.getLogicalProperties(),
-            join.left(),
-            join.right())
-        ).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+                        join.getJoinType(),
+                        join.getHashJoinConjuncts(),
+                        join.getOtherJoinConjuncts(),
+                        join.getLogicalProperties(),
+                        join.left(),
+                        join.right())
+                ).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
     }
 }
