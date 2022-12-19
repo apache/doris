@@ -18,20 +18,19 @@
 #pragma once
 
 #include "exec/line_reader.h"
-#include "io/fs/file_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
+class FileReader;
 class Decompressor;
 class Status;
 
 class PlainTextLineReader : public LineReader {
 public:
-    PlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
+    PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader,
                         Decompressor* decompressor, size_t length,
-                        const std::string& line_delimiter, size_t line_delimiter_length,
-                        size_t current_offset = 0);
+                        const std::string& line_delimiter, size_t line_delimiter_length);
 
     ~PlainTextLineReader() override;
 
@@ -57,8 +56,9 @@ private:
     void extend_input_buf();
     void extend_output_buf();
 
+private:
     RuntimeProfile* _profile;
-    io::FileReaderSPtr _file_reader;
+    FileReader* _file_reader;
     Decompressor* _decompressor;
     // the min length that should be read.
     // -1 means endless(for stream load)
@@ -86,12 +86,11 @@ private:
     size_t _more_input_bytes;
     size_t _more_output_bytes;
 
-    size_t _current_offset;
-
     // Profile counters
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _bytes_decompress_counter;
     RuntimeProfile::Counter* _decompress_timer;
 };
+
 } // namespace doris

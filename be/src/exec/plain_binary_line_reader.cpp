@@ -17,18 +17,12 @@
 
 #include "exec/plain_binary_line_reader.h"
 
-#include <gen_cpp/Types_types.h>
-
 #include "common/status.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/stream_load_pipe.h"
-#include "olap/iterators.h"
+#include "io/file_reader.h"
 
 namespace doris {
 
-PlainBinaryLineReader::PlainBinaryLineReader(io::FileReaderSPtr file_reader,
-                                             TFileType::type file_type)
-        : _file_reader(file_reader), _file_type(file_type) {}
+PlainBinaryLineReader::PlainBinaryLineReader(FileReader* file_reader) : _file_reader(file_reader) {}
 
 PlainBinaryLineReader::~PlainBinaryLineReader() {
     close();
@@ -38,42 +32,8 @@ void PlainBinaryLineReader::close() {}
 
 Status PlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
     std::unique_ptr<uint8_t[]> file_buf;
-    size_t read_size = 0;
-    IOContext io_ctx;
-    io_ctx.reader_type = READER_QUERY;
-    switch (_file_type) {
-    case TFileType::FILE_LOCAL:
-    case TFileType::FILE_HDFS:
-    case TFileType::FILE_S3: {
-        size_t file_size = _file_reader->size();
-        file_buf.reset(new uint8_t[file_size]);
-        Slice result(file_buf.get(), file_size);
-        _file_reader->read_at(0, result, io_ctx, &read_size);
-        break;
-    }
-    case TFileType::FILE_STREAM: {
-        // can not use `size_t` type, because we will judge -1.
-        int64_t bytes_req =
-                (dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))->get_total_length();
-        if (bytes_req == -1) {
-            // If bytes_req == -1, this should be a Kafka routine load task
-            // and the bytes requied is no used, so we set required bytes = 0.
-            // Memory allocation of file_buf will take place in `_read_next_buffer` function.
-            Slice result(file_buf.get(), 0);
-            _file_reader->read_at(0, result, io_ctx, &read_size);
-        } else if (bytes_req >= 0) {
-            file_buf.reset(new uint8_t[bytes_req]);
-            Slice result(file_buf.get(), static_cast<size_t>(bytes_req));
-            _file_reader->read_at(0, result, io_ctx, &read_size);
-        } else {
-            return Status::InternalError("invalid, bytes_req is: {}", bytes_req);
-        }
-        break;
-    }
-    default: {
-        return Status::NotSupported("no supported file reader type: {}", _file_type);
-    }
-    }
+    int64_t read_size = 0;
+    RETURN_IF_ERROR(_file_reader->read_one_message(&file_buf, &read_size));
     *ptr = file_buf.release();
     *size = read_size;
     if (read_size == 0) {

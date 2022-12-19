@@ -140,8 +140,8 @@ Status VJsonScanner<JsonReader>::_open_vjson_reader() {
     if (_cur_vjson_reader != nullptr) {
         _cur_vjson_reader.reset();
     }
-    std::string json_root;
-    std::string jsonpath;
+    std::string json_root = "";
+    std::string jsonpath = "";
     bool strip_outer_array = false;
     bool num_as_string = false;
     bool fuzzy_parse = false;
@@ -150,8 +150,7 @@ Status VJsonScanner<JsonReader>::_open_vjson_reader() {
             _get_range_params(jsonpath, json_root, strip_outer_array, num_as_string, fuzzy_parse));
     _cur_vjson_reader.reset(new JsonReader(_state, _counter, _profile, strip_outer_array,
                                            num_as_string, fuzzy_parse, &_scanner_eof,
-                                           _current_offset, range.file_type,
-                                           _read_json_by_line ? nullptr : _file_reader,
+                                           _read_json_by_line ? nullptr : _real_reader,
                                            _read_json_by_line ? _cur_line_reader : nullptr));
 
     RETURN_IF_ERROR(_cur_vjson_reader->init(jsonpath, json_root));
@@ -715,8 +714,7 @@ Status VJsonReader::_append_error_msg(const rapidjson::Value& objectValue, std::
 VSIMDJsonReader::VSIMDJsonReader(doris::RuntimeState* state, doris::ScannerCounter* counter,
                                  RuntimeProfile* profile, bool strip_outer_array,
                                  bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
-                                 size_t current_offset, TFileType::type file_type,
-                                 io::FileReaderSPtr file_reader, LineReader* line_reader)
+                                 FileReader* file_reader, LineReader* line_reader)
         : _vhandle_json_callback(nullptr),
           _next_line(0),
           _total_lines(0),
@@ -726,16 +724,14 @@ VSIMDJsonReader::VSIMDJsonReader(doris::RuntimeState* state, doris::ScannerCount
           _file_reader(file_reader),
           _line_reader(line_reader),
           _strip_outer_array(strip_outer_array),
-          _scanner_eof(scanner_eof),
-          _current_offset(current_offset),
-          _file_type(file_type) {
+          _scanner_eof(scanner_eof) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
     _json_parser = std::make_unique<simdjson::ondemand::parser>();
 }
 
-VSIMDJsonReader::~VSIMDJsonReader() = default;
+VSIMDJsonReader::~VSIMDJsonReader() {}
 
 Status VSIMDJsonReader::init(const std::string& jsonpath, const std::string& json_root) {
     // generate _parsed_jsonpaths and _parsed_json_root
@@ -904,14 +900,13 @@ Status VSIMDJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof));
     } else {
-        size_t read_size = 0;
-        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &read_size));
-        json_str = json_str_ptr.release();
-        *size = read_size;
-        if (read_size == 0) {
+        int64_t length = 0;
+        RETURN_IF_ERROR(_file_reader->read_one_message(&json_str_ptr, &length));
+        json_str = json_str_ptr.get();
+        *size = length;
+        if (length == 0) {
             *eof = true;
         }
-        _current_offset += read_size;
     }
 
     _bytes_read_counter += *size;

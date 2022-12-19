@@ -102,8 +102,7 @@ class VJsonReader {
 public:
     VJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
                 bool strip_outer_array, bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
-                size_t current_offset, TFileType::type file_type,
-                io::FileReaderSPtr file_reader = nullptr, LineReader* line_reader = nullptr);
+                FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~VJsonReader();
 
@@ -198,8 +197,7 @@ class VSIMDJsonReader {
 public:
     VSIMDJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
                     bool strip_outer_array, bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
-                    size_t current_offset, TFileType::type file_type,
-                    io::FileReaderSPtr file_reader = nullptr, LineReader* line_reader = nullptr);
+                    FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~VSIMDJsonReader();
 
@@ -244,8 +242,6 @@ private:
 
     Status _append_error_msg(std::string error_msg, std::string col_name, bool* valid);
 
-    Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
-
     std::unique_ptr<simdjson::ondemand::parser> _json_parser = nullptr;
     simdjson::ondemand::document _original_json_doc;
     simdjson::ondemand::value _json_value;
@@ -257,7 +253,7 @@ private:
     doris::RuntimeState* _state;
     doris::ScannerCounter* _counter;
     RuntimeProfile* _profile;
-    io::FileReaderSPtr _file_reader;
+    FileReader* _file_reader;
     LineReader* _line_reader;
     bool _strip_outer_array;
     RuntimeProfile::Counter* _bytes_read_counter;
@@ -273,8 +269,6 @@ private:
     std::string _parsed_json_root;
 
     bool* _scanner_eof;
-    size_t _current_offset;
-    TFileType::type _file_type;
 
     static constexpr size_t _buffer_size = 1024 * 1024 * 8;
     static constexpr size_t _padded_size = _buffer_size + simdjson::SIMDJSON_PADDING;
