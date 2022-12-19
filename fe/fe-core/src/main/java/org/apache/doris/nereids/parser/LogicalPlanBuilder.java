@@ -1360,7 +1360,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitIs_not_null_pred(Is_not_null_predContext context) {
-        return ParserUtils.withOrigin(context, () -> new Not( new IsNull(typedVisit(context.valueExpression()))));
+        return ParserUtils.withOrigin(context, () -> new Not(new IsNull(typedVisit(context.valueExpression()))));
     }
 
     public List<Expression> withInList(PredicateContext ctx) {
