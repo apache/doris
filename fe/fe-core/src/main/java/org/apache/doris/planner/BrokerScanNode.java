@@ -84,7 +84,7 @@ import java.util.stream.Collectors;
 
 /**
  * Broker scan node
- * <p>
+ *
  * Since https://github.com/apache/doris/pull/5686, Doris can read data from HDFS without broker by
  * broker scan node.
  * Broker scan node is more likely a file scan node for now.
@@ -482,7 +482,7 @@ public class BrokerScanNode extends LoadScanNode {
             ParamCreateContext context,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        if (fileStatuses == null || fileStatuses.isEmpty()) {
+        if (fileStatuses  == null || fileStatuses.isEmpty()) {
             return;
         }
         // set hdfs params, used to Hive and Iceberg scan

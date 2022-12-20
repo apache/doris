@@ -51,7 +51,14 @@ public abstract class BlobStorage implements Writable {
         if (type == StorageBackend.StorageType.S3) {
             return new S3Storage(properties);
         } else if (type == StorageBackend.StorageType.HDFS || type == StorageBackend.StorageType.OFS) {
-            return new HdfsStorage(properties);
+            BlobStorage storage = new HdfsStorage(properties);
+            // as of ofs files, use hdfs storage, but it's type should be ofs
+            if (type == StorageBackend.StorageType.OFS) {
+                storage.setType(type);
+                storage.setName(type.name());
+            }
+
+            return storage;
         } else if (type == StorageBackend.StorageType.BROKER) {
             return new BrokerStorage(name, properties);
         } else {

@@ -23,7 +23,6 @@ import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.HMSResource;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.FeConstants;
@@ -37,7 +36,6 @@ import org.apache.doris.thrift.TExplainLevel;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
@@ -100,7 +98,7 @@ public class HiveScanNode extends BrokerScanNode {
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
-            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+                        List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded, StatisticalType.HIVE_SCAN_NODE);
         this.hiveTable = (HiveTable) destTupleDesc.getTable();
     }
@@ -155,12 +153,6 @@ public class HiveScanNode extends BrokerScanNode {
         this.path = remoteHiveTable.getSd().getLocation();
         for (FieldSchema fieldSchema : remoteHiveTable.getPartitionKeys()) {
             this.partitionKeys.add(fieldSchema.getName());
-        }
-
-        if (!hiveTable.getHiveProperties().containsKey(HdfsResource.HADOOP_FS_NAME) && this.storageType.equals(
-                StorageBackend.StorageType.OFS)) {
-            Path path = new Path(remoteHiveTable.getSd().getLocation());
-            hiveTable.getHiveProperties().put(HdfsResource.HADOOP_FS_NAME, "ofs://" + path.toUri().getHost());
         }
     }
 

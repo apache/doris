@@ -32,7 +32,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.backup.BlobStorage;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -119,7 +118,6 @@ public class HiveMetaStoreClientHelper {
 
         /**
          * convert Hive table inputFormat to file format
-         *
          * @param input inputFormat of Hive file
          * @return
          * @throws DdlException
@@ -176,11 +174,6 @@ public class HiveMetaStoreClientHelper {
             List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
             throws DdlException {
         BlobStorage storage = BlobStorage.create("HiveMetaStore", type, hiveTable.getHiveProperties());
-        // as of ofs files, use hdfs storage, but it's type should be ofs
-        if (type == StorageBackend.StorageType.OFS) {
-            storage.setType(type);
-            storage.setName(type.name());
-        }
         List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
         try {
             if (remoteHiveTbl.getPartitionKeys().size() > 0) {
@@ -216,8 +209,8 @@ public class HiveMetaStoreClientHelper {
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
             List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
-        boolean onS3 = storage instanceof S3Storage;
-        boolean onOFS = storage.getStorageType() == StorageBackend.StorageType.OFS;
+        boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
+                || storage.getStorageType() == StorageBackend.StorageType.OFS;
         String hdfsUrl = "";
         Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
         while (queue.peek() != null) {
@@ -238,7 +231,7 @@ public class HiveMetaStoreClientHelper {
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
                     //     + /dae.db/customer/state=CA/city=SanJose/000000_0
                     String path = fileStatus.getPath().toUri().getPath();
-                    if (onS3 || onOFS) {
+                    if (needFullPath) {
                         // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
                         // path = "s3://bucket/path/to/partition/file_name"
                         // eg: s3://hive-s3-test/region/region.tbl
@@ -271,7 +264,7 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException when connect hiveMetaStore failed.
      */
     public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
-            ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
+                       ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
         List<Partition> hivePartitions = new ArrayList<>();
         IMetaStoreClient client = getClient(metaStoreUris);
         try {
@@ -326,7 +319,6 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
-     *
      * @param tblName
      * @return
      * @throws DdlException
@@ -467,7 +459,7 @@ public class HiveMetaStoreClientHelper {
                 Object value = extractDorisLiteral(literalExpr);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return genExprDesc(tblName, hivePrimitiveType, colName, "NULL", "=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
                     } else {
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
@@ -475,17 +467,17 @@ public class HiveMetaStoreClientHelper {
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=");
                     case NE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "!=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=");
                     case GE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName, value, ">=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=");
                     case GT:
-                        return genExprDesc(tblName, hivePrimitiveType, colName, value, ">");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">");
                     case LE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "<=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=");
                     case LT:
-                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "<");
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
                     default:
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
@@ -584,7 +576,6 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Convert from Doris column type to Hive column type
-     *
      * @param dorisType
      * @return hive primitive type info
      * @throws DdlException
@@ -771,7 +762,7 @@ public class HiveMetaStoreClientHelper {
                 output.append("PARTITIONED BY (\n")
                         .append(remoteTable.getPartitionKeys().stream().map(
                                         partition ->
-                                                String.format("  `%s` `%s`", partition.getName(), partition.getType()))
+                                                String.format(" `%s` `%s`", partition.getName(), partition.getType()))
                                 .collect(Collectors.joining(",\n")))
                         .append(")\n");
             }
