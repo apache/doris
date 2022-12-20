@@ -58,7 +58,7 @@ private:
     Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                        TabletSchemaSPtr tablet_schema);
     // Convert local data file to internal formatted delta,
-    // return new delta's SegmentGroup
+    // return new delta's rowset
     Status _convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                     TabletSchemaSPtr tablet_schema);
 

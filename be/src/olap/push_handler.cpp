@@ -240,7 +240,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             uint8_t* tuple_buf = reader->mem_pool()->allocate(schema->schema_size());
             ContiguousRow row(schema.get(), tuple_buf);
 
-            // 4. Read data from broker and write into SegmentGroup of cur_tablet
+            // 4. Read data from broker and write into cur_tablet
             // Convert from raw to delta
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
@@ -368,7 +368,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
             break;
         }
 
-        // 5. Read data from raw file and write into SegmentGroup of cur_tablet
+        // 5. Read data from raw file and write into cur_tablet
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
             VLOG_NOTICE << "start to convert row file to delta.";
