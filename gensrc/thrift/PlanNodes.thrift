@@ -623,6 +623,8 @@ struct TNestedLoopJoinNode {
   5: optional bool is_output_left_side_only
 
   6: optional Exprs.TExpr vjoin_conjunct
+
+  7: optional bool is_mark
 }
 
 struct TMergeJoinNode {
