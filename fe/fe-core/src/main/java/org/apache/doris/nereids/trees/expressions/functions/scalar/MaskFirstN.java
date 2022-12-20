@@ -36,10 +36,10 @@ import java.util.List;
  */
 public class MaskFirstN extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**
