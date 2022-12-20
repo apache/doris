@@ -53,6 +53,7 @@ public class CheckAnalysisTest {
         Plan plan = new LogicalOneRowRelation(
                 ImmutableList.of(new Alias(new Not(new IntegerLiteral(2)), "not_2")));
         CheckAnalysis checkAnalysis = new CheckAnalysis();
-        Assertions.assertThrows(AnalysisException.class, () -> checkAnalysis.build().transform(plan, cascadesContext));
+        Assertions.assertThrows(AnalysisException.class, () ->
+                checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
     }
 }
