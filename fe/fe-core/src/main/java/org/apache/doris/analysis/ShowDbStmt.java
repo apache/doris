@@ -68,6 +68,7 @@ public class ShowDbStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        this.catalogName = this.catalogName == null ? analyzer.getDefaultCatalog() : this.catalogName;
     }
 
     @Override
