@@ -119,8 +119,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
-                    Set<Expression> boundConjuncts = ExpressionUtils.extractConjunctionToSet(
-                            bind(filter.getPredicate(), filter.children(), filter, ctx.cascadesContext));
+                    Set<Expression> boundConjuncts
+                            = bind(filter.getConjuncts(), filter.children(), filter, ctx.cascadesContext);
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
@@ -279,8 +279,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .collect(Collectors.toSet());
                     SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), having,
                             ctx.cascadesContext);
-                    Set<Expression> boundConjuncts = ExpressionUtils.extractConjunctionToSet(
-                            binder.bind(having.getPredicate()));
+                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(binder::bind)
+                            .collect(Collectors.toSet());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
@@ -361,6 +361,13 @@ public class BindSlotReference implements AnalysisRuleFactory {
         return exprList.stream()
             .map(expr -> bind(expr, inputs, plan, cascadesContext))
             .collect(Collectors.toList());
+    }
+
+    private <E extends Expression> Set<E> bind(Set<E> exprList, List<Plan> inputs, Plan plan,
+            CascadesContext cascadesContext) {
+        return exprList.stream()
+                .map(expr -> bind(expr, inputs, plan, cascadesContext))
+                .collect(Collectors.toSet());
     }
 
     private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan, CascadesContext cascadesContext) {

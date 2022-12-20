@@ -68,7 +68,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             boolean singleTableExpressionExtracted,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
-        this.conjuncts = Objects.requireNonNull(conjuncts, "conjuncts can not be null");
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
         this.singleTableExpressionExtracted = singleTableExpressionExtracted;
     }
 
