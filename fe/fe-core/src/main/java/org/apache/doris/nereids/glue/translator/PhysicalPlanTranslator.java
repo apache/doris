@@ -437,7 +437,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         // Create OlapScanNode
-        List<Slot> slotList = olapScan.getOutput();
+        List<Slot> slotList = new ImmutableList.Builder<Slot>()
+                .addAll(olapScan.getOutput())
+                .addAll(olapScan.getNonUserVisibleOutput())
+                .build();
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);

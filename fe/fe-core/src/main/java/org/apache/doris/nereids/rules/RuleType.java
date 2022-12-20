@@ -158,6 +158,7 @@ public enum RuleType {
     HIDE_ONE_ROW_RELATION_UNDER_UNION(RuleTypeClass.REWRITE),
     MERGE_SET_OPERATION(RuleTypeClass.REWRITE),
     BUILD_AGG_FOR_UNION(RuleTypeClass.REWRITE),
+    COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // limit push down
