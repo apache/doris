@@ -307,6 +307,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
+        if (FunctionTranslatorUtil.isEncryptFunction(function)
+                && function.children().size() == 3) {
+            FunctionTranslatorUtil.translateEncryptionFunction(function, arguments, argTypes);
+        }
+
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
