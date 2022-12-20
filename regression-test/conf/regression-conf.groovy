@@ -91,6 +91,7 @@ es_8_port=39200
 alertOn="CLOSE"
 webhook=""
 
+
 //hive  catalog test config for bigdata
 enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
