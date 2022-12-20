@@ -106,7 +106,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
                 // external data lake table
                 if (split instanceof IcebergSplit) {
-                    IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) inputSplit);
+                    IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) split);
                 }
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",

@@ -41,7 +41,7 @@ namespace doris::vectorized {
 using level_t = int16_t;
 
 struct RowRange {
-    RowRange() {}
+    RowRange() = default;
     RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
 
     int64_t first_row;

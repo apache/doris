@@ -140,8 +140,8 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-Status NewJsonReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                          std::vector<TypeDescriptor>* col_types) {
+Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                        std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_get_range_params());
 
     RETURN_IF_ERROR(_open_file_reader());
