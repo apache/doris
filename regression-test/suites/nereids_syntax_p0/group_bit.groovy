@@ -15,23 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("group_by_constant") {
-    sql """
-        SET enable_nereids_planner=true
-    """
-
+suite("group_bit") {
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    table = "group_bit_and_or_xor"
+    sql """ CREATE TABLE if not exists ${table} (
+        `k` int(11) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        )"""
+    
+    sql "insert into ${table} values (44), (28)"
 
-    qt_select_1 """ 
-        select 'str', sum(lo_tax), lo_orderkey, max(lo_discount), 1 from lineorder, customer group by 3, 5, 'str', 1, lo_orderkey order by lo_orderkey;
-    """
-
-    qt_sql """SELECT lo_custkey, lo_partkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2 order by lo_custkey"""
-
-    qt_sql """SELECT lo_partkey, lo_custkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2 order by lo_partkey, lo_custkey"""
-
-    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 1,  1 + 1 order by lo_partkey"""
-
-    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 'g',  1 order by lo_partkey"""
+    qt_select "select group_bit_and(k) from ${table}"
+    qt_select "select group_bit_or(k) from ${table}"
+    qt_select "select group_bit_xor(k) from ${table}"
+    sql "drop table ${table}"
 
 }
