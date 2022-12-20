@@ -87,7 +87,7 @@ public class If extends ScalarFunction
                     .args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
                     .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE)
+            FunctionSignature.ret(HllType.INSTANCE)
                     .args(BooleanType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE)
     );
 
