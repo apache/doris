@@ -23,7 +23,7 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "kafka_consumer_pipe_reader.h"
+#include "io/fs/kafka_consumer_pipe.h"
 #include "olap/iterators.h"
 #include "runtime/exec_env.h"
 #include "runtime/routine_load/data_consumer_group.h"
@@ -271,7 +271,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     std::shared_ptr<io::StreamLoadPipe> pipe;
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
-        pipe = std::make_shared<io::KafkaConsumerPipeReader>();
+        pipe = std::make_shared<io::KafkaConsumerPipe>();
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
                             ->assign_topic_partitions(ctx);
         if (!st.ok()) {

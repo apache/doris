@@ -21,13 +21,12 @@
 
 namespace doris {
 namespace io {
-class KafkaConsumerPipeReader : public StreamLoadPipe {
+class KafkaConsumerPipe : public StreamLoadPipe {
 public:
-    KafkaConsumerPipeReader(size_t max_buffered_bytes = 1024 * 1024,
-                            size_t min_chunk_size = 64 * 1024)
+    KafkaConsumerPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024)
             : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {}
 
-    ~KafkaConsumerPipeReader() override = default;
+    ~KafkaConsumerPipe() override = default;
 
     Status append_with_line_delimiter(const char* data, size_t size) {
         Status st = append(data, size);

@@ -16,7 +16,7 @@
 // under the License.
 #include "runtime/routine_load/data_consumer_group.h"
 
-#include "kafka_consumer_pipe_reader.h"
+#include "io/fs/kafka_consumer_pipe.h"
 #include "librdkafka/rdkafka.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/routine_load/data_consumer.h"
@@ -96,8 +96,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
 
-    std::shared_ptr<io::KafkaConsumerPipeReader> kafka_pipe =
-            std::static_pointer_cast<io::KafkaConsumerPipeReader>(ctx->body_sink);
+    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
+            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
 
     LOG(INFO) << "start consumer group: " << _grp_id << ". max time(ms): " << left_time
               << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
@@ -107,11 +107,11 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
 
     //improve performance
-    Status (io::KafkaConsumerPipeReader::*append_data)(const char* data, size_t size);
+    Status (io::KafkaConsumerPipe::*append_data)(const char* data, size_t size);
     if (ctx->format == TFileFormatType::FORMAT_JSON) {
-        append_data = &io::KafkaConsumerPipeReader::append_json;
+        append_data = &io::KafkaConsumerPipe::append_json;
     } else {
-        append_data = &io::KafkaConsumerPipeReader::append_with_line_delimiter;
+        append_data = &io::KafkaConsumerPipe::append_with_line_delimiter;
     }
 
     MonotonicStopWatch watch;
