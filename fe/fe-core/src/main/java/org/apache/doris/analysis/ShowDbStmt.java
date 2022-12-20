@@ -103,7 +103,7 @@ public class ShowDbStmt extends ShowStmt {
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
         }
-        if (catalogName != null) {
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
             sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();
