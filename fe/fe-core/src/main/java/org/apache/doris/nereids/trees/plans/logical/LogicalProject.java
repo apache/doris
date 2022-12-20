@@ -67,7 +67,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      */
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
+            CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
         this.excepts = ImmutableList.copyOf(excepts);
