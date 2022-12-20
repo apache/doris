@@ -1197,7 +1197,7 @@ public class SessionVariable implements Serializable, Writable {
      * @return true if both nereids and vectorized engine are enabled
      */
     public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner && enableVectorizedEngine;
+        return enableNereidsPlanner && (Config.disable_enable_vectorized_engine || enableVectorizedEngine);
     }
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
