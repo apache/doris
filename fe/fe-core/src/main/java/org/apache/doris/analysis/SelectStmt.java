@@ -989,24 +989,24 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
+            List<Expr> groupBySlots = Lists.newArrayList();
             if (groupByClause != null) {
-                // according to mysql
-                // 1. if there is a group by clause, the having clause should use column name not alias
-                // this is the same as group by clause
-                // 2. but following case we should use alias name k2 for having
-                //     example: select k1, sum(k2) k2 from table group by k1 having k2 > 1;
-                ExprSubstitutionMap excludeGroupByAliasSMap = aliasSMap.clone();
                 for (Expr expr : groupByClause.getGroupingExprs()) {
-                    if (containAlias(expr)) {
-                        excludeGroupByAliasSMap.removeByLhsExpr(expr);
-                    }
+                    expr.collect(SlotRef.class, groupBySlots);
                 }
-                havingClauseAfterAnaylzed = havingClause.substitute(excludeGroupByAliasSMap, analyzer, false);
-            } else {
-                // according to mysql
-                // if there is no group by clause, the having clause should use alias
-                havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
             }
+            // according to mysql
+            // if the having clause use column name inside group by clause, we should not use alias.
+            // following case, we should use table.v1>1 not sum(v1)>1 for having clause:
+            //     select id, sum(v1) v1 from table group by id,v1 having(v1>1);
+            ExprSubstitutionMap excludeGroupByaliasSMap = aliasSMap.clone();
+            for (Expr expr : groupBySlots) {
+                if (analyzer.resolveColumnRef(((SlotRef) expr).getColumnName()) != null) {
+                    excludeGroupByaliasSMap.removeByLhsExpr(expr);
+                }
+            }
+            havingClauseAfterAnaylzed = havingClause.substitute(excludeGroupByaliasSMap, analyzer, false);
+
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
             if (groupingInfo != null) {

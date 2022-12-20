@@ -952,7 +952,7 @@ public class Analyzer {
         return result != null ? result : globalState.markTuples.get(tblName.toString());
     }
 
-    private TupleDescriptor resolveColumnRef(String colName) throws AnalysisException {
+    public TupleDescriptor resolveColumnRef(String colName) throws AnalysisException {
         TupleDescriptor result = null;
         for (TupleDescriptor desc : tupleByAlias.values()) {
             if (!isVisible(desc.getId())) {
