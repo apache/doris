@@ -229,8 +229,8 @@ BigIntVal MathFunctions::round_bankers(FunctionContext* ctx, const DoubleVal& v)
     } else if (fraction > 0.5) {
         return BigIntVal(static_cast<int64_t>(std::ceil(v.val)));
     } else {
-        auto lower = floor(v.val);
-        if (!(lower.val % 2)) {
+        int lower = std::floor(v.val);
+        if (!(lower % 2)) {
             return BigIntVal(lower);
         } else {
             return BigIntVal(lower + 1);
