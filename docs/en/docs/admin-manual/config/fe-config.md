@@ -2572,3 +2572,13 @@ Default：x@8
 #### `proxy_auth_enable`
 
 Default：false
+
+#### `enable_func_pushdown`
+
+Default：true
+
+IsMutable：true
+
+MasterOnly：false
+
+Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables

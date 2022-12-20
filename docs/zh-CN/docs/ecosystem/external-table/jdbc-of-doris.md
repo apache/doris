@@ -206,7 +206,7 @@ PROPERTIES (
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
-|   REAL   |   FLOAT  |
+|   REAL   |   DOUBLE |
 |   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 

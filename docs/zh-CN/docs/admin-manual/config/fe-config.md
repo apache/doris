@@ -2572,3 +2572,13 @@ SmallFileMgr 中存储的最大文件数
 #### `proxy_auth_enable`
 
 默认值：false
+
+#### `enable_func_pushdown`
+
+默认值：true
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+在ODBC、JDBC的MYSQL外部表查询时，是否将带函数的过滤条件下推到MYSQL中执行
