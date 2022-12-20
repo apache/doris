@@ -18,14 +18,19 @@
 #include "io/cache/sub_file_cache.h"
 
 #include <glog/logging.h>
+#include <sys/types.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
+#include "util/file_utils.h"
+#include "util/string_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -45,6 +50,7 @@ SubFileCache::~SubFileCache() {}
 
 Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                              size_t* bytes_read) {
+    _init();
     if (io_ctx.reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
     }
@@ -85,7 +91,6 @@ Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ct
                 RETURN_IF_ERROR(_generate_cache_reader(offset_begin, req_size));
             }
         }
-        _cache_file_size = _calc_cache_file_size();
     }
     {
         std::shared_lock<std::shared_mutex> rlock(_cache_map_lock);
@@ -208,6 +213,7 @@ Status SubFileCache::_get_need_cache_offsets(size_t offset, size_t req_size,
 }
 
 Status SubFileCache::clean_timeout_cache() {
+    _init();
     SubGcQueue gc_queue;
     _gc_lru_queue.swap(gc_queue);
     std::vector<size_t> timeout_keys;
@@ -218,13 +224,13 @@ Status SubFileCache::clean_timeout_cache() {
             if (time(nullptr) - iter->second > _alive_time_sec) {
                 timeout_keys.emplace_back(iter->first);
             } else {
-                auto [cache_file, done_file] = _cache_path(iter->first);
                 _gc_lru_queue.push({iter->first, iter->second});
             }
         }
     }
+
+    std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
     if (timeout_keys.size() > 0) {
-        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
         for (std::vector<size_t>::const_iterator iter = timeout_keys.cbegin();
              iter != timeout_keys.cend(); ++iter) {
             size_t cleaned_size = 0;
@@ -232,7 +238,7 @@ Status SubFileCache::clean_timeout_cache() {
             _cache_file_size -= cleaned_size;
         }
     }
-    return Status::OK();
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 Status SubFileCache::clean_all_cache() {
@@ -242,7 +248,7 @@ Status SubFileCache::clean_all_cache() {
         RETURN_IF_ERROR(_clean_cache_internal(iter->first, nullptr));
     }
     _cache_file_size = 0;
-    return Status::OK();
+    return _check_and_delete_empty_dir(_cache_dir);
 }
 
 Status SubFileCache::clean_one_cache(size_t* cleaned_size) {
@@ -265,6 +271,10 @@ Status SubFileCache::clean_one_cache(size_t* cleaned_size) {
             _gc_lru_queue.pop();
         }
     }
+    if (_gc_lru_queue.empty()) {
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
+        RETURN_IF_ERROR(_check_and_delete_empty_dir(_cache_dir));
+    }
     return Status::OK();
 }
 
@@ -272,17 +282,38 @@ Status SubFileCache::_clean_cache_internal(size_t offset, size_t* cleaned_size) 
     if (_cache_file_readers.find(offset) != _cache_file_readers.end()) {
         _cache_file_readers.erase(offset);
     }
+    if (_last_match_times.find(offset) != _last_match_times.end()) {
+        _last_match_times.erase(offset);
+    }
     auto [cache_file, done_file] = _cache_path(offset);
-    return _remove_file(cache_file, done_file, cleaned_size);
+    return _remove_cache_and_done(cache_file, done_file, cleaned_size);
 }
 
-size_t SubFileCache::_calc_cache_file_size() {
-    size_t cache_file_size = 0;
-    for (std::map<size_t, io::FileReaderSPtr>::const_iterator iter = _cache_file_readers.cbegin();
-         iter != _cache_file_readers.cend(); ++iter) {
-        cache_file_size += iter->second->size();
-    }
-    return cache_file_size;
+void SubFileCache::_init() {
+    auto init = [this] {
+        std::vector<Path> cache_names;
+
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
+        if (!_get_dir_files_and_remove_unfinished(_cache_dir, cache_names).ok()) {
+            return;
+        }
+        for (const auto& file : cache_names) {
+            auto str_vec = split(file.native(), "_");
+            size_t offset = std::strtoul(str_vec[str_vec.size() - 1].c_str(), nullptr, 10);
+
+            size_t file_size = 0;
+            auto path = _cache_dir / file;
+            if (io::global_local_filesystem()->file_size(path, &file_size).ok()) {
+                _last_match_times[offset] = time(nullptr);
+                _cache_file_size += file_size;
+            } else {
+                LOG(WARNING) << "get local cache file size failed:" << path.native();
+                _clean_cache_internal(offset, nullptr);
+            }
+        }
+    };
+
+    std::call_once(init_flag, init);
 }
 
 } // namespace io
