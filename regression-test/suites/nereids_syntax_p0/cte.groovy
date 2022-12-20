@@ -16,8 +16,6 @@
 // under the License.
 
 suite("cte") {
-
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
 
     sql "DROP VIEW IF EXISTS cte_v1"

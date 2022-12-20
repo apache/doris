@@ -242,4 +242,17 @@ public class NereidsParserTest extends ParserTestBase {
                 .sum();
         Assertions.assertEquals(doubleCount, 1);
     }
+
+    @Test
+    public void parseSetOperation() {
+        String union = "select * from t1 union select * from t2 union all select * from t3";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(union);
+        System.out.println(logicalPlan.treeString());
+
+        String union1 = "select * from t1 union (select * from t2 union all select * from t3)";
+        NereidsParser nereidsParser1 = new NereidsParser();
+        LogicalPlan logicalPlan1 = nereidsParser1.parseSingle(union1);
+        System.out.println(logicalPlan1.treeString());
+    }
 }

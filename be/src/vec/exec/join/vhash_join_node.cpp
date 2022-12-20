@@ -551,34 +551,37 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
     return Status::OK();
 }
 
-Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool /*eos*/) {
-    COUNTER_UPDATE(_probe_rows_counter, _probe_block.rows());
-    int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
-    _probe_columns.resize(probe_expr_ctxs_sz);
+Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool eos) {
+    _probe_eos = eos;
+    if (input_block->rows() > 0) {
+        COUNTER_UPDATE(_probe_rows_counter, _probe_block.rows());
+        int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
+        _probe_columns.resize(probe_expr_ctxs_sz);
 
-    std::vector<int> res_col_ids(probe_expr_ctxs_sz);
-    RETURN_IF_ERROR(
-            _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
-    if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _probe_column_convert_to_null = _convert_block_to_null(*input_block);
-    }
-    // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
-    //  so we have to initialize this flag by the first probe block.
-    if (!_has_set_need_null_map_for_probe) {
-        _has_set_need_null_map_for_probe = true;
-        _need_null_map_for_probe = _need_probe_null_map(*input_block, res_col_ids);
-    }
-    if (_need_null_map_for_probe) {
-        if (_null_map_column == nullptr) {
-            _null_map_column = ColumnUInt8::create();
+        std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+        RETURN_IF_ERROR(
+                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
+        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+            _probe_column_convert_to_null = _convert_block_to_null(*input_block);
         }
-        _null_map_column->get_data().assign(_probe_block.rows(), (uint8_t)0);
-    }
+        // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
+        //  so we have to initialize this flag by the first probe block.
+        if (!_has_set_need_null_map_for_probe) {
+            _has_set_need_null_map_for_probe = true;
+            _need_null_map_for_probe = _need_probe_null_map(*input_block, res_col_ids);
+        }
+        if (_need_null_map_for_probe) {
+            if (_null_map_column == nullptr) {
+                _null_map_column = ColumnUInt8::create();
+            }
+            _null_map_column->get_data().assign(input_block->rows(), (uint8_t)0);
+        }
 
-    RETURN_IF_ERROR(_extract_join_column<false>(*input_block, _null_map_column, _probe_columns,
-                                                res_col_ids));
-    if (&_probe_block != input_block) {
-        input_block->swap(_probe_block);
+        RETURN_IF_ERROR(_extract_join_column<false>(*input_block, _null_map_column, _probe_columns,
+                                                    res_col_ids));
+        if (&_probe_block != input_block) {
+            input_block->swap(_probe_block);
+        }
     }
     return Status::OK();
 }

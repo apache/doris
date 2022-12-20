@@ -43,7 +43,9 @@ import java.util.Optional;
  * limit: 10
  * offset 100
  */
-public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Limit {
+public class LogicalLimit<CHILD_TYPE extends Plan>
+        extends LogicalUnary<CHILD_TYPE>
+        implements Limit {
     private final long limit;
     private final long offset;
 

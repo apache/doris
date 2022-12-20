@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
@@ -26,10 +27,21 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ReflectionUtils {
     private static final Class[] emptyArray = new Class[]{};
+    private static final Map<Class, Class> boxToPrimitiveTypes = ImmutableMap.<Class, Class>builder()
+            .put(Boolean.class, boolean.class)
+            .put(Character.class, char.class)
+            .put(Byte.class, byte.class)
+            .put(Short.class, short.class)
+            .put(Integer.class, int.class)
+            .put(Long.class, long.class)
+            .put(Float.class, float.class)
+            .put(Double.class, double.class)
+            .build();
 
     /**
      * Cache of constructors for each class. Pins the classes so they
@@ -161,5 +173,12 @@ public class ReflectionUtils {
 
     static int getCacheSize() {
         return CONSTRUCTOR_CACHE.size();
+    }
+
+    public static Optional<Class> getPrimitiveType(Class<?> targetClass) {
+        if (targetClass.isPrimitive()) {
+            return Optional.of(targetClass);
+        }
+        return Optional.ofNullable(boxToPrimitiveTypes.get(targetClass));
     }
 }

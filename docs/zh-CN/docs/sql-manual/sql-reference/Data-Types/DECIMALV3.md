@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## DECIMALV3
+
+<version since="1.2.1">
+
+DECIMALV3
+
+</version>
+
 ### description
     DECIMALV3(M[,D])
     高精度定点数，M 代表一共有多少个有效数字(precision)，D 代表小数位有多少数字(scale)，

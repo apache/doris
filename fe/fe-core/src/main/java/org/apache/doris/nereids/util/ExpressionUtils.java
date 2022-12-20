@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Expression rewrite helper class.
@@ -267,6 +268,13 @@ public class ExpressionUtils {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public static <E extends Expression> List<E> rewriteDownShortCircuit(
+            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+        return exprs.stream()
+                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private static class ExpressionReplacer
             extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
@@ -344,11 +352,22 @@ public class ExpressionUtils {
                 .anyMatch(expr -> expr.anyMatch(predicate));
     }
 
+    public static boolean containsType(List<? extends Expression> expressions, Class type) {
+        return anyMatch(expressions, type::isInstance);
+    }
+
     public static <E> Set<E> collect(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static <E> List<E> collectAll(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(ImmutableList.toImmutableList());
     }
 
     public static List<List<Expression>> rollupToGroupingSets(List<Expression> rollupExpressions) {

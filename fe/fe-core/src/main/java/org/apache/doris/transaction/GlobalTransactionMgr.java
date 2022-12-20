@@ -30,6 +30,8 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.metric.AutoMappedMetric;
+import org.apache.doris.metric.GaugeMetricImpl;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
@@ -56,6 +58,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 /**
  * Transaction Manager
@@ -113,7 +116,7 @@ public class GlobalTransactionMgr implements Writable {
 
     /**
      * the app could specify the transaction id
-     *
+     * <p>
      * requestId is used to judge that whether the request is a internal retry request
      * if label already exist, and requestId are equal, we return the exist tid, and consider this 'begin'
      * as success.
@@ -178,8 +181,8 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void preCommitTransaction2PC(Database db, List<Table> tableList, long transactionId,
-                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-                                               TxnCommitAttachment txnCommitAttachment)
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
@@ -242,14 +245,14 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
-                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
         return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
     }
 
     public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
-                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-                                               TxnCommitAttachment txnCommitAttachment)
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
@@ -643,26 +646,30 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public long getAllRunningTxnNum() {
-        long total = 0;
-        for (DatabaseTransactionMgr mgr : dbIdToDatabaseTransactionMgrs.values()) {
-            long num = mgr.getRunningTxnNum();
-            total += num;
-            Database db = Env.getCurrentInternalCatalog().getDbNullable(mgr.getDbId());
-            if (db != null) {
-                MetricRepo.DB_GAUGE_TXN_NUM.getOrAdd(db.getFullName()).setValue(num);
-            }
-        }
-        return total;
+        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnNum()),
+                MetricRepo.DB_GAUGE_TXN_NUM);
     }
 
     public long getAllRunningTxnReplicaNum() {
+        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnReplicaNum()),
+                MetricRepo.DB_GAUGE_TXN_REPLICA_NUM);
+    }
+
+    public long getAllPublishTxnNum() {
+        return updateTxnMetric(
+                databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getCommittedTxnList().size()),
+                MetricRepo.DB_GAUGE_PUBLISH_TXN_NUM);
+    }
+
+    private long updateTxnMetric(Function<DatabaseTransactionMgr, Long> metricSupplier,
+            AutoMappedMetric<GaugeMetricImpl<Long>> metric) {
         long total = 0;
         for (DatabaseTransactionMgr mgr : dbIdToDatabaseTransactionMgrs.values()) {
-            long num = mgr.getRunningTxnReplicaNum();
+            long num = metricSupplier.apply(mgr).longValue();
             total += num;
             Database db = Env.getCurrentInternalCatalog().getDbNullable(mgr.getDbId());
             if (db != null) {
-                MetricRepo.DB_GAUGE_TXN_REPLICA_NUM.getOrAdd(db.getFullName()).setValue(num);
+                metric.getOrAdd(db.getFullName()).setValue(num);
             }
         }
         return total;

@@ -266,14 +266,14 @@ suite("test_jdbc_query_mysql", "p0") {
         sql  """ drop table if exists ${exMysqlTable} """
         sql  """ drop table if exists ${inDorisTable} """
         sql  """ CREATE EXTERNAL TABLE `${exMysqlTable}` (
-                  `id` int(11) not NULL,
+                  `id` bigint not NULL,
                   `apply_id` varchar(32) NULL,
                   `begin_value` string NULL,
                   `operator` varchar(32) NULL,
                   `operator_name` varchar(32) NULL,
                   `state` varchar(8) NULL,
                   `sub_state` varchar(8) NULL,
-                  `state_count` smallint(5) NULL,
+                  `state_count` int NULL,
                   `create_time` datetime NULL
                 ) ENGINE=JDBC
                 COMMENT "JDBC Mysql 外部表"
@@ -894,7 +894,7 @@ suite("test_jdbc_query_mysql", "p0") {
         sql  """ drop table if exists ${exMysqlTypeTable} """
         sql  """
                CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
-               `id` bigint NOT NULL,
+               `id` int NOT NULL,
                `count_value` varchar(100) NULL
                ) ENGINE=JDBC
                COMMENT "JDBC Mysql 外部表"
@@ -933,6 +933,26 @@ suite("test_jdbc_query_mysql", "p0") {
                                     t3 AS (SELECT max(x) OVER() FROM t2) SELECT * FROM t3 limit 3"""
         order_qt_sql111 """ SELECT rank() OVER () FROM (SELECT k8 FROM $jdbcMysql57Table1 LIMIT 10) as t LIMIT 3 """
         order_qt_sql112 """ SELECT k7, count(DISTINCT k8) FROM $jdbcMysql57Table1 WHERE k8 > 110 GROUP BY GROUPING SETS ((), (k7)) """
+
+        // test for type check
+        sql  """ drop table if exists ${exMysqlTypeTable} """
+        sql  """
+               CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
+               `id` bigint NOT NULL,
+               `count_value` varchar(100) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb2",
+                "table_type"="mysql"
+               ); 
+        """
+
+        test {
+            sql """select * from ${exMysqlTypeTable} order by id"""
+            exception "Fail to convert jdbc type of java.lang.Integer to doris type BIGINT on column: id"
+        }
 
     }
 }

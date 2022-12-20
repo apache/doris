@@ -87,10 +87,6 @@ public:
     virtual bool is_sink() const { return false; }
     virtual bool is_source() const { return false; }
 
-    virtual Status prepare(RuntimeState* state);
-
-    virtual void close(RuntimeState* state);
-
     std::string get_name() const { return _name; }
 
     RuntimeState* runtime_state() { return _state; }
@@ -184,6 +180,8 @@ public:
 
     virtual bool can_read() { return false; } // for source
 
+    virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
+
     virtual bool can_write() { return false; } // for sink
 
     /**
@@ -228,6 +226,7 @@ public:
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
     std::string debug_string() const;
+    int32_t id() const { return _operator_builder->id(); }
 
 protected:
     std::unique_ptr<MemTracker> _mem_tracker;
@@ -239,7 +238,6 @@ protected:
     // TODO pipeline Account for peak memory used by this operator
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
-private:
     bool _is_closed = false;
 };
 
@@ -263,7 +261,8 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -285,8 +284,13 @@ public:
     }
 
     Status close(RuntimeState* state) override {
+        if (is_closed()) {
+            return Status::OK();
+        }
         _fresh_exec_timer(_sink);
-        return _sink->close(state, Status::OK());
+        RETURN_IF_ERROR(_sink->close(state, Status::OK()));
+        _is_closed = true;
+        return Status::OK();
     }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
@@ -317,7 +321,8 @@ public:
     std::string get_name() const override { return "StreamingOperator"; }
 
     Status prepare(RuntimeState* state) override {
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -338,10 +343,14 @@ public:
     }
 
     Status close(RuntimeState* state) override {
+        if (is_closed()) {
+            return Status::OK();
+        }
         _fresh_exec_timer(_node);
         if (!_node->decrease_ref()) {
             _node->release_resource(state);
         }
+        _is_closed = true;
         return Status::OK();
     }
 
@@ -422,7 +431,7 @@ public:
         if (node->need_more_input_data()) {
             RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
-            if (_child_block->rows() == 0) {
+            if (_child_block->rows() == 0 && source_state != SourceState::FINISHED) {
                 return Status::OK();
             }
             node->prepare_for_next();

@@ -206,7 +206,6 @@ suite("order_group", "query,p0") {
         as ss from ${tableName2}  where k5 > 2000 )s order by k1,k2 "
     check2_doris(res7, res8)
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     qt_group31 "select count(*) from ${tableName1} where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00')\

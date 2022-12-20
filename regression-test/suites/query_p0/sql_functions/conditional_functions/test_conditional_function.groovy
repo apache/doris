@@ -16,8 +16,7 @@
 // under the License.
 
 suite("test_conditional_function") {
-    qt_sql "set enable_vectorized_engine = true;"
-    qt_sql "set batch_size = 4096;"
+    sql "set batch_size = 4096;"
 
     def tbName = "test_conditional_function"
     sql "DROP TABLE IF EXISTS ${tbName};"

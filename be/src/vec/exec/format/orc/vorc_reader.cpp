@@ -529,7 +529,7 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return TypeDescriptor(PrimitiveType::TYPE_STRING);
     case orc::TypeKind::BINARY:
-        return TypeDescriptor(PrimitiveType::TYPE_BINARY);
+        return TypeDescriptor(PrimitiveType::TYPE_STRING);
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:

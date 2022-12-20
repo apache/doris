@@ -883,6 +883,8 @@ The Apache Software License, Version 2.0
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
         - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
+    * velocity:
+        - org.apache.velocity:velocity-engine-core:2.3 (https://velocity.apache.org/engine/2.3/)        
     * Hive Common:
         - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
     * Hive Llap Client:

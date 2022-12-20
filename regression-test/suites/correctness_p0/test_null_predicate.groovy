@@ -71,8 +71,6 @@ suite("test_null_predicate") {
             (122, "name#122"),
             (123, null); """
 
-    sql """ set enable_vectorized_engine = true; """
-
     qt_select1 """ select id, name from ${tableName} order by id, name; """
     qt_select2 """ select count(1) from ${tableName}; """
     qt_select3 """ select id, name from ${tableName} where name is null order by id; """
