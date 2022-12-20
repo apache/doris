@@ -61,6 +61,9 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
         _data_queue->get_block_from_queue(&output_block, &child_idx);
+        if (!output_block) {
+            return Status::OK();
+        }
         block->swap(*output_block);
         output_block->clear_column_data(_node->row_desc().num_materialized_slots());
         _data_queue->push_free_block(std::move(output_block), child_idx);

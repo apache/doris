@@ -181,8 +181,9 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
     }
     DCHECK(output_block->rows() == 0);
 
-    DCHECK(_intermediate_block);
-    DCHECK_NE(_intermediate_block->rows(), 0);
+    if (!_intermediate_block || _intermediate_block->rows() == 0) {
+        return Status::OK();
+    }
 
     RETURN_IF_ERROR(get_repeated_block(_intermediate_block.get(), _repeat_id_idx, output_block));
 
@@ -201,6 +202,9 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
 }
 
 Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    if (input_block->rows() == 0) {
+        return Status::OK();
+    }
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
     DCHECK(!_expr_ctxs.empty());
     _intermediate_block.reset(new Block());

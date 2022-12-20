@@ -53,7 +53,7 @@ suite("load") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/tpch/sf1/${tableName}.csv.split00.gz"""
+            file """${getS3Url()}/regression/tpch/sf1/${tableName}.csv.split00.gz"""
 
             time 10000 // limit inflight 10s
 
@@ -88,7 +88,7 @@ suite("load") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/tpch/sf1/${tableName}.csv.split01.gz"""
+            file """${getS3Url()}/regression/tpch/sf1/${tableName}.csv.split01.gz"""
 
             time 10000 // limit inflight 10s
 
