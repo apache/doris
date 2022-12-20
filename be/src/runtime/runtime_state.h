@@ -403,6 +403,13 @@ public:
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
 
+    int repeat_max_num() const {
+        if (!_query_options.__isset.repeat_max_num) {
+            return 10000;
+        }
+        return _query_options.repeat_max_num;
+    }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
