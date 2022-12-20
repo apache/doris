@@ -58,6 +58,7 @@ private:
 
     // use in merge sort
     size_t _offset;
+    int64_t _num_rows_skipped;
     VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
