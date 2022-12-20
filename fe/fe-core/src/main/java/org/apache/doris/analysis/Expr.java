@@ -1227,6 +1227,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this;
     }
 
+    public Map<Long, Set<String>> getTableIdToColumnNames() {
+        Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
+        getTableIdToColumnNames(tableIdToColumnNames);
+        return tableIdToColumnNames;
+    }
+
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {
@@ -2097,6 +2103,28 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else {
             return this instanceof LiteralExpr;
         }
+    }
+
+    public boolean matchExprs(List<Expr> exprs) {
+        for (Expr expr : exprs) {
+            if (expr == null) {
+                continue;
+            }
+            if (expr.toSql().equals(toSql())) {
+                return true;
+            }
+        }
+
+        if (getChildren().isEmpty()) {
+            return false;
+        }
+
+        for (Expr expr : getChildren()) {
+            if (!expr.matchExprs(exprs)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {

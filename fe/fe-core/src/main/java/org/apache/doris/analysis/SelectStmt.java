@@ -197,6 +197,32 @@ public class SelectStmt extends QueryStmt {
         groupingInfo = null;
     }
 
+    public List<Expr> getAllExprs() {
+        List<Expr> exprs = new ArrayList<Expr>();
+        if (originSelectList != null) {
+            exprs.addAll(originSelectList.getExprs());
+        }
+        if (havingClause != null) {
+            exprs.add(havingClause);
+        }
+        if (havingPred != null) {
+            exprs.add(havingPred);
+        }
+        if (havingClauseAfterAnaylzed != null) {
+            exprs.add(havingClauseAfterAnaylzed);
+        }
+        return exprs;
+    }
+
+    public boolean haveStar() {
+        for (SelectListItem item : selectList.getItems()) {
+            if (item.isStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void resetSelectList() {
         if (originSelectList != null) {
@@ -1152,6 +1178,10 @@ public class SelectStmt extends QueryStmt {
                 }
             }
 
+            for (int i = 0; i < groupingExprs.size(); i++) {
+                groupingExprs.set(i, rewriteQueryExprByMvColumnExpr(groupingExprs.get(i), analyzer));
+            }
+
             if (groupingInfo != null) {
                 groupingInfo.genOutputTupleDescAndSMap(analyzer, groupingExprs, aggExprs);
                 // must do it before copying for createAggInfo()
@@ -1365,6 +1395,9 @@ public class SelectStmt extends QueryStmt {
             ArrayList<FunctionCallExpr> aggExprs,
             Analyzer analyzer)
             throws AnalysisException {
+        for (int i = 0; i < aggExprs.size(); i++) {
+            aggExprs.set(i, (FunctionCallExpr) rewriteQueryExprByMvColumnExpr(aggExprs.get(i), analyzer));
+        }
         if (selectList.isDistinct()) {
             // Create aggInfo for SELECT DISTINCT ... stmt:
             // - all select list items turn into grouping exprs
