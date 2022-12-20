@@ -222,6 +222,22 @@ BigIntVal MathFunctions::round(FunctionContext* ctx, const DoubleVal& v) {
     return BigIntVal(static_cast<int64_t>(v.val + ((v.val < 0) ? -0.5 : 0.5)));
 }
 
+BigIntVal MathFunctions::round_bankers(FunctionContext* ctx, const DoubleVal& v) {
+    double fraction = v.val - std::floor(v.val);
+    if (fraction < 0.5) {
+        return BigIntVal(static_cast<int64_t>(std::floor(v.val)));
+    } else if (fraction > 0.5) {
+        return BigIntVal(static_cast<int64_t>(std::ceil(v.val)));
+    } else {
+        auto lower = floor(v.val);
+        if (!(lower.val % 2)) {
+            return BigIntVal(lower);
+        } else {
+            return BigIntVal(lower + 1);
+        }
+    }
+}
+
 DoubleVal MathFunctions::round_up_to(FunctionContext* ctx, const DoubleVal& v,
                                      const IntVal& scale) {
     if (v.is_null || scale.is_null) {
