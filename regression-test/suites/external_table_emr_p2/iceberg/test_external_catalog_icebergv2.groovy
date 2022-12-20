@@ -36,12 +36,11 @@ suite("test_external_catalog_icebergv2", "p2") {
             // test parquet format format
             def q01 = {
                 qt_q01 """ select count(1) as c from customer;"""
-                qt_q03 """ select count(1) from nation """
-                qt_q04 """ select count(1) from orders """
-                qt_q05 """ select p_name from part where p_partkey = 4438130 order by p_name limit 1; """
-                qt_q06 """ select ps_supplycost from partsupp where ps_partkey = 199588198 and ps_suppkey = 9588199 and ps_availqty = 2949 """
-                qt_q07 """ select * from region order by r_regionkey limit 3 """
-                qt_q08 """ select s_address from supplier where s_suppkey = 2823947 limit 3"""
+                qt_q02 """ select count(1) from orders """
+                qt_q03 """ select count(1) from customer where c_name = 'Customer#0063356' order by c_custkey limit 1; """
+                qt_q04 """ select * from customer order by c_custkey limit 3 """
+                qt_q05 """ select o_orderkey from orders where o_orderkey > 652566 limit 3"""
+                qt_q06 """ select o_orderkey from orders where o_custkey < 3357 limit 3"""
             }
             sql """ use `tpch_1000_icebergv2`; """
             q01()
