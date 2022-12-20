@@ -148,7 +148,7 @@ public class BrokerScanNode extends LoadScanNode {
 
     // For broker load and external broker table
     public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
-            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, destTupleDesc, planNodeName, StatisticalType.BROKER_SCAN_NODE);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
@@ -211,13 +211,13 @@ public class BrokerScanNode extends LoadScanNode {
     }
 
     public void setLoadInfo(long loadJobId,
-            long txnId,
-            Table targetTable,
-            BrokerDesc brokerDesc,
-            List<BrokerFileGroup> fileGroups,
-            boolean strictMode,
-            int loadParallelism,
-            UserIdentity userIdentity) {
+                            long txnId,
+                            Table targetTable,
+                            BrokerDesc brokerDesc,
+                            List<BrokerFileGroup> fileGroups,
+                            boolean strictMode,
+                            int loadParallelism,
+                            UserIdentity userIdentity) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.targetTable = targetTable;
@@ -573,9 +573,9 @@ public class BrokerScanNode extends LoadScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes,
-            List<String> columnsFromPath, int numberOfColumnsFromFile,
-            BrokerDesc brokerDesc, String headerType) {
+                                                   TFileFormatType formatType, long rangeBytes,
+                                                   List<String> columnsFromPath, int numberOfColumnsFromFile,
+                                                   BrokerDesc brokerDesc, String headerType) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFileType(brokerDesc.getFileType());
         rangeDesc.setFormatType(formatType);
