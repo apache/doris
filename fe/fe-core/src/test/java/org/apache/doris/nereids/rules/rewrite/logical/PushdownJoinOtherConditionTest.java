@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -83,7 +84,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -123,7 +124,8 @@ public class PushdownJoinOtherConditionTest {
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, rStudent, rScore);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, rStudent,
+                rScore);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -165,7 +167,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
