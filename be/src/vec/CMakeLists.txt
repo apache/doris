@@ -94,8 +94,6 @@ set(VEC_FILES
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
-  exec/vintersect_node.cpp
-  exec/vexcept_node.cpp
   exec/vselect_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
@@ -231,6 +229,8 @@ set(VEC_FILES
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
   olap/olap_data_convertor.cpp
+  olap/vertical_merge_iterator.cpp
+  olap/vertical_block_reader.cpp
   sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
@@ -279,7 +279,10 @@ set(VEC_FILES
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
-  exec/format/table/iceberg_reader.cpp)
+  exec/format/table/iceberg_reader.cpp
+  exec/format/file_reader/new_file_factory.cpp
+  exec/format/file_reader/new_plain_text_line_reader.cpp
+  )
 
 add_library(Vec STATIC
         ${VEC_FILES}

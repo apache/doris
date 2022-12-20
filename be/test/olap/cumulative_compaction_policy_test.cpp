@@ -31,10 +31,10 @@ class TestSizeBasedCumulativeCompactionPolicy : public testing::Test {
 public:
     TestSizeBasedCumulativeCompactionPolicy() {}
     void SetUp() {
-        config::cumulative_size_based_promotion_size_mbytes = 1024;
-        config::cumulative_size_based_promotion_ratio = 0.05;
-        config::cumulative_size_based_promotion_min_size_mbytes = 64;
-        config::cumulative_size_based_compaction_lower_size_mbytes = 64;
+        config::compaction_promotion_size_mbytes = 1024;
+        config::compaction_promotion_ratio = 0.05;
+        config::compaction_promotion_min_size_mbytes = 64;
+        config::compaction_min_size_mbytes = 64;
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
@@ -649,11 +649,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_big) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    SizeBasedCumulativeCompactionPolicy* policy =
-            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
-                    _tablet->_cumulative_compaction_policy.get());
-
-    EXPECT_EQ(1073741824, policy->_tablet_size_based_promotion_size);
+    EXPECT_EQ(1073741824, _tablet->cumulative_promotion_size());
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
@@ -668,10 +664,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    SizeBasedCumulativeCompactionPolicy* policy =
-            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
-                    _tablet->_cumulative_compaction_policy.get());
-    EXPECT_EQ(67108864, policy->_tablet_size_based_promotion_size);
+    EXPECT_EQ(67108864, _tablet->cumulative_promotion_size());
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {

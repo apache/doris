@@ -164,6 +164,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
+    protected boolean toSQLWithSelectList;
+
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
@@ -805,4 +807,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     public boolean hasOutFileClause() {
         return outFileClause != null;
     }
+
+    public String toSqlWithSelectList() {
+        toSQLWithSelectList = true;
+        return toSql();
+    }
+
 }

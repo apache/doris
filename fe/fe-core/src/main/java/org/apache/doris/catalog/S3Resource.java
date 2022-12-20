@@ -32,7 +32,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,40 +40,55 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
- * S3 resource for olap table
+ * S3 resource
  *
  * Syntax:
  * CREATE RESOURCE "remote_s3"
  * PROPERTIES
  * (
  *    "type" = "s3",
- *    "s3_endpoint" = "bj",
- *    "s3_region" = "bj",
- *    "s3_root_path" = "/path/to/root",
- *    "s3_access_key" = "bbb",
- *    "s3_secret_key" = "aaaa",
- *    "s3_max_connections" = "50",
- *    "s3_request_timeout_ms" = "3000",
- *    "s3_connection_timeout_ms" = "1000"
+ *    "AWS_ENDPOINT" = "bj",
+ *    "AWS_REGION" = "bj",
+ *    "AWS_ROOT_PATH" = "/path/to/root",
+ *    "AWS_ACCESS_KEY" = "bbb",
+ *    "AWS_SECRET_KEY" = "aaaa",
+ *    "AWS_MAX_CONNECTION" = "50",
+ *    "AWS_REQUEST_TIMEOUT_MS" = "3000",
+ *    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
  * );
  */
 public class S3Resource extends Resource {
+    public enum ReferenceType {
+        TVF, // table valued function
+        LOAD,
+        EXPORT,
+        REPOSITORY,
+        OUTFILE,
+        TABLE,
+        POLICY
+    }
+
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
+    public static final String S3_PROPERTIES_PREFIX = "AWS";
+    public static final String S3_FS_PREFIX = "fs.s3";
     // required
-    public static final String S3_ENDPOINT = "s3_endpoint";
-    public static final String S3_REGION = "s3_region";
-    public static final String S3_ROOT_PATH = "s3_root_path";
-    public static final String S3_ACCESS_KEY = "s3_access_key";
-    public static final String S3_SECRET_KEY = "s3_secret_key";
-    public static final String S3_BUCKET = "s3_bucket";
+    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
+    public static final String S3_REGION = "AWS_REGION";
+    public static final String S3_ACCESS_KEY = "AWS_ACCESS_KEY";
+    public static final String S3_SECRET_KEY = "AWS_SECRET_KEY";
+    public static final List<String> REQUIRED_FIELDS =
+            Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY);
+    // required by storage policy
+    public static final String S3_ROOT_PATH = "AWS_ROOT_PATH";
+    public static final String S3_BUCKET = "AWS_BUCKET";
 
     // optional
-    public static final String S3_MAX_CONNECTIONS = "s3_max_connections";
-    public static final String S3_REQUEST_TIMEOUT_MS = "s3_request_timeout_ms";
-    public static final String S3_CONNECTION_TIMEOUT_MS = "s3_connection_timeout_ms";
+    public static final String USE_PATH_STYLE = "use_path_style";
+    public static final String S3_MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
+    public static final String S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+    public static final String S3_CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
     public static final String DEFAULT_S3_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_S3_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_S3_CONNECTION_TIMEOUT_MS = "1000";
@@ -82,27 +96,36 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    @SerializedName(value = "usedByPolicySet")
-    private Set<String> usedByPolicySet;
+    @SerializedName(value = "referenceSet")
+    private Map<String, ReferenceType> references;
 
-    public boolean policyAddToSet(final String policeName) {
-        boolean flag = this.usedByPolicySet.add(policeName);
-        if (flag) {
+    public boolean addReference(String referenceName, ReferenceType type) throws AnalysisException {
+        if (type == ReferenceType.POLICY) {
+            if (!properties.containsKey(S3_ROOT_PATH)) {
+                throw new AnalysisException(String.format("Missing [%s] in '%s' resource", S3_ROOT_PATH, name));
+            }
+            if (!properties.containsKey(S3_BUCKET)) {
+                throw new AnalysisException(String.format("Missing [%s] in '%s' resource", S3_BUCKET, name));
+            }
+        }
+        if (references.put(referenceName, type) == null) {
             // log set
             Env.getCurrentEnv().getEditLog().logAlterResource(this);
-            LOG.info("{} policy add s3 resource, current set: {}", policeName, usedByPolicySet);
+            LOG.info("Reference(type={}, name={}) is added to s3 resource, current set: {}",
+                    type, referenceName, references);
+            return true;
         }
-        return flag;
+        return false;
     }
 
     public S3Resource(String name) {
-        this(name, Maps.newHashMap(), Sets.newHashSet());
+        this(name, Maps.newHashMap(), Maps.newHashMap());
     }
 
-    public S3Resource(String name, Map<String, String> properties, Set<String> policySet) {
+    public S3Resource(String name, Map<String, String> properties, Map<String, ReferenceType> policySet) {
         super(name, ResourceType.S3);
         this.properties = properties;
-        this.usedByPolicySet = policySet;
+        this.references = policySet;
     }
 
     public String getProperty(String propertyKey) {
@@ -117,10 +140,8 @@ public class S3Resource extends Resource {
         // required
         checkRequiredProperty(S3_ENDPOINT);
         checkRequiredProperty(S3_REGION);
-        checkRequiredProperty(S3_ROOT_PATH);
         checkRequiredProperty(S3_ACCESS_KEY);
         checkRequiredProperty(S3_SECRET_KEY);
-        checkRequiredProperty(S3_BUCKET);
         // optional
         checkOptionalProperty(S3_MAX_CONNECTIONS, DEFAULT_S3_MAX_CONNECTIONS);
         checkOptionalProperty(S3_REQUEST_TIMEOUT_MS, DEFAULT_S3_REQUEST_TIMEOUT_MS);
@@ -141,48 +162,31 @@ public class S3Resource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        // can't change, because remote fs use it info to find data.
-        List<String> cantChangeProperties = Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ROOT_PATH, S3_BUCKET);
-        Optional<String> any = cantChangeProperties.stream().filter(properties::containsKey).findAny();
-        if (any.isPresent()) {
-            throw new DdlException("current not support modify property : " + any.get());
+        if (references.containsValue(ReferenceType.POLICY)) {
+            // can't change, because remote fs use it info to find data.
+            List<String> cantChangeProperties = Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ROOT_PATH, S3_BUCKET);
+            Optional<String> any = cantChangeProperties.stream().filter(properties::containsKey).findAny();
+            if (any.isPresent()) {
+                throw new DdlException("current not support modify property : " + any.get());
+            }
         }
         // modify properties
-        replaceIfEffectiveValue(this.properties, S3_ACCESS_KEY, properties.get(S3_ACCESS_KEY));
-        replaceIfEffectiveValue(this.properties, S3_SECRET_KEY, properties.get(S3_SECRET_KEY));
-        replaceIfEffectiveValue(this.properties, S3_MAX_CONNECTIONS, properties.get(S3_MAX_CONNECTIONS));
-        replaceIfEffectiveValue(this.properties, S3_REQUEST_TIMEOUT_MS, properties.get(S3_REQUEST_TIMEOUT_MS));
-        replaceIfEffectiveValue(this.properties, S3_CONNECTION_TIMEOUT_MS, properties.get(S3_CONNECTION_TIMEOUT_MS));
+        for (Map.Entry<String, String> kv : properties.entrySet()) {
+            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
+        }
         notifyUpdate();
     }
 
     @Override
-    public void checkProperties(Map<String, String> properties) throws AnalysisException {
-        // check properties
-        Map<String, String> copiedProperties = Maps.newHashMap(properties);
-        copiedProperties.remove(S3_ENDPOINT);
-        copiedProperties.remove(S3_REGION);
-        copiedProperties.remove(S3_ROOT_PATH);
-        copiedProperties.remove(S3_ACCESS_KEY);
-        copiedProperties.remove(S3_SECRET_KEY);
-        copiedProperties.remove(S3_BUCKET);
-        copiedProperties.remove(S3_MAX_CONNECTIONS);
-        copiedProperties.remove(S3_REQUEST_TIMEOUT_MS);
-        copiedProperties.remove(S3_CONNECTION_TIMEOUT_MS);
-
-        if (!copiedProperties.isEmpty()) {
-            throw new AnalysisException("Unknown S3 resource properties: " + copiedProperties);
-        }
+    public Map<String, String> getCopiedProperties() {
+        return Maps.newHashMap(properties);
     }
 
     @Override
-    public Map<String, String> getCopiedProperties() {
-        Map<String, String> copiedProperties = Maps.newHashMap(properties);
-        return copiedProperties;
-    }
-
-    public Set<String> getCopiedUsedByPolicySet() {
-        return Sets.newHashSet(usedByPolicySet);
+    public void dropResource() throws DdlException {
+        if (references.containsValue(ReferenceType.POLICY)) {
+            throw new DdlException("S3 resource used by policy, can't drop it.");
+        }
     }
 
     @Override
@@ -200,43 +204,50 @@ public class S3Resource extends Resource {
     }
 
     private void notifyUpdate() {
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        if (references.containsValue(ReferenceType.POLICY)) {
+            SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+            AgentBatchTask batchTask = new AgentBatchTask();
 
-        Map<String, String> copiedProperties = getCopiedProperties();
+            Map<String, String> copiedProperties = getCopiedProperties();
 
-        for (Long beId : systemInfoService.getBackendIds(true)) {
-            this.usedByPolicySet.forEach(
-                    policy -> {
-                        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
-                                .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-                        Optional<Policy> findPolicy = policiesByType.stream()
-                                .filter(p -> p.getType() == PolicyTypeEnum.STORAGE && policy.equals(p.getPolicyName()))
-                                .findAny();
-                        LOG.info("find policy in {} ", policiesByType);
-                        if (!findPolicy.isPresent()) {
-                            return;
+            for (Long beId : systemInfoService.getBackendIds(true)) {
+                this.references.forEach(
+                        (policy, type) -> {
+                            if (type == ReferenceType.POLICY) {
+                                List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
+                                        .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
+                                Optional<Policy> findPolicy = policiesByType.stream()
+                                        .filter(p -> p.getType() == PolicyTypeEnum.STORAGE
+                                                && policy.equals(p.getPolicyName()))
+                                        .findAny();
+                                LOG.info("find policy in {} ", policiesByType);
+                                if (!findPolicy.isPresent()) {
+                                    return;
+                                }
+                                // add policy's coolDown ttl、coolDown data、policy name to map
+                                Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
+                                StoragePolicy used = (StoragePolicy) findPolicy.get();
+                                tmpMap.put(StoragePolicy.COOLDOWN_DATETIME,
+                                        String.valueOf(used.getCooldownTimestampMs()));
+
+                                final String[] cooldownTtl = {"-1"};
+                                Optional.ofNullable(used.getCooldownTtl())
+                                        .ifPresent(date -> cooldownTtl[0] = used.getCooldownTtl());
+                                tmpMap.put(StoragePolicy.COOLDOWN_TTL, cooldownTtl[0]);
+
+                                tmpMap.put(StoragePolicy.MD5_CHECKSUM, used.getMd5Checksum());
+
+                                NotifyUpdateStoragePolicyTask modifyS3ResourcePropertiesTask =
+                                        new NotifyUpdateStoragePolicyTask(beId, used.getPolicyName(), tmpMap);
+                                LOG.info("notify be: {}, policy name: {}, "
+                                                + "properties: {} to modify S3 resource batch task.",
+                                        beId, used.getPolicyName(), tmpMap);
+                                batchTask.addTask(modifyS3ResourcePropertiesTask);
+                            }
                         }
-                        // add policy's coolDown ttl、coolDown data、policy name to map
-                        Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
-                        StoragePolicy used = (StoragePolicy) findPolicy.get();
-                        tmpMap.put(StoragePolicy.COOLDOWN_DATETIME, String.valueOf(used.getCooldownTimestampMs()));
-
-                        final String[] cooldownTtl = {"-1"};
-                        Optional.ofNullable(used.getCooldownTtl())
-                                .ifPresent(date -> cooldownTtl[0] = used.getCooldownTtl());
-                        tmpMap.put(StoragePolicy.COOLDOWN_TTL, cooldownTtl[0]);
-
-                        tmpMap.put(StoragePolicy.MD5_CHECKSUM, used.getMd5Checksum());
-
-                        NotifyUpdateStoragePolicyTask modifyS3ResourcePropertiesTask =
-                                new NotifyUpdateStoragePolicyTask(beId, used.getPolicyName(), tmpMap);
-                        LOG.info("notify be: {}, policy name: {}, properties: {} to modify S3 resource batch task.",
-                                beId, used.getPolicyName(), tmpMap);
-                        batchTask.addTask(modifyS3ResourcePropertiesTask);
-                    }
-            );
+                );
+            }
+            AgentTaskExecutor.submit(batchTask);
         }
-        AgentTaskExecutor.submit(batchTask);
     }
 }

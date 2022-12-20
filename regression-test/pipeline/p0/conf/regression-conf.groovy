@@ -48,7 +48,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = ""
+excludeSuites = "test_date_function"
 // this directories will not be executed
 excludeDirectories = ""
 
@@ -77,5 +77,8 @@ pg_14_port=7121
 enableHiveTest=false
 hms_port=7141
 
-sf1DataPath = "/data"
 cacheDataPath = "/data/regression/"
+
+s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3BucketName = "doris-build-hk-1308700295"
+s3Region = "ap-hongkong"

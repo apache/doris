@@ -65,6 +65,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
     protected ExternalCatalog extCatalog;
+    protected boolean invalidCacheInInit = true;
 
     /**
      * No args constructor for persist.
@@ -93,9 +94,12 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     public void setTableExtCatalog(ExternalCatalog extCatalog) {
     }
 
-    public void setUnInitialized() {
+    public void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
+        this.invalidCacheInInit = invalidCache;
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
+        }
     }
 
     public boolean isInitialized() {

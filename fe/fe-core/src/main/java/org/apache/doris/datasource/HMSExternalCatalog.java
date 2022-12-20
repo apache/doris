@@ -17,19 +17,25 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HMSResource;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -54,7 +60,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     public String getHiveMetastoreUris() {
-        return catalogProperty.getOrDefault("hive.metastore.uris", "");
+        return catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
     }
 
     @Override
@@ -72,7 +78,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 dbId = dbNameToId.get(dbName);
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized();
+                db.setUnInitialized(invalidCacheInInit);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addRefreshDb(dbId);
             } else {
@@ -91,8 +97,30 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         HiveConf hiveConf = new HiveConf();
-        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
+        for (String key : catalogProperty.getHdfsProperties().keySet()) {
+            String val = catalogProperty.getOrDefault(key, "");
+            hiveConf.set(key, val);
+        }
 
+        String authentication = catalogProperty.getOrDefault(
+                HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
+        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+            Configuration conf = new Configuration();
+            conf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+            UserGroupInformation.setConfiguration(conf);
+            try {
+                /**
+                 * Because metastore client is created by using
+                 * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
+                 * it will relogin when TGT is expired, so we don't need to relogin manually.
+                 */
+                UserGroupInformation.loginUserFromKeytab(
+                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
+                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
+            } catch (IOException e) {
+                throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
+            }
+        }
         // 1. read properties from hive-site.xml.
         // and then use properties in CatalogProperty to override properties got from hive-site.xml
         Map<String, String> properties = HiveMetaStoreClientHelper.getPropertiesForDLF(name, hiveConf);

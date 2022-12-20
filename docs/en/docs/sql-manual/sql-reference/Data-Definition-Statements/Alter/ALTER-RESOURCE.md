@@ -51,24 +51,24 @@ ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/
 2. Modify the maximum number of connections to the S3 resource named remote_s3:
 
 ```sql
-ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
+ALTER RESOURCE 'remote_s3' PROPERTIES ("AWS_MAX_CONNECTIONS" = "100");
 ```
 
 3. Modify information related to cold and hot separation S3 resources
 - Support
-  - `s3_max_connections` : default 50
-  - `s3_connection_timeout_ms` : default 1000ms
-  - `s3_secret_key` : s3 sk 
-  - `s3_access_key` : s3 ak
-  - `s3_request_timeout_ms` : default 3000ms
+  - `AWS_MAX_CONNECTIONS` : default 50
+  - `AWS_CONNECTION_TIMEOUT_MS` : default 1000ms
+  - `AWS_SECRET_KEY` : s3 sk 
+  - `AWS_ACCESS_KEY` : s3 ak
+  - `AWS_REQUEST_TIMEOUT_MS` : default 3000ms
 - Not Support
-  - `s3_region`
-  - `s3_bucket`
-  - `s3_root_path`
-  - `s3_endpoint`
+  - `AWS_REGION`
+  - `AWS_BUCKET`
+  - `AWS_ROOT_PATH`
+  - `AWS_ENDPOINT`
 
 ```sql
-  ALTER RESOURCE "showPolicy_1_resource" PROPERTIES("s3_max_connections" = "1111");
+  ALTER RESOURCE "showPolicy_1_resource" PROPERTIES("AWS_MAX_CONNECTIONS" = "1111");
 ```
 ### Keywords
 

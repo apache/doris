@@ -472,21 +472,9 @@ public class Util {
     }
 
     /**
-     * Multi-catalog feature is in experiment, and should be enabled by user manually.
-     */
-    public static void checkCatalogEnabled() throws AnalysisException {
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be true.");
-        }
-    }
-
-    /**
      * Check all rules of catalog.
      */
     public static void checkCatalogAllRules(String catalog) throws AnalysisException {
-        checkCatalogEnabled();
-
         if (Strings.isNullOrEmpty(catalog)) {
             throw new AnalysisException("Catalog name is empty.");
         }
@@ -555,5 +543,15 @@ public class Util {
     public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {
         logger.warn(msg, e);
         throw new RuntimeException(msg, e);
+    }
+
+    public static String getRootCauseMessage(Throwable t) {
+        String rootCause = "unknown";
+        Throwable p = t;
+        while (p != null) {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+            p = p.getCause();
+        }
+        return rootCause;
     }
 }

@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -98,6 +99,7 @@ public class FileGroupInfo {
         this.filesAdded = filesAdded;
         this.strictMode = strictMode;
         this.loadParallelism = loadParallelism;
+        this.fileType = brokerDesc.getFileType();
     }
 
     // for stream load
@@ -138,6 +140,10 @@ public class FileGroupInfo {
 
     public int getLoadParallelism() {
         return loadParallelism;
+    }
+
+    public TFileType getFileType() {
+        return fileType;
     }
 
     public String getExplainString(String prefix) {
@@ -303,10 +309,20 @@ public class FileGroupInfo {
             rangeDesc.setSize(rangeBytes);
             rangeDesc.setColumnsFromPath(columnsFromPath);
         } else {
+            // for stream load
+            if (getFileType() == TFileType.FILE_LOCAL) {
+                // when loading parquet via stream, there will be a local file saved on BE
+                // so to read it as a local file.
+                Preconditions.checkState(fileGroup.getFilePaths().size() == 1);
+                rangeDesc.setPath(fileGroup.getFilePaths().get(0));
+                rangeDesc.setStartOffset(0);
+                rangeDesc.setSize(fileStatus.size);
+            }
             rangeDesc.setLoadId(loadId);
             rangeDesc.setSize(fileStatus.size);
         }
         return rangeDesc;
     }
 }
+
 

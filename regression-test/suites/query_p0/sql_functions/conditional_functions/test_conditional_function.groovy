@@ -16,8 +16,7 @@
 // under the License.
 
 suite("test_conditional_function") {
-    qt_sql "set enable_vectorized_engine = true;"
-    qt_sql "set batch_size = 4096;"
+    sql "set batch_size = 4096;"
 
     def tbName = "test_conditional_function"
     sql "DROP TABLE IF EXISTS ${tbName};"
@@ -86,6 +85,12 @@ suite("test_conditional_function") {
     qt_sql "select ifnull( user_id, to_date('9999-01-01')) r from ${tbName} order by r"
 
     qt_sql "select ifnull( user_id, 999) r from ${tbName} order by r"
+
+    qt_if_true_then_nullable """select IF(true, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
+    qt_if_true_else_nullable """select IF(true, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
+
+    qt_if_false_then_nullable """select IF(false, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
+    qt_if_false_else_nullable """select IF(false, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
 
     sql "DROP TABLE ${tbName};"
 }

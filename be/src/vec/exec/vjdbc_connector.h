@@ -19,6 +19,7 @@
 
 #include <jni.h>
 
+#include "common/status.h"
 #include "exec/table_connector.h"
 
 namespace doris {
@@ -60,6 +61,8 @@ public:
 
 private:
     Status _register_func_id(JNIEnv* env);
+    Status _check_column_type();
+    Status _check_type(SlotDescriptor*, const std::string& type_str);
     Status _convert_column_data(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
                                 vectorized::IColumn* column_ptr);
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
@@ -78,6 +81,7 @@ private:
     jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
     jmethodID _executor_get_blocks_id;
+    jmethodID _executor_get_types_id;
     jmethodID _executor_close_id;
     jmethodID _executor_get_list_id;
     jmethodID _executor_get_list_size_id;

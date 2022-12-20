@@ -37,8 +37,6 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
-// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
-sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -92,3 +90,35 @@ es_8_port=39200
 
 alertOn="CLOSE"
 webhook=""
+
+//hive  catalog test config for bigdata
+enableExternalHiveTest = false
+extHiveHmsHost = "***.**.**.**"
+extHiveHmsPort = 7004
+extHiveHmsUser = "****"
+extHiveHmsPassword= "***********"
+
+//mysql jdbc connector test config for bigdata
+enableExternalMysqlTest = false
+extMysqlHost = "***.**.**.**"
+extMysqlPort = 3306
+extMysqlUser = "****"
+extMysqlPassword = "***********"
+
+//postgresql jdbc connector test config for bigdata
+enableExternalPgTest = false
+extPgHost = "***.**.**.*"
+extPgPort = 5432
+extPgUser = "****"
+extPgPassword = "***********"
+
+// elasticsearch external test config for bigdata
+enableExternalEsTest = false
+extEsHost = "***********"
+extEsPort = 9200
+extEsUser = "*******"
+extEsPassword = "***********"
+
+s3Endpoint = "cos.ap-hongkong.myqcloud.com/regression"
+s3BucketName = "doris-build-hk-1308700295"
+s3Region = "ap-hongkong"

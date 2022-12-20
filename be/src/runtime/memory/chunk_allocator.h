@@ -72,6 +72,10 @@ public:
     // otherwise the capacity of chunk allocator will be wrong.
     void free(uint8_t* data, size_t size);
 
+    void clear();
+
+    int64_t mem_consumption() { return _reserved_bytes; }
+
 private:
     ChunkAllocator(size_t reserve_limit);
 

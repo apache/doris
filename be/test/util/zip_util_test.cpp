@@ -91,7 +91,7 @@ TEST(ZipUtilTest, targetAlready) {
 
     Status st = f.extract(path + "/util/test_data", "zip_test");
     EXPECT_FALSE(st.ok());
-    EXPECT_TRUE(HasPrefixString(st.to_string(), "Already exist"));
+    EXPECT_TRUE(HasPrefixString(st.to_string(), "[ALREADY_EXIST]"));
 }
 
 TEST(ZipUtilTest, notzip) {
@@ -100,7 +100,7 @@ TEST(ZipUtilTest, notzip) {
     ZipFile f(path + "/util/test_data/zip_normal_data");
     Status st = f.extract("test", "test");
     EXPECT_FALSE(st.ok());
-    EXPECT_TRUE(HasPrefixString(st.to_string(), "Invalid argument"));
+    EXPECT_TRUE(HasPrefixString(st.to_string(), "[INVALID_ARGUMENT]"));
 }
 
 } // namespace doris

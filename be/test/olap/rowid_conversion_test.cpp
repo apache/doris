@@ -37,6 +37,7 @@
 #include "util/file_utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
@@ -75,7 +76,7 @@ protected:
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
-        tablet_schema_pb.set_num_short_key_columns(2);
+        tablet_schema_pb.set_num_short_key_columns(1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
         tablet_schema_pb.set_next_column_unique_id(4);
@@ -164,7 +165,7 @@ protected:
         create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         RowCursor input_row;
@@ -217,35 +218,7 @@ protected:
                 "hi": -5350970832824939812,
                 "lo": -6717994719194512122
             },
-            "creation_time": 1553765670,
-            "alpha_rowset_extra_meta_pb": {
-                "segment_groups": [
-                {
-                    "segment_group_id": 0,
-                    "num_segments": 2,
-                    "index_size": 132,
-                    "data_size": 576,
-                    "num_rows": 5,
-                    "zone_maps": [
-                    {
-                        "min": "MQ==",
-                        "max": "NQ==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MQ==",
-                        "max": "Mw==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "J2J1c2gn",
-                        "max": "J3RvbSc=",
-                        "null_flag": false
-                    }
-                    ],
-                    "empty": false
-                }]
-            }
+            "creation_time": 1553765670
         })";
         pb1->init_from_json(json_rowset_meta);
         pb1->set_start_version(start);
@@ -367,7 +340,7 @@ protected:
         RowsetWriterContext writer_context;
         create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
         std::unique_ptr<RowsetWriter> output_rs_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &output_rs_writer);
         EXPECT_TRUE(s.ok());
 
         // merge input rowset
@@ -405,7 +378,7 @@ protected:
                                          columns[1].column->get_int(i));
             }
         } while (s == Status::OK());
-        EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+        EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
         std::vector<uint32_t> segment_num_rows;
         EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -72,9 +73,6 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 context.params.setFileAttributes(getFileAttributes());
             }
 
-            if (inputSplit instanceof IcebergSplit) {
-                IcebergScanProvider.setIcebergParams(context, (IcebergSplit) inputSplit);
-            }
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
             if (locationType == TFileType.FILE_HDFS) {
@@ -89,13 +87,12 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                     // s3://buckets
                     fsName = fullPath.replace(filePath, "");
                 }
-                THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
+                THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);
                 context.params.setHdfsParams(tHdfsParams);
             } else if (locationType == TFileType.FILE_S3) {
                 context.params.setProperties(locationProperties);
             }
-
             TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
 
             FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
@@ -107,7 +104,10 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                         pathPartitionKeys, false);
 
                 TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
-
+                // external data lake table
+                if (split instanceof IcebergSplit) {
+                    IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) inputSplit);
+                }
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
                         curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),

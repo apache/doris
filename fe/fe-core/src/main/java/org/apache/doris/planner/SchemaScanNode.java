@@ -52,6 +52,7 @@ public class SchemaScanNode extends ScanNode {
     private String userIp;
     private String frontendIP;
     private int frontendPort;
+    private String schemaCatalog;
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
@@ -77,6 +78,7 @@ public class SchemaScanNode extends ScanNode {
         userIp = analyzer.getContext().getRemoteIP();
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
+        schemaCatalog = analyzer.getSchemaCatalog();
     }
 
     @Override
@@ -91,6 +93,9 @@ public class SchemaScanNode extends ScanNode {
             } else if (tableName.equalsIgnoreCase("SESSION_VARIABLES")) {
                 msg.schema_scan_node.setDb("SESSION");
             }
+        }
+        if (schemaCatalog != null) {
+            msg.schema_scan_node.setCatalog(schemaCatalog);
         }
         msg.schema_scan_node.show_hidden_cloumns = Util.showHiddenColumns();
 

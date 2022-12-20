@@ -52,17 +52,36 @@ public:
 
     Status clean_all_cache() override;
 
+    Status clean_one_cache(size_t* cleaned_size) override;
+
+    int64_t get_oldest_match_time() const override {
+        return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
+    };
+
+    bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
+
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);
 
-    Status _clean_cache_internal(size_t offset);
+    Status _clean_cache_internal(size_t offset, size_t* cleaned_size);
 
     Status _get_need_cache_offsets(size_t offset, size_t req_size,
                                    std::vector<size_t>* cache_offsets);
 
-    size_t _calc_cache_file_size();
+    std::pair<Path, Path> _cache_path(size_t offset);
+
+    void _init();
 
 private:
+    struct SubFileInfo {
+        size_t offset;
+        int64_t last_match_time;
+    };
+    using SubGcQueue = std::priority_queue<SubFileInfo, std::vector<SubFileInfo>,
+                                           SubFileLRUComparator<SubFileInfo>>;
+    // used by gc thread, and currently has no lock protection
+    SubGcQueue _gc_lru_queue;
+
     Path _cache_dir;
     int64_t _alive_time_sec;
     io::FileReaderSPtr _remote_file_reader;
@@ -72,6 +91,8 @@ private:
     std::map<size_t, int64_t> _last_match_times;
     // offset_begin -> local file reader
     std::map<size_t, io::FileReaderSPtr> _cache_file_readers;
+
+    std::once_flag init_flag;
 };
 
 } // namespace io

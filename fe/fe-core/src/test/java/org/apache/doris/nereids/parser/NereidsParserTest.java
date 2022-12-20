@@ -170,7 +170,7 @@ public class NereidsParserTest extends ParserTestBase {
         String innerJoin2 = "SELECT t1.a FROM t1 JOIN t2 ON t1.id = t2.id;";
         logicalPlan = nereidsParser.parseSingle(innerJoin2);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
-        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
 
         String leftJoin1 = "SELECT t1.a FROM t1 LEFT JOIN t2 ON t1.id = t2.id;";
         logicalPlan = nereidsParser.parseSingle(leftJoin1);
@@ -219,6 +219,18 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    void parseJoinEmptyConditionError() {
+        parsePlan("select * from t1 LEFT JOIN t2")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageEquals("\n"
+                        + "on mustn't be empty except for cross/inner join(line 1, pos 17)\n"
+                        + "\n"
+                        + "== SQL ==\n"
+                        + "select * from t1 LEFT JOIN t2\n"
+                        + "-----------------^^^\n");
+    }
+
+    @Test
     public void parseDecimal() {
         String f1 = "SELECT col1 * 0.267081789095306 FROM t";
         NereidsParser nereidsParser = new NereidsParser();
@@ -229,5 +241,18 @@ public class NereidsParserTest extends ParserTestBase {
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
         Assertions.assertEquals(doubleCount, 1);
+    }
+
+    @Test
+    public void parseSetOperation() {
+        String union = "select * from t1 union select * from t2 union all select * from t3";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(union);
+        System.out.println(logicalPlan.treeString());
+
+        String union1 = "select * from t1 union (select * from t2 union all select * from t3)";
+        NereidsParser nereidsParser1 = new NereidsParser();
+        LogicalPlan logicalPlan1 = nereidsParser1.parseSingle(union1);
+        System.out.println(logicalPlan1.treeString());
     }
 }

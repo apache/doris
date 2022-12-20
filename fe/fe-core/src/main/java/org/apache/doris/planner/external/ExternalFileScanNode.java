@@ -207,7 +207,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                scanProvider = new IcebergScanProvider(hmsTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(hmsTable, analyzer, desc, columnNameToRange);
                 break;
             case HIVE:
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
@@ -456,7 +456,25 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
                 expr.analyze(analyzer);
             }
-            expr = castToSlot(destSlotDesc, expr);
+
+            // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
+            // and if input string is not a valid json string, return null.
+            PrimitiveType dstType = destSlotDesc.getType().getPrimitiveType();
+            PrimitiveType srcType = expr.getType().getPrimitiveType();
+            if (dstType == PrimitiveType.JSONB
+                    && (srcType == PrimitiveType.VARCHAR || srcType == PrimitiveType.STRING)) {
+                List<Expr> args = Lists.newArrayList();
+                args.add(expr);
+                String nullable = "notnull";
+                if (destSlotDesc.getIsNullable() || expr.isNullable()) {
+                    nullable = "nullable";
+                }
+                String name = "jsonb_parse_" + nullable + "_error_to_null";
+                expr = new FunctionCallExpr(name, args);
+                expr.analyze(analyzer);
+            } else {
+                expr = castToSlot(destSlotDesc, expr);
+            }
             params.putToExprOfDestSlot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
         params.setDestSidToSrcSidWithoutTrans(destSidToSrcSidWithoutTrans);
@@ -548,5 +566,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
+
 
 

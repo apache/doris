@@ -154,6 +154,8 @@ public:
     // Metrics related with file reader/writer
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;
+    IntCounter* hdfs_file_reader_total;
+    IntCounter* broker_file_reader_total;
     IntCounter* local_file_writer_total;
     IntCounter* s3_file_writer_total;
     IntCounter* file_created_total;
@@ -164,6 +166,8 @@ public:
     IntCounter* s3_bytes_written_total;
     IntGauge* local_file_open_reading;
     IntGauge* s3_file_open_reading;
+    IntGauge* hdfs_file_open_reading;
+    IntGauge* broker_file_open_reading;
     IntGauge* local_file_open_writing;
     IntGauge* s3_file_open_writing;
 
@@ -181,6 +185,7 @@ public:
     UIntGauge* routine_load_task_count;
     UIntGauge* small_file_cache_count;
     UIntGauge* stream_load_pipe_count;
+    UIntGauge* new_stream_load_pipe_count;
     UIntGauge* brpc_endpoint_stub_count;
     UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
@@ -198,6 +203,9 @@ public:
     UIntGauge* query_cache_memory_total_byte;
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
+
+    IntCounter* tablet_schema_cache_count;
+    UIntGauge* tablet_schema_cache_memory_bytes;
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
@@ -226,7 +234,7 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    bool is_inited() { return _is_inited; }
+    bool is_inited() const { return _is_inited; }
 
 private:
     // Don't allow constructor

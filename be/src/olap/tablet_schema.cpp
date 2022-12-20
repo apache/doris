@@ -441,18 +441,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
 }
 
-uint32_t TabletColumn::mem_size() const {
-    auto size = sizeof(TabletColumn);
-    size += _col_name.size();
-    if (_has_default_value) {
-        size += _default_value.size();
-    }
-    for (auto& sub_column : _sub_columns) {
-        size += sub_column.mem_size();
-    }
-    return size;
-}
-
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_columns.push_back(sub_column);
     sub_column._parent = this;
@@ -557,6 +545,7 @@ void TabletSchema::clear_columns() {
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+    SCOPED_MEM_COUNT(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_key_columns = 0;
@@ -727,19 +716,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_sort_col_num(_sort_col_num);
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
-}
-
-uint32_t TabletSchema::mem_size() const {
-    auto size = sizeof(TabletSchema);
-    for (auto& col : _cols) {
-        size += col.mem_size();
-    }
-
-    for (auto& pair : _field_name_to_index) {
-        size += pair.first.size();
-        size += sizeof(pair.second);
-    }
-    return size;
 }
 
 size_t TabletSchema::row_size() const {

@@ -18,8 +18,6 @@
 suite("test_mysql_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -49,7 +47,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
         sql """drop catalog if exists ${catalog_name} """
 
-        // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
                 "type"="jdbc",
                 "jdbc.user"="root",
@@ -96,8 +93,5 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
-
-
-        sql """admin set frontend config ("enable_multi_catalog" = "false")"""
     }
 }

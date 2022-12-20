@@ -17,6 +17,7 @@
 
 #include "runtime/runtime_state.h"
 #include "udf/udf_internal.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -397,14 +398,10 @@ struct UnixTimeStampImpl {
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
-        col_result->resize(input_rows_count);
-        // TODO: use a const column to store this value
-        auto& col_result_data = col_result->get_data();
-        auto res_value = context->impl()->state()->timestamp_ms() / 1000;
-        for (int i = 0; i < input_rows_count; i++) {
-            col_result_data[i] = res_value;
-        }
-        block.replace_by_position(result, std::move(col_result));
+        col_result->resize(1);
+        col_result->get_data()[0] = context->impl()->state()->timestamp_ms() / 1000;
+        auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
+        block.replace_by_position(result, std::move(col_const));
         return Status::OK();
     }
 };

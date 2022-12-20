@@ -101,47 +101,47 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     public CreateTableStmt(boolean ifNotExists,
-                           boolean isExternal,
-                           TableName tableName,
-                           List<ColumnDef> columnDefinitions,
-                           String engineName,
-                           KeysDesc keysDesc,
-                           PartitionDesc partitionDesc,
-                           DistributionDesc distributionDesc,
-                           Map<String, String> properties,
-                           Map<String, String> extProperties,
-                           String comment) {
+            boolean isExternal,
+            TableName tableName,
+            List<ColumnDef> columnDefinitions,
+            String engineName,
+            KeysDesc keysDesc,
+            PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
                 distributionDesc, properties, extProperties, comment, null);
     }
 
     public CreateTableStmt(boolean ifNotExists,
-                           boolean isExternal,
-                           TableName tableName,
-                           List<ColumnDef> columnDefinitions,
-                           String engineName,
-                           KeysDesc keysDesc,
-                           PartitionDesc partitionDesc,
-                           DistributionDesc distributionDesc,
-                           Map<String, String> properties,
-                           Map<String, String> extProperties,
-                           String comment, List<AlterClause> ops) {
+            boolean isExternal,
+            TableName tableName,
+            List<ColumnDef> columnDefinitions,
+            String engineName,
+            KeysDesc keysDesc,
+            PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
                 distributionDesc, properties, extProperties, comment, ops);
     }
 
     public CreateTableStmt(boolean ifNotExists,
-                           boolean isExternal,
-                           TableName tableName,
-                           List<ColumnDef> columnDefinitions,
-                           List<IndexDef> indexDefs,
-                           String engineName,
-                           KeysDesc keysDesc,
-                           PartitionDesc partitionDesc,
-                           DistributionDesc distributionDesc,
-                           Map<String, String> properties,
-                           Map<String, String> extProperties,
-                           String comment, List<AlterClause> rollupAlterClauseList) {
+            boolean isExternal,
+            TableName tableName,
+            List<ColumnDef> columnDefinitions,
+            List<IndexDef> indexDefs,
+            String engineName,
+            KeysDesc keysDesc,
+            PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -169,11 +169,11 @@ public class CreateTableStmt extends DdlStmt {
 
     // This is for iceberg/hudi table, which has no column schema
     public CreateTableStmt(boolean ifNotExists,
-                           boolean isExternal,
-                           TableName tableName,
-                           String engineName,
-                           Map<String, String> properties,
-                           String comment) {
+            boolean isExternal,
+            TableName tableName,
+            String engineName,
+            Map<String, String> properties,
+            String comment) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
         this.tableName = tableName;
@@ -401,6 +401,10 @@ public class CreateTableStmt extends DdlStmt {
                 }
             }
 
+            if (columnDef.getType().isTime() || columnDef.getType().isTimeV2()) {
+                throw new AnalysisException("Time type is not supported for olap table");
+            }
+
             if (columnDef.getType().isObjectStored()) {
                 hasObjectStored = true;
                 objectStoredColumn = columnDef.getName();
@@ -418,7 +422,8 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("olap")) {
             // analyze partition
             if (partitionDesc != null) {
-                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
+                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
+                        || partitionDesc instanceof ColumnPartitionDesc) {
                     partitionDesc.analyze(columnDefs, properties);
                 } else {
                     throw new AnalysisException("Currently only support range"
@@ -440,8 +445,9 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getAggregateType() == AggregateType.REPLACE
                                 || columnDef.getAggregateType() == AggregateType.REPLACE_IF_NOT_NULL) {
                             throw new AnalysisException("Create aggregate keys table with value columns of which"
-                                + " aggregate type is " + columnDef.getAggregateType() + " should not contain random"
-                                + " distribution desc");
+                                    + " aggregate type is " + columnDef.getAggregateType()
+                                    + " should not contain random"
+                                    + " distribution desc");
                         }
                     }
                 }

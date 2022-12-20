@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class GraphSimplifierTest {
@@ -163,7 +162,6 @@ public class GraphSimplifierTest {
                 totalTime / times));
     }
 
-    @Disabled
     @Test
     void testComplexQuery() {
         HyperGraph hyperGraph = new HyperGraphBuilder()

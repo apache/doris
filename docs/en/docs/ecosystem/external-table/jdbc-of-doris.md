@@ -23,6 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 # JDBC External Table Of Doris
 
@@ -79,6 +80,10 @@ Parameter Description：
 | **resource**     | The resource name that depends on when creating the external table in Doris corresponds to the name when creating the resource in the previous step.|
 | **table**        | The table name mapped to the external database when creating the external table in Doris.|
 | **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql,sqlserver,oracle.|
+
+>**Notice:**
+>
+>If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
 
 ### Query usage
 
@@ -162,16 +167,17 @@ There are different data types among different databases. Here is a list of the 
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
-|   CHAR   |   CHAR   |
-| VARCHAR  | VARCHAR  |
-|   DATE   |   DATE   |
-|  FLOAT   |  FLOAT   |
+| BIT(1)   | BOOLEAN  |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
 |  BIGINT  |  BIGINT  |
-|  DOUBLE  |  DOUBLE  |
+|BIGINT UNSIGNED|LARGEINT|
+| VARCHAR  | VARCHAR  |
+|   DATE   |   DATE   |
+|  FLOAT   |  FLOAT   |
 | DATETIME | DATETIME |
+|  DOUBLE  |  DOUBLE  |
 | DECIMAL  | DECIMAL  |
 
 
@@ -180,43 +186,42 @@ There are different data types among different databases. Here is a list of the 
 |    PostgreSQL    |  Doris   |
 | :--------------: | :------: |
 |     BOOLEAN      | BOOLEAN  |
-|       CHAR       |   CHAR   |
-|     VARCHAR      | VARCHAR  |
-|       DATE       |   DATE   |
-|       REAL       |  FLOAT   |
 |     SMALLINT     | SMALLINT |
 |       INT        |   INT    |
 |      BIGINT      |  BIGINT  |
-| DOUBLE PRECISION |  DOUBLE  |
+|     VARCHAR      | VARCHAR  |
+|       DATE       |   DATE   |
 |    TIMESTAMP     | DATETIME |
+|       REAL       |  FLOAT   |
+|      FLOAT       |  DOUBLE  |
 |     DECIMAL      | DECIMAL  |
 
 ### Oracle
 
 |  Oracle  |  Doris   |
 | :------: | :------: |
-|   CHAR   |   CHAR   |
 | VARCHAR  | VARCHAR  |
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
+|   REAL   |   FLOAT  |
+|   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
-
 
 ### SQL server
 
 | SQLServer |  Doris   |
 | :-------: | :------: |
 |    BIT    | BOOLEAN  |
-|   CHAR    |   CHAR   |
-|  VARCHAR  | VARCHAR  |
-|   DATE    |   DATE   |
-|   REAL    |  FLOAT   |
 |  TINYINT  | TINYINT  |
 | SMALLINT  | SMALLINT |
 |    INT    |   INT    |
 |  BIGINT   |  BIGINT  |
+|  VARCHAR  | VARCHAR  |
+|   DATE    |   DATE   |
 | DATETIME  | DATETIME |
+|   REAL    |  FLOAT   |
+|   FLOAT   |  DOUBLE  |
 |  DECIMAL  | DECIMAL  |
 
 ### ClickHouse
@@ -283,3 +288,4 @@ ALTER TABLE table_name CHARSET=utf8mb4;
 SET NAMES utf8mb4
 
 ```
+</version>

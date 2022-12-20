@@ -44,24 +44,22 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
-
-    public static boolean forTest = false;
 
     /**
      * If internal table creation failed, will retry after below seconds.
      */
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 1;
 
-
     public void run() {
-        if (forTest) {
+        if (FeConstants.disableInternalSchemaDb) {
             return;
         }
-        while (true) {
+        while (!created()) {
             FrontendNodeType feType = Env.getCurrentEnv().getFeType();
             if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
                 LOG.warn("FE is not ready");
@@ -72,7 +70,6 @@ public class InternalSchemaInitializer extends Thread {
                         .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
                 createDB();
                 createTbl();
-                break;
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
             }
@@ -108,6 +105,7 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         columnDefs.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
         partId.setAllowNull(true);
@@ -145,10 +143,12 @@ public class InternalSchemaInitializer extends Thread {
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_JOB_TABLE);
         List<ColumnDef> columnDefs = new ArrayList<>();
         columnDefs.add(new ColumnDef("job_id", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("task_id", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("db_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("tbl_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("col_name", TypeDef.createVarchar(1024)));
+        columnDefs.add(new ColumnDef("index_id", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("job_type", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("analysis_type", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("message", TypeDef.createVarchar(1024)));
@@ -173,6 +173,18 @@ public class InternalSchemaInitializer extends Thread {
         // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
+    }
+
+    private boolean created() {
+        Optional<Database> optionalDatabase =
+                Env.getCurrentEnv().getInternalCatalog()
+                        .getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME);
+        if (!optionalDatabase.isPresent()) {
+            return false;
+        }
+        Database db = optionalDatabase.get();
+        return db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
+                && db.getTable(StatisticConstants.ANALYSIS_JOB_TABLE).isPresent();
     }
 
 }

@@ -48,6 +48,7 @@ public class ConnectProcessorTest {
     private static ByteBuffer pingPacket;
     private static ByteBuffer quitPacket;
     private static ByteBuffer queryPacket;
+    private static ByteBuffer multiQueryPacket;
     private static ByteBuffer fieldListPacket;
     private static AuditEventBuilder auditBuilder = new AuditEventBuilder();
     private static ConnectContext myContext;
@@ -89,6 +90,14 @@ public class ConnectProcessorTest {
             queryPacket = serializer.toByteBuffer();
         } // CHECKSTYLE IGNORE THIS LINE
 
+        // Multi query packet
+        { // CHECKSTYLE IGNORE THIS LINE
+            MysqlSerializer serializer = MysqlSerializer.newInstance();
+            serializer.writeInt1(3);
+            serializer.writeEofString("select * from a;select * from b;drop table a");
+            multiQueryPacket = serializer.toByteBuffer();
+        } // CHECKSTYLE IGNORE THIS LINE
+
         // Field list packet
         { // CHECKSTYLE IGNORE THIS LINE
             MysqlSerializer serializer = MysqlSerializer.newInstance();
@@ -108,6 +117,7 @@ public class ConnectProcessorTest {
         pingPacket.clear();
         quitPacket.clear();
         queryPacket.clear();
+        multiQueryPacket.clear();
         fieldListPacket.clear();
         // Mock
         MysqlChannel channel = new MysqlChannel(socketChannel);
@@ -383,6 +393,82 @@ public class ConnectProcessorTest {
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
         Assert.assertTrue(myContext.getState().toResponsePacket() instanceof MysqlErrPacket);
+    }
+
+    @Test
+    public void testMultiQuery(@Mocked StmtExecutor executor) throws Exception {
+        ConnectContext ctx = initMockContext(mockChannel(multiQueryPacket), AccessTestUtil.fetchAdminCatalog());
+
+        ConnectProcessor processor = new ConnectProcessor(ctx);
+
+        // Mock statement executor
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+
+                executor.execute();
+                times = 3;
+            }
+        };
+
+        processor.processOnce();
+        Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
+        Assert.assertEquals(myContext.getState().getStateType(), QueryState.MysqlStateType.OK);
+        Assert.assertEquals("drop table a", ctx.getAuditEventBuilder().build().stmt);
+    }
+
+    @Test
+    public void testMultiQueryFail1(@Mocked StmtExecutor executor) throws Exception {
+        ConnectContext ctx = initMockContext(mockChannel(multiQueryPacket), AccessTestUtil.fetchAdminCatalog());
+
+        ConnectProcessor processor = new ConnectProcessor(ctx);
+
+        // Mock statement executor
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+
+                executor.execute();
+                times = 1;
+                result = new IOException("Fail");
+            }
+        };
+
+        processor.processOnce();
+        Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
+        Assert.assertEquals(myContext.getState().getStateType(), QueryState.MysqlStateType.ERR);
+        Assert.assertEquals(QueryState.MysqlStateType.ERR.name(), ctx.getAuditEventBuilder().build().state);
+        Assert.assertEquals("select * from a", ctx.getAuditEventBuilder().build().stmt);
+    }
+
+    @Test
+    public void testMultiQueryFail2(@Mocked StmtExecutor executor) throws Exception {
+        ConnectContext ctx = initMockContext(mockChannel(multiQueryPacket), AccessTestUtil.fetchAdminCatalog());
+
+        ConnectProcessor processor = new ConnectProcessor(ctx);
+
+        // Mock statement executor
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+
+                executor.execute();
+                result = null;
+                result = new IOException("Fail");
+            }
+        };
+
+        processor.processOnce();
+        Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
+        Assert.assertEquals(myContext.getState().getStateType(), QueryState.MysqlStateType.ERR);
+        Assert.assertEquals(QueryState.MysqlStateType.ERR.name(), ctx.getAuditEventBuilder().build().state);
+        Assert.assertEquals("select * from b", ctx.getAuditEventBuilder().build().stmt);
     }
 
     @Test

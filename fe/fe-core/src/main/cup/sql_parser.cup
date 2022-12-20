@@ -718,6 +718,7 @@ nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
 nonterminal SlotRef column_ref;
+nonterminal ArrayList<SlotRef> column_ref_list;
 nonterminal FunctionCallExpr column_subscript;
 nonterminal FunctionCallExpr column_slice;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
@@ -878,6 +879,7 @@ nonterminal MVRefreshInfo.BuildMode build_mv;
 nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
+nonterminal PartitionDesc opt_mv_partition;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1137,13 +1139,13 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshTableStmt(tbl);
     :}
-    | KW_REFRESH KW_DATABASE ident:db
+    | KW_REFRESH KW_DATABASE ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(db);
+        RESULT = new RefreshDbStmt(db, properties);
     :}
-    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(ctl, db);
+        RESULT = new RefreshDbStmt(ctl, db, properties);
     :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
@@ -1153,9 +1155,9 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
     :}
-    | KW_REFRESH KW_CATALOG ident:catalogName
+    | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:
-        RESULT = new RefreshCatalogStmt(catalogName);
+        RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
     ;
 
@@ -1267,10 +1269,6 @@ alter_stmt ::=
     opt_properties:properties
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterTableStatsStmt(tbl, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
@@ -1692,11 +1690,23 @@ opt_mv_refersh_info ::=
 
 opt_mv_keys ::=
     {:
-        RESULT = new KeysDesc(KeysType.DUP_KEYS, Lists.newArrayList());
+        RESULT = null;
     :}
     | KW_KEY LPAREN ident_list:keys RPAREN
     {:
         RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    ;
+
+opt_mv_partition ::=
+    /* Empty: no partition */
+    {:
+        RESULT = null;
+    :}
+    /* Column partition */
+    | KW_PARTITION KW_BY LPAREN column_ref_list:columns RPAREN
+    {:
+        RESULT = new ColumnPartitionDesc(columns);
     :}
     ;
 
@@ -1829,7 +1839,7 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
-         opt_partition:partitionDesc
+         opt_mv_partition:partitionDesc
          opt_distribution:distributionDesc
          opt_properties:properties
          KW_AS query_stmt:query
@@ -2619,7 +2629,7 @@ show_create_routine_load_stmt ::=
 
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    KW_ANALYZE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
     :}
@@ -3419,6 +3429,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
+    | KW_CREATE KW_CATALOG ident:catalogName
+        {:
+            RESULT = new ShowCreateCatalogStmt(catalogName);
+        :}
     /* Create Function */
     | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
@@ -3671,11 +3685,6 @@ show_param ::=
     | KW_SYNC KW_JOB opt_db:dbName
     {:
         RESULT = new ShowSyncJobStmt(dbName);
-    :}
-    /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
     | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
@@ -6183,6 +6192,20 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
+  ;
+
+column_ref_list ::=
+  column_ref:ref
+  {:
+    ArrayList<SlotRef> refs = new ArrayList<SlotRef>();
+    refs.add(ref);
+    RESULT = refs;
+  :}
+  | column_ref_list:list COMMA column_ref:ref
+  {:
+    list.add(ref);
+    RESULT = list;
+  :}
   ;
 
 column_subscript ::=

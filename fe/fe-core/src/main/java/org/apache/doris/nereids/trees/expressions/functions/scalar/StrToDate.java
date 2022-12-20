@@ -56,7 +56,7 @@ public class StrToDate extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
+    protected FunctionSignature computeSignature(FunctionSignature signature) {
         /*
          * The return type of str_to_date depends on whether the time part is included in the format.
          * If included, it is datetime, otherwise it is date.
@@ -83,8 +83,8 @@ public class StrToDate extends ScalarFunction
          * Return type is DATETIME
          */
         DataType returnType;
-        if (arguments.get(1) instanceof StringLikeLiteral) {
-            if (DateLiteral.hasTimePart(((StringLikeLiteral) arguments.get(1)).getStringValue())) {
+        if (getArgument(1) instanceof StringLikeLiteral) {
+            if (DateLiteral.hasTimePart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
                 returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
             } else {
                 returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATE));

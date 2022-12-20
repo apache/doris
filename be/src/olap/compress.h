@@ -30,8 +30,8 @@ class StorageByteBuffer;
 //     out - output buffer,The space from position to limit can be used to store data
 //     smaller - Whether the compressed data size is smaller than the data size before compression
 // Returns:
-//     Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) - Insufficient space left in output buffer
-//     Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR) - Compression error
+//     Status::Error<BUFFER_OVERFLOW>() - Insufficient space left in output buffer
+//     Status::Error<COMPRESS_ERROR>() - Compression error
 typedef Status (*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
 
 // Define a decompression function to decompress the remaining memory in the input buffer
@@ -40,8 +40,8 @@ typedef Status (*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, bool
 //     in - input buffer,Decompress memory from position to limit
 //     out - output buffer,The space from position to limit can be used to store data
 // Returns:
-//     Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) - Insufficient space left in output buffer
-//     Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR) - decompression error
+//     Status::Error<BUFFER_OVERFLOW>() - Insufficient space left in output buffer
+//     Status::Error<DECOMPRESS_ERROR>() - decompression error
 typedef Status (*Decompressor)(StorageByteBuffer* in, StorageByteBuffer* out);
 
 #ifdef DORIS_WITH_LZO

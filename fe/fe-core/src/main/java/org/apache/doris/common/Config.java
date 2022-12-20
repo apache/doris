@@ -420,11 +420,6 @@ public class Config extends ConfigBase {
     @ConfField public static int max_mysql_service_task_threads_num = 4096;
 
     /**
-     * Cluster name will be shown as the title of web page
-     */
-    @ConfField public static String cluster_name = "Baidu Palo";
-
-    /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
      * Cluster id is usually a random integer generated when master FE start at first time.
      * You can also specify one.
@@ -531,10 +526,6 @@ public class Config extends ConfigBase {
      * Do not change this if you know what you are doing.
      */
     @ConfField public static int load_etl_thread_num_normal_priority = 10;
-    /**
-     * Concurrency of delete jobs.
-     */
-    @ConfField public static int delete_thread_num = 10;
     /**
      * Not available.
      */
@@ -1683,15 +1674,11 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_vectorized_load = true;
 
+    @ConfField
+    public static boolean enable_pipeline_load = false;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
-
-    /**
-     * Temp config for multi catalog feature.
-     * Should be removed when this feature is ready.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
@@ -1755,7 +1742,7 @@ public class Config extends ConfigBase {
      * Temp config, should be removed when new file scan node is ready.
      */
     @ConfField(mutable = true)
-    public static boolean enable_new_load_scan_node = false;
+    public static boolean enable_new_load_scan_node = true;
 
     /**
      * Max data version of backends serialize block.

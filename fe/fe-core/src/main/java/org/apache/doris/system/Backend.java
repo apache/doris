@@ -573,13 +573,12 @@ public class Backend implements Writable {
             // When first upgrade from old version, tags may be null
             tagMap = Maps.newHashMap();
         }
-        if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
+        if (!locationTag.value.equals(tagMap.get(Tag.TYPE_LOCATION))) {
             // ATTN: here we use Tag.TYPE_LOCATION directly, not locationTag.type,
             // because we need to make sure the previous tag must be a location type tag,
             // and if not, convert it to location type.
             tagMap.put(Tag.TYPE_LOCATION, locationTag.value);
         }
-        locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
     }
 
     public static Backend read(DataInput in) throws IOException {

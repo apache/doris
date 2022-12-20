@@ -183,6 +183,8 @@ struct TQueryOptions {
   53: optional i32 partitioned_hash_join_rows_threshold = 0
 
   54: optional bool enable_share_hash_table_for_broadcast_join
+
+  55: optional bool enable_pipeline_engine = false
 }
     
 

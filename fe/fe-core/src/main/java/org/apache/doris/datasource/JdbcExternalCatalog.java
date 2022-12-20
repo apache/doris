@@ -43,7 +43,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public static final String PROP_DRIVER_URL = "jdbc.driver_url";
     public static final String PROP_DRIVER_CLASS = "jdbc.driver_class";
 
-    private JdbcClient jdbcClient;
+    // Must add "transient" for Gson to ignore this field,
+    // or Gson will throw exception with HikariCP
+    private transient JdbcClient jdbcClient;
     private String databaseTypeName;
     private String jdbcUser;
     private String jdbcPasswd;
@@ -120,7 +122,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 dbId = dbNameToId.get(dbName);
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized();
+                db.setUnInitialized(invalidCacheInInit);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addRefreshDb(dbId);
             } else {

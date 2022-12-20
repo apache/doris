@@ -27,8 +27,10 @@ import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
+import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
 import com.google.common.collect.ImmutableList;
 
@@ -57,7 +59,9 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     new BindSlotReference(scope),
                     new BindFunction(),
                     new ProjectToGlobalAggregate(),
-                    new ReplaceExpressionByChildOutput()
+                    new ResolveOrdinalInOrderByAndGroupBy(),
+                    new ReplaceExpressionByChildOutput(),
+                    new HideOneRowRelationUnderUnion()
                 )),
                 topDownBatch(ImmutableList.of(
                     new FillUpMissingSlots(),

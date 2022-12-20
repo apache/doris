@@ -27,6 +27,7 @@
 #include "util/slice.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 namespace vectorized {
 
@@ -110,7 +111,7 @@ TEST(VGenericIteratorsTest, Union) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 600);
 
     auto c0 = block.get_by_position(0).column;
@@ -156,7 +157,7 @@ TEST(VGenericIteratorsTest, MergeAgg) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 600);
 
     auto c0 = block.get_by_position(0).column;
@@ -205,7 +206,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 300);
 
     auto c0 = block.get_by_position(0).column;
@@ -327,7 +328,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 1);
 
     auto col0 = block.get_by_position(0).column;

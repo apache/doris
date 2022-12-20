@@ -62,6 +62,15 @@
         ORDER BY date2;
     """
 
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        HAVING date = 202245
+        ORDER BY date;
+    """
+
     sql """
         DROP TABLE IF EXISTS `tb_holiday`;
     """

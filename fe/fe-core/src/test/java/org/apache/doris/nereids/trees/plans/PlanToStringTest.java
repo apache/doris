@@ -56,7 +56,7 @@ public class PlanToStringTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[], hasRepeat=false \\)"));
+                .matches("LogicalAggregate \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false \\)"));
     }
 
     @Test
@@ -89,7 +89,7 @@ public class PlanToStringTest {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
-        Assertions.assertTrue(plan.toString().matches("LogicalProject \\( projects=\\[a#\\d+] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject \\( projects=\\[a#\\d+], excepts=\\[], canEliminate=true \\)"));
     }
 
     @Test

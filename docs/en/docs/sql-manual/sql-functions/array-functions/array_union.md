@@ -26,6 +26,12 @@ under the License.
 
 ## array_union
 
+<version since="1.2.0">
+
+array_union
+
+</version>
+
 ### description
 
 #### Syntax
@@ -87,3 +93,4 @@ mysql> select k1,k2,k3,array_union(k2,k3) from array_type_table_decimal;
 ### keywords
 
 ARRAY,UNION,ARRAY_UNION
+

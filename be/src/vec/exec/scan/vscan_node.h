@@ -26,6 +26,10 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vin_predicate.h"
 
+namespace doris::pipeline {
+class ScanOperator;
+}
+
 namespace doris::vectorized {
 
 class VScanner;
@@ -45,10 +49,13 @@ class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+    virtual ~VScanNode() = default;
+
     friend class VScanner;
     friend class NewOlapScanner;
     friend class VFileScanner;
     friend class ScannerContext;
+    friend class doris::pipeline::ScanOperator;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
@@ -83,6 +90,10 @@ public:
     TupleId output_tuple_id() const { return _output_tuple_id; }
     const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    bool runtime_filters_are_ready_or_timeout();
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -127,18 +138,21 @@ protected:
     //      2. in/not in predicate
     //      3. function predicate
     //  TODO: these interfaces should be change to become more common.
-    virtual PushDownType _should_push_down_binary_predicate(
+    virtual Status _should_push_down_binary_predicate(
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
+            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker,
+            PushDownType& pdt);
 
     virtual PushDownType _should_push_down_in_predicate(VInPredicate* in_pred,
                                                         VExprContext* expr_ctx, bool is_not_in);
 
-    virtual PushDownType _should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                           VExprContext* expr_ctx,
-                                                           StringVal* constant_str,
-                                                           doris_udf::FunctionContext** fn_ctx) {
-        return PushDownType::UNACCEPTABLE;
+    virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                     VExprContext* expr_ctx,
+                                                     StringVal* constant_str,
+                                                     doris_udf::FunctionContext** fn_ctx,
+                                                     PushDownType& pdt) {
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
     }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
@@ -192,6 +206,7 @@ protected:
 
     // indicate this scan node has no more data to return
     bool _eos = false;
+    bool _opened = false;
 
     FilterPredicates _filter_predicates {};
 
@@ -213,6 +228,7 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
+    bool _blocked_by_rf = false;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -234,6 +250,7 @@ protected:
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
+    RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     // time of prefilter input block from scanner
     RuntimeProfile::Counter* _prefilter_timer = nullptr;
     // time of convert input block to output block from scanner
@@ -253,17 +270,20 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter();
+    Status _acquire_runtime_filter(bool wait = true);
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 
     Status _normalize_conjuncts();
-    VExpr* _normalize_predicate(VExpr* conjunct_expr_root);
-    void _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
+    Status _normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr);
+    Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                    PushDownType* pdt);

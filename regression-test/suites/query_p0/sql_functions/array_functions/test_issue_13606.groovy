@@ -19,8 +19,6 @@ suite("test_issue_13606") {
     def tableName1 = "test_issue_13606_1"
     def tableName2 = "test_issue_13606_2"
     // array functions only supported in vectorized engine
-    sql """ set enable_vectorized_engine = true """
-
     sql """DROP TABLE IF EXISTS ${tableName1}"""
     sql """DROP TABLE IF EXISTS ${tableName2}"""
     sql """

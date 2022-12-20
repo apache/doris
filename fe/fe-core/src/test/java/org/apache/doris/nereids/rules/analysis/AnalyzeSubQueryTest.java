@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.FieldChecker;
@@ -132,7 +131,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
-                        logicalJoin(
+                        crossLogicalJoin(
                             logicalProject(
                                 logicalOlapScan()
                             ),
@@ -147,7 +146,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                                 new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("TT2"))))
                             )
                         )
-                        .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
                         .when(FieldChecker.check("otherJoinConjuncts",
                                 ImmutableList.of(new EqualTo(
                                         new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
@@ -169,13 +167,12 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
-                        logicalJoin(
+                        crossLogicalJoin(
                             logicalOlapScan(),
                             logicalProject(
                                 logicalOlapScan()
                             )
                         )
-                        .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
                         .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(new EqualTo(
                                 new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("default_cluster:test", "T1")),
                                 new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")))))

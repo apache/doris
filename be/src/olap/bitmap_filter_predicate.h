@@ -93,14 +93,15 @@ private:
 
         uint16_t new_size = 0;
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                (char*)reinterpret_cast<
+                        const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
                         ->get_data()
                         .data(),
                 null_map, sel, size);
         return new_size;
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         return "BitmapFilterColumnPredicate(" + type_to_string(T) + ")";
     }
 
