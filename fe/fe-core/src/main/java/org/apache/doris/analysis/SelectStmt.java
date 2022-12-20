@@ -711,6 +711,9 @@ public class SelectStmt extends QueryStmt {
         List<Expr> baseTblJoinConjuncts =
                 Expr.trySubstituteList(unassignedJoinConjuncts, baseTblSmap, analyzer, false);
         analyzer.materializeSlots(baseTblJoinConjuncts);
+        List<Expr> markConjuncts = analyzer.getMarkConjuncts();
+        markConjuncts = Expr.trySubstituteList(markConjuncts, baseTblSmap, analyzer, false);
+        analyzer.materializeSlots(markConjuncts);
 
         if (evaluateOrderBy) {
             // mark ordering exprs before marking agg/analytic exprs because they could contain
