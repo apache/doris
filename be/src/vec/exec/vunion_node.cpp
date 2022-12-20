@@ -17,6 +17,8 @@
 
 #include "vec/exec/vunion_node.h"
 
+#include <gen_cpp/AgentService_types.h>
+
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
@@ -157,7 +159,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
-            mblock.merge(materialize_block(&child_block));
+            mblock.merge(materialize_block(&child_block, _child_idx));
         }
         // It shouldn't be the case that we reached the limit because we shouldn't have
         // incremented '_num_rows_returned' yet.
@@ -190,7 +192,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             mem_reuse ? MutableBlock::build_mutable_block(block)
                       : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
                                 _row_descriptor)));
-    for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
+    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
+         ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
@@ -203,6 +206,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         tmp_block.erase_not_in(result_list);
         if (tmp_block.rows() > 0) {
             mblock.merge(tmp_block);
+            tmp_block.clear();
         }
     }
 
@@ -216,6 +220,27 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     if (block->rows() == 0) {
         block->insert({vectorized::ColumnUInt8::create(1),
                        std::make_shared<vectorized::DataTypeUInt8>(), ""});
+    }
+    return Status::OK();
+}
+
+//for pipeline operator
+Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
+                                           vectorized::Block* input_block,
+                                           vectorized::Block* output_block) {
+    DCHECK_LT(child_id, _children.size());
+    DCHECK(!is_child_passthrough(child_id));
+    bool mem_reuse = output_block->mem_reuse();
+    MutableBlock mblock =
+            mem_reuse ? MutableBlock::build_mutable_block(output_block)
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
+
+    if (input_block->rows() > 0) {
+        mblock.merge(materialize_block(input_block, child_id));
+        if (!mem_reuse) {
+            output_block->swap(mblock.to_block());
+        }
     }
     return Status::OK();
 }
@@ -286,8 +311,8 @@ void VUnionNode::debug_string(int indentation_level, std::stringstream* out) con
     *out << ")" << std::endl;
 }
 
-Block VUnionNode::materialize_block(Block* src_block) {
-    const std::vector<VExprContext*>& child_exprs = _child_expr_lists[_child_idx];
+Block VUnionNode::materialize_block(Block* src_block, int child_idx) {
+    const std::vector<VExprContext*>& child_exprs = _child_expr_lists[child_idx];
     ColumnsWithTypeAndName colunms;
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_column_id = -1;

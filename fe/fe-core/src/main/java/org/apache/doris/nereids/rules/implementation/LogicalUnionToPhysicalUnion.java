@@ -15,13 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.rules.implementation;
 
-namespace doris {
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 
-class RowBatchInterface {
-public:
-    virtual ~RowBatchInterface() {}
-};
-
-} // namespace doris
+/**
+ * Implementation rule that convert logical Union to Physical Union.
+ */
+public class LogicalUnionToPhysicalUnion extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalUnion().then(union ->
+            new PhysicalUnion(union.getQualifier(),
+                    union.getLogicalProperties(),
+                    union.children())
+        ).toRule(RuleType.LOGICAL_UNION_TO_PHYSICAL_UNION);
+    }
+}

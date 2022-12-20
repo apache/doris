@@ -73,4 +73,8 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
             MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
         return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
     }
+
+    public Pattern<INPUT_TYPE> getPattern() {
+        return pattern;
+    }
 }

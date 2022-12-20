@@ -47,6 +47,7 @@ import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
+import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
@@ -70,12 +71,14 @@ import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
+import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
+import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
@@ -168,6 +171,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -175,8 +179,10 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -185,6 +191,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -314,6 +321,39 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             query = withCte(query, ctx.cte());
             return withQueryOrganization(query, ctx.queryOrganization());
         });
+    }
+
+    @Override
+    public LogicalPlan visitSetOperation(SetOperationContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan leftQuery = plan(ctx.left);
+            LogicalPlan rightQuery = plan(ctx.right);
+            Qualifier qualifier;
+            if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
+                qualifier = Qualifier.DISTINCT;
+            } else {
+                qualifier = Qualifier.ALL;
+            }
+
+            List<Plan> newChildren = new ImmutableList.Builder<Plan>()
+                    .add(leftQuery)
+                    .add(rightQuery)
+                    .build();
+
+            if (ctx.UNION() != null) {
+                return new LogicalUnion(qualifier, newChildren);
+            } else if (ctx.EXCEPT() != null) {
+                return new LogicalExcept(qualifier, newChildren);
+            } else if (ctx.INTERSECT() != null) {
+                return new LogicalIntersect(qualifier, newChildren);
+            }
+            throw new ParseException("not support", ctx);
+        });
+    }
+
+    @Override
+    public LogicalPlan visitSubquery(SubqueryContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> visitQuery(ctx.query()));
     }
 
     @Override
@@ -1075,7 +1115,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(selectCtx, () -> {
             // fromClause does not exists.
             List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new UnboundOneRowRelation(projects);
+            return new UnboundOneRowRelation(RelationUtil.newRelationId(), projects);
         });
     }
 
@@ -1355,6 +1395,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitIsnull(IsnullContext context) {
         return ParserUtils.withOrigin(context, () -> new IsNull(typedVisit(context.valueExpression())));
+    }
+
+    @Override
+    public Expression visitIs_not_null_pred(Is_not_null_predContext context) {
+        return ParserUtils.withOrigin(context, () -> new Not(new IsNull(typedVisit(context.valueExpression()))));
     }
 
     public List<Expression> withInList(PredicateContext ctx) {

@@ -226,6 +226,7 @@ public:
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
     std::string debug_string() const;
+    int32_t id() const { return _operator_builder->id(); }
 
 protected:
     std::unique_ptr<MemTracker> _mem_tracker;
@@ -260,7 +261,8 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -319,7 +321,8 @@ public:
     std::string get_name() const override { return "StreamingOperator"; }
 
     Status prepare(RuntimeState* state) override {
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -428,7 +431,7 @@ public:
         if (node->need_more_input_data()) {
             RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
-            if (_child_block->rows() == 0) {
+            if (_child_block->rows() == 0 && source_state != SourceState::FINISHED) {
                 return Status::OK();
             }
             node->prepare_for_next();

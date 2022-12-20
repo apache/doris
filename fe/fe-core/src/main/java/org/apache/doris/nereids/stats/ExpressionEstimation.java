@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -281,5 +282,15 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitAggregateExpression(AggregateExpression aggregateExpression,
             StatsDeriveResult context) {
         return aggregateExpression.child().accept(this, context);
+    }
+
+    @Override
+    public ColumnStatistic visitTimestampArithmetic(TimestampArithmetic arithmetic, StatsDeriveResult context) {
+        ColumnStatistic colStat = arithmetic.child(0).accept(this, context);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStat);
+        builder.setMinValue(Double.MIN_VALUE);
+        builder.setMaxValue(Double.MAX_VALUE);
+        builder.setSelectivity(1.0);
+        return builder.build();
     }
 }

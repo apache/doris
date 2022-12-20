@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "agg_context.h"
 #include "operator.h"
 
 namespace doris {

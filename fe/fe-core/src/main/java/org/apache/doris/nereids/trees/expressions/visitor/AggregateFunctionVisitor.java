@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -52,6 +55,18 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitMultiDistinctSum(MultiDistinctSum multiDistinctSum, C context) {
         return visitAggregateFunction(multiDistinctSum, context);
+    }
+
+    default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
+        return visitAggregateFunction(groupBitAnd, context);
+    }
+
+    default R visitGroupBitOr(GroupBitOr groupBitOr, C context) {
+        return visitAggregateFunction(groupBitOr, context);
+    }
+
+    default R visitGroupBitXor(GroupBitXor groupBitXor, C context) {
+        return visitAggregateFunction(groupBitXor, context);
     }
 
     default R visitSum(Sum sum, C context) {
