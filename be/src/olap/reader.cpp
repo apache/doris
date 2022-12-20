@@ -32,6 +32,7 @@
 #include "runtime/mem_pool.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1)) {
@@ -214,6 +215,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.is_key_column_group = read_params.is_key_column_group;
 
     *valid_rs_readers = *rs_readers;
 
@@ -315,7 +317,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     } else {
         LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
                      << " return_columns_size=" << read_params.return_columns.size() << "]";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
@@ -341,7 +343,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
                 << ", schema.num_columns=" << _tablet_schema->num_columns();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -354,7 +356,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "The start_key.at(" << i
                          << ").size == " << read_params.start_key[i].size() << ", not equals the "
                          << scan_key_size;
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
@@ -377,7 +379,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         if (read_params.end_key[i].size() != scan_key_size) {
             LOG(WARNING) << "The end_key.at(" << i << ").size == " << read_params.end_key[i].size()
                          << ", not equals the " << scan_key_size;
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
@@ -420,7 +422,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
                          << read_params.read_orderby_key_num_prefix_columns << " vs. "
                          << _orderby_key_columns.size();
-            return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>();
         }
     }
 

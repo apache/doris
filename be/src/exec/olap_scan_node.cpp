@@ -180,7 +180,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 Status OlapScanNode::prepare(RuntimeState* state) {
     init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
@@ -232,7 +232,7 @@ Status OlapScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _resource_info = ResourceTls::get_resource_tls();
 
@@ -276,7 +276,7 @@ Status OlapScanNode::open(RuntimeState* state) {
 
 Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // check if Canceled.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_row_batches_lock);
@@ -293,7 +293,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         Status status = start_scan(state);
 
         if (!status.ok()) {
-            LOG(ERROR) << "StartScan Failed cause " << status.get_error_msg();
+            LOG(ERROR) << "StartScan Failed cause " << status;
             *eos = true;
             return status;
         }
@@ -1487,7 +1487,7 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1577,8 +1577,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                     COUNTER_UPDATE(_scanner_sched_counter, 1);
                     olap_scanners.erase(iter++);
                 } else {
-                    LOG(FATAL) << "Failed to assign scanner task to thread pool! "
-                               << s.get_error_msg();
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s;
                 }
                 ++_total_assign_num;
             }
@@ -1664,7 +1663,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
@@ -1751,7 +1750,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status.to_string();
+            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status;
             eos = true;
             break;
         }

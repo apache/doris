@@ -96,20 +96,31 @@ class ReorderJoinTest implements PatternMatchSupported {
 
     @Test
     public void testRightSemiJoin() {
-        ImmutableList<LogicalPlan> plans = ImmutableList.of(
-                new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .filter(new EqualTo(scan3.getOutput().get(0), scan2.getOutput().get(0)))
-                        .build(),
-                new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .hashJoinUsing(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
-                        .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
-                        .build()
-        );
+        LogicalPlan plan1 = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
+                .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                .filter(new EqualTo(scan3.getOutput().get(0), scan2.getOutput().get(0)))
+                .build();
+        check(ImmutableList.of(plan1));
 
-        check(plans);
+        LogicalPlan plan2 = new LogicalPlanBuilder(scan2)
+                .hashJoinUsing(
+                        new LogicalPlanBuilder(scan1)
+                                .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                                .build(),
+                        JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0)
+                )
+                .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+                .rewrite()
+                .matchesFromRoot(
+                        rightSemiLogicalJoin(
+                                leafPlan(),
+                                innerLogicalJoin()
+                        )
+                );
+
     }
 
     @Test
@@ -171,7 +182,7 @@ class ReorderJoinTest implements PatternMatchSupported {
         }
     }
 
-    /**
+    /*
      *                                  join
      *      crossjoin                   /  \
      *       /     \                  join  D

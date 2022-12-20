@@ -28,6 +28,7 @@ import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Function;
@@ -897,12 +898,26 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return sb.toString();
     }
 
-    public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {
+    public ScanNode getScanNodeInOneFragmentBySlotRef(SlotRef slotRef) {
+        TupleId tupleId = slotRef.getDesc().getParent().getId();
         if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
             return (ScanNode) this;
+        } else if (this instanceof HashJoinNode) {
+            HashJoinNode hashJoinNode = (HashJoinNode) this;
+            SlotRef inputSlotRef = hashJoinNode.getMappedInputSlotRef(slotRef);
+            if (inputSlotRef != null) {
+                for (PlanNode planNode : children) {
+                    ScanNode scanNode = planNode.getScanNodeInOneFragmentBySlotRef(inputSlotRef);
+                    if (scanNode != null) {
+                        return scanNode;
+                    }
+                }
+            } else {
+                return null;
+            }
         } else if (!(this instanceof ExchangeNode)) {
             for (PlanNode planNode : children) {
-                ScanNode scanNode = planNode.getScanNodeInOneFragmentByTupleId(tupleId);
+                ScanNode scanNode = planNode.getScanNodeInOneFragmentBySlotRef(slotRef);
                 if (scanNode != null) {
                     return scanNode;
                 }
@@ -952,7 +967,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return getRuntimeFilterExplainString(isBuildNode, false);
     }
 
-    public void convertToVectoriezd() {
+    public void convertToVectorized() {
         List<Expr> conjunctsExcludeBitmapFilter = Lists.newArrayList();
         for (Expr expr : conjuncts) {
             if (!(expr instanceof BitmapFilterPredicate)) {
@@ -970,7 +985,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
 
         for (PlanNode child : children) {
-            child.convertToVectoriezd();
+            child.convertToVectorized();
         }
     }
 

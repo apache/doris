@@ -22,11 +22,15 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -34,15 +38,25 @@ import java.util.stream.Collectors;
 /**
  * Check analysis rule to check semantic correct after analysis by Nereids.
  */
-public class CheckAnalysis extends OneAnalysisRuleFactory {
+public class CheckAnalysis implements AnalysisRuleFactory {
 
     @Override
-    public Rule build() {
-        return any().then(plan -> {
-            checkBound(plan);
-            checkExpressionInputTypes(plan);
-            return null;
-        }).toRule(RuleType.CHECK_ANALYSIS);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            RuleType.CHECK_ANALYSIS.build(
+                any().then(plan -> {
+                    checkBound(plan);
+                    checkExpressionInputTypes(plan);
+                    return null;
+                })
+            ),
+            RuleType.CHECK_AGGREGATE_ANALYSIS.build(
+                logicalAggregate().then(agg -> {
+                    checkAggregate(agg);
+                    return agg;
+                })
+            )
+        );
     }
 
     private void checkExpressionInputTypes(Plan plan) {
@@ -66,6 +80,20 @@ public class CheckAnalysis extends OneAnalysisRuleFactory {
                     StringUtils.join(unboundSlots.stream()
                             .map(UnboundSlot::toSql)
                             .collect(Collectors.toSet()), ", ")));
+        }
+    }
+
+    private void checkAggregate(LogicalAggregate<? extends Plan> aggregate) {
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        boolean distinctMultiColumns = aggregateFunctions.stream()
+                .anyMatch(fun -> fun.isDistinct() && fun.arity() > 1);
+        long distinctFunctionNum = aggregateFunctions.stream()
+                .filter(AggregateFunction::isDistinct)
+                .count();
+
+        if (distinctMultiColumns && distinctFunctionNum > 1) {
+            throw new AnalysisException(
+                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
     }
 }

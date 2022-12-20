@@ -53,6 +53,9 @@ public:
         return *_intermediate_row_desc;
     }
 
+    virtual Status alloc_resource(RuntimeState* state) override;
+    virtual void release_resource(RuntimeState* state) override;
+
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
 protected:
@@ -87,6 +90,7 @@ protected:
     const bool _is_right_semi_anti;
     const bool _is_left_semi_anti;
     const bool _is_outer_join;
+    const bool _is_mark_join;
 
     // For null aware left anti join, we apply a short circuit strategy.
     // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.

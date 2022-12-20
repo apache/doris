@@ -64,6 +64,8 @@ public:
     // for this segment
     RowsetSharedPtr build_tmp() override;
 
+    RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
+
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _raw_num_rows_written; }
@@ -79,6 +81,8 @@ public:
     }
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
+
+    int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
 private:
     template <typename RowType>
@@ -108,7 +112,8 @@ private:
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
-    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
+                                       size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     Status _wait_flying_segcompaction();
@@ -120,7 +125,11 @@ private:
 
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
-private:
+    void _build_rowset_meta_with_spec_field(RowsetMetaSharedPtr rowset_meta,
+                                            const RowsetMetaSharedPtr& spec_rowset_meta);
+    bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
+
+protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
@@ -169,7 +178,7 @@ private:
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 
-    std::atomic<ErrorCode> _segcompaction_status;
+    std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
 };

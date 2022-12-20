@@ -50,6 +50,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         this.rewriter = Objects.requireNonNull(rewriter, "rewriter is null");
     }
 
+    public Expression rewrite(Expression expression) {
+        return rewriter.rewrite(expression);
+    }
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -115,12 +119,11 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 List<NamedExpression> newOutputExpressions = outputExpressions.stream()
                         .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
-                if (outputExpressions.containsAll(newOutputExpressions)) {
+                if (outputExpressions.containsAll(newOutputExpressions) && groupByExprs.containsAll(newGroupByExprs)) {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
-                        agg.isDisassembled(), agg.isNormalized(), agg.isFinalPhase(), agg.getAggPhase(),
-                        agg.getSourceRepeat(), agg.child());
+                        agg.isNormalized(), agg.getSourceRepeat(), agg.child());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
         }
     }

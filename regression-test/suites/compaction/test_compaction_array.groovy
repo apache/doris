@@ -20,9 +20,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_array_compaction") {
     def tableName = "tbl_test_array_compaction"
 
-    // array functions only supported in vectorized engine
-    sql """ set enable_vectorized_engine = true """
-
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """ 
             CREATE TABLE IF NOT EXISTS ${tableName} (

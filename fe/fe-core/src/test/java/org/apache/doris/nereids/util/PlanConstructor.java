@@ -77,7 +77,7 @@ public class PlanConstructor {
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
-        return newOlapTable(tableId, tableName, hashColumn, KeysType.PRIMARY_KEYS);
+        return newOlapTable(tableId, tableName, hashColumn, KeysType.DUP_KEYS);
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {

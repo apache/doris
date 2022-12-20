@@ -41,7 +41,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -54,8 +53,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
@@ -96,6 +97,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -121,11 +123,15 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
-        InternalSchemaInitializer.forTest = true;
+        FeConstants.disableInternalSchemaDb = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        beforeCluster();
         createDorisCluster();
         runBeforeAll();
+    }
+
+    protected void beforeCluster() {
     }
 
     @AfterAll
@@ -173,7 +179,8 @@ public abstract class TestWithFeService {
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
         LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
-        return CascadesContext.newContext(statementCtx, initPlan);
+        PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties(initPlan);
+        return CascadesContext.newContext(statementCtx, initPlan, requestProperties);
     }
 
     public LogicalPlan analyze(String sql) {
@@ -492,7 +499,12 @@ public abstract class TestWithFeService {
     }
 
     public void createTable(String sql) throws Exception {
-        createTables(sql);
+        try {
+            createTables(sql);
+        } catch (ConcurrentModificationException e) {
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     public void dropTable(String table, boolean force) throws Exception {

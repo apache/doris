@@ -22,6 +22,7 @@
 #pragma once
 
 #include <bitset>
+#include <stack>
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"

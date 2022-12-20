@@ -67,6 +67,9 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             analyzeSelectClause((SelectStmt) queryStmt);
         }
         tableName = new TableName(null, database.getFullName(), mvName);
+        if (partitionDesc != null) {
+            ((ColumnPartitionDesc) partitionDesc).analyze(analyzer, this);
+        }
         super.analyze(analyzer);
     }
 
@@ -92,7 +95,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                         column.getName(),
                         new TypeDef(column.getType()),
                         column.isKey(),
-                        column.getAggregationType(),
+                        null,
                         column.isAllowNull(),
                         new DefaultValue(column.getDefaultValue() != null, column.getDefaultValue()),
                         column.getComment())

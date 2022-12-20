@@ -148,7 +148,7 @@ public class OriginalPlanner extends Planner {
 
         // TODO change to vec should happen after distributed planner
         if (VectorizedUtil.isVectorized()) {
-            singleNodePlan.convertToVectoriezd();
+            singleNodePlan.convertToVectorized();
         }
 
         if (analyzer.getContext() != null

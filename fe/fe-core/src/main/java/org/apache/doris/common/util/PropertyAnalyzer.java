@@ -775,7 +775,7 @@ public class PropertyAnalyzer {
         }
 
         // validate the properties of es catalog
-        if (properties.get("type").equalsIgnoreCase("es")) {
+        if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
                 if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
                     EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);

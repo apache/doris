@@ -79,6 +79,7 @@ using std::vector;
 using strings::Substitute;
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
@@ -106,6 +107,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
+          _stopped(false),
           _mem_tracker(std::make_shared<MemTracker>("StorageEngine")),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
           _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
@@ -135,14 +137,9 @@ StorageEngine::~StorageEngine() {
         _cumu_compaction_thread_pool->shutdown();
     }
 
-    if (_quick_compaction_thread_pool) {
-        _quick_compaction_thread_pool->shutdown();
-    }
-
     if (_seg_compaction_thread_pool) {
         _seg_compaction_thread_pool->shutdown();
     }
-
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
@@ -573,6 +570,7 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
+    _stopped = true;
 }
 
 void StorageEngine::_clear() {
@@ -650,7 +648,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     local_tm_now.tm_isdst = 0;
     if (localtime_r(&now, &local_tm_now) == nullptr) {
         LOG(WARNING) << "fail to localtime_r time. time=" << now;
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>();
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
@@ -810,7 +808,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             local_tm_create.tm_isdst = 0;
             if (strptime(str_time.c_str(), "%Y%m%d%H%M%S", &local_tm_create) == nullptr) {
                 LOG(WARNING) << "fail to strptime time. [time=" << str_time << "]";
-                res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+                res = Status::Error<OS_ERROR>();
                 continue;
             }
 
@@ -829,7 +827,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
                 if (!ret.ok()) {
                     LOG(WARNING) << "fail to remove file or directory. path_desc: " << scan_root
                                  << ", error=" << ret.to_string();
-                    res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+                    res = Status::Error<OS_ERROR>();
                     continue;
                 }
             } else {
@@ -839,7 +837,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
         }
     } catch (...) {
         LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root;
-        res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        res = Status::Error<IO_ERROR>();
     }
 
     return res;
@@ -917,7 +915,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
     stores = get_stores_for_create_tablet(request.storage_medium);
     if (stores.empty()) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
-        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
+        return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
     TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
@@ -929,13 +927,13 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
 
     if (shard_path == nullptr) {
         LOG(WARNING) << "invalid output parameter which is null pointer.";
-        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
+        return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
 
     auto stores = get_stores_for_create_tablet(storage_medium);
     if (stores.empty()) {
         LOG(WARNING) << "no available disk can be used to create tablet.";
-        return Status::OLAPInternalError(OLAP_ERR_NO_AVAILABLE_ROOT_PATH);
+        return Status::Error<NO_AVAILABLE_ROOT_PATH>();
     }
 
     Status res = Status::OK();
@@ -970,11 +968,11 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
             store = get_store(store_path);
             if (store == nullptr) {
                 LOG(WARNING) << "invalid shard path, path=" << shard_path;
-                return Status::OLAPInternalError(OLAP_ERR_INVALID_ROOT_PATH);
+                return Status::Error<INVALID_ROOT_PATH>();
             }
         } catch (...) {
             LOG(WARNING) << "invalid shard path, path=" << shard_path;
-            return Status::OLAPInternalError(OLAP_ERR_INVALID_ROOT_PATH);
+            return Status::Error<INVALID_ROOT_PATH>();
         }
     }
 

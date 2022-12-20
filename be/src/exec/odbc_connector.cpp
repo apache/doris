@@ -36,10 +36,6 @@
         }                                                                                 \
     }
 
-static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
-// Now we only treat HLL, CHAR, VARCHAR as big column
-static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
-
 namespace doris {
 
 ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
@@ -139,8 +135,8 @@ Status ODBCConnector::query() {
         auto type = _tuple_desc->slots()[i]->type().type;
         column_data->buffer_length = (type == TYPE_HLL || type == TYPE_CHAR ||
                                       type == TYPE_VARCHAR || type == TYPE_STRING)
-                                             ? BIG_COLUMN_SIZE_BUFFER
-                                             : SMALL_COLUMN_SIZE_BUFFER;
+                                             ? big_column_size_buffer
+                                             : small_column_size_buffer;
         column_data->target_value_ptr = malloc(sizeof(char) * column_data->buffer_length);
         _columns_data.emplace_back(column_data);
     }

@@ -41,6 +41,11 @@ set(IO_FILES
     fs/s3_file_reader.cpp
     fs/s3_file_system.cpp
     fs/s3_file_writer.cpp
+    fs/hdfs_file_system.cpp
+    fs/hdfs_file_reader.cpp
+    fs/broker_file_system.cpp
+    fs/broker_file_reader.cpp
+    fs/stream_load_pipe_reader.cpp
     cache/dummy_file_cache.cpp
     cache/file_cache.cpp
     cache/file_cache_manager.cpp

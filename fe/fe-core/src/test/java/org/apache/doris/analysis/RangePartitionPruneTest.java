@@ -185,6 +185,14 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         // maybe something goes wrong with ExtractCommonFactorsRule.
         addCase("select * from test.t1 where ((dt=20211123 and k1=1) or (dt=20211125 and k1=3)) and k2>0", "partitions=8/8", "partitions=8/8");
         addCase("select * from test.t2 where k1 > 10 or k2 < 1", "partitions=9/9", "partitions=9/9");
+        // add some cases for CompoundPredicate
+        addCase("select * from test.t1 where (dt >= 20211121 and dt <= 20211122) or (dt >= 20211123 and dt <= 20211125)",
+                "partitions=8/8", "partitions=5/8");
+        addCase("select * from test.t1 where (dt between 20211121 and 20211122) or (dt between 20211123 and 20211125)",
+                "partitions=8/8", "partitions=5/8");
+        addCase("select * from test.t1 where (dt between 20211121 and 20211122) or dt is null or (dt between 20211123 and 20211125)",
+                "partitions=8/8", "partitions=6/8");
+
     }
 
     @Test

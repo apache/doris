@@ -26,6 +26,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/scan/vscanner.h"
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -300,8 +301,6 @@ Status NewJsonReader::_open_line_reader() {
     int64_t size = _range.size;
     if (_range.start_offset != 0) {
         // When we fetch range doesn't start from 0, size will += 1.
-
-        // TODO(ftw): check what if file_reader is stream_pipe? Is `size+=1` is correct?
         size += 1;
         _skip_first_line = true;
     } else {
@@ -355,7 +354,7 @@ Status NewJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& column
         bool valid = false;
         if (_next_row >= _total_rows) { // parse json and generic document
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -426,7 +425,7 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
     do {
         if (_next_row >= _total_rows) {
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -456,7 +455,7 @@ Status NewJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>
                                                    bool* is_empty_row, bool* eof) {
     while (true) {
         Status st = _parse_json(is_empty_row, eof);
-        if (st.is_data_quality_error()) {
+        if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);

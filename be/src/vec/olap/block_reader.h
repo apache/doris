@@ -37,7 +37,7 @@ public:
 
     Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                      bool* eof) override {
-        return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
+        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
 
     Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,

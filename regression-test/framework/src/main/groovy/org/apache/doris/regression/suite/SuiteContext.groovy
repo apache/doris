@@ -69,7 +69,6 @@ class SuiteContext implements Closeable {
 
         def path = new File(config.suitePath).relativePath(file)
         def realPath = new File(config.suitePath).relativePath(file)
-        def sf1DataPath = config.sf1DataPath
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         def realOutputRelativePath = path.substring(0, realPath.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)

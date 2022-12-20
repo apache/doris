@@ -58,15 +58,15 @@ CREATE RESOURCE "remote_s3"
 PROPERTIES
 (
     "type" = "s3",
-    "s3_endpoint" = "bj.s3.com",
-    "s3_region" = "bj",
-    "s3_bucket" = "test-bucket",
-    "s3_root_path" = "path/to/root",
-    "s3_access_key" = "bbb",
-    "s3_secret_key" = "aaaa",
-    "s3_max_connections" = "50",
-    "s3_request_timeout_ms" = "3000",
-    "s3_connection_timeout_ms" = "1000"
+    "AWS_ENDPOINT" = "bj.s3.com",
+    "AWS_REGION" = "bj",
+    "AWS_BUCKET" = "test-bucket",
+    "AWS_ROOT_PATH" = "path/to/root",
+    "AWS_ACCESS_KEY" = "bbb",
+    "AWS_SECRET_KEY" = "aaaa",
+    "AWS_MAX_CONNECTIONS" = "50",
+    "AWS_REQUEST_TIMEOUT_MS" = "3000",
+    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
 );
 
 CREATE STORAGE POLICY test_policy

@@ -335,7 +335,7 @@ TEST_F(LoadChannelMgrTest, open_failed) {
         }
         request.set_num_senders(1);
         request.set_need_gen_rollup(false);
-        open_status = Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+        open_status = Status::Error<TABLE_NOT_FOUND>();
         auto st = mgr.open(request);
         request.release_id();
         EXPECT_FALSE(st.ok());
@@ -421,7 +421,7 @@ TEST_F(LoadChannelMgrTest, add_failed) {
         }
         row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         // DeltaWriter's write will return -215
-        add_status = Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+        add_status = Status::Error<TABLE_NOT_FOUND>();
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
@@ -512,7 +512,7 @@ TEST_F(LoadChannelMgrTest, close_failed) {
             row_batch.commit_last_row();
         }
         row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
-        close_status = Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+        close_status = Status::Error<TABLE_NOT_FOUND>();
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();

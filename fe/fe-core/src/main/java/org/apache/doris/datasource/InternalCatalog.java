@@ -74,8 +74,8 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.catalog.Index;
@@ -1218,7 +1218,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
-                    typeDef = new TypeDef(ScalarType.createDecimalType(resultType.getPrecision(),
+                    typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
                             ((ScalarType) resultType).getScalarScale()));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
@@ -1970,6 +1970,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
                     groupSchema.checkColocateSchema(olapTable);
+                    groupSchema.checkDynamicPartition(properties, olapTable.getDefaultDistributionInfo());
                 }
                 // add table to this group, if group does not exist, create a new one
                 Env.getCurrentColocateIndex()
@@ -2242,7 +2243,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
-    private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException, AnalysisException {
         String tableName = stmt.getTableName();
 
         // validate props to get column from es.
@@ -2306,8 +2307,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HiveMetaStoreClientHelper.HIVE_METASTORE_URIS,
-                hiveTable.getHiveProperties().get(HiveMetaStoreClientHelper.HIVE_METASTORE_URIS));
+        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
+                hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
@@ -2329,7 +2330,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         HiveConf hiveConf = new HiveConf();
-        hiveConf.set(HiveMetaStoreClientHelper.HIVE_METASTORE_URIS,
+        hiveConf.set(HMSResource.HIVE_METASTORE_URIS,
                 hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
         PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
         if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {

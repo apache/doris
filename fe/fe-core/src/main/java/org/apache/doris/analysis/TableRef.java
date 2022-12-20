@@ -47,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -90,6 +91,8 @@ public class TableRef implements ParseNode, Writable {
     // Indicates whether this table ref is given an explicit alias,
     protected boolean hasExplicitAlias;
     protected JoinOperator joinOp;
+    protected boolean isMark;
+    protected String markTupleName;
     protected List<String> usingColNames;
     protected ArrayList<LateralViewRef> lateralViewRefs;
     protected Expr onClause;
@@ -174,6 +177,8 @@ public class TableRef implements ParseNode, Writable {
         aliases = other.aliases;
         hasExplicitAlias = other.hasExplicitAlias;
         joinOp = other.joinOp;
+        isMark = other.isMark;
+        markTupleName = other.markTupleName;
         // NOTE: joinHints and sortHints maybe changed after clone. so we new one List.
         joinHints =
                 (other.joinHints != null) ? Lists.newArrayList(other.joinHints) : null;
@@ -226,6 +231,13 @@ public class TableRef implements ParseNode, Writable {
             output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
         }
         output.append(tableRefToSql()).append(" ");
+        if (partitionNames != null) {
+            StringJoiner sj = new StringJoiner(",", "", " ");
+            for (String partName : partitionNames.getPartitionNames()) {
+                sj.add(partName);
+            }
+            output.append(sj.toString());
+        }
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
@@ -251,6 +263,23 @@ public class TableRef implements ParseNode, Writable {
 
     public void setJoinOp(JoinOperator op) {
         this.joinOp = op;
+    }
+
+    public boolean isMark() {
+        return isMark;
+    }
+
+    public String getMarkTupleName() {
+        return markTupleName;
+    }
+
+    public void setMark(TupleDescriptor markTuple) {
+        this.isMark = markTuple != null;
+        if (isMark) {
+            this.markTupleName = markTuple.getAlias();
+        } else {
+            this.markTupleName = null;
+        }
     }
 
     public Expr getOnClause() {
@@ -643,7 +672,7 @@ public class TableRef implements ParseNode, Writable {
             case NULL_AWARE_LEFT_ANTI_JOIN:
                 return "NULL AWARE LEFT ANTI JOIN";
             default:
-                return "bad join op: " + joinOp.toString();
+                return "bad join op: " + joinOp;
         }
     }
 
@@ -784,6 +813,8 @@ public class TableRef implements ParseNode, Writable {
      */
     protected void setJoinAttrs(TableRef other) {
         this.joinOp = other.joinOp;
+        this.isMark = other.isMark;
+        this.markTupleName = other.markTupleName;
         this.joinHints = other.joinHints;
         // this.tableHints_ = other.tableHints_;
         this.onClause = other.onClause;
@@ -863,5 +894,13 @@ public class TableRef implements ParseNode, Writable {
             String alias = Text.readString(in);
             aliases = new String[]{alias};
         }
+    }
+
+    public void setPartitionNames(PartitionNames partitionNames) {
+        this.partitionNames = partitionNames;
+    }
+
+    public void setName(TableName name) {
+        this.name = name;
     }
 }

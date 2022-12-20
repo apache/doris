@@ -26,12 +26,26 @@ import org.apache.doris.nereids.trees.plans.Plan;
 public class GroupMatchingUtils {
 
     public static boolean topDownFindMatching(Group group, Pattern<? extends Plan> pattern) {
-        GroupExpression logicalExpr = group.getLogicalExpression();
-        GroupExpressionMatching matchingResult = new GroupExpressionMatching(pattern, logicalExpr);
+        for (GroupExpression logicalExpr : group.getLogicalExpressions()) {
+            if (topDownFindMatch(logicalExpr, pattern)) {
+                return true;
+            }
+        }
+
+        for (GroupExpression physicalExpr : group.getPhysicalExpressions()) {
+            if (topDownFindMatch(physicalExpr, pattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean topDownFindMatch(GroupExpression groupExpression, Pattern<? extends Plan> pattern) {
+        GroupExpressionMatching matchingResult = new GroupExpressionMatching(pattern, groupExpression);
         if (matchingResult.iterator().hasNext()) {
             return true;
         } else {
-            for (Group childGroup : logicalExpr.children()) {
+            for (Group childGroup : groupExpression.children()) {
                 boolean checkResult = topDownFindMatching(childGroup, pattern);
                 if (checkResult) {
                     return true;

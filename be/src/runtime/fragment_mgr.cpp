@@ -18,6 +18,7 @@
 #include "runtime/fragment_mgr.h"
 
 #include <bvar/latency_recorder.h>
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -26,7 +27,6 @@
 
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
-#include "common/signal_handler.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -34,6 +34,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "opentelemetry/trace/scope.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
@@ -45,7 +46,6 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
 #include "util/telemetry/telemetry.h"
@@ -73,7 +73,6 @@ std::string to_load_error_http_path(const std::string& file_name) {
 }
 
 using apache::thrift::TException;
-using apache::thrift::TProcessor;
 using apache::thrift::transport::TTransportException;
 
 class RuntimeProfile;
@@ -427,10 +426,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 }
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
-        : _exec_env(exec_env),
-          _fragment_map(),
-          _fragments_ctx_map(),
-          _stop_background_threads_latch(1) {
+        : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() { return _fragment_map.size(); });
@@ -472,7 +468,7 @@ FragmentMgr::~FragmentMgr() {
     }
 }
 
-static void empty_function(PlanFragmentExecutor* exec) {}
+static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
@@ -485,10 +481,6 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     auto scope = opentelemetry::trace::Scope {span};
     span->SetAttribute("query_id", print_id(exec_state->query_id()));
     span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
-
-    // these two are used to output query_id when be cored dump.
-    doris::signal::query_id_hi = exec_state->query_id().hi;
-    doris::signal::query_id_lo = exec_state->query_id().lo;
 
     LOG_INFO(func_name)
             .tag("query_id", exec_state->query_id())
@@ -514,7 +506,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     }
 
     // Callback after remove from this id
-    cb(exec_state->executor());
+    auto status = exec_state->executor()->status();
+    cb(exec_state->executor()->runtime_state(), &status);
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
@@ -548,7 +541,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         set_pipe(params.params.fragment_instance_id, pipe);
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
+        return exec_plan_fragment(params, empty_function);
     }
 }
 
@@ -588,6 +581,18 @@ std::shared_ptr<StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_
         } else {
             return nullptr;
         }
+    }
+}
+
+void FragmentMgr::remove_pipeline_context(
+        std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
+    std::lock_guard<std::mutex> lock(_lock);
+    auto query_id = f_context->get_query_id();
+    auto* q_context = f_context->get_query_context();
+    bool all_done = q_context->countdown();
+    _pipeline_map.erase(f_context->get_fragment_id());
+    if (all_done) {
+        _fragments_ctx_map.erase(query_id);
     }
 }
 
@@ -685,6 +690,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             }
         }
     }
+    fragments_ctx->fragment_ids.push_back(fragment_instance_id);
 
     exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
                                            params.params.fragment_instance_id, params.backend_num,
@@ -696,39 +702,65 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     int64_t duration_ns = 0;
-    {
-        SCOPED_RAW_TIMER(&duration_ns);
-        RETURN_IF_ERROR(exec_state->prepare(params));
-    }
-    g_fragmentmgr_prepare_latency << (duration_ns / 1000);
-
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
-    exec_state->set_merge_controller_handler(handler);
-
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
-        _cv.notify_all();
-    }
-
-    auto st = _thread_pool->submit_func(
-            [this, exec_state, cb, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                OpentelemetryScope scope {parent_span};
-                _exec_actual(exec_state, cb);
-            });
-    if (!st.ok()) {
+    if (!params.query_options.__isset.enable_pipeline_engine ||
+        !params.query_options.enable_pipeline_engine) {
         {
-            // Remove the exec state added
-            std::lock_guard<std::mutex> lock(_lock);
-            _fragment_map.erase(params.params.fragment_instance_id);
+            SCOPED_RAW_TIMER(&duration_ns);
+            RETURN_IF_ERROR(exec_state->prepare(params));
         }
-        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                           "push plan fragment to thread pool failed");
-        return Status::InternalError(
-                strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
-                                    print_id(params.params.fragment_instance_id),
-                                    st.get_error_msg(), BackendOptions::get_localhost()));
+        g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+        _runtimefilter_controller.add_entity(params, &handler,
+                                             exec_state->executor()->runtime_state());
+        exec_state->set_merge_controller_handler(handler);
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
+            _cv.notify_all();
+        }
+        auto st = _thread_pool->submit_func(
+                [this, exec_state, cb,
+                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                    OpentelemetryScope scope {parent_span};
+                    _exec_actual(exec_state, cb);
+                });
+        if (!st.ok()) {
+            {
+                // Remove the exec state added
+                std::lock_guard<std::mutex> lock(_lock);
+                _fragment_map.erase(params.params.fragment_instance_id);
+            }
+            exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                               "push plan fragment to thread pool failed");
+            return Status::InternalError(strings::Substitute(
+                    "push plan fragment $0 to thread pool failed. err = $1, BE: $2",
+                    print_id(params.params.fragment_instance_id), st.to_string(),
+                    BackendOptions::get_localhost()));
+        }
+    } else {
+        if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
+            fragments_ctx->set_ready_to_execute_only();
+        }
+        std::shared_ptr<pipeline::PipelineFragmentContext> context =
+                std::make_shared<pipeline::PipelineFragmentContext>(
+                        fragments_ctx->query_id, fragment_instance_id, params.backend_num,
+                        fragments_ctx, _exec_env, cb);
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            RETURN_IF_ERROR(context->prepare(params));
+            g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+        }
+
+        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+        _runtimefilter_controller.add_entity(params, &handler, context->get_runtime_state());
+        context->set_merge_controller_handler(handler);
+
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
+            _cv.notify_all();
+        }
+        return context->submit();
     }
 
     return Status::OK();
@@ -780,21 +812,47 @@ bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
            type == TPlanNodeType::JDBC_SCAN_NODE;
 }
 
-Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                           const std::string& msg) {
+void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                         const std::string& msg) {
     std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_id);
-        if (iter == _fragment_map.end()) {
-            // No match
-            return Status::OK();
+        if (iter != _fragment_map.end()) {
+            exec_state = iter->second;
         }
-        exec_state = iter->second;
     }
-    exec_state->cancel(reason, msg);
+    if (exec_state) {
+        exec_state->cancel(reason, msg);
+        return;
+    }
 
-    return Status::OK();
+    std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_fragment_ctx;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _pipeline_map.find(fragment_id);
+        if (iter != _pipeline_map.end()) {
+            pipeline_fragment_ctx = iter->second;
+        }
+    }
+    if (pipeline_fragment_ctx) {
+        pipeline_fragment_ctx->cancel(reason, msg);
+    }
+}
+
+void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                               const std::string& msg) {
+    std::vector<TUniqueId> cancel_fragment_ids;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto ctx = _fragments_ctx_map.find(query_id);
+        if (ctx != _fragments_ctx_map.end()) {
+            cancel_fragment_ids = ctx->second->fragment_ids;
+        }
+    }
+    for (auto it : cancel_fragment_ids) {
+        cancel(it, reason, msg);
+    }
 }
 
 void FragmentMgr::cancel_worker() {
@@ -962,11 +1020,34 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
 Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
+    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
+
     UniqueId fragment_instance_id = request->fragment_id();
     TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-    std::shared_ptr<FragmentExecState> fragment_state;
 
-    {
+    std::shared_ptr<FragmentExecState> fragment_state;
+    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+
+    RuntimeFilterMgr* runtime_filter_mgr = nullptr;
+    if (is_pipeline) {
+        std::unique_lock<std::mutex> lock(_lock);
+
+        if (!_pipeline_map.count(tfragment_instance_id)) {
+            VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
+            _cv.wait_for(lock, std::chrono::milliseconds(1000),
+                         [&] { return _pipeline_map.count(tfragment_instance_id); });
+        }
+
+        auto iter = _pipeline_map.find(tfragment_instance_id);
+        if (iter == _pipeline_map.end()) {
+            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
+            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+        }
+        pip_context = iter->second;
+
+        DCHECK(pip_context != nullptr);
+        runtime_filter_mgr = pip_context->get_runtime_state()->runtime_filter_mgr();
+    } else {
         std::unique_lock<std::mutex> lock(_lock);
         if (!_fragment_map.count(tfragment_instance_id)) {
             VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
@@ -980,26 +1061,37 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
             return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
         }
         fragment_state = iter->second;
+
+        DCHECK(fragment_state != nullptr);
+        runtime_filter_mgr = fragment_state->executor()->runtime_state()->runtime_filter_mgr();
     }
 
-    DCHECK(fragment_state != nullptr);
-    RuntimeFilterMgr* runtime_filter_mgr =
-            fragment_state->executor()->runtime_state()->runtime_filter_mgr();
-
-    Status st = runtime_filter_mgr->update_filter(request, attach_data);
-    return st;
+    return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
+    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     auto fragment_instance_id = filter_controller->instance_id();
     TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
     std::shared_ptr<FragmentExecState> fragment_state;
-    {
+    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+    if (is_pipeline) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _pipeline_map.find(tfragment_instance_id);
+        if (iter == _pipeline_map.end()) {
+            VLOG_CRITICAL << "unknown fragment-id:" << fragment_instance_id;
+            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+        }
+
+        // hold reference to pip_context, or else runtime_state can be destroyed
+        // when filter_controller->merge is still in progress
+        pip_context = iter->second;
+    } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {

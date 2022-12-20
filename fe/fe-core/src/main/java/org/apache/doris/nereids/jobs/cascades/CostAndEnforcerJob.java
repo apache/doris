@@ -101,6 +101,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
      */
     @Override
     public void execute() {
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
             curNodeCost = 0;
@@ -162,6 +163,11 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
                 lowestCostChildren.add(lowestCostExpr);
                 PhysicalProperties outputProperties = lowestCostExpr.getOutputProperties(requestChildProperty);
+
+                // use child's outputProperties to reset the request properties, so no unnecessary enforce.
+                // this is safety because `childGroup.getLowestCostPlan(current plan's requestChildProperty).
+                // getOutputProperties(current plan's requestChildProperty) == child plan's outputProperties`,
+                // the outputProperties must satisfy the origin requestChildProperty
                 requestChildrenProperties.set(curChildIndex, outputProperties);
 
                 curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
@@ -177,7 +183,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // if break when running the loop above, the condition must be false.
             if (curChildIndex == groupExpression.arity()) {
                 if (!calculateEnforce(requestChildrenProperties)) {
-                    return;
+                    return; // if error exists, return
                 }
                 if (curTotalCost < context.getCostUpperBound()) {
                     context.setCostUpperBound(curTotalCost);
@@ -216,14 +222,17 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             return false;
         }
         StatsCalculator.estimate(groupExpression);
+        // previous curTotalCost exclude the exists best cost of current node
         curTotalCost -= curNodeCost;
-        curNodeCost = CostCalculator.calculateCost(groupExpression);
+        curNodeCost = CostCalculator.calculateCost(groupExpression); // recompute current node's cost in current context
         groupExpression.setCost(curNodeCost);
+        // (previous curTotalCost) - (previous curNodeCost) + (current curNodeCost) = (current curTotalCost).
+        // if current curTotalCost maybe less than previous curTotalCost, we will update the lowest cost and plan
+        // to the grouping expression and the owner group
         curTotalCost += curNodeCost;
 
         // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
-        recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY,
-                requestChildrenProperties);
+        recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, requestChildrenProperties);
         recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperties);
         enforce(outputProperty, requestChildrenProperties);
         return true;

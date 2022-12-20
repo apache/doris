@@ -47,7 +47,7 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                         std::shared_ptr<BufferControlBlock>* sender);
+                         std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline);
     // fetch data, used by RPC
     Status fetch_data(const TUniqueId& fragment_id, TFetchDataResult* result);
 
@@ -60,8 +60,8 @@ public:
     Status cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
-    typedef std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>> BufferMap;
-    typedef std::map<time_t, std::vector<TUniqueId>> TimeoutMap;
+    using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;
+    using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
 
     std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 

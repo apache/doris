@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -40,7 +39,6 @@ public class AlterCatalogNameStmtTest {
 
     @Before
     public void setUp() throws DdlException {
-        Config.enable_multi_catalog = true;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "%");
@@ -50,40 +48,40 @@ public class AlterCatalogNameStmtTest {
     public void testNormalCase() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", "testNewCatalog");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCatalog",  stmt.getCatalogName());
-        Assert.assertEquals("testNewCatalog",  stmt.getNewCatalogName());
+        Assert.assertEquals("testCatalog", stmt.getCatalogName());
+        Assert.assertEquals("testNewCatalog", stmt.getNewCatalogName());
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyDs1() throws  UserException {
+    public void testEmptyDs1() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("", "testNewCatalog");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyDs2() throws  UserException {
+    public void testEmptyDs2() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", "");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBuildIn1() throws  UserException {
+    public void testBuildIn1() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt(InternalCatalog.INTERNAL_CATALOG_NAME, "testNewCatalog");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBuildIn2() throws  UserException {
+    public void testBuildIn2() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", InternalCatalog.INTERNAL_CATALOG_NAME);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNameFormat() throws  UserException {
+    public void testNameFormat() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", InternalCatalog.INTERNAL_CATALOG_NAME);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");

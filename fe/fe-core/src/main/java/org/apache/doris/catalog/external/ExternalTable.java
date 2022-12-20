@@ -29,9 +29,9 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisJob;
-import org.apache.doris.statistics.AnalysisJobInfo;
-import org.apache.doris.statistics.AnalysisJobScheduler;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.gson.annotations.SerializedName;
@@ -239,7 +239,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public Column getColumn(String name) {
         List<Column> schema = getFullSchema();
         for (Column column : schema) {
-            if (name.equals(column.getName())) {
+            if (name.equalsIgnoreCase(column.getName())) {
                 return column;
             }
         }
@@ -301,7 +301,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
         throw new NotImplementedException();
     }
 

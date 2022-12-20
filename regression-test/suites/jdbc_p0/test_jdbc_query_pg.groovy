@@ -32,6 +32,7 @@ suite("test_jdbc_query_pg", "p0") {
         String dorisInTable4 = "doris_in_table4";
         String dorisViewName = "doris_view_name";
         String exMysqlTypeTable = "doris_type_tb";
+        String exMysqlTypeTable2 = "doris_type_tb2";
 
         println "yyy default charset: " + Charset.defaultCharset()
 
@@ -55,7 +56,7 @@ suite("test_jdbc_query_pg", "p0") {
                 k2 char(100),
                 k3 varchar(128),
                 k4 date,
-                k5 double,
+                k5 float,
                 k6 smallint,
                 k7 int,
                 k8 bigint,
@@ -209,7 +210,7 @@ suite("test_jdbc_query_pg", "p0") {
                 `m_time` DATETIME NULL,
                 `app_id` BIGINT(20) NULL,
                 `t_id` BIGINT(20) NULL,
-                `deleted` TEXT NULL,
+                `deleted` boolean NULL,
                 `w_t_s` DATETIME NULL,
                 `rf_id` TEXT NULL,
                 `e_info` TEXT NULL,
@@ -590,6 +591,23 @@ suite("test_jdbc_query_pg", "p0") {
             );
         """
         order_qt_sql """ select * from ${exMysqlTypeTable} order by id """
+        sql  """ drop table if exists ${exMysqlTypeTable2} """
+        sql  """
+               CREATE EXTERNAL TABLE ${exMysqlTypeTable2} (
+                id1 smallint,
+                id2 int,
+                id3 boolean,
+                id4 varchar(10),
+                id5 bigint
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+            PROPERTIES (
+            "resource" = "$jdbcResourcePg14",
+            "table" = "test9", 
+            "table_type"="postgresql"
+            );
+        """
+        order_qt_sql """ select * from ${exMysqlTypeTable2} order by id1 """
 
 
         order_qt_sql92 """ WITH a AS (SELECT k8 from $jdbcPg14Table1), b AS (WITH a AS (SELECT k8 from $jdbcPg14Table1) SELECT * FROM a) 
@@ -621,4 +639,5 @@ suite("test_jdbc_query_pg", "p0") {
 
     }
 }
+
 

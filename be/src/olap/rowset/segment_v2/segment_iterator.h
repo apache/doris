@@ -66,37 +66,34 @@ public:
     uint64_t data_id() const override { return _segment->id(); }
 
     bool update_profile(RuntimeProfile* profile) override {
-        if (_short_cir_eval_predicate.empty() && _pre_eval_block_predicate.empty()) {
-            if (_col_predicates.empty()) {
-                return false;
-            }
+        bool updated = false;
+        updated |= _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
+        updated |= _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
 
-            std::string info;
-            for (auto pred : _col_predicates) {
-                info += "\n" + pred->debug_string();
-            }
-            profile->add_info_string("ColumnPredicates", info);
-        } else {
-            if (!_short_cir_eval_predicate.empty()) {
-                std::string info;
-                for (auto pred : _short_cir_eval_predicate) {
-                    info += "\n" + pred->debug_string();
-                }
-                profile->add_info_string("Short Circuit ColumnPredicates", info);
-            }
-            if (!_pre_eval_block_predicate.empty()) {
-                std::string info;
-                for (auto pred : _pre_eval_block_predicate) {
-                    info += "\n" + pred->debug_string();
-                }
-                profile->add_info_string("Pre Evaluate Block ColumnPredicates", info);
-            }
+        if (_opts.delete_condition_predicates != nullptr) {
+            std::set<const ColumnPredicate*> delete_predicate_set;
+            _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
+            updated |= _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
         }
 
-        return true;
+        return updated;
     }
 
 private:
+    template <typename Container>
+    bool _update_profile(RuntimeProfile* profile, const Container& predicates,
+                         const std::string& title) {
+        if (predicates.empty()) {
+            return false;
+        }
+        std::string info;
+        for (auto pred : predicates) {
+            info += "\n" + pred->debug_string();
+        }
+        profile->add_info_string(title, info);
+        return true;
+    }
+
     Status _init(bool is_vec = false);
 
     Status _init_return_column_iterators();
@@ -170,7 +167,6 @@ private:
 
     void _update_max_row(const vectorized::Block* block);
 
-private:
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 

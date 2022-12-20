@@ -73,6 +73,10 @@ public class PrivBitSet implements Writable {
         set ^= other.set;
     }
 
+    public void clean() {
+        this.set = 0;
+    }
+
     public void remove(PrivBitSet privs) {
         PrivBitSet tmp = copy();
         tmp.xor(privs);
@@ -171,3 +175,4 @@ public class PrivBitSet implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }
+

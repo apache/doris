@@ -46,6 +46,9 @@ public class FeConstants {
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
 
+    // set to true to disable internal schema db
+    public static boolean disableInternalSchemaDb = false;
+
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
 

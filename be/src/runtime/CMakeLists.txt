@@ -84,6 +84,7 @@ set(RUNTIME_FILES
     stream_load/stream_load_executor.cpp
     stream_load/stream_load_recorder.cpp
     stream_load/load_stream_mgr.cpp
+    stream_load/new_load_stream_mgr.cpp
     routine_load/data_consumer.cpp
     routine_load/data_consumer_group.cpp
     routine_load/data_consumer_pool.cpp

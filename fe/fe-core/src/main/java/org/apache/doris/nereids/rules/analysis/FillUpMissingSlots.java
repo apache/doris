@@ -120,7 +120,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 having.getPredicates(), r.getSubstitution());
                         return new LogicalFilter<>(newPredicates, a);
                     });
-                })
+                })),
+            RuleType.FILL_UP_HAVING_PROJECT.build(
+                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getPredicates(),
+                    having.child()))
             )
         );
     }
@@ -214,8 +217,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             return false;
         }
 
-        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction function) {
-            return function.children().stream().anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
+        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction aggregateFunction) {
+            return aggregateFunction.children()
+                    .stream()
+                    .anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {

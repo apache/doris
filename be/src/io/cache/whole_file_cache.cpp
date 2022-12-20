@@ -21,6 +21,7 @@
 #include "olap/iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace io {
 
 const static std::string WHOLE_FILE_CACHE_NAME = "WHOLE_FILE_CACHE";
@@ -49,7 +50,7 @@ Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_
     if (*bytes_read != result.size) {
         LOG(ERROR) << "read cache file failed: " << _cache_file_reader->path().native()
                    << ", bytes read: " << bytes_read << " vs required size: " << result.size;
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>();
     }
     update_last_match_time();
     return Status::OK();
@@ -113,8 +114,7 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 download_st.set_value(func());
             });
             if (!st.ok()) {
-                LOG(FATAL) << "Failed to submit download cache task to thread pool! "
-                           << st.get_error_msg();
+                LOG(FATAL) << "Failed to submit download cache task to thread pool! " << st;
                 return st;
             }
         } else {
@@ -127,51 +127,46 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
-    update_last_match_time();
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << " -> " << cache_file.native();
     return Status::OK();
 }
 
 Status WholeFileCache::clean_timeout_cache() {
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
+    _gc_match_time = _last_match_time;
     if (time(nullptr) - _last_match_time > _alive_time_sec) {
-        _clean_cache_internal();
+        _clean_cache_internal(nullptr);
     }
     return Status::OK();
 }
 
 Status WholeFileCache::clean_all_cache() {
-    _clean_cache_internal();
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
+    return _clean_cache_internal(nullptr);
+}
+
+Status WholeFileCache::clean_one_cache(size_t* cleaned_size) {
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
+    if (_gc_match_time == _last_match_time) {
+        return _clean_cache_internal(cleaned_size);
+    }
     return Status::OK();
 }
 
-Status WholeFileCache::_clean_cache_internal() {
-    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
+Status WholeFileCache::_clean_cache_internal(size_t* cleaned_size) {
     _cache_file_reader.reset();
     _cache_file_size = 0;
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
     Path done_file =
             _cache_dir / fmt::format("{}{}", WHOLE_FILE_CACHE_NAME, CACHE_DONE_FILE_SUFFIX);
-    bool done_file_exist = false;
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            io::global_local_filesystem()->exists(done_file, &done_file_exist),
-            "Check local done file exist failed.");
-    if (done_file_exist) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->delete_file(done_file),
-                fmt::format("Delete local done file failed: {}", done_file.native()));
-    }
-    bool cache_file_exist = false;
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
-            "Check local cache file exist failed.");
-    if (cache_file_exist) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->delete_file(cache_file),
-                fmt::format("Delete local cache file failed: {}", cache_file.native()));
-    }
-    LOG(INFO) << "Delete local cache file successfully: " << cache_file.native();
-    return Status::OK();
+    RETURN_IF_ERROR(_remove_cache_and_done(cache_file, done_file, cleaned_size));
+    return _check_and_delete_empty_dir(_cache_dir);
+}
+
+bool WholeFileCache::is_gc_finish() const {
+    std::shared_lock<std::shared_mutex> rlock(_cache_lock);
+    return _cache_file_reader == nullptr;
 }
 
 } // namespace io

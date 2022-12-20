@@ -47,7 +47,7 @@ suite("test_unique_mow_sequence") {
             set 'columns', 'c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use'
             set 'function_column.sequence_col', 'c_custkey'
 
-            file """${context.sf1DataPath}/ssb/sf0.1/customer.tbl.gz"""
+            file """${getS3Url()}/ssb/sf0.1/customer.tbl.gz"""
 
             time 10000 // limit inflight 10s
 

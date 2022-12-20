@@ -71,7 +71,9 @@ template <typename T>
 void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
     if (value < Decimal<T>(0)) {
         value *= Decimal<T>(-1);
-        ostr << '-';
+        if (value > Decimal<T>(0)) {
+            ostr << '-';
+        }
     }
 
     using Type = std::conditional_t<std::is_same_v<T, Int128I>, int128_t, T>;
@@ -88,7 +90,16 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
     if (scale) {
         ostr << '.';
         String str_fractional(scale, '0');
-        for (Int32 pos = scale - 1; pos >= 0; --pos, value /= 10) {
+        Int32 pos = scale - 1;
+        if (value < Decimal<T>(0) && pos >= 0) {
+            // Reach here iff this value is a min value of a signed numeric type. It means min<int>()
+            // which is -2147483648 multiply -1 is still -2147483648.
+            str_fractional[pos] += (value / 10 * 10) - value;
+            pos--;
+            value /= 10;
+            value *= Decimal<T>(-1);
+        }
+        for (; pos >= 0; --pos, value /= 10) {
             str_fractional[pos] += value % 10;
         }
         ostr.write(str_fractional.data(), scale);

@@ -204,6 +204,7 @@ set(OLAP_TEST_FILES
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
     olap/segcompaction_test.cpp
+    olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -341,6 +342,7 @@ set(VEC_TEST_FILES
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
+    vec/core/column_vector_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
     vec/exec/vbroker_scan_node_test.cpp
     vec/exec/vbroker_scanner_test.cpp
@@ -375,6 +377,7 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
+    vec/olap/vertical_compaction_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}

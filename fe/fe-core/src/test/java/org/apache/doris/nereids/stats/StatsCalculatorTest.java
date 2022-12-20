@@ -28,19 +28,17 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
-import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -238,18 +236,12 @@ public class StatsCalculatorTest {
 
     @Test
     public void testOlapScan(@Mocked ConnectContext context) {
-        ColumnStat columnStat1 = new ColumnStat();
-        columnStat1.setNdv(10);
-        columnStat1.setNumNulls(5);
         long tableId1 = 0;
-        TableStats tableStats1 = new TableStats();
-        tableStats1.putColumnStats("c1", columnStat1);
-
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table1, Collections.emptyList())
+        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationUtil.newRelationId(), table1, Collections.emptyList())
                 .withLogicalProperties(Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
         Group childGroup = new Group();
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));

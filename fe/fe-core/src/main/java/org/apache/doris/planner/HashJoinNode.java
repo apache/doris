@@ -827,12 +827,12 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     @Override
-    public void convertToVectoriezd() {
+    public void convertToVectorized() {
         if (!otherJoinConjuncts.isEmpty()) {
             votherJoinConjunct = convertConjunctsToAndCompoundPredicate(otherJoinConjuncts);
             initCompoundPredicate(votherJoinConjunct);
         }
-        super.convertToVectoriezd();
+        super.convertToVectorized();
     }
 
     /**
@@ -840,5 +840,18 @@ public class HashJoinNode extends JoinNodeBase {
      */
     public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
         this.otherJoinConjuncts = otherJoinConjuncts;
+    }
+
+    SlotRef getMappedInputSlotRef(SlotRef slotRef) {
+        if (outputSmap != null) {
+            Expr mappedExpr = outputSmap.mappingForRhsExpr(slotRef);
+            if (mappedExpr != null && mappedExpr instanceof SlotRef) {
+                return (SlotRef) mappedExpr;
+            } else {
+                return null;
+            }
+        } else {
+            return slotRef;
+        }
     }
 }

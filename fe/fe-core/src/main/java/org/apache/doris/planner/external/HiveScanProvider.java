@@ -33,6 +33,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
@@ -188,7 +189,9 @@ public class HiveScanProvider extends HMSTableScanProvider {
             return allFiles;
         } catch (Throwable t) {
             LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);
-            throw new UserException("get file split failed for table: " + hmsTable.getName(), t);
+            throw new UserException(
+                    "get file split failed for table: " + hmsTable.getName() + ", err: " + Util.getRootCauseMessage(t),
+                    t);
         }
     }
 
@@ -241,7 +244,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
         if (locationType == TFileType.FILE_S3) {
             return hmsTable.getS3Properties();
         } else if (locationType == TFileType.FILE_HDFS) {
-            return hmsTable.getDfsProperties();
+            return hmsTable.getHdfsProperties();
         } else {
             return Maps.newHashMap();
         }

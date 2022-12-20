@@ -24,6 +24,10 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
@@ -38,6 +42,9 @@ import java.util.stream.Collectors;
  * Bottom up job for rewrite, use pattern match.
  */
 public class RewriteBottomUpJob extends Job {
+    private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
+            TransformEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final Group group;
     private final List<Rule> rules;
     private final boolean childrenOptimized;
@@ -61,6 +68,11 @@ public class RewriteBottomUpJob extends Job {
     }
 
     @Override
+    public EventProducer getEventTracer() {
+        return RULE_TRANSFORM_TRACER;
+    }
+
+    @Override
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
@@ -72,6 +84,7 @@ public class RewriteBottomUpJob extends Job {
             return;
         }
 
+        countJobExecutionTimesOfGroupExpressions(logicalExpression);
         List<Rule> validRules = getValidRules(logicalExpression, rules);
         for (Rule rule : validRules) {
             GroupExpressionMatching groupExpressionMatching

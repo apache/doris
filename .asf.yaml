@@ -75,7 +75,7 @@ github:
           - License Check
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - Build Extensions
+          - Build Broker
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true

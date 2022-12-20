@@ -26,6 +26,12 @@ under the License.
 
 ## array_min
 
+<version since="1.2.0">
+
+array_min
+
+</version>
+
 ### description
 
 Get the minimum element in an array (`NULL` values are skipped).
@@ -54,4 +60,3 @@ mysql> select k2, array_min(k2) from array_type_table;
 ### keywords
 
 ARRAY,MIN,ARRAY_MIN
-

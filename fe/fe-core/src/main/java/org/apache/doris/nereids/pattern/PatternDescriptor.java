@@ -54,11 +54,27 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
 
     public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> then(
             Function<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
-        return new PatternMatcher<>(pattern, defaultPromise, ctx -> matchedAction.apply(ctx.root));
+        MatchedAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedAction = ctx -> matchedAction.apply(ctx.root);
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedAction);
     }
 
     public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApply(
             MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
         return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
+    }
+
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenMulti(
+            Function<INPUT_TYPE, List<OUTPUT_TYPE>> matchedAction) {
+        MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedAction = ctx -> matchedAction.apply(ctx.root);
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedAction);
+    }
+
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApplyMulti(
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
+    }
+
+    public Pattern<INPUT_TYPE> getPattern() {
+        return pattern;
     }
 }

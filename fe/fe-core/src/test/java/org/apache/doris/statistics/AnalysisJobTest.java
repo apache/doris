@@ -22,8 +22,9 @@ import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisJobInfo.JobType;
-import org.apache.doris.statistics.AnalysisJobInfo.ScheduleType;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -54,10 +55,10 @@ public class AnalysisJobTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateAnalysisJob(@Mocked AnalysisJobScheduler scheduler) throws Exception {
+    public void testCreateAnalysisJob(@Mocked AnalysisTaskScheduler scheduler) throws Exception {
         new Expectations() {
             {
-                scheduler.schedule((AnalysisJobInfo) any);
+                scheduler.schedule((AnalysisTaskInfo) any);
                 times = 3;
             }
         };
@@ -86,7 +87,7 @@ public class AnalysisJobTest extends TestWithFeService {
     }
 
     @Test
-    public void testJobExecution(@Mocked AnalysisJobScheduler scheduler, @Mocked StmtExecutor stmtExecutor)
+    public void testJobExecution(@Mocked AnalysisTaskScheduler scheduler, @Mocked StmtExecutor stmtExecutor)
             throws Exception {
         new MockUp<StatisticsUtil>() {
 
@@ -105,13 +106,12 @@ public class AnalysisJobTest extends TestWithFeService {
                 times = 2;
             }
         };
-        AnalysisJobInfo analysisJobInfo = new AnalysisJobInfo(0,
-                "internal",
-                "default_cluster:analysis_job_test",
-                "t1",
-                "col1", JobType.MANUAL,
-                ScheduleType.ONCE);
-        new AnalysisJob(scheduler, analysisJobInfo).execute();
+        AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
+                .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
+                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
+                        AnalysisType.COLUMN)
+                .build();
+        new OlapAnalysisTask(scheduler, analysisJobInfo).execute();
     }
 
 }

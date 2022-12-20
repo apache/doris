@@ -25,6 +25,7 @@
 #include "service/backend_options.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -74,7 +75,8 @@ public:
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1,
-                      RuntimeProfile* profile = nullptr);
+                      RuntimeProfile* profile = nullptr,
+                      const std::string& profile_counter_name = "PeakMemoryUsage");
 
     ~MemTrackerLimiter();
 
@@ -144,14 +146,28 @@ public:
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
 
+    // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
+    static int64_t free_top_memory_query(int64_t min_free_mem);
+    // Start canceling from the query with the largest memory overcommit ratio until the memory
+    // of min_free_mem size is freed.
+    static int64_t free_top_overcommit_query(int64_t min_free_mem);
+    // only for Type::QUERY or Type::LOAD.
+    static TUniqueId label_to_queryid(const std::string& label) {
+        auto queryid = split(label, "#Id=")[1];
+        TUniqueId querytid;
+        parse_id(queryid, &querytid);
+        return querytid;
+    };
+
     static std::string process_mem_log_str() {
         return fmt::format(
                 "physical memory {}, process memory used {} limit {}, sys mem available {} low "
-                "water mark {}",
+                "water mark {}, refresh interval memory growth {} B",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
                 MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
+                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
+                MemInfo::refresh_interval_memory_growth);
     }
 
     std::string debug_string() {
@@ -169,7 +185,7 @@ private:
     // Increases consumption of this tracker by 'bytes' only if will not exceeding limit.
     // Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
-    bool try_consume(int64_t bytes, std::string& failed_msg);
+    bool try_consume(int64_t bytes, std::string& failed_msg, bool& is_process_exceed);
 
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
@@ -232,7 +248,8 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
     consume(consume_bytes);
 }
 
-inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_msg) {
+inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_msg,
+                                           bool& is_process_exceed) {
     if (bytes <= 0) {
         release(-bytes);
         failed_msg = std::string();
@@ -245,14 +262,16 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
 
     if (sys_mem_exceed_limit_check(bytes)) {
         failed_msg = process_limit_exceeded_errmsg_str(bytes);
+        is_process_exceed = true;
         return false;
     }
 
-    if (_limit < 0) {
+    if (_limit < 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
         _consumption->add(bytes); // No limit at this tracker.
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
             failed_msg = tracker_limit_exceeded_errmsg_str(bytes, this);
+            is_process_exceed = false;
             return false;
         }
     }
@@ -264,7 +283,9 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     if (sys_mem_exceed_limit_check(bytes)) {
         return Status::MemoryLimitExceeded(process_limit_exceeded_errmsg_str(bytes));
     }
-    if (bytes <= 0) return Status::OK();
+    if (bytes <= 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
+        return Status::OK();
+    }
     if (_limit > 0 && _consumption->current_value() + bytes > _limit) {
         return Status::MemoryLimitExceeded(tracker_limit_exceeded_errmsg_str(bytes, this));
     }

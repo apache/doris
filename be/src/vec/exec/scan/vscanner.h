@@ -73,7 +73,14 @@ public:
         _watch.start();
     }
 
+    void start_scan_cpu_timer() {
+        _cpu_watch.reset();
+        _cpu_watch.start();
+    }
+
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+
+    void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -162,7 +169,10 @@ protected:
 
     // watch to count the time wait for scanner thread
     MonotonicStopWatch _watch;
+    // Do not use ScopedTimer. There is no guarantee that, the counter
+    ThreadCpuStopWatch _cpu_watch;
     int64_t _scanner_wait_worker_timer = 0;
+    int64_t _scan_cpu_timer = 0;
 
     // File formats based push down predicate
     std::vector<ExprContext*> _conjunct_ctxs;

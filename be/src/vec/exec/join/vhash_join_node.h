@@ -50,6 +50,7 @@ struct SerializedHashTableContext {
     Iter iter;
     bool inited = false;
     std::vector<StringRef> keys;
+    size_t keys_memory_usage = 0;
 
     void serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
         if (keys.size() < num_rows) {
@@ -57,10 +58,12 @@ struct SerializedHashTableContext {
         }
 
         _arena.reset(new Arena());
+        keys_memory_usage = 0;
         size_t keys_size = key_columns.size();
         for (size_t i = 0; i < num_rows; ++i) {
             keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
         }
+        keys_memory_usage = _arena->size();
     }
 
     void init_once() {
@@ -72,17 +75,6 @@ struct SerializedHashTableContext {
 
 private:
     std::unique_ptr<Arena> _arena;
-};
-
-template <typename HashMethod>
-struct IsSerializedHashTableContextTraits {
-    constexpr static bool value = false;
-};
-
-template <typename Value, typename Mapped>
-struct IsSerializedHashTableContextTraits<
-        ColumnsHashing::HashMethodSerialized<Value, Mapped, true>> {
-    constexpr static bool value = true;
 };
 
 // T should be UInt32 UInt64 UInt128
@@ -202,7 +194,7 @@ public:
     static constexpr int PREFETCH_STEP = 64;
 
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~HashJoinNode();
+    ~HashJoinNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
@@ -212,6 +204,14 @@ public:
     Status close(RuntimeState* state) override;
     void add_hash_buckets_info(const std::string& info);
     void add_hash_buckets_filled_info(const std::string& info);
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    bool need_more_input_data();
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    void prepare_for_next() override;
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
@@ -251,9 +251,12 @@ private:
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
 
-    RuntimeProfile* _build_phase_profile;
+    RuntimeProfile::Counter* _build_blocks_memory_usage;
+    RuntimeProfile::Counter* _hash_table_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
 
-    int64_t _mem_used;
+    RuntimeProfile* _build_phase_profile;
 
     std::shared_ptr<Arena> _arena;
 
@@ -286,6 +289,11 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+
+    uint8_t _build_block_idx = 0;
+    int64_t _build_side_mem_used = 0;
+    int64_t _build_side_last_mem_used = 0;
+    MutableBlock _build_side_mutable_block;
 
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 

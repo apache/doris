@@ -23,6 +23,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
+import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
@@ -38,8 +39,10 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -165,6 +168,11 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker optimize() {
+        new OptimizeRulesJob(cascadesContext).execute();
+        return this;
+    }
+
     public PlanChecker implement() {
         Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
         Assertions.assertTrue(plan instanceof PhysicalPlan);
@@ -260,6 +268,46 @@ public class PlanChecker {
         }
     }
 
+    public PlanChecker applyImplementation(Rule rule) {
+        return applyImplementation(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    private PlanChecker applyImplementation(Group group, Rule rule) {
+        // copy groupExpressions can prevent ConcurrentModificationException
+        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
+            applyImplementation(logicalExpression, rule);
+        }
+
+        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
+            applyImplementation(physicalExpression, rule);
+        }
+        return this;
+    }
+
+    private PlanChecker applyImplementation(GroupExpression groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+
+        for (Plan before : matchResult) {
+            List<Plan> afters = rule.transform(before, cascadesContext);
+            for (Plan after : afters) {
+                if (before != after) {
+                    cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+                }
+            }
+        }
+
+        for (Group childGroup : groupExpression.children()) {
+            for (GroupExpression logicalExpression : childGroup.getLogicalExpressions()) {
+                applyImplementation(logicalExpression, rule);
+            }
+
+            for (GroupExpression physicalExpression : childGroup.getPhysicalExpressions()) {
+                applyImplementation(physicalExpression, rule);
+            }
+        }
+        return this;
+    }
+
     public PlanChecker deriveStats() {
         cascadesContext.pushJob(
                 new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
@@ -269,9 +317,22 @@ public class PlanChecker {
     }
 
     public PlanChecker orderJoin() {
-        cascadesContext.pushJob(
-                new JoinOrderJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
+        Group root = cascadesContext.getMemo().getRoot();
+        boolean changeRoot = false;
+        if (root.isJoinGroup()) {
+            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            GroupExpression newExpr = new GroupExpression(
+                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
+                    Lists.newArrayList(root));
+            root = new Group();
+            root.addGroupExpression(newExpr);
+            changeRoot = true;
+        }
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (changeRoot) {
+            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        }
         return this;
     }
 

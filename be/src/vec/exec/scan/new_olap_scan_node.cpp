@@ -20,6 +20,8 @@
 #include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -35,14 +37,22 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
+    statistics->add_scan_rows(_raw_rows_counter->value());
+    statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
+    return Status::OK();
+}
+
 Status NewOlapScanNode::prepare(RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     return Status::OK();
 }
 
 Status NewOlapScanNode::_init_profile() {
-    VScanNode::_init_profile();
+    RETURN_IF_ERROR(VScanNode::_init_profile());
 
     _num_disks_accessed_counter = ADD_COUNTER(_runtime_profile, "NumDiskAccess", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
@@ -245,12 +255,15 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
-        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringVal* constant_str,
-        doris_udf::FunctionContext** fn_ctx) {
+Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                          VExprContext* expr_ctx,
+                                                          StringVal* constant_str,
+                                                          doris_udf::FunctionContext** fn_ctx,
+                                                          VScanNode::PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
-        return PushDownType::UNACCEPTABLE;
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
     }
 
     const auto& children = fn_call->children();
@@ -264,19 +277,24 @@ VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
         }
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
-            return PushDownType::UNACCEPTABLE;
+            pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
+            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
+            if (const ColumnConst* const_column =
+                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
-                return PushDownType::UNACCEPTABLE;
+                pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
             }
         }
     }
     *fn_ctx = func_cxt;
-    return PushDownType::ACCEPTABLE;
+    pdt = PushDownType::ACCEPTABLE;
+    return Status::OK();
 }
 
 // PlanFragmentExecutor will call this method to set scan range
