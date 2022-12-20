@@ -19,17 +19,18 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 
 /**
- * Implementation rule that convert logical aggregation to physical hash aggregation.
+ * Implementation rule that convert logical Except to Physical Except.
  */
-public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementationRuleFactory {
+public class LogicalExceptToPhysicalExcept extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOneRowRelation()
-                .then(relation -> new PhysicalOneRowRelation(
-                        relation.getProjects(), relation.buildUnionNode(), relation.getLogicalProperties()))
-                .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
+        return logicalExcept().then(except ->
+                new PhysicalExcept(except.getQualifier(),
+                        except.getLogicalProperties(),
+                        except.children())
+        ).toRule(RuleType.LOGICAL_EXCEPT_TO_PHYSICAL_EXCEPT);
     }
 }

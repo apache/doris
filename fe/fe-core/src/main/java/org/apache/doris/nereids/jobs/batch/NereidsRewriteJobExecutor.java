@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
+import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
@@ -102,6 +104,8 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateOrderByConstant())))
                 .add(topDownBatch(ImmutableList.of(new EliminateUnnecessaryProject())))
                 .add(topDownBatch(ImmutableList.of(new EliminateAggregate())))
+                .add(bottomUpBatch(ImmutableList.of(new MergeSetOperations())))
+                .add(topDownBatch(ImmutableList.of(new BuildAggForUnion())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(new CheckAfterRewrite())))
                 .build();
