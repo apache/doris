@@ -132,7 +132,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             boolean hasPushed = false;
             Slot left = resetNullableForLeftOutputs.get(i);
             Slot right = child(1).getOutput().get(i);
-            if (TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
+            if (TypeCoercionUtils.childrenCanHandleTypeCoercion(left.getDataType(), right.getDataType())) {
                 Optional<DataType> tightestCommonType =
                         TypeCoercionUtils.findTightestCommonType(null, left.getDataType(), right.getDataType());
                 if (tightestCommonType.isPresent()) {
