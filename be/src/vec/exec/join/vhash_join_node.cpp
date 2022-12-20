@@ -805,7 +805,9 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             _shared_hashtable_controller->signal(id());
         }
     } else if (!_should_build_hash_table) {
-        child(1)->close(state);
+        if (!state->enable_pipeline_exec()) {
+            child(1)->close(state);
+        }
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
