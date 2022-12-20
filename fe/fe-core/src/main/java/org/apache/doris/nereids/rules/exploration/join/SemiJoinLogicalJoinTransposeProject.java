@@ -57,7 +57,8 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
-                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN)
+                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN
+                        || topJoin.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .when(this::conditionChecker)

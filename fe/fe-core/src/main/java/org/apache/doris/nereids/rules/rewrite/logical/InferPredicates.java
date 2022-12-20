@@ -69,6 +69,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
                 break;
             case LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
                 otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
                 break;
             case RIGHT_OUTER_JOIN:

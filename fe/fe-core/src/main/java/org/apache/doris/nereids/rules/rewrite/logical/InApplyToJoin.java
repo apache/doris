@@ -53,7 +53,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             }
 
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
-                return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(),
+                return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
                         ExpressionUtils.extractConjunction(predicate),
                         JoinHint.NONE,
                         apply.left(), apply.right());

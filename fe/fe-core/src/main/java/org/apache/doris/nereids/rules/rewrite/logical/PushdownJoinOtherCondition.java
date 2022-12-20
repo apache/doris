@@ -50,6 +50,7 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.CROSS_JOIN
