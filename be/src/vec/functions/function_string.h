@@ -2164,10 +2164,12 @@ struct ReverseImpl {
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1];
-            char dst[src_len];
+            string dst;
+            dst.resize(src_len);
             simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                            StringVal((uint8_t*)dst, src_len));
-            StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
+                                            StringVal((uint8_t*)dst.data(), src_len));
+            StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
+                                        res_offsets);
         }
         return Status::OK();
     }
