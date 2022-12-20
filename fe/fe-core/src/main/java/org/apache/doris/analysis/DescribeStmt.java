@@ -110,7 +110,8 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (!isAllTables && isTableValuedFunction) {
-            List<Column> columns = tableValuedFunctionRef.getTableFunction().getTable().getBaseSchema();
+            tableValuedFunctionRef.analyze(analyzer);
+            List<Column> columns = tableValuedFunctionRef.getTable().getBaseSchema();
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
                         column.getDisplayName(),

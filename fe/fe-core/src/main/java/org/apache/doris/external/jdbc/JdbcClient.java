@@ -78,6 +78,7 @@ public class JdbcClient {
         this.dbType = parseDbType(jdbcUrl);
         this.checkSum = computeObjectChecksum();
 
+        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
@@ -94,6 +95,8 @@ public class JdbcClient {
             dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
@@ -338,6 +341,14 @@ public class JdbcClient {
                     return Type.BIGINT;
                 case "BIGINT":
                     return ScalarType.createStringType();
+                case "DECIMAL":
+                    int precision = fieldSchema.getColumnSize() + 1;
+                    int scale = fieldSchema.getDecimalDigits();
+                    if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                        return ScalarType.createDecimalType(precision, scale);
+                    } else {
+                        return ScalarType.createStringType();
+                    }
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -368,7 +379,11 @@ public class JdbcClient {
             case "DECIMAL":
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                return ScalarType.createDecimalType(precision, scale);
+                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                    return ScalarType.createDecimalType(precision, scale);
+                } else {
+                    return ScalarType.createStringType();
+                }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
