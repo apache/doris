@@ -278,6 +278,11 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
     // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
+        if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
+            LOG(INFO) << "delete sign idx " << delete_sign_idx
+                      << " not invalid, skip filter delete in base compaction";
+            return Status::OK();
+        }
         DCHECK(delete_sign_idx > 0);
         MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
