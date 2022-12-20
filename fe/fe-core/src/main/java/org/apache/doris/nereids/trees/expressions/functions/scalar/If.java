@@ -35,6 +35,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -85,7 +86,9 @@ public class If extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(HllType.INSTANCE)
+                    .args(BooleanType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE)
     );
 
     /**
