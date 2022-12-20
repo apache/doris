@@ -113,8 +113,11 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close();
 
-    void start_worker_watcher() { _wait_worker_watcher.start(); }
-    void stop_worker_watcher() { _wait_worker_watcher.stop(); }
+    void put_in_runnable_queue() {
+        _schedule_time++;
+        _wait_worker_watcher.start();
+    }
+    void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
 
@@ -157,6 +160,8 @@ public:
 
     RuntimeState* runtime_state() { return _state; }
 
+    const uint32_t total_schedule_time() const { return _schedule_time; }
+
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:
@@ -175,6 +180,7 @@ private:
     bool _opened;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
+    uint32_t _schedule_time = 0;
     PipelineTaskState _cur_state;
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
