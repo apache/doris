@@ -90,7 +90,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
         filter.getConjuncts().forEach(filterPredicates::remove);
         if (!filterPredicates.isEmpty()) {
             filterPredicates.addAll(filter.getConjuncts());
-            return new LogicalFilter<>(ExpressionUtils.and(Lists.newArrayList(filterPredicates)), filter.child());
+            return new LogicalFilter<>(Lists.newArrayList(filterPredicates), filter.child());
         }
         return filter;
     }

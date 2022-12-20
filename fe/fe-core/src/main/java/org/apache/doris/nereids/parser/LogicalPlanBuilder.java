@@ -1303,8 +1303,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-            new LogicalFilter<>(getExpression((whereCtx.get().booleanExpression())), input)
-        );
+            new LogicalFilter<>(ExpressionUtils.extractConjunction(getExpression((whereCtx.get().booleanExpression()))),
+                    input));
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
@@ -1338,7 +1338,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (!(input instanceof Aggregate)) {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
-            return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);
+            return new LogicalHaving<>(
+                    ExpressionUtils.extractConjunction(getExpression((havingCtx.get().booleanExpression()))), input);
         });
     }
 

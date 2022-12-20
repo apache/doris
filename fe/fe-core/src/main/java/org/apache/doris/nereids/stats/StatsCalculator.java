@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -324,7 +325,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         StatsDeriveResult stats = groupExpression.childStatistics(0);
         FilterEstimation filterEstimation =
                 new FilterEstimation(stats);
-        return filterEstimation.estimate(filter.getPredicates());
+        return filterEstimation.estimate(ExpressionUtils.and(filter.getConjuncts()));
     }
 
     // TODO: 1. Subtract the pruned partition

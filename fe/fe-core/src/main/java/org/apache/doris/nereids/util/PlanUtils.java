@@ -43,8 +43,7 @@ public class PlanUtils {
     }
 
     public static Optional<LogicalFilter<? extends Plan>> filter(List<Expression> predicates, Plan plan) {
-        return ExpressionUtils.optionalAnd(predicates)
-                .map(predicate -> new LogicalFilter<>(predicate, plan));
+        return ExpressionUtils.optionalAnd(predicates).map(opt -> new LogicalFilter<>(predicates, plan));
     }
 
     public static Plan filterOrSelf(List<Expression> predicates, Plan plan) {

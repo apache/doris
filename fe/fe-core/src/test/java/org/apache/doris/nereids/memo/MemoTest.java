@@ -223,8 +223,8 @@ class MemoTest implements PatternMatchSupported {
 
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
                 ImmutableList.of(scan.computeOutput().get(0)), scan);
-        LogicalFilter<LogicalProject<LogicalOlapScan>> filter = new LogicalFilter<>(
-                new EqualTo(scan.computeOutput().get(0), new IntegerLiteral(1)), project);
+        LogicalFilter<LogicalProject<LogicalOlapScan>> filter = new LogicalFilter<>(ImmutableList.of(
+                new EqualTo(scan.computeOutput().get(0), new IntegerLiteral(1))), project);
 
         PlanChecker.from(connectContext, filter)
                 .checkGroupNum(3)

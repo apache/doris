@@ -37,7 +37,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-public class PushdownFilterThroughAggregationTest implements PatternMatchSupported {
+public class PushDownFilterThroughAggregationTest implements PatternMatchSupported {
 
     /*-
      * origin plan:
@@ -78,7 +78,7 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                 logicalAggregate(
                                         logicalFilter(
                                                 logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().equals(filterPredicate))
+                                        ).when(filter -> filter.getConjuncts().equals(ImmutableList.of(filterPredicate)))
                                 )
                         )
                 );
@@ -134,11 +134,10 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                         logicalAggregate(
                                                 logicalFilter(
                                                         logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().child(0) instanceof GreaterThan)
-                                                        .when(filter -> filter.getPredicates()
-                                                                .child(1) instanceof LessThanEqual)
+                                                ).when(filter -> filter.getConjuncts().get(0) instanceof GreaterThan
+                                                        && filter.getConjuncts().get(1) instanceof LessThanEqual)
                                         )
-                                ).when(filter -> filter.getPredicates() instanceof EqualTo)
+                                ).when(filter -> filter.getConjuncts().get(0) instanceof EqualTo)
                         )
                 );
     }

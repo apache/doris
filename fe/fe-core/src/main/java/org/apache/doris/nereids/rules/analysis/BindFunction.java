@@ -100,15 +100,15 @@ public class BindFunction implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_FUNCTION.build(
                logicalFilter().thenApply(ctx -> {
                    LogicalFilter<GroupPlan> filter = ctx.root;
-                   List<Expression> predicates = bind(filter.getExpressions(), ctx.connectContext.getEnv());
-                   return new LogicalFilter<>(predicates.get(0), filter.child());
+                   List<Expression> conjuncts = bind(filter.getConjuncts(), ctx.connectContext.getEnv());
+                   return new LogicalFilter<>(conjuncts, filter.child());
                })
             ),
             RuleType.BINDING_HAVING_FUNCTION.build(
                 logicalHaving().thenApply(ctx -> {
                     LogicalHaving<GroupPlan> having = ctx.root;
-                    List<Expression> predicates = bind(having.getExpressions(), ctx.connectContext.getEnv());
-                    return new LogicalHaving<>(predicates.get(0), having.child());
+                    List<Expression> conjuncts = bind(having.getConjuncts(), ctx.connectContext.getEnv());
+                    return new LogicalHaving<>(conjuncts, having.child());
                 })
             ),
             RuleType.BINDING_SORT_FUNCTION.build(

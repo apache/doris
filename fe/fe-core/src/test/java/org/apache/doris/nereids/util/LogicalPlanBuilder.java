@@ -123,8 +123,12 @@ public class LogicalPlanBuilder {
         return limit(limit, 0);
     }
 
-    public LogicalPlanBuilder filter(Expression predicate) {
-        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(predicate, this.plan);
+    public LogicalPlanBuilder filter(Expression conjunct) {
+        return filter(ImmutableList.of(conjunct));
+    }
+
+    public LogicalPlanBuilder filter(List<Expression> conjuncts) {
+        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(conjuncts, this.plan);
         return from(filter);
     }
 

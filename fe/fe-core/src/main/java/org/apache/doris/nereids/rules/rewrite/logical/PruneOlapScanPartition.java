@@ -67,7 +67,6 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
         return logicalFilter(logicalOlapScan()).when(p -> !p.child().isPartitionPruned()).thenApply(ctx -> {
             LogicalFilter<LogicalOlapScan> filter = ctx.root;
             LogicalOlapScan scan = filter.child();
-            Expression predicate = filter.getPredicates();
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
             PartitionInfo partitionInfo = table.getPartitionInfo();
@@ -76,7 +75,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             if (partitionColumnNameSet.isEmpty() || !partitionInfo.getType().equals(PartitionType.RANGE)) {
                 return ctx.root;
             }
-            List<Expression> expressionList = ExpressionUtils.extractConjunction(predicate);
+            List<Expression> expressionList = filter.getConjuncts();
             // TODO: Process all partition column for now, better to process required column only.
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (String colName : partitionColumnNameSet) {
@@ -90,7 +89,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
             LogicalOlapScan rewrittenScan =
                     scan.withSelectedPartitionIds(new ArrayList<>(selectedPartitionId));
-            return new LogicalFilter<>(filter.getPredicates(), rewrittenScan);
+            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }
 

@@ -61,7 +61,7 @@ public class PlanToStringTest {
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
-        LogicalFilter<Plan> plan = new LogicalFilter<>(new EqualTo(Literal.of(1), Literal.of(1)), child);
+        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableList.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
         Assertions.assertEquals("LogicalFilter ( predicates=(1 = 1) )", plan.toString());
     }

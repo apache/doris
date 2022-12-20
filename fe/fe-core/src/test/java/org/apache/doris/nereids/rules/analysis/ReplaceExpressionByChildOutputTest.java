@@ -83,7 +83,7 @@ public class ReplaceExpressionByChildOutputTest implements PatternMatchSupported
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(
                 ImmutableList.of(alias), ImmutableList.of(alias), logicalOlapScan);
-        LogicalHaving<Plan> logicalHaving = new LogicalHaving<>(BooleanLiteral.TRUE, logicalAggregate);
+        LogicalHaving<Plan> logicalHaving = new LogicalHaving<>(ImmutableList.of(BooleanLiteral.TRUE), logicalAggregate);
         List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(slotReference, true, true));
         LogicalSort<Plan> logicalSort = new LogicalSort<>(orderKeys, logicalHaving);
 

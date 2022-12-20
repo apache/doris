@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -42,7 +41,7 @@ public class CheckAnalysisTest {
 
     @Test
     public void testCheckExpressionInputTypes() {
-        Plan plan = new LogicalFilter<>(new And(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
+        Plan plan = new LogicalFilter<>(ImmutableList.of(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(RuntimeException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));

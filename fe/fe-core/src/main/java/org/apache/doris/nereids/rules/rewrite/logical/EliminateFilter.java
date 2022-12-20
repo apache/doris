@@ -30,11 +30,11 @@ public class EliminateFilter extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter()
-                .when(filter -> filter.getPredicates() instanceof BooleanLiteral)
+                .when(filter -> filter.getConjuncts() instanceof BooleanLiteral)
                 .then(filter -> {
-                    if (filter.getPredicates() == BooleanLiteral.FALSE) {
+                    if (filter.getPredicate() == BooleanLiteral.FALSE) {
                         return new LogicalEmptyRelation(filter.getOutput());
-                    } else if (filter.getPredicates() == BooleanLiteral.TRUE) {
+                    } else if (filter.getPredicate() == BooleanLiteral.TRUE) {
                         return filter.child();
                     } else {
                         throw new RuntimeException("predicates is BooleanLiteral but isn't FALSE or TRUE");

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -41,36 +40,36 @@ import java.util.stream.Stream;
  * Logical filter plan.
  */
 public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
-    private final Expression predicates;
+    private final List<Expression> conjuncts;
 
     private final boolean singleTableExpressionExtracted;
 
-    public LogicalFilter(Expression predicates, CHILD_TYPE child) {
-        this(predicates, Optional.empty(), Optional.empty(), child);
+    public LogicalFilter(List<Expression> conjuncts, CHILD_TYPE child) {
+        this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalFilter(Expression predicates,
-            boolean singleTableExpressionExtracted,
+    public LogicalFilter(List<Expression> conjuncts, boolean singleTableExpressionExtracted,
             CHILD_TYPE child) {
-        this(predicates, Optional.empty(), singleTableExpressionExtracted,
+        this(conjuncts, Optional.empty(), singleTableExpressionExtracted,
                 Optional.empty(), child);
     }
 
-    public LogicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
+    public LogicalFilter(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(predicates, groupExpression, false, logicalProperties, child);
+        this(conjuncts, groupExpression, false, logicalProperties, child);
     }
 
-    public LogicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
+    public LogicalFilter(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             boolean singleTableExpressionExtracted,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
-        this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
+        this.conjuncts = Objects.requireNonNull(conjuncts, "conjuncts can not be null");
         this.singleTableExpressionExtracted = singleTableExpressionExtracted;
     }
 
-    public Expression getPredicates() {
-        return predicates;
+    @Override
+    public List<Expression> getConjuncts() {
+        return conjuncts;
     }
 
     @Override
@@ -97,7 +96,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalFilter",
-                "predicates", predicates
+                "conjuncts", conjuncts
         );
     }
 
@@ -110,13 +109,13 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             return false;
         }
         LogicalFilter that = (LogicalFilter) o;
-        return predicates.equals(that.predicates)
+        return conjuncts.equals(that.conjuncts)
                 && singleTableExpressionExtracted == that.singleTableExpressionExtracted;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(predicates, singleTableExpressionExtracted);
+        return Objects.hash(conjuncts, singleTableExpressionExtracted);
     }
 
     @Override
@@ -126,24 +125,24 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return ImmutableList.of(predicates);
+        return conjuncts;
     }
 
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(predicates, singleTableExpressionExtracted, children.get(0));
+        return new LogicalFilter<>(conjuncts, singleTableExpressionExtracted, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFilter<>(predicates, groupExpression, singleTableExpressionExtracted,
+        return new LogicalFilter<>(conjuncts, groupExpression, singleTableExpressionExtracted,
                 Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFilter<>(predicates, Optional.empty(),
+        return new LogicalFilter<>(conjuncts, Optional.empty(),
                 singleTableExpressionExtracted,
                 logicalProperties, child());
     }

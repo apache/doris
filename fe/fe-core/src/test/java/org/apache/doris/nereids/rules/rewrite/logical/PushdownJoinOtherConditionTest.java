@@ -107,7 +107,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
 
-        Assertions.assertEquals(ExpressionUtils.and(condition), actualFilter.getPredicates());
+        Assertions.assertEquals(condition, actualFilter.getConjuncts());
     }
 
     @Test
@@ -142,8 +142,8 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(rightFilter instanceof LogicalFilter);
         LogicalFilter<Plan> actualLeft = (LogicalFilter<Plan>) leftFilter;
         LogicalFilter<Plan> actualRight = (LogicalFilter<Plan>) rightFilter;
-        Assertions.assertEquals(leftSide, actualLeft.getPredicates());
-        Assertions.assertEquals(rightSide, actualRight.getPredicates());
+        Assertions.assertEquals(ImmutableList.of(leftSide), actualLeft.getConjuncts());
+        Assertions.assertEquals(ImmutableList.of(rightSide), actualRight.getConjuncts());
     }
 
     @Test
@@ -190,7 +190,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldFilter instanceof LogicalFilter);
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
-        Assertions.assertEquals(pushSide, actualFilter.getPredicates());
+        Assertions.assertEquals(ImmutableList.of(pushSide), actualFilter.getConjuncts());
     }
 
     private Memo rewrite(Plan plan) {

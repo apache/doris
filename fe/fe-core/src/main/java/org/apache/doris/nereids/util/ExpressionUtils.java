@@ -89,7 +89,7 @@ public class ExpressionUtils {
         return result;
     }
 
-    private static void extract(Class<? extends Expression> type, Expression expr, List<Expression> result) {
+    private static void extract(Class<? extends Expression> type, Expression expr, Collection<Expression> result) {
         if (type.isInstance(expr)) {
             CompoundPredicate predicate = (CompoundPredicate) expr;
             extract(type, predicate.left(), result);
@@ -97,6 +97,12 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
+    }
+
+    public static Set<Expression> extractToSet(Expression predicate) {
+        Set<Expression> result = Sets.newHashSet();
+        extract(predicate.getClass(), predicate, result);
+        return result;
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {

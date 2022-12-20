@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.Lists;
@@ -82,7 +81,7 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
 
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
-            ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
+            filter.getConjuncts().forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 if (canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
@@ -101,8 +100,7 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
             // nothing pushed down, just return origin plan
             return filter;
         }
-        LogicalFilter bottomFilter = new LogicalFilter<>(ExpressionUtils.and(pushDownPredicates),
-                aggregate.child(0));
+        LogicalFilter bottomFilter = new LogicalFilter<>(pushDownPredicates, aggregate.child(0));
 
         aggregate = aggregate.withChildren(Lists.newArrayList(bottomFilter));
         return PlanUtils.filterOrSelf(filterPredicates, aggregate);

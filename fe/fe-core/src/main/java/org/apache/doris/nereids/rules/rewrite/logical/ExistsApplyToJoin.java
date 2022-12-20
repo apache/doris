@@ -122,8 +122,8 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                 ImmutableList.of(alias), newLimit);
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 (LogicalPlan) unapply.left(), newAgg);
-        return new LogicalFilter<>(new EqualTo(newAgg.getOutput().get(0),
-                new IntegerLiteral(0)), newJoin);
+        return new LogicalFilter<>(ImmutableList.of(new EqualTo(newAgg.getOutput().get(0),
+                new IntegerLiteral(0))), newJoin);
     }
 
     private Plan unCorrelatedExist(LogicalApply unapply) {

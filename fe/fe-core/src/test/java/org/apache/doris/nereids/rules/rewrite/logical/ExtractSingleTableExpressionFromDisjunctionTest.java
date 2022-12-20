@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -83,18 +82,17 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 )
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter(expr, join);
+        LogicalFilter root = new LogicalFilter(ImmutableList.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
-                                .when(filter -> verifySingleTableExpression1(filter.getPredicates()))
+                                .when(filter -> verifySingleTableExpression1(filter.getConjuncts()))
                 );
         Assertions.assertTrue(studentGender != null);
     }
 
-    private boolean verifySingleTableExpression1(Expression expr) {
-        List<Expression> conjuncts = ExpressionUtils.extractConjunction(expr);
+    private boolean verifySingleTableExpression1(List<Expression> conjuncts) {
         Expression or1 = new Or(
                 new EqualTo(courseCid, new IntegerLiteral(1)),
                 new EqualTo(courseName, new StringLiteral("abc"))
@@ -126,18 +124,17 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 )
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter<>(expr, join);
+        LogicalFilter root = new LogicalFilter<>(ImmutableList.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
-                                .when(filter -> verifySingleTableExpression2(filter.getPredicates()))
+                                .when(filter -> verifySingleTableExpression2(filter.getConjuncts()))
                 );
         Assertions.assertNotNull(studentGender);
     }
 
-    private boolean verifySingleTableExpression2(Expression expr) {
-        List<Expression> conjuncts = ExpressionUtils.extractConjunction(expr);
+    private boolean verifySingleTableExpression2(List<Expression> conjuncts) {
         Expression or1 = new Or(
                 new EqualTo(courseCid, new IntegerLiteral(1)),
                 new And(
@@ -163,18 +160,17 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter<>(expr, join);
+        LogicalFilter root = new LogicalFilter<>(ImmutableList.of(expr), join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
-                                .when(filter -> verifySingleTableExpression3(filter.getPredicates()))
+                                .when(filter -> verifySingleTableExpression3(filter.getConjuncts()))
                 );
         Assertions.assertNotNull(studentGender);
     }
 
-    private boolean verifySingleTableExpression3(Expression expr) {
-        List<Expression> conjuncts = ExpressionUtils.extractConjunction(expr);
+    private boolean verifySingleTableExpression3(List<Expression> conjuncts) {
         Expression or = new Or(
                 new EqualTo(studentAge, new IntegerLiteral(10)),
                 new EqualTo(studentGender, new IntegerLiteral(1))

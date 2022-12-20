@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -96,7 +95,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
 
             LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
-            List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());
+            List<Expression> predicates = filter.getConjuncts();
 
             List<Expression> filterPredicates = Lists.newArrayList();
             List<Expression> joinConditions = Lists.newArrayList();

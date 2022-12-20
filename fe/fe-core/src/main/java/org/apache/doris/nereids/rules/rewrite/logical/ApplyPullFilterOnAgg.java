@@ -63,9 +63,8 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
         return logicalApply(group(), logicalAggregate(logicalFilter())).when(LogicalApply::isCorrelated).then(apply -> {
             LogicalAggregate<LogicalFilter<GroupPlan>> agg = apply.right();
             LogicalFilter<GroupPlan> filter = agg.child();
-            List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());
             Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(
-                    predicates, apply.getCorrelationSlot());
+                    filter.getConjuncts(), apply.getCorrelationSlot());
             List<Expression> correlatedPredicate = split.get(true);
             List<Expression> unCorrelatedPredicate = split.get(false);
 

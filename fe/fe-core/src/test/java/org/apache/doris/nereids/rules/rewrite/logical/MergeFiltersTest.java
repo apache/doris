@@ -25,9 +25,9 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,11 +42,11 @@ public class MergeFiltersTest {
     public void testMergeConsecutiveFilters() {
         UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "table"));
         Expression expression1 = new IntegerLiteral(1);
-        LogicalFilter filter1 = new LogicalFilter<>(expression1, relation);
+        LogicalFilter filter1 = new LogicalFilter<>(ImmutableList.of(expression1), relation);
         Expression expression2 = new IntegerLiteral(2);
-        LogicalFilter filter2 = new LogicalFilter<>(expression2, filter1);
+        LogicalFilter filter2 = new LogicalFilter<>(ImmutableList.of(expression2), filter1);
         Expression expression3 = new IntegerLiteral(3);
-        LogicalFilter filter3 = new LogicalFilter<>(expression3, filter2);
+        LogicalFilter filter3 = new LogicalFilter<>(ImmutableList.of(expression3), filter2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter3);
         List<Rule> rules = Lists.newArrayList(new MergeFilters().build());
@@ -55,9 +55,8 @@ public class MergeFiltersTest {
         Plan resultPlan = cascadesContext.getMemo().copyOut();
         System.out.println(resultPlan.treeString());
         Assertions.assertTrue(resultPlan instanceof LogicalFilter);
-        Expression allPredicates = ExpressionUtils.and(expression3,
-                ExpressionUtils.and(expression2, expression1));
-        Assertions.assertEquals(((LogicalFilter<?>) resultPlan).getPredicates(), allPredicates);
+        List<Expression> allPredicates = ImmutableList.of(expression1, expression2, expression3);
+        Assertions.assertEquals(((LogicalFilter<?>) resultPlan).getConjuncts(), allPredicates);
         Assertions.assertTrue(resultPlan.child(0) instanceof UnboundRelation);
     }
 }

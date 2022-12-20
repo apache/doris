@@ -22,7 +22,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -121,8 +120,8 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(2));
 
-        And and = new And(eq1, eq2);
-        Or or = new Or(eq1, eq2);
+        ImmutableList and = ImmutableList.of(eq1, eq2);
+        ImmutableList or = ImmutableList.of(new Or(eq1, eq2));
 
         Group childGroup = new Group();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
@@ -174,8 +173,8 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
 
-        And and = new And(eq1, eq2);
-        Or or = new Or(eq1, eq2);
+        ImmutableList and = ImmutableList.of(eq1, eq2);
+        ImmutableList or = ImmutableList.of(new Or(eq1, eq2));
 
         Group childGroup = new Group();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));

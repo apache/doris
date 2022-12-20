@@ -102,7 +102,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         // Implicit rely on {rule: MergeFilters}, so don't exist filter--filter--join.
         if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
-            joinFilter.addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
+            joinFilter.addAll(filter.getConjuncts());
             join = (LogicalJoin<?, ?>) filter.child();
         } else {
             join = (LogicalJoin<?, ?>) plan;

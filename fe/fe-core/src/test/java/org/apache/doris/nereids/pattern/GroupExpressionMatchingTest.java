@@ -209,8 +209,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testSubTreeMatch() {
         Plan root =
-                new LogicalFilter(new EqualTo(new UnboundSlot(Lists.newArrayList("a", "id")),
-                        new UnboundSlot(Lists.newArrayList("b", "id"))),
+                new LogicalFilter(ImmutableList.of(new EqualTo(new UnboundSlot(Lists.newArrayList("a", "id")),
+                        new UnboundSlot(Lists.newArrayList("b", "id")))),
                         new LogicalJoin(JoinType.INNER_JOIN,
                                 new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
                                         new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("a")),

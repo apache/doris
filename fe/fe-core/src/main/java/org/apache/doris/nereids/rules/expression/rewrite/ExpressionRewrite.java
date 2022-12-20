@@ -100,11 +100,11 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalFilter().then(filter -> {
-                Expression newExpr = rewriter.rewrite(filter.getPredicates());
-                if (newExpr.equals(filter.getPredicates())) {
+                List<Expression> newConjuncts = rewriter.rewrite(filter.getConjuncts());
+                if (newConjuncts.equals(filter.getConjuncts())) {
                     return filter;
                 }
-                return new LogicalFilter<>(newExpr, filter.child());
+                return new LogicalFilter<>(newConjuncts, filter.child());
             }).toRule(RuleType.REWRITE_FILTER_EXPRESSION);
         }
     }
