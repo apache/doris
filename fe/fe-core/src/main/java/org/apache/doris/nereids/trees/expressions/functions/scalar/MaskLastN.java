@@ -50,7 +50,7 @@ public class MaskLastN extends ScalarFunction implements ExplicitlyCastableSigna
     }
 
     public MaskLastN(Expression arg) {
-        super("name_last_n", arg);
+        super("mask_last_n", arg);
     }
 
     /**
