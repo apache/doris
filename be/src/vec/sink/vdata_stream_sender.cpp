@@ -103,7 +103,8 @@ Status VDataStreamSender::Channel::send_current_block(bool eos) {
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::send_local_block(bool eos) {
+Status Channel::send_local_block(bool eos) {
+    SCOPED_TIMER(_parent->_local_send_timer);
     std::shared_ptr<VDataStreamRecvr> recvr =
             _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
                                                                     _dest_node_id);
@@ -112,6 +113,7 @@ Status VDataStreamSender::Channel::send_local_block(bool eos) {
     if (recvr != nullptr) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block.rows());
+        COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         recvr->add_block(&block, _parent->_sender_id, true);
         if (eos) {
             recvr->remove_sender(_parent->_sender_id, _be_number);
@@ -120,13 +122,15 @@ Status VDataStreamSender::Channel::send_local_block(bool eos) {
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::send_local_block(Block* block) {
+Status Channel::send_local_block(Block* block) {
+    SCOPED_TIMER(_parent->_local_send_timer);
     std::shared_ptr<VDataStreamRecvr> recvr =
             _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
                                                                     _dest_node_id);
     if (recvr != nullptr) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block->bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block->rows());
+        COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         recvr->add_block(block, _parent->_sender_id, false);
     }
     return Status::OK();
@@ -134,6 +138,7 @@ Status VDataStreamSender::Channel::send_local_block(Block* block) {
 
 Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     SCOPED_TIMER(_parent->_brpc_send_timer);
+    COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
     if (_closure == nullptr) {
         _closure = new RefCountClosure<PTransmitDataResult>();
         _closure->ref();
@@ -211,13 +216,17 @@ Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>
             row_add = row_wait_add;
         }
 
-        _mutable_block->add_rows(block, begin, begin + row_add);
+        {
+            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+            SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
+            _mutable_block->add_rows(block, begin, begin + row_add);
+        }
 
         row_wait_add -= row_add;
         begin += row_add;
 
         if (row_add == max_add) {
-            RETURN_IF_ERROR(send_current_block());
+            RETURN_IF_ERROR(send_current_block(false));
         }
     }
 
@@ -280,6 +289,10 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
+          _local_send_timer(nullptr),
+          _split_block_hash_compute_timer(nullptr),
+          _split_block_distribute_by_channel_timer(nullptr),
+          _blocks_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc) {
@@ -329,6 +342,10 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _brpc_send_timer(nullptr),
           _brpc_wait_timer(nullptr),
           _bytes_sent_counter(nullptr),
+          _local_send_timer(nullptr),
+          _split_block_hash_compute_timer(nullptr),
+          _split_block_distribute_by_channel_timer(nullptr),
+          _blocks_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
     _name = "VDataStreamSender";
@@ -349,6 +366,10 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _brpc_send_timer(nullptr),
           _brpc_wait_timer(nullptr),
           _bytes_sent_counter(nullptr),
+          _local_send_timer(nullptr),
+          _split_block_hash_compute_timer(nullptr),
+          _split_block_distribute_by_channel_timer(nullptr),
+          _blocks_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
     _name = "VDataStreamSender";
@@ -433,6 +454,11 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _compress_timer = ADD_TIMER(profile(), "CompressTime");
     _brpc_send_timer = ADD_TIMER(profile(), "BrpcSendTime");
     _brpc_wait_timer = ADD_TIMER(profile(), "BrpcSendTime.Wait");
+    _local_send_timer = ADD_TIMER(profile(), "LocalSendTime");
+    _split_block_hash_compute_timer = ADD_TIMER(profile(), "SplitBlockHashComputeTime");
+    _split_block_distribute_by_channel_timer =
+            ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
+    _blocks_sent_counter = ADD_COUNTER(profile(), "BlocksSent", TUnit::UNIT);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -523,6 +549,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         // TODO: after we support new shuffle hash method, should simple the code
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             if (!_new_shuffle_hash_method) {
+                SCOPED_TIMER(_split_block_hash_compute_timer);
                 // for each row, we have a siphash val
                 std::vector<SipHash> siphashs(rows);
                 // result[j] means column index, i means rows index
@@ -533,6 +560,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                     hashes[i] = siphashs[i].get64() % element_size;
                 }
             } else {
+                SCOPED_TIMER(_split_block_hash_compute_timer);
                 // result[j] means column index, i means rows index, here to calculate the xxhash value
                 for (int j = 0; j < result_size; ++j) {
                     block->get_by_position(result[j]).column->update_hashes_with_value(hashes);
