@@ -36,7 +36,6 @@ suite("test_external_catalog_icebergv2", "p2") {
             // test parquet format format
             def q01 = {
                 qt_q01 """ select count(1) as c from customer;"""
-                qt_q02 """ select * from test1 order by col_1;"""
                 qt_q03 """ select count(1) from nation """
                 qt_q04 """ select count(1) from orders """
                 qt_q05 """ select p_name from part where p_partkey = 4438130 order by p_name limit 1; """

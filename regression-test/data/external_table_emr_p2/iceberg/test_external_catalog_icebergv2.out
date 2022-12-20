@@ -3,7 +3,7 @@
 1500000000
 
 -- !q02 --
-1500000000
+
 
 -- !q03 --
 123	china	4	56	sc
@@ -26,3 +26,7 @@ bill_code	dates	ord_year	ord_month	ord_quarter	on_time
 -- !q07 --
 2
 
+-- !q08 --
+123	zhangsan	12	123.45	2022-01-01
+124	lisi	12	123.45	2022-01-01
+125	lisan	12	123.45	2022-01-02
