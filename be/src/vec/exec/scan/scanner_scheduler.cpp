@@ -249,6 +249,13 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             eos = true;
         }
 
+        if (UNLIKELY(!status.ok())) {
+            LOG(WARNING) << "Scan thread read VOlapScanner failed: " << status.to_string();
+            // Add block ptr in blocks, prevent mem leak in read failed
+            blocks.push_back(block);
+            break;
+        }
+
         raw_bytes_read += block->bytes();
         num_rows_in_block += block->rows();
         if (UNLIKELY(block->rows() == 0)) {
