@@ -760,13 +760,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
             _cv.notify_all();
         }
-        auto st = context->submit();
-        if (!st.ok()) {
-            context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
-            remove_pipeline_context(context);
-            return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
-                                         BackendOptions::get_localhost());
-        }
+        return context->submit();
     }
 
     return Status::OK();

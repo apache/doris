@@ -23,6 +23,9 @@
 
 namespace doris::pipeline {
 
+BlockedTaskScheduler::BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue)
+        : _task_queue(std::move(task_queue)), _started(false), _shutdown(false) {}
+
 Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
@@ -31,6 +34,7 @@ Status BlockedTaskScheduler::start() {
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
+    LOG(INFO) << "BlockedTaskScheduler started";
     return Status::OK();
 }
 
@@ -45,10 +49,14 @@ void BlockedTaskScheduler::shutdown() {
     }
 }
 
-void BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
+Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
+    if (this->_shutdown) {
+        return Status::InternalError("BlockedTaskScheduler shutdown");
+    }
     std::unique_lock<std::mutex> lock(_task_mutex);
     _blocked_tasks.push_back(task);
     _task_cond.notify_one();
+    return Status::OK();
 }
 
 void BlockedTaskScheduler::_schedule() {
@@ -57,7 +65,7 @@ void BlockedTaskScheduler::_schedule() {
     int empty_times = 0;
     std::vector<PipelineTask*> ready_tasks;
 
-    while (!_shutdown.load()) {
+    while (!_shutdown) {
         {
             std::unique_lock<std::mutex> lock(this->_task_mutex);
             local_blocked_tasks.splice(local_blocked_tasks.end(), _blocked_tasks);
@@ -199,9 +207,8 @@ Status TaskScheduler::start() {
 }
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
-    _task_queue->push_back(task);
+    return _task_queue->push_back(task);
     // TODO control num of task
-    return Status::OK();
 }
 
 void TaskScheduler::_do_work(size_t index) {
@@ -210,16 +217,8 @@ void TaskScheduler::_do_work(size_t index) {
     while (*marker) {
         auto task = queue->try_take(index);
         if (!task) {
-            task = queue->steal_take(index);
-            if (!task) {
-                // TODO: The take is a blocking method, rethink the logic
-                task = queue->take(index);
-                if (!task) {
-                    continue;
-                }
-            }
+            continue;
         }
-        task->stop_worker_watcher();
         auto* fragment_ctx = task->fragment_context();
         doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
