@@ -37,7 +37,6 @@ class Http {
         }
     }
 
-    //ms超时毫秒,url地址,json入参
     public static String httpJson(int ms,String url,String json) throws Exception{
         String err = "00", line = null;
         StringBuilder sb = new StringBuilder();
@@ -56,13 +55,13 @@ class Http {
             conn.connect();
             out = new BufferedWriter(new OutputStreamWriter(conn.getOutputStream(),"utf-8"));
             out.write(new String(json.getBytes(), "utf-8"));
-            out.flush();//发送参数
+            out.flush();
             int code = conn.getResponseCode();
             if (conn.getResponseCode()==200){
                 inB = new BufferedReader(new InputStreamReader(conn.getInputStream(),"UTF-8"));
                 while ((line=inB.readLine())!=null)
                     sb.append(line);
-            }//接收返回值
+            }
 
         }catch(Exception ex){
             err=ex.getMessage();
@@ -81,31 +80,23 @@ class Http {
         StringBuilder result = new StringBuilder("");
         try {
             URL realUrl = new URL(url);
-            // 打开和URL之间的连接
             URLConnection conn = realUrl.openConnection();
-            // 设置通用的请求属性
             conn.setRequestProperty("Content-Type","application/json;charset=UTF-8");
             conn.setRequestProperty("accept", "*/*");
-            // 发送POST请求必须设置如下两行
             conn.setDoOutput(true);
             conn.setDoInput(true);
-            // 获取URLConnection对象对应的输出流
             out = new OutputStreamWriter(conn.getOutputStream(), "UTF-8");
-            // 发送请求参数
             out.write(param);
-            // flush输出流的缓冲
             out.flush();
-            // 定义BufferedReader输入流来读取URL的响应
             inB = new BufferedReader(new InputStreamReader(conn.getInputStream(),"UTF-8"));
             String line;
             while ((line = inB.readLine()) != null) {
                 result.append(line);
             }
         } catch (Exception e) {
-            System.out.println("发送 POST 请求出现异常！"+e);
+            System.out.println("post exception" + e);
             e.printStackTrace();
         }
-        //使用finally块来关闭输出流、输入流
         finally{
             if(out!=null){ try { out.close(); }catch(Exception ex){} }
             if(inB!=null){ try { inB.close(); }catch(Exception ex){} }
@@ -128,7 +119,7 @@ class Http {
             httppost.setEntity(se);
             response = httpClient.execute(httppost);
             int code = response.getStatusLine().getStatusCode();
-            System.out.println("接口响应码:"+code);
+            System.out.println("res statusCode:"+code);
             data = EntityUtils.toString(response.getEntity(), "utf-8");
             EntityUtils.consume(response.getEntity());
         } catch (Exception e) {
