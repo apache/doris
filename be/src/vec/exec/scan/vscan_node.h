@@ -237,8 +237,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    bool _finalized = false;
-
 protected:
     std::unique_ptr<RuntimeProfile> _scanner_profile;
 

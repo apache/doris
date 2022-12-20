@@ -758,7 +758,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     }
 
     if (_should_build_hash_table && eos) {
-        child(1)->close(state);
+        // For pipeline engine, children should be closed once this pipeline task is finished.
+        if (!state->enable_pipeline_exec()) {
+            child(1)->close(state);
+        }
         if (!_build_side_mutable_block.empty()) {
             if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                 return Status::NotSupported(

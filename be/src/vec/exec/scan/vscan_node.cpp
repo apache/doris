@@ -343,16 +343,12 @@ Status VScanNode::close(RuntimeState* state) {
 }
 
 void VScanNode::release_resource(RuntimeState* state) {
-    if (_finalized) {
-        return;
-    }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
     if (_scanner_ctx.get()) {
         // stop and wait the scanner scheduler to be done
         // _scanner_ctx may not be created for some short circuit case.
         _scanner_ctx->set_should_stop();
         _scanner_ctx->clear_and_join();
-        _scanner_ctx.reset();
     }
 
     for (auto& ctx : _runtime_filter_ctxs) {
@@ -366,7 +362,6 @@ void VScanNode::release_resource(RuntimeState* state) {
     _scanner_pool.clear();
 
     ExecNode::release_resource(state);
-    _finalized = true;
 }
 
 Status VScanNode::_normalize_conjuncts() {
