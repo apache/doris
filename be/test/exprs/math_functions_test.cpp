@@ -262,9 +262,7 @@ TEST_F(MathFunctionsTest, round_bankers) {
     EXPECT_EQ(r4, MathFunctions::round_bankers(ctx, DoubleVal(3.5451), IntVal(1)));
     EXPECT_EQ(r5, MathFunctions::round_bankers(ctx, DoubleVal(3.5451), IntVal(2)));
 
-
     EXPECT_EQ(r6, MathFunctions::round_bankers(ctx, DoubleVal(3.5450), IntVal(2)));
-
 
     EXPECT_EQ(r7, MathFunctions::round_bankers(ctx, DoubleVal(222450.00), IntVal(-2)));
 }

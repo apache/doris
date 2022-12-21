@@ -226,9 +226,8 @@ BigIntVal MathFunctions::round_bankers(FunctionContext* ctx, const DoubleVal& v)
     return BigIntVal(static_cast<int64_t>(round_bankers(ctx, v, IntVal(1)).val));
 }
 
-DoubleVal MathFunctions::round_bankers(doris_udf::FunctionContext* ctx,
-                                            const DoubleVal& v,
-                                            const IntVal& d) {
+DoubleVal MathFunctions::round_bankers(doris_udf::FunctionContext* ctx, const DoubleVal& v,
+                                       const IntVal& d) {
     double scale = std::pow(10.0, d.val);
     double result = std::floor(v.val * scale + 0.5) / scale;
     if (result - std::floor(result * scale) == 0.5) {
