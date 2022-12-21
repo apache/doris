@@ -242,8 +242,8 @@ TEST_F(MathFunctionsTest, unhex) {
 }
 
 TEST_F(MathFunctionsTest, round_bankers) {
-    IntVal r0(0);
-    IntVal r1(1);
+    BigIntVal r0(0);
+    BigIntVal r1(1);
     DoubleVal r2(2);
     DoubleVal r3(4);
     DoubleVal r4(3.5);
