@@ -113,7 +113,14 @@ Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
     }
     DCHECK_EQ(block->rows(), 0);
     RETURN_IF_ERROR_AND_CHECK_SPAN(
-            child(_child_idx)->get_next_after_projects(state, block, &_child_eos),
+            child(_child_idx)
+                    ->get_next_after_projects(
+                            state, block, &_child_eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[_child_idx], std::placeholders::_1,
+                                      std::placeholders::_2, std::placeholders::_3)),
             child(_child_idx)->get_next_span(), _child_eos);
     if (_child_eos) {
         // Even though the child is at eos, it's not OK to close() it here. Once we close
@@ -155,7 +162,14 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         child_block.clear();
         // The first batch from each child is always fetched here.
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(_child_idx)->get_next_after_projects(state, &child_block, &_child_eos),
+                child(_child_idx)
+                        ->get_next_after_projects(
+                                state, &child_block, &_child_eos,
+                                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                               bool*)) &
+                                                  ExecNode::get_next,
+                                          _children[_child_idx], std::placeholders::_1,
+                                          std::placeholders::_2, std::placeholders::_3)),
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
