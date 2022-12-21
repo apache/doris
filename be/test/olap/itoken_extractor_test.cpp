@@ -41,8 +41,8 @@ void runNextInString(const ITokenExtractor& extractor, std::string statement,
     size_t pos = 0;
     size_t token_start = 0;
     size_t token_length = 0;
-    while (extractor.nextInString(statement.c_str(), statement.size(), &pos, &token_start,
-                                  &token_length)) {
+    while (extractor.next_in_string(statement.c_str(), statement.size(), &pos, &token_start,
+                                    &token_length)) {
         actual.push_back(statement.substr(token_start, token_length));
     }
     ASSERT_EQ(expect, actual);
@@ -54,7 +54,7 @@ void runNextInStringLike(const ITokenExtractor& extractor, std::string statement
     actual.reserve(expect.size());
     size_t pos = 0;
     std::string str;
-    while (extractor.nextInStringLike(statement.c_str(), statement.length(), &pos, str)) {
+    while (extractor.next_in_string_like(statement.c_str(), statement.length(), &pos, str)) {
         actual.push_back(str);
     }
     ASSERT_EQ(expect, actual);

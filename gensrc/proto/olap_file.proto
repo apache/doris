@@ -199,9 +199,6 @@ message ColumnPB {
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
-    optional bool ngram_bf_column = 19 [default=false];
-    optional int32 gram_size = 20;
-    optional int32 gram_bf_size = 21;
 }
 
 enum IndexType {

@@ -288,11 +288,6 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
-    if (tcolumn.has_ngram_bf_index) {
-        column->set_ngram_bf_column(true);
-        column->set_gram_size(tcolumn.gram_size);
-        column->set_gram_bf_size(tcolumn.gram_bf_size);
-    }
 
     if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
         ColumnPB* children_column = column->add_children_columns();

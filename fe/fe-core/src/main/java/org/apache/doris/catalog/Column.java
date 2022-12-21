@@ -685,17 +685,6 @@ public class Column implements Writable, GsonPostProcessable {
                 if (tColumn.getColumnName().equals(columns.get(0))) {
                     tColumn.setHasBitmapIndex(true);
                 }
-            } else if (index.getIndexType() == IndexDef.IndexType.NGRAM_BF) {
-                List<String> columns = index.getColumns();
-                if (tColumn.getColumnName().equals(columns.get(0))) {
-                    tColumn.setHasNgramBfIndex(true);
-                    String ngramSize = index.getProperties().getOrDefault(IndexDef.NGRAM_SIZE_KEY,
-                            IndexDef.DEFAULT_NGRAM_SIZE);
-                    String bfSize = index.getProperties().getOrDefault(IndexDef.NGRAM_BF_SIZE_KEY,
-                            IndexDef.DEFAULT_NGRAM_BF_SIZE);
-                    tColumn.setGramSize(Integer.parseInt(ngramSize));
-                    tColumn.setGramBfSize(Integer.parseInt(bfSize));
-                }
             }
         }
         Set<String> bfColumns = olapTable.getCopiedBfColumns();

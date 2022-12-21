@@ -21,9 +21,9 @@
 
 namespace doris {
 
-bool NgramTokenExtractor::nextInString(const char* data, size_t length, size_t* __restrict pos,
-                                       size_t* __restrict token_start,
-                                       size_t* __restrict token_length) const {
+bool NgramTokenExtractor::next_in_string(const char* data, size_t length, size_t* __restrict pos,
+                                         size_t* __restrict token_start,
+                                         size_t* __restrict token_length) const {
     *token_start = *pos;
     *token_length = 0;
     size_t code_points = 0;
@@ -35,8 +35,8 @@ bool NgramTokenExtractor::nextInString(const char* data, size_t length, size_t* 
     return code_points == n;
 }
 
-bool NgramTokenExtractor::nextInStringLike(const char* data, size_t length, size_t* pos,
-                                           std::string& token) const {
+bool NgramTokenExtractor::next_in_string_like(const char* data, size_t length, size_t* pos,
+                                              std::string& token) const {
     token.clear();
 
     size_t code_points = 0;

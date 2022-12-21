@@ -33,43 +33,43 @@ struct ITokenExtractor {
     /// Fast inplace implementation for regular use.
     /// Gets string (data ptr and len) and start position for extracting next token (state of extractor).
     /// Returns false if parsing is finished, otherwise returns true.
-    virtual bool nextInString(const char* data, size_t length, size_t* __restrict pos,
-                              size_t* __restrict token_start,
-                              size_t* __restrict token_length) const = 0;
+    virtual bool next_in_string(const char* data, size_t length, size_t* __restrict pos,
+                                size_t* __restrict token_start,
+                                size_t* __restrict token_length) const = 0;
 
     /// Special implementation for creating bloom filter for LIKE function.
     /// It skips unescaped `%` and `_` and supports escaping symbols, but it is less lightweight.
-    virtual bool nextInStringLike(const char* data, size_t length, size_t* pos,
-                                  std::string& out) const = 0;
+    virtual bool next_in_string_like(const char* data, size_t length, size_t* pos,
+                                     std::string& out) const = 0;
 
-    virtual void stringToBloomFilter(const char* data, size_t length,
-                                     segment_v2::BloomFilter& bloom_filter) const = 0;
+    virtual void string_to_bloom_filter(const char* data, size_t length,
+                                        segment_v2::BloomFilter& bloom_filter) const = 0;
 
-    virtual bool stringLikeToBloomFilter(const char* data, size_t length,
-                                         segment_v2::BloomFilter& bloom_filter) const = 0;
+    virtual bool string_like_to_bloom_filter(const char* data, size_t length,
+                                             segment_v2::BloomFilter& bloom_filter) const = 0;
 };
 
 template <typename Derived>
 class ITokenExtractorHelper : public ITokenExtractor {
 public:
-    void stringToBloomFilter(const char* data, size_t length,
-                             segment_v2::BloomFilter& bloom_filter) const override {
+    void string_to_bloom_filter(const char* data, size_t length,
+                                segment_v2::BloomFilter& bloom_filter) const override {
         size_t cur = 0;
         size_t token_start = 0;
         size_t token_len = 0;
 
-        while (cur < length && static_cast<const Derived*>(this)->nextInString(
+        while (cur < length && static_cast<const Derived*>(this)->next_in_string(
                                        data, length, &cur, &token_start, &token_len))
             bloom_filter.add_bytes(data + token_start, token_len);
     }
 
-    bool stringLikeToBloomFilter(const char* data, size_t length,
-                                 segment_v2::BloomFilter& bloom_filter) const override {
+    bool string_like_to_bloom_filter(const char* data, size_t length,
+                                     segment_v2::BloomFilter& bloom_filter) const override {
         size_t cur = 0;
         bool added = false;
         std::string token;
         while (cur < length &&
-               static_cast<const Derived*>(this)->nextInStringLike(data, length, &cur, token)) {
+               static_cast<const Derived*>(this)->next_in_string_like(data, length, &cur, token)) {
             bloom_filter.add_bytes(token.data(), token.size());
             added = true;
         }
@@ -83,12 +83,12 @@ struct NgramTokenExtractor final : public ITokenExtractorHelper<NgramTokenExtrac
 public:
     explicit NgramTokenExtractor(size_t n_) : n(n_) {}
 
-    bool nextInString(const char* data, size_t length, size_t* __restrict pos,
-                      size_t* __restrict token_start,
-                      size_t* __restrict token_length) const override;
+    bool next_in_string(const char* data, size_t length, size_t* __restrict pos,
+                        size_t* __restrict token_start,
+                        size_t* __restrict token_length) const override;
 
-    bool nextInStringLike(const char* data, size_t length, size_t* pos,
-                          std::string& token) const override;
+    bool next_in_string_like(const char* data, size_t length, size_t* pos,
+                             std::string& token) const override;
 
 private:
     size_t n;

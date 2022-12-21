@@ -189,9 +189,10 @@ public class IndexDef {
             if (indexType == IndexType.INVERTED) {
                 InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
             } else if (indexType == IndexType.NGRAM_BF) {
-                if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR) {
+                if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR
+                        && colType != PrimitiveType.STRING) {
                     throw new AnalysisException(colType + " is not supported in ngram_bf index. "
-                                                + "invalid column: " + indexColName);
+                                                    + "invalid column: " + indexColName);
                 } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
                     throw new AnalysisException(
                         "ngram_bf index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"

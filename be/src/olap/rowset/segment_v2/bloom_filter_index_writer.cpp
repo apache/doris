@@ -186,7 +186,7 @@ void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t coun
         if (src->size < _gram_size) {
             continue;
         }
-        _token_extractor.stringToBloomFilter(src->data, src->size, *_bf);
+        _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
     }
 }
 
@@ -268,6 +268,7 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
     switch (type) {
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_STRING:
         res->reset(new NGramBloomFilterIndexWriterImpl(bf_options, gram_size, gram_bf_size));
         break;
     default:
