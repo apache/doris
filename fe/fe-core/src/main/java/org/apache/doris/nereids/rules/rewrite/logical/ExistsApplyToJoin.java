@@ -91,7 +91,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
 
         if (((Exists) apply.getSubqueryExpr()).isNot()) {
-            return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
+            return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
                             .orElse(ExpressionUtils.EMPTY_CONDITION),

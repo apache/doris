@@ -34,7 +34,7 @@ import com.google.common.collect.Lists;
 /**
  * Convert InApply to LogicalJoin.
  * <p>
- * Not In -> LEFT_ANTI_JOIN
+ * Not In -> NULL_AWARE_LEFT_ANTI_JOIN
  * In -> LEFT_SEMI_JOIN
  */
 public class InApplyToJoin extends OneRewriteRuleFactory {
