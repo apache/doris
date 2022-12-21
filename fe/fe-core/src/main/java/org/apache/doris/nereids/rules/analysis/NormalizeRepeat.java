@@ -218,6 +218,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
         Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
 
+        // nullable will be different from grouping set and output expressions
         Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
         for (Expression expression : sourceExpressions) {
             Optional<NormalizeToSlotTriplet> pushDownTriplet;
