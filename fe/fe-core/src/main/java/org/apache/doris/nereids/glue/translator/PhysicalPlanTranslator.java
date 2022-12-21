@@ -905,7 +905,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toList());
 
             if (nestedLoopJoinNode.getConjuncts().isEmpty()
-                    && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
+                    && (joinType == JoinType.LEFT_ANTI_JOIN
+                        || joinType == JoinType.LEFT_SEMI_JOIN
+                        || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                     if (!leftSlotDescriptor.isMaterialized()) {
                         continue;
