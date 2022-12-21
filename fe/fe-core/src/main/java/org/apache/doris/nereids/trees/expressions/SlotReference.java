@@ -146,7 +146,7 @@ public class SlotReference extends Slot {
         // now we find some slot references with the same exprId but different nullable, and we should regard them to be
         // different.
         // TODO: we should find a better way to distinguish them.
-        return exprId.equals(that.exprId) && nullable == that.nullable;
+        return exprId.equals(that.exprId);
     }
 
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
