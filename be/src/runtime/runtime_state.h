@@ -404,10 +404,14 @@ public:
     }
 
     int repeat_max_num() const {
+#ifndef BE_TEST
         if (!_query_options.__isset.repeat_max_num) {
             return 10000;
         }
         return _query_options.repeat_max_num;
+#else
+        return 10000;
+#endif
     }
 
 private:
