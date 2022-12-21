@@ -39,5 +39,5 @@ suite("test_round") {
     qt_select """ SELECT ceil(col1, 2), ceil(col2, 2), ceil(col3, 2) FROM `${tableName}`; """
     qt_select """ SELECT truncate(col1, 2), truncate(col2, 2), truncate(col3, 2) FROM `${tableName}`; """
     qt_select """ SELECT round_bankers(col1, 2), round_bankers(col2, 2), round_bankers(col3, 2) FROM `${tableName}`; """
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS `${tableName}` """
 }
