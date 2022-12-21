@@ -58,7 +58,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("case when null = 2 then 1 when 3 in (2,3,4) then 2 else 4 end", "2");
         assertRewriteAfterTypeCoercion("case when null = 2 then 1 else 4 end", "4");
         assertRewriteAfterTypeCoercion("case when null = 2 then 1 end", "null");
-        assertRewriteAfterTypeCoercion("case when TA = TB then 1 when TC is null then 2 end", "CASE  WHEN (TA = TB) THEN 1 WHEN TC IS NULL THEN 2 ELSE NULL END");
+        assertRewriteAfterTypeCoercion("case when TA = TB then 1 when TC is null then 2 end", "CASE WHEN (TA = TB) THEN 1 WHEN TC IS NULL THEN 2 END");
     }
 
     @Test
