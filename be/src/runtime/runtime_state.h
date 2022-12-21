@@ -410,7 +410,7 @@ public:
         }
         return _query_options.repeat_max_num;
 #else
-        return 10000;
+        return 10;
 #endif
     }
 
