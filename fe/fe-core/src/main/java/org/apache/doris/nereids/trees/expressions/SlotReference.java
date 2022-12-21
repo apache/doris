@@ -78,11 +78,6 @@ public class SlotReference extends Slot {
         this.column = column;
     }
 
-    private SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier,
-            Column column) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier, column);
-    }
-
     public static SlotReference of(String name, DataType type) {
         return new SlotReference(name, type);
     }
@@ -148,9 +143,10 @@ public class SlotReference extends Slot {
         // For aa, the qualifier of aa in the subquery is empty, but in the output column of agg,
         // the qualifier of aa is t2. but both actually represent the same column.
 
-        // now we find some slot references with the same exprId but different nullable and we should regard them to be
+        // now we find some slot references with the same exprId but different nullable, and we should regard them to be
         // different.
-        return exprId.equals(that.exprId);
+        // TODO: we should find a better way to distinguish them.
+        return exprId.equals(that.exprId) && nullable == that.nullable;
     }
 
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
@@ -175,24 +171,24 @@ public class SlotReference extends Slot {
     }
 
     public SlotReference withDataType(DataType dataType) {
-        return new SlotReference(name, dataType, nullable, qualifier, column);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
 
     public SlotReference withNullable(boolean newNullable) {
         if (this.nullable == newNullable) {
             return this;
         }
-        return new SlotReference(name, dataType, newNullable, qualifier, column);
+        return new SlotReference(exprId, name, dataType, newNullable, qualifier, column);
     }
 
     @Override
     public SlotReference withQualifier(List<String> qualifiers) {
-        return new SlotReference(name, dataType, nullable, qualifiers, column);
+        return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
     }
 
     @Override
     public Slot withName(String name) {
-        return new SlotReference(name, dataType, nullable, qualifier, column);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
 
     /** withCommonGroupingSetExpression */
