@@ -209,8 +209,8 @@ Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
 
 Status VScanNode::_register_runtime_filter() {
     int filter_size = _runtime_filter_descs.size();
-    _runtime_filter_ctxs.resize(filter_size);
-    _runtime_filter_ready_flag.resize(filter_size);
+    _runtime_filter_ctxs.reserve(filter_size);
+    _runtime_filter_ready_flag.reserve(filter_size);
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
@@ -218,8 +218,8 @@ Status VScanNode::_register_runtime_filter() {
                 RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id()));
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
                                                                          &runtime_filter));
-        _runtime_filter_ctxs[i].runtime_filter = runtime_filter;
-        _runtime_filter_ready_flag[i] = false;
+        _runtime_filter_ctxs.emplace_back(runtime_filter);
+        _runtime_filter_ready_flag.emplace_back(false);
     }
     return Status::OK();
 }
@@ -262,8 +262,7 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
                    !_runtime_filter_ctxs[i].apply_mark) {
             _blocked_by_rf = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {
-            DCHECK(!_blocked_by_rf &&
-                   runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
+            DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
             _is_all_rf_applied = false;
         }
     }

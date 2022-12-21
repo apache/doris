@@ -597,18 +597,19 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         *eos = true;
         return Status::OK();
     }
-    if (need_more_input_data()) {
+    while (need_more_input_data()) {
         prepare_for_next();
-        do {
-            SCOPED_TIMER(_probe_next_timer);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(0)->get_next_after_projects(state, &_probe_block, &_probe_eos),
-                    child(0)->get_next_span(), _probe_eos);
-        } while (_probe_block.rows() == 0 && !_probe_eos);
+        SCOPED_TIMER(_probe_next_timer);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &_probe_block, &_probe_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), _probe_eos);
 
-        if (_probe_block.rows() != 0) {
-            RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
-        }
+        RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
     }
 
     return pull(state, output_block, eos);
@@ -708,8 +709,15 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
 
-            RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
-                                           child(1)->get_next_span(), eos);
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(1)->get_next_after_projects(
+                            state, &block, &eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[1], std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3)),
+                    child(1)->get_next_span(), eos);
 
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
@@ -725,7 +733,11 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    DCHECK(!_short_circuit_for_null_in_probe_side);
+    if (_short_circuit_for_null_in_probe_side) {
+        // TODO: if _short_circuit_for_null_in_probe_side is true we should finish current pipeline task.
+        DCHECK(state->enable_pipeline_exec());
+        return Status::OK();
+    }
     if (_should_build_hash_table) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from probe side.

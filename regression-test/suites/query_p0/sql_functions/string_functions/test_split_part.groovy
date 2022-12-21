@@ -15,33 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "operator.h"
-
-namespace doris {
-namespace vectorized {
-class VRepeatNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
-namespace pipeline {
-
-class RepeatOperatorBuilder final : public OperatorBuilder<vectorized::VRepeatNode> {
-public:
-    RepeatOperatorBuilder(int32_t id, ExecNode* repeat_node);
-
-    OperatorPtr build_operator() override;
-};
-
-class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
-public:
-    RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
-
-} // namespace pipeline
-} // namespace doris
+suite("test_split_part") {
+  test {
+    sql """
+      select
+          name
+      from
+          tpch_tiny_nation
+      where
+          split_part("bCKHDX07at", "5.7.37", cast(name as int)) is not null;
+    """
+    exception "errCode = 2, detailMessage = [RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
+  }
+}

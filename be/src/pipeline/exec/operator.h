@@ -394,7 +394,10 @@ public:
                      SourceState& source_state) override {
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
-        RETURN_IF_ERROR(node->pull(state, block, &eos));
+        RETURN_IF_ERROR(node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
         return Status::OK();
     }
@@ -429,24 +432,24 @@ public:
         auto& child = StreamingOperator<OperatorBuilderType>::_child;
 
         if (node->need_more_input_data()) {
+            _child_block->clear_column_data();
             RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
-            if (_child_block->rows() == 0 && source_state != SourceState::FINISHED) {
+            if (_child_block->rows() == 0 && _child_source_state != SourceState::FINISHED) {
                 return Status::OK();
             }
             node->prepare_for_next();
-            node->push(state, _child_block.get(), source_state == SourceState::FINISHED);
+            node->push(state, _child_block.get(), _child_source_state == SourceState::FINISHED);
         }
 
-        bool eos = false;
-        RETURN_IF_ERROR(node->pull(state, block, &eos));
-        if (eos) {
-            source_state = SourceState::FINISHED;
-            _child_block->clear_column_data();
-        } else if (!node->need_more_input_data()) {
-            source_state = SourceState::MORE_DATA;
-        } else {
-            _child_block->clear_column_data();
+        if (!node->need_more_input_data()) {
+            bool eos = false;
+            RETURN_IF_ERROR(node->pull(state, block, &eos));
+            if (eos) {
+                source_state = SourceState::FINISHED;
+            } else if (!node->need_more_input_data()) {
+                source_state = SourceState::MORE_DATA;
+            }
         }
         return Status::OK();
     }

@@ -112,7 +112,9 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status get_next_after_projects(
+            RuntimeState* state, vectorized::Block* block, bool* eos,
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn);
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
