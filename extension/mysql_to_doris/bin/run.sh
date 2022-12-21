@@ -106,7 +106,7 @@ home_dir=$(cd "${cur_dir}"/.. && pwd)
 source "${home_dir}"/conf/env.conf
 
 # when fe_password is not set or is empty, do not put -p option
-use_passwd=$([ -z "${fe_password}" ] && echo "" || echo "-p${fe_password}")
+use_passwd=$([ -z "${doris_password}" ] && echo "" || echo "-p${doris_password}")
 
 if [ -n "${DATABASE}" ]; then
   sh "${home_dir}"/lib/get_tables.sh "${DATABASE}"

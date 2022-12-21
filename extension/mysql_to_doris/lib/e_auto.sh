@@ -22,7 +22,7 @@ home_dir=$(cd "${cur_dir}"/.. && pwd)
 source ${home_dir}/conf/env.conf
 
 # when fe_password is not set or is empty, do not put -p option
-use_passwd=$([ -z "${fe_password}" ] && echo "" || echo "-p${fe_password}")
+use_passwd=$([ -z "${doris_password}" ] && echo "" || echo "-p${doris_password}")
 
 #Execute the create external table sql
 echo "source ${home_dir}/result/mysql/e_mysql_to_doris.sql;" | mysql -h$fe_master_host -P$fe_master_port -u$doris_username "${use_passwd}" 2>>e_auto_error.log
