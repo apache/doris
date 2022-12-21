@@ -243,28 +243,22 @@ TEST_F(MathFunctionsTest, unhex) {
 
 TEST_F(MathFunctionsTest, round_bankers) {
     BigIntVal r0(0);
-    BigIntVal r1(1);
-    DoubleVal r2(2);
-    DoubleVal r3(4);
-    DoubleVal r4(3.5);
-    DoubleVal r5(3.55);
-    DoubleVal r6(3.54);
+    BigIntVal r1(-4);
+    BigIntVal r2(4);
+    DoubleVal r3(3.6);
+    DoubleVal r4(3.6);
+    DoubleVal r5(10.4);
+    DoubleVal r6(10.76);
 
-    DoubleVal r7(222400);
+    
 
-    EXPECT_EQ(r0, MathFunctions::round_bankers(ctx, DoubleVal(0)));
-    EXPECT_EQ(r0, MathFunctions::round_bankers(ctx, DoubleVal(0.5)));
-    EXPECT_EQ(r1, MathFunctions::round_bankers(ctx, DoubleVal(0.51)));
-
-    EXPECT_EQ(r2, MathFunctions::round_bankers(ctx, DoubleVal(2.5), IntVal(0)));
-    EXPECT_EQ(r3, MathFunctions::round_bankers(ctx, DoubleVal(3.5), IntVal(0)));
-
-    EXPECT_EQ(r4, MathFunctions::round_bankers(ctx, DoubleVal(3.5451), IntVal(1)));
-    EXPECT_EQ(r5, MathFunctions::round_bankers(ctx, DoubleVal(3.5451), IntVal(2)));
-
-    EXPECT_EQ(r6, MathFunctions::round_bankers(ctx, DoubleVal(3.5450), IntVal(2)));
-
-    EXPECT_EQ(r7, MathFunctions::round_bankers(ctx, DoubleVal(222450.00), IntVal(-2)));
+    EXPECT_EQ(r0, MathFunctions::round_bankers(ctx, DoubleVal(0.4)));
+    EXPECT_EQ(r1, MathFunctions::round_bankers(ctx, DoubleVal(-3.5)));
+    EXPECT_EQ(r2, MathFunctions::round_bankers(ctx, DoubleVal(4.5)));
+    EXPECT_EQ(r3, MathFunctions::round_bankers(ctx, DoubleVal(3.5451), IntVal(1)));
+    EXPECT_EQ(r4, MathFunctions::round_bankers(ctx, DoubleVal(3.5451), IntVal(2)));
+    EXPECT_EQ(r5, MathFunctions::round_bankers(ctx, DoubleVal(3.5450), IntVal(2)));
+    EXPECT_EQ(r6, MathFunctions::round_bankers(ctx, DoubleVal(222450.00), IntVal(-2)));
 }
 
 TEST_F(MathFunctionsTest, round_up_to) {

@@ -223,17 +223,22 @@ BigIntVal MathFunctions::round(FunctionContext* ctx, const DoubleVal& v) {
 }
 
 BigIntVal MathFunctions::round_bankers(FunctionContext* ctx, const DoubleVal& v) {
-    return BigIntVal(static_cast<int64_t>(round_bankers(ctx, v, IntVal(1)).val));
+    return BigIntVal(static_cast<int64_t>(round_bankers(ctx, v, IntVal(0)).val));
 }
 
 DoubleVal MathFunctions::round_bankers(doris_udf::FunctionContext* ctx, const DoubleVal& v,
                                        const IntVal& d) {
-    double scale = std::pow(10.0, d.val);
-    double result = std::floor(v.val * scale + 0.5) / scale;
-    if (result - std::floor(result * scale) == 0.5) {
-        result -= 1 / scale;
+    double shift = std::pow(10, d.val);
+    double t = v.val * shift;
+    double rounded = std::round(t);
+    if (int64_t(rounded) % 2 == 1) {
+        if (::abs(rounded - t) < 0.5) {
+            rounded -= 1;
+        } else {
+            rounded += 1;
+        }
     }
-    return result;
+    return DoubleVal(rounded / shift);
 }
 
 DoubleVal MathFunctions::round_up_to(FunctionContext* ctx, const DoubleVal& v,
