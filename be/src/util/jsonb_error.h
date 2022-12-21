@@ -30,6 +30,7 @@ enum class JsonbErrType {
     E_EMPTY_DOCUMENT,
     E_OUTPUT_FAIL,
     E_INVALID_DOCU,
+    E_INVALID_TYPE,
     E_INVALID_SCALAR_VALUE,
     E_INVALID_KEY_STRING,
     E_INVALID_KEY_LENGTH,
@@ -53,6 +54,7 @@ enum class JsonbErrType {
     E_INVALID_JSONB_OBJ,
     E_NESTING_LVL_OVERFLOW,
     E_INVALID_DOCU_COMPAT,
+    E_EXCEPTION,
 
     // new error code should always be added above
     E_NUM_ERRORS
@@ -77,7 +79,8 @@ private:
             "Invalid document version",
             "Empty document",
             "Fatal error in writing JSONB",
-            "Invalid document: document must be an object or an array",
+            "Invalid document",
+            "Invalid json value type",
             "Invalid scalar value",
             "Invalid key string",
             "Key length exceeds maximum size allowed (64 bytes)",
@@ -100,7 +103,8 @@ private:
             "Invalid update operation",
             "Invalid JSONB object (internal)",
             "Object or array has too many nesting levels",
-            "Invalid document: document must be an object or an array",
+            "Invalid document",
+            "Exception throwed",
 
             nullptr /* E_NUM_ERRORS */
     };
