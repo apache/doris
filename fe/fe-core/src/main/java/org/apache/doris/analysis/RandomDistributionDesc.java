@@ -30,21 +30,19 @@ import java.util.List;
 import java.util.Set;
 
 public class RandomDistributionDesc extends DistributionDesc {
-    int numBucket;
-
     public RandomDistributionDesc() {
         type = DistributionInfoType.RANDOM;
     }
 
     public RandomDistributionDesc(int numBucket) {
+        super(numBucket);
         type = DistributionInfoType.RANDOM;
-        this.numBucket = numBucket;
     }
 
     @Override
     public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
         if (numBucket <= 0) {
-            throw new AnalysisException("Number of random distribution should be larger than zero.");
+            throw new AnalysisException("Number of random distribution should be greater than zero.");
         }
     }
 

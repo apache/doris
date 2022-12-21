@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.Set;
 
 public class HashDistributionDesc extends DistributionDesc {
-    private int numBucket;
     private List<String> distributionColumnNames;
 
     public HashDistributionDesc() {
@@ -46,8 +45,8 @@ public class HashDistributionDesc extends DistributionDesc {
     }
 
     public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
+        super(numBucket);
         type = DistributionInfoType.HASH;
-        this.numBucket = numBucket;
         this.distributionColumnNames = distributionColumnNames;
     }
 
@@ -55,14 +54,10 @@ public class HashDistributionDesc extends DistributionDesc {
         return distributionColumnNames;
     }
 
-    public int getBuckets() {
-        return numBucket;
-    }
-
     @Override
     public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
         if (numBucket <= 0) {
-            throw new AnalysisException("Number of hash distribution should be larger than zero.");
+            throw new AnalysisException("Number of hash distribution should be greater than zero.");
         }
         if (distributionColumnNames == null || distributionColumnNames.size() == 0) {
             throw new AnalysisException("Number of hash column should be larger than zero.");

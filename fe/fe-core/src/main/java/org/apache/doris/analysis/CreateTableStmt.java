@@ -31,6 +31,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -92,6 +94,34 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("iceberg");
         engineNames.add("hudi");
         engineNames.add("jdbc");
+    }
+
+    // if auto bucket auto bucket enable, rewrite distribution bucket num && set
+    // properties["auto_bucket"] = "true"
+    private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
+            Map<String, String> properties) throws AnalysisException {
+        // after parse sql, distributionDesc.getBucketNum() == 0 that auto bucket is
+        // enable
+        if (distributionDesc == null || distributionDesc.getBuckets() != 0) {
+            return properties;
+        }
+
+        // auto bucket is enable
+        Map<String, String> newProperties = properties;
+        if (newProperties == null) {
+            newProperties = new HashMap<String, String>();
+        }
+        newProperties.put(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "true");
+
+        if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            distributionDesc.setBuckets(11);
+        } else {
+            long partitionSize = ParseUtil
+                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize));
+        }
+
+        return newProperties;
     }
 
     public CreateTableStmt() {
@@ -260,7 +290,11 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws UserException, AnalysisException {
+        if (Strings.isNullOrEmpty(engineName) || engineName.equals("olap")) {
+            this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
+        }
+
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());

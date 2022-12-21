@@ -58,6 +58,7 @@ public class TableProperty implements Writable {
     private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
+    private boolean isAutoBucket = false;
 
     private String storagePolicy = "";
 
@@ -146,6 +147,11 @@ public class TableProperty implements Writable {
 
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
+        return this;
+    }
+
+    public TableProperty buildAutoBucket() {
+        isAutoBucket = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
         return this;
     }
 
@@ -242,6 +248,10 @@ public class TableProperty implements Writable {
 
     public boolean isInMemory() {
         return isInMemory;
+    }
+
+    public boolean isAutoBucket() {
+        return isAutoBucket;
     }
 
     public TStorageFormat getStorageFormat() {

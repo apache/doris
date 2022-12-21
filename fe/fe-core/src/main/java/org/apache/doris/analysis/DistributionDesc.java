@@ -35,9 +35,21 @@ import java.util.Set;
 
 public class DistributionDesc implements Writable {
     protected DistributionInfoType type;
+    protected int numBucket;
 
     public DistributionDesc() {
+    }
 
+    public DistributionDesc(int numBucket) {
+        this.numBucket = numBucket;
+    }
+
+    public int getBuckets() {
+        return numBucket;
+    }
+
+    public int setBuckets(int numBucket) {
+        return this.numBucket = numBucket;
     }
 
     public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
