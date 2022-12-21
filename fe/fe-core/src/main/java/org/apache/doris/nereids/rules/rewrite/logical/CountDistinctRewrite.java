@@ -46,8 +46,7 @@ public class CountDistinctRewrite extends OneRewriteRuleFactory {
                     .map(CountDistinctRewriter::rewrite)
                     .map(NamedExpression.class::cast)
                     .collect(ImmutableList.toImmutableList());
-            return new LogicalAggregate<>(agg.getGroupByExpressions(), output,
-                    agg.isNormalized(), agg.getSourceRepeat(), agg.child());
+            return agg.withAggOutput(output);
         }).toRule(RuleType.COUNT_DISTINCT_REWRITE);
     }
 
