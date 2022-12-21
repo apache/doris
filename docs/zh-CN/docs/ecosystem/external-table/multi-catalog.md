@@ -81,6 +81,9 @@ under the License.
 
 以下示例，用于创建一个名为 hive 的 Catalog 连接指定的 Hive MetaStore，并提供了 HDFS HA 连接属性，用于访问对应的 HDFS 中的文件。
 
+**通过 resource 创建 catalog**
+
+`1.2.0` 以后的版本推荐通过 resource 创建 catalog，多个使用场景可以复用相同的 resource。
 ```sql
 CREATE RESOURCE hms_resource PROPERTIES (
     'type'='hms',
@@ -92,13 +95,29 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-
 CREATE CATALOG hive WITH RESOURCE hms_resource;
+```
+
+**通过 properties 创建 catalog**
+
+`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
 ```
 
 如果需要连接开启了 Kerberos 认证的 Hive MetaStore，示例如下：
 
 ```sql
+-- 1.2.0+ 版本
 CREATE RESOURCE hms_resource PROPERTIES (
     'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
@@ -113,8 +132,15 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
     'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
 );
-
 CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.kerberos.xxx' = 'xxx',
+    ...
+);
 ```
 
 创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
@@ -265,13 +291,20 @@ Query OK, 1000 rows affected (0.28 sec)
 以下示例，用于创建一个名为 es 的 Catalog 连接指定的 ES，并关闭节点发现功能。
 
 ```sql
+-- 1.2.0+ 版本
 CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
     "elasticsearch.hosts"="http://192.168.120.12:29200",
     "elasticsearch.nodes_discovery"="false"
 );
-
 CREATE CATALOG es WITH RESOURCE es_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG es PROPERTIES (
+    "type"="es",
+    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.nodes_discovery"="false"
+);
 ```
 
 创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
@@ -388,12 +421,18 @@ mysql> select * from test;
 
     HMS resource 会读取和解析 fe/conf/hive-site.xml
     ```sql
+    -- 1.2.0+ 版本
     CREATE RESOURCE dlf_resource PROPERTIES (
         "type"="hms",
         "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     )
-
     CREATE CATALOG dlf WITH RESOURCE dlf_resource;
+
+    -- 1.2.0 版本
+    CREATE CATALOG dlf PROPERTIES (
+        "type"="hms",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    )
     ```
     
     其中 `type` 固定为 `hms`。 `hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
@@ -405,6 +444,7 @@ mysql> select * from test;
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
 jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前只支持MYSQL数据库类型。
 ```sql
+-- 1.2.0+ 版本
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
     "jdbc.user"="root",
@@ -413,8 +453,14 @@ CREATE RESOURCE mysql_resource PROPERTIES (
     "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
     "jdbc.driver_class" = "com.mysql.jdbc.Driver"
 )
-
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    ...
+)
 ```
 
 其中`jdbc.driver_url`可以是远程jar包：
