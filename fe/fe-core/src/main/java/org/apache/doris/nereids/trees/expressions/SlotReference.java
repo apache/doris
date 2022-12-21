@@ -142,7 +142,10 @@ public class SlotReference extends Slot {
         //
         // For aa, the qualifier of aa in the subquery is empty, but in the output column of agg,
         // the qualifier of aa is t2. but both actually represent the same column.
-        return exprId.equals(that.exprId);
+
+        // now we find some slot references with the same exprId but different nullable and we should regard them to be
+        // different.
+        return exprId.equals(that.exprId) && nullable == that.nullable;
     }
 
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
