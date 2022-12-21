@@ -703,7 +703,8 @@ public class ShowExecutor {
                 continue;
             }
 
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName, PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
+                    fullName, PrivPredicate.SHOW)) {
                 continue;
             }
 

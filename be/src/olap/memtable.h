@@ -70,6 +70,7 @@ public:
     Status close();
 
     int64_t flush_size() const { return _flush_size; }
+    int64_t merged_rows() const { return _merged_rows; }
 
 private:
     Status _do_flush(int64_t& duration_ns);
@@ -202,6 +203,7 @@ private:
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggregate key model.
     int64_t _rows = 0;
+    int64_t _merged_rows = 0;
     void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
     void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,
                                             TableKey row_in_skiplist) = nullptr;
