@@ -53,7 +53,7 @@ public:
 
     bool closed() const override { return _is_closed; }
 
-    int64_t get_written_len();
+    int64_t get_written_len() const;
 
     void set_written_len(int64_t written_len);
 
