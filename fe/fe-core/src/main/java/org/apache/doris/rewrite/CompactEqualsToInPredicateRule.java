@@ -27,6 +27,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.collect.Lists;
@@ -44,7 +45,6 @@ a = 1 or a = 2 or a = 3 or a in (4, 5, 6) => a in (1, 2, 3, 4, 5, 6)
  */
 public class CompactEqualsToInPredicateRule implements ExprRewriteRule {
     public static CompactEqualsToInPredicateRule INSTANCE = new CompactEqualsToInPredicateRule();
-    private static final int COMPACT_SIZE = 2;
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
@@ -67,9 +67,10 @@ public class CompactEqualsToInPredicateRule implements ExprRewriteRule {
     expr in form of A or B or ...
      */
     private Pair<Boolean, Expr> compactEqualsToInPredicate(Expr expr) {
+        int compactCount = ConnectContext.get().getSessionVariable().getCompactEqualToInPredicateCount();
         boolean changed = false;
         List<Expr> disConjuncts = getDisconjuncts(expr);
-        if (disConjuncts.size() < COMPACT_SIZE) {
+        if (disConjuncts.size() < compactCount) {
             return Pair.of(false, expr);
         }
         Map<SlotRef, Set<Expr>> equalMap = new HashMap<>();
@@ -111,7 +112,7 @@ public class CompactEqualsToInPredicateRule implements ExprRewriteRule {
         for (Entry<SlotRef, Set<Expr>> entry : equalMap.entrySet()) {
             SlotRef slot = entry.getKey();
             InPredicate in = inPredMap.get(slot);
-            if (entry.getValue().size() >= COMPACT_SIZE || in != null) {
+            if (entry.getValue().size() >= compactCount || in != null) {
                 if (in == null) {
                     in = new InPredicate(entry.getKey(), Lists.newArrayList(entry.getValue()), false);
                     inPredMap.put(slot, in);
