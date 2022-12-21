@@ -235,7 +235,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         VLOG_ROW << "VOlapScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
-        if (!status.ok() && (typeid(*scanner) == typeid(doris::vectorized::VFileScanner) &&
+        if (!status.ok() && (typeid(*scanner) != typeid(doris::vectorized::VFileScanner) ||
                              !status.is<ErrorCode::NOT_FOUND>())) {
             LOG(WARNING) << "Scan thread read VOlapScanner failed: " << status.to_string();
             // Add block ptr in blocks, prevent mem leak in read failed
