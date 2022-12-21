@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -94,12 +95,14 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
                             .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    JoinHint.NONE,
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
                             .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    JoinHint.NONE,
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         }
     }

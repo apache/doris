@@ -34,6 +34,7 @@ public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
             join.getJoinType(),
             join.getHashJoinConjuncts(),
             join.getOtherJoinConjuncts(),
+            join.getHint(),
             join.getLogicalProperties(),
             join.left(),
             join.right())
