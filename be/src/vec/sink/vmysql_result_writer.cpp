@@ -22,6 +22,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -46,7 +47,7 @@ Status VMysqlResultWriter::init(RuntimeState* state) {
     if (nullptr == _sinker) {
         return Status::InternalError("sinker is NULL pointer.");
     }
-
+    set_output_object_data(state->return_object_data_as_binary());
     return Status::OK();
 }
 
@@ -91,7 +92,17 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
 
             if constexpr (type == TYPE_OBJECT) {
-                buf_ret = _buffer.push_null();
+                if (column->is_bitmap() && output_object_data()) {
+                    vectorized::ColumnComplexType<BitmapValue>* tmp =
+                            (vectorized::ColumnComplexType<BitmapValue>*)column.get();
+                    BitmapValue bitmapValue = tmp->get_element(i);
+                    int size = bitmapValue.getSizeInBytes();
+                    char buf[size];
+                    bitmapValue.write(buf);
+                    buf_ret = _buffer.push_string(buf, size);
+                } else {
+                    buf_ret = _buffer.push_null();
+                }
             }
             if constexpr (type == TYPE_VARCHAR) {
                 const auto string_val = column->get_data_at(i);
