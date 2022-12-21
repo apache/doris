@@ -683,22 +683,17 @@ The Apache Software License, Version 2.0
         - org.apache.hadoop:hadoop-aws:2.7.3 (no url defined)
         - org.apache.hadoop:hadoop-aws:2.8.0 (no url defined)
     * Apache Hadoop Annotations:
-        - org.apache.hadoop:hadoop-annotations:2.6.5 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-annotations:2.10.2 (no url defined)
     * Apache Hadoop Auth:
-        - org.apache.hadoop:hadoop-auth:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-auth:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-auth:2.10.2 (no url defined)
     * Apache Hadoop Client:
-        - org.apache.hadoop:hadoop-client:2.6.5 (no url defined)
+        - org.apache.hadoop:hadoop-client:2.10.2 (no url defined)
     * Apache Hadoop Common:
-        - org.apache.hadoop:hadoop-common:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-common:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-common:2.10.2 (no url defined)
     * Apache Hadoop HDFS:
-        - org.apache.hadoop:hadoop-hdfs:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-hdfs:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs:2.10.2 (no url defined)
     * Apache Hadoop HDFS Client:
-        - org.apache.hadoop:hadoop-hdfs-client:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs-client:2.10.2 (no url defined)
     * Apache HttpClient:
         - org.apache.httpcomponents:httpclient:4.5.13 (http://hc.apache.org/httpcomponents-client)
     * Apache HttpCore:
@@ -1197,7 +1192,7 @@ The Apache Software License, Version 2.0
     * io.grpc:grpc-stub:
         - io.grpc:grpc-stub:1.30.0 (https://github.com/grpc/grpc-java)
     * jackson-databind:
-        - com.fasterxml.jackson.core:jackson-databind:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-databind:2.14.1 (http://github.com/FasterXML/jackson)
     * jackson-module-scala:
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1 (http://wiki.fasterxml.com/JacksonModuleScala)
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.6.7.1 (http://wiki.fasterxml.com/JacksonModuleScala)
