@@ -30,10 +30,10 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-
-    bool need_more_input_data() { return !_child_block.rows(); }
+    bool need_more_input_data() { return !_child_block.rows() && !_child_eos; }
 
     Status push(RuntimeState*, vectorized::Block* input_block, bool eos) override {
+        _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
         }
