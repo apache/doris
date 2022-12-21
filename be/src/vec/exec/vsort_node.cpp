@@ -116,7 +116,12 @@ Status VSortNode::open(RuntimeState* state) {
     std::unique_ptr<Block> upstream_block(new Block());
     do {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(state, upstream_block.get(), &eos),
+                child(0)->get_next_after_projects(
+                        state, upstream_block.get(), &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 child(0)->get_next_span(), eos);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));

@@ -849,14 +849,16 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
     return Status::OK();
 }
 
-Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status ExecNode::get_next_after_projects(
+        RuntimeState* state, vectorized::Block* block, bool* eos,
+        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func) {
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
-        auto status = get_next(state, &_origin_block, eos);
+        auto status = func(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);
     }
-    return get_next(state, block, eos);
+    return func(state, block, eos);
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

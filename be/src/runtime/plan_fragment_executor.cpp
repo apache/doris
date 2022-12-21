@@ -342,7 +342,12 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _plan->get_next_after_projects(_runtime_state.get(), block, &_done),
+                _plan->get_next_after_projects(
+                        _runtime_state.get(), block, &_done,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _plan, std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _plan->get_next_span(), _done);
 
         if (block->rows() > 0) {
