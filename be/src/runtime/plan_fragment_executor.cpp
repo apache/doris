@@ -25,7 +25,6 @@
 #include <unordered_map>
 
 #include "exec/data_sink.h"
-#include "exec/exchange_node.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
 #include "runtime/data_stream_mgr.h"
@@ -151,7 +150,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         if (_runtime_state->enable_vectorized_exec()) {
             static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
         } else {
-            static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
     }
 
@@ -639,12 +638,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();
     auto id = _runtime_state->fragment_instance_id();
-    if (_runtime_state->enable_vectorized_exec()) {
-        env->vstream_mgr()->cancel(id);
-    } else {
-        env->stream_mgr()->cancel(id);
-        env->result_mgr()->cancel(id);
-    }
+    DCHECK(_runtime_state->enable_vectorized_exec());
+    env->vstream_mgr()->cancel(id);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }

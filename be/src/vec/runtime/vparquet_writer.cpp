@@ -21,7 +21,6 @@
 #include <arrow/status.h>
 #include <time.h>
 
-#include "exec/parquet_writer.h"
 #include "io/file_writer.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
@@ -35,6 +34,175 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
+
+ParquetOutputStream::ParquetOutputStream(FileWriter* file_writer)
+        : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
+    set_mode(arrow::io::FileMode::WRITE);
+}
+
+ParquetOutputStream::~ParquetOutputStream() {
+    arrow::Status st = Close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet file error: " << st.ToString();
+    }
+}
+
+arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
+    if (_is_closed) {
+        return arrow::Status::OK();
+    }
+    size_t written_len = 0;
+    Status st = _file_writer->write(static_cast<const uint8_t*>(data), nbytes, &written_len);
+    if (!st.ok()) {
+        return arrow::Status::IOError(st.to_string());
+    }
+    _cur_pos += written_len;
+    _written_len += written_len;
+    return arrow::Status::OK();
+}
+
+arrow::Result<int64_t> ParquetOutputStream::Tell() const {
+    return _cur_pos;
+}
+
+arrow::Status ParquetOutputStream::Close() {
+    if (_is_closed) {
+        return arrow::Status::OK();
+    }
+    Status st = _file_writer->close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet output stream failed: " << st;
+        return arrow::Status::IOError(st.to_string());
+    }
+    _is_closed = true;
+    return arrow::Status::OK();
+}
+
+int64_t ParquetOutputStream::get_written_len() {
+    return _written_len;
+}
+
+void ParquetOutputStream::set_written_len(int64_t written_len) {
+    _written_len = written_len;
+}
+
+void ParquetBuildHelper::build_schema_repetition_type(
+        parquet::Repetition::type& parquet_repetition_type,
+        const TParquetRepetitionType::type& column_repetition_type) {
+    switch (column_repetition_type) {
+    case TParquetRepetitionType::REQUIRED: {
+        parquet_repetition_type = parquet::Repetition::REQUIRED;
+        break;
+    }
+    case TParquetRepetitionType::REPEATED: {
+        parquet_repetition_type = parquet::Repetition::REPEATED;
+        break;
+    }
+    case TParquetRepetitionType::OPTIONAL: {
+        parquet_repetition_type = parquet::Repetition::OPTIONAL;
+        break;
+    }
+    default:
+        parquet_repetition_type = parquet::Repetition::UNDEFINED;
+    }
+}
+
+void ParquetBuildHelper::build_schema_data_type(parquet::Type::type& parquet_data_type,
+                                                const TParquetDataType::type& column_data_type) {
+    switch (column_data_type) {
+    case TParquetDataType::BOOLEAN: {
+        parquet_data_type = parquet::Type::BOOLEAN;
+        break;
+    }
+    case TParquetDataType::INT32: {
+        parquet_data_type = parquet::Type::INT32;
+        break;
+    }
+    case TParquetDataType::INT64: {
+        parquet_data_type = parquet::Type::INT64;
+        break;
+    }
+    case TParquetDataType::INT96: {
+        parquet_data_type = parquet::Type::INT96;
+        break;
+    }
+    case TParquetDataType::BYTE_ARRAY: {
+        parquet_data_type = parquet::Type::BYTE_ARRAY;
+        break;
+    }
+    case TParquetDataType::FLOAT: {
+        parquet_data_type = parquet::Type::FLOAT;
+        break;
+    }
+    case TParquetDataType::DOUBLE: {
+        parquet_data_type = parquet::Type::DOUBLE;
+        break;
+    }
+    case TParquetDataType::FIXED_LEN_BYTE_ARRAY: {
+        parquet_data_type = parquet::Type::FIXED_LEN_BYTE_ARRAY;
+        break;
+    }
+    default:
+        parquet_data_type = parquet::Type::UNDEFINED;
+    }
+}
+
+void ParquetBuildHelper::build_compression_type(
+        parquet::WriterProperties::Builder& builder,
+        const TParquetCompressionType::type& compression_type) {
+    switch (compression_type) {
+    case TParquetCompressionType::SNAPPY: {
+        builder.compression(parquet::Compression::SNAPPY);
+        break;
+    }
+    case TParquetCompressionType::GZIP: {
+        builder.compression(parquet::Compression::GZIP);
+        break;
+    }
+    case TParquetCompressionType::BROTLI: {
+        builder.compression(parquet::Compression::BROTLI);
+        break;
+    }
+    case TParquetCompressionType::ZSTD: {
+        builder.compression(parquet::Compression::ZSTD);
+        break;
+    }
+    case TParquetCompressionType::LZ4: {
+        builder.compression(parquet::Compression::LZ4);
+        break;
+    }
+    case TParquetCompressionType::LZO: {
+        builder.compression(parquet::Compression::LZO);
+        break;
+    }
+    case TParquetCompressionType::BZ2: {
+        builder.compression(parquet::Compression::BZ2);
+        break;
+    }
+    case TParquetCompressionType::UNCOMPRESSED: {
+        builder.compression(parquet::Compression::UNCOMPRESSED);
+        break;
+    }
+    default:
+        builder.compression(parquet::Compression::UNCOMPRESSED);
+    }
+}
+
+void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& builder,
+                                       const TParquetVersion::type& parquet_version) {
+    switch (parquet_version) {
+    case TParquetVersion::PARQUET_1_0: {
+        builder.version(parquet::ParquetVersion::PARQUET_1_0);
+        break;
+    }
+    case TParquetVersion::PARQUET_2_LATEST: {
+        builder.version(parquet::ParquetVersion::PARQUET_2_LATEST);
+        break;
+    }
+    default:
+        builder.version(parquet::ParquetVersion::PARQUET_1_0);
+    }
+}
 
 VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
                                              const std::vector<VExprContext*>& output_vexpr_ctxs,

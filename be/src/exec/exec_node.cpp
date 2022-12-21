@@ -27,28 +27,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/analytic_eval_node.h"
-#include "exec/assert_num_rows_node.h"
-#include "exec/broker_scan_node.h"
-#include "exec/cross_join_node.h"
-#include "exec/empty_set_node.h"
-#include "exec/es_http_scan_node.h"
-#include "exec/except_node.h"
-#include "exec/exchange_node.h"
-#include "exec/hash_join_node.h"
-#include "exec/intersect_node.h"
-#include "exec/merge_node.h"
-#include "exec/mysql_scan_node.h"
-#include "exec/odbc_scan_node.h"
-#include "exec/olap_scan_node.h"
-#include "exec/partitioned_aggregation_node.h"
-#include "exec/repeat_node.h"
-#include "exec/schema_scan_node.h"
-#include "exec/select_node.h"
-#include "exec/spill_sort_node.h"
-#include "exec/table_function_node.h"
-#include "exec/topn_node.h"
-#include "exec/union_node.h"
 #include "exprs/expr_context.h"
 #include "odbc_scan_node.h"
 #include "runtime/descriptors.h"
@@ -449,8 +427,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 #ifdef DORIS_WITH_MYSQL
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VMysqlScanNode(pool, tnode, descs));
-        } else
-            *node = pool->add(new MysqlScanNode(pool, tnode, descs));
+        } else {
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
+        }
         return Status::OK();
 #else
         return Status::InternalError(
@@ -460,7 +439,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -482,7 +461,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -490,7 +469,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new SchemaScanNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -498,7 +477,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new OlapScanNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -506,7 +485,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -521,7 +500,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             }
             *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new HashJoinNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -529,7 +508,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new CrossJoinNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -537,7 +516,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VEmptySetNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new EmptySetNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -545,7 +524,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new doris::vectorized::VExchangeNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new ExchangeNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -553,7 +532,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new doris::vectorized::VSelectNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new SelectNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -561,11 +540,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
         } else {
-            if (tnode.sort_node.use_top_n) {
-                *node = pool->add(new TopNNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new SpillSortNode(pool, tnode, descs));
-            }
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
 
         return Status::OK();
@@ -573,19 +548,18 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VAnalyticEvalNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new AnalyticEvalNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
     case TPlanNodeType::MERGE_NODE:
-        *node = pool->add(new MergeNode(pool, tnode, descs));
-        return Status::OK();
+        return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
 
     case TPlanNodeType::UNION_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VUnionNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new UnionNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -593,7 +567,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VIntersectNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new IntersectNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -601,7 +575,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new ExceptNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -609,7 +583,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new BrokerScanNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -625,7 +599,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VRepeatNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new RepeatNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -633,7 +607,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VAssertNumRowsNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -641,7 +615,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
         return Status::OK();
 
@@ -650,8 +624,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
             return Status::OK();
         } else {
-            error_msg << "numbers table function only support vectorized execution";
-            return Status::InternalError(error_msg.str());
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
 
     default:

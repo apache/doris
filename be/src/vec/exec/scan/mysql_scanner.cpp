@@ -23,7 +23,7 @@
 #include "common/logging.h"
 #include "mysql_scanner.h"
 
-namespace doris {
+namespace doris::vectorized {
 
 MysqlScanner::MysqlScanner(const MysqlScannerParam& param)
         : _my_param(param),
@@ -188,6 +188,6 @@ Status MysqlScanner::_error_status(const std::string& prefix) {
     return Status::InternalError(msg.str());
 }
 
-} // namespace doris
+} // namespace doris::vectorized
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

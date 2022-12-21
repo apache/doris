@@ -18,7 +18,6 @@
 #pragma once
 
 #include "io/file_writer.h"
-#include "runtime/file_result_writer.h"
 #include "vec/runtime/vparquet_writer.h"
 #include "vec/sink/vresult_sink.h"
 
