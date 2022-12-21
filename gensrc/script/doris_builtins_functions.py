@@ -1870,16 +1870,16 @@ visible_functions = [
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['round_bankers', 'round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'],
-            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['round_bankers'], 'DECIMAL32', ['DECIMAL32', 'INT'],
-            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['round_bankers'], 'DECIMAL64', ['DECIMAL64', 'INT'],
-            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['round_bankers'], 'DECIMAL128', ['DECIMAL128', 'INT'],
-            '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
