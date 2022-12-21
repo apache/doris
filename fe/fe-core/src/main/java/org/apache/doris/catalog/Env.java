@@ -3137,7 +3137,8 @@ public class Env {
             addTableComment(jdbcTable, sb);
             sb.append("\nPROPERTIES (\n");
             sb.append("\"resource\" = \"").append(jdbcTable.getResourceName()).append("\",\n");
-            sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\"");
+            sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
+            sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
             sb.append("\n)");
         }
 
