@@ -70,6 +70,7 @@ under the License.
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
         <hadoop.version>2.9.1</hadoop.version>
+        <netty.version>4.1.65.Final</netty.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -211,7 +212,20 @@ under the License.
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
             <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>netty-all</artifactId>
+                    <groupId>io.netty</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.apache.htrace/htrace-core -->
         <dependency>
             <groupId>org.apache.htrace</groupId>

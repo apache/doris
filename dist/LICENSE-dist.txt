@@ -985,6 +985,14 @@ The Apache Software License, Version 2.0
         - org.lz4:lz4-java:1.4.0 (https://github.com/lz4/lz4-java)
     * Metrics Core:
         - io.dropwizard.metrics:metrics-core:4.0.2 (http://metrics.dropwizard.io/metrics-core)
+    * avatica:
+        - org.apache.calcite.avatica:avatica:1.22.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-core:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-linq4j:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite.:calcite-druid:1.32.0 (https://calcite.apache.org/avatica/)        
     * Netty:
         - io.netty:netty:3.9.9.Final (http://netty.io/)
     * Netty Reactive Streams HTTP support:
@@ -992,8 +1000,7 @@ The Apache Software License, Version 2.0
     * Netty Reactive Streams Implementation:
         - com.typesafe.netty:netty-reactive-streams:2.0.4 (https://github.com/playframework/netty-reactive-streams/netty-reactive-streams)
     * Netty/All-in-One:
-        - io.netty:netty-all:4.0.23.Final (http://netty.io/netty-all/)
-        - io.netty:netty-all:4.1.42.Final (https://netty.io/netty-all/)
+        - io.netty:netty-all:4.1.65.Final (https://netty.io/netty-all/)
     * Netty/Buffer:
         - io.netty:netty-buffer:4.1.72.Final (https://netty.io/netty-buffer/)
     * Netty/Codec:
