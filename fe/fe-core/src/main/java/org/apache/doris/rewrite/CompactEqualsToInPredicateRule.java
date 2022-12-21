@@ -67,7 +67,12 @@ public class CompactEqualsToInPredicateRule implements ExprRewriteRule {
     expr in form of A or B or ...
      */
     private Pair<Boolean, Expr> compactEqualsToInPredicate(Expr expr) {
-        int compactThreshold = ConnectContext.get().getSessionVariable().getCompactEqualToInPredicateThreshold();
+        int compactThreshold;
+        if (ConnectContext.get() == null) {
+            compactThreshold = 2;
+        } else {
+            compactThreshold = ConnectContext.get().getSessionVariable().getCompactEqualToInPredicateThreshold();
+        }
         boolean changed = false;
         List<Expr> disConjuncts = getDisconjuncts(expr);
         if (disConjuncts.size() < compactThreshold) {
