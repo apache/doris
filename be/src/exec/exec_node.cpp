@@ -28,7 +28,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/expr_context.h"
-#include "odbc_scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"

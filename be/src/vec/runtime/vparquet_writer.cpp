@@ -78,7 +78,7 @@ arrow::Status ParquetOutputStream::Close() {
     return arrow::Status::OK();
 }
 
-int64_t ParquetOutputStream::get_written_len() {
+int64_t ParquetOutputStream::get_written_len() const {
     return _written_len;
 }
 

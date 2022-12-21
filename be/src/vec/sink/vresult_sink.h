@@ -45,7 +45,7 @@ struct ResultFileOptions {
     size_t max_file_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
-    std::string success_file_name = "";
+    std::string success_file_name;
     std::vector<std::vector<std::string>> schema;       //not use in outfile with parquet format
     std::map<std::string, std::string> file_properties; //not use in outfile with parquet format
 

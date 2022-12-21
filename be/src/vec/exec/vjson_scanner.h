@@ -185,9 +185,8 @@ private:
     char _value_buffer[4 * 1024 * 1024];
     char _parse_buffer[512 * 1024];
 
-    typedef rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
-                                       rapidjson::MemoryPoolAllocator<>>
-            Document;
+    using Document = rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
+                                                rapidjson::MemoryPoolAllocator<>>;
     rapidjson::MemoryPoolAllocator<> _value_allocator;
     rapidjson::MemoryPoolAllocator<> _parse_allocator;
     Document _origin_json_doc;   // origin json document object from parsed json string
