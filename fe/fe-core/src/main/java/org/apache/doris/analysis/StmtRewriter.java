@@ -1113,6 +1113,10 @@ public class StmtRewriter {
         Expr subquerySubstitute = slotRef;
         if (exprWithSubquery instanceof InPredicate) {
             if (slotRef.getType().isBitmapType()) {
+                if (isCorrelated) {
+                    throw new AnalysisException(
+                            "In bitmap does not support correlated subquery: " + exprWithSubquery.toSql());
+                }
                 Expr pred = new BitmapFilterPredicate(exprWithSubquery.getChild(0), slotRef,
                         ((InPredicate) exprWithSubquery).isNotIn());
                 pred.analyze(analyzer);
