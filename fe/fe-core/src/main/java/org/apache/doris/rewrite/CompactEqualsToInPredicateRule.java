@@ -67,10 +67,10 @@ public class CompactEqualsToInPredicateRule implements ExprRewriteRule {
     expr in form of A or B or ...
      */
     private Pair<Boolean, Expr> compactEqualsToInPredicate(Expr expr) {
-        int compactCount = ConnectContext.get().getSessionVariable().getCompactEqualToInPredicateCount();
+        int compactThreshold = ConnectContext.get().getSessionVariable().getCompactEqualToInPredicateThreshold();
         boolean changed = false;
         List<Expr> disConjuncts = getDisconjuncts(expr);
-        if (disConjuncts.size() < compactCount) {
+        if (disConjuncts.size() < compactThreshold) {
             return Pair.of(false, expr);
         }
         Map<SlotRef, Set<Expr>> equalMap = new HashMap<>();
@@ -112,7 +112,7 @@ public class CompactEqualsToInPredicateRule implements ExprRewriteRule {
         for (Entry<SlotRef, Set<Expr>> entry : equalMap.entrySet()) {
             SlotRef slot = entry.getKey();
             InPredicate in = inPredMap.get(slot);
-            if (entry.getValue().size() >= compactCount || in != null) {
+            if (entry.getValue().size() >= compactThreshold || in != null) {
                 if (in == null) {
                     in = new InPredicate(entry.getKey(), Lists.newArrayList(entry.getValue()), false);
                     inPredMap.put(slot, in);
