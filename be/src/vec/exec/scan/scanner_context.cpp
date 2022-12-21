@@ -263,9 +263,14 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     }
 
     std::lock_guard<std::mutex> l(_transfer_lock);
-    _num_running_scanners--;
+    // Should plus _num_scheduling_ctx before reduce _num_running_scanners
+    // because `PipScannerContext::can_finish` will check _num_running_scanners
     _num_scheduling_ctx++;
-    _state->exec_env()->scanner_scheduler()->submit(this);
+    _num_running_scanners--;
+    auto submit_st = _state->exec_env()->scanner_scheduler()->submit(this);
+    if (!submit_st.ok()) {
+        _num_scheduling_ctx--;
+    }
 
     // Notice that after calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
     // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
@@ -274,12 +279,12 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     // same scanner.
     if (scanner->need_to_close() && scanner->set_counted_down() &&
         (--_num_unfinished_scanners) == 0) {
-        _is_finished = true;
         // ATTN: this 2 counters will be set at close() again, which is the final values.
         // But we set them here because the counter set at close() can not send to FE's profile.
         // So we set them here, and the counter value may be little less than final values.
         COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
         COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
+        _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }
     _ctx_finish_cv.notify_one();
