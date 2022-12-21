@@ -332,7 +332,7 @@ private:
     JsonbErrType err_;
 };
 
-typedef JsonbParserTSIMD<JsonbOutStream> JsonbParserSIMD;
+using JsonbParserSIMD = JsonbParserTSIMD<JsonbOutStream>;
 
 } // namespace doris
 
