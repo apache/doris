@@ -142,6 +142,10 @@ public:
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
     virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    static Status init_reader_params_and_create_block(
+            TabletSharedPtr tablet, ReaderType reader_type,
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            TabletReader::ReaderParams* reader_params, vectorized::Block* block);
 
 protected:
     friend class vectorized::VCollectIterator;
