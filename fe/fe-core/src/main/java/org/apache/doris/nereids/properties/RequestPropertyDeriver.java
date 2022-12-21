@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -107,22 +108,41 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        // for shuffle join
-        if (JoinUtils.couldShuffle(hashJoin)) {
-            Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-            // shuffle join
-            addRequestPropertyToChildren(
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
-        }
-        // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
-            addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
-        }
+        JoinHint hint = hashJoin.getHint();
+        switch (hint) {
+            case BROADCAST_RIGHT:
+                addBroadcastJoinRequestProperty();
+                break;
+            case SHUFFLE_RIGHT:
+                addShuffleJoinRequestProperty(hashJoin);
+                break;
+            case NONE:
+            default:
+                // for shuffle join
+                if (JoinUtils.couldShuffle(hashJoin)) {
+                    addShuffleJoinRequestProperty(hashJoin);
+                }
+                // for broadcast join
+                if (JoinUtils.couldBroadcast(hashJoin)) {
+                    addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+                }
 
+        }
         return null;
+    }
+
+    private void addBroadcastJoinRequestProperty() {
+        addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+    }
+
+    private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
+        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
+        // shuffle join
+        addRequestPropertyToChildren(
+                PhysicalProperties.createHash(
+                        new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
+                PhysicalProperties.createHash(
+                        new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
     }
 
     @Override

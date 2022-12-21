@@ -19,11 +19,39 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.Pattern;
+import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
-public class GroupMatchingUtils {
+import com.google.common.base.Supplier;
+import org.junit.jupiter.api.Assertions;
+
+public class MatchingUtils {
+
+    public static void assertMatches(Plan plan, PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = new Memo(plan);
+        if (plan instanceof PhysicalPlan) {
+            assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
+                    memo.getRoot().getPhysicalExpressions().get(0)).iterator().hasNext());
+        } else if (plan instanceof LogicalPlan) {
+            assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
+                    memo.getRoot().getLogicalExpression()).iterator().hasNext());
+        } else {
+            throw new IllegalStateException("Input plan should be LogicalPlan or PhysicalPlan, but meet " + plan);
+        }
+    }
+
+    private static void assertMatches(Memo memo, Supplier<Boolean> asserter) {
+        Assertions.assertTrue(asserter.get(),
+                () -> "pattern not match, plan :\n"
+                        + memo.getRoot().getLogicalExpression().getPlan().treeString()
+                        + "\n"
+        );
+    }
 
     public static boolean topDownFindMatching(Group group, Pattern<? extends Plan> pattern) {
         for (GroupExpression logicalExpr : group.getLogicalExpressions()) {

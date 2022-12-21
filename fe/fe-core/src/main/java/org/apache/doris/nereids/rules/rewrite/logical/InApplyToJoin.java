@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -54,10 +55,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
                 return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(),
                         ExpressionUtils.extractConjunction(predicate),
+                        JoinHint.NONE,
                         apply.left(), apply.right());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         ExpressionUtils.extractConjunction(predicate),
+                        JoinHint.NONE,
                         apply.left(), apply.right());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
