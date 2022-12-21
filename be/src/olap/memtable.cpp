@@ -220,6 +220,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
 
     bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
     if (is_exist) {
+        _merged_rows++;
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
         row_in_block->init_agg_places(
@@ -249,6 +250,7 @@ void MemTable::_insert_agg(const Tuple* tuple) {
 
     bool is_exist = _skip_list->Find((TableKey)tuple_buf, &_hint);
     if (is_exist) {
+        _merged_rows++;
         (this->*_aggregate_two_row_fn)(src_row, _hint.curr->key);
     } else {
         tuple_buf = _table_mem_pool->allocate(_schema_size);
