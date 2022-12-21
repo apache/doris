@@ -201,7 +201,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias lateralView*                               #tableName
+    : multipartIdentifier specifiedPartition? tableAlias lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
@@ -308,6 +308,11 @@ primaryExpression
 
 qualifiedName
     : identifier (DOT identifier)*
+    ;
+
+specifiedPartition
+    : PARTITION identifier
+    | PARTITIONS identifierList
     ;
 
 constant
