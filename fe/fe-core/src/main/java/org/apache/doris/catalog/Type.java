@@ -370,7 +370,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType() || isMultiRowType();
+        return isMapType() || isArrayType() || isMultiRowType() || isStructType();
     }
 
     public boolean isMapType() {
@@ -495,6 +495,8 @@ public abstract class Type {
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
+        } else if (targetType.isStructType() && sourceType.isStringType()) {
+            return true;
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }

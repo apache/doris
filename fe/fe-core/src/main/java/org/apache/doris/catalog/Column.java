@@ -58,6 +58,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
+    private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "name")
@@ -186,6 +187,13 @@ public class Column implements Writable, GsonPostProcessable {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
+        } else if (type.isStructType()) {
+            ArrayList<StructField> fileds = ((StructType) type).getFields();
+            for (StructField field : fileds) {
+                Column c = new Column(COLUMN_STRUCT_CHILDREN, field.getType());
+                // c.setIsAllowNull(field.getContainsNull());
+                column.addChildrenColumn(c);
+            }
         }
     }
 
@@ -396,34 +404,41 @@ public class Column implements Writable, GsonPostProcessable {
         return tColumn;
     }
 
+    private void setChildrenTColumn(Column children, TColumn tColumn) {
+        TColumn childrenTColumn = new TColumn();
+        childrenTColumn.setColumnName(children.name);
+
+        TColumnType childrenTColumnType = new TColumnType();
+        childrenTColumnType.setType(children.getDataType().toThrift());
+        childrenTColumnType.setLen(children.getStrLen());
+        childrenTColumnType.setPrecision(children.getPrecision());
+        childrenTColumnType.setScale(children.getScale());
+        childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
+
+        childrenTColumn.setColumnType(childrenTColumnType);
+        childrenTColumn.setIsAllowNull(children.isAllowNull());
+        // TODO: If we don't set the aggregate type for children, the type will be
+        //  considered as TAggregationType::SUM after deserializing in BE.
+        //  For now, we make children inherit the aggregate type from their parent.
+        if (tColumn.getAggregationType() != null) {
+            childrenTColumn.setAggregationType(tColumn.getAggregationType());
+        }
+
+        tColumn.children_column.add(childrenTColumn);
+        toChildrenThrift(children, childrenTColumn);
+    }
+
     private void toChildrenThrift(Column column, TColumn tColumn) {
         if (column.type.isArrayType()) {
             Column children = column.getChildren().get(0);
-
-            TColumn childrenTColumn = new TColumn();
-            childrenTColumn.setColumnName(children.name);
-
-            TColumnType childrenTColumnType = new TColumnType();
-            childrenTColumnType.setType(children.getDataType().toThrift());
-            childrenTColumnType.setType(children.getDataType().toThrift());
-            childrenTColumnType.setLen(children.getStrLen());
-            childrenTColumnType.setPrecision(children.getPrecision());
-            childrenTColumnType.setScale(children.getScale());
-
-            childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
-            childrenTColumn.setColumnType(childrenTColumnType);
-            childrenTColumn.setIsAllowNull(children.isAllowNull());
-            // TODO: If we don't set the aggregate type for children, the type will be
-            //  considered as TAggregationType::SUM after deserializing in BE.
-            //  For now, we make children inherit the aggregate type from their parent.
-            if (tColumn.getAggregationType() != null) {
-                childrenTColumn.setAggregationType(tColumn.getAggregationType());
-            }
-
             tColumn.setChildrenColumn(new ArrayList<>());
-            tColumn.children_column.add(childrenTColumn);
-
-            toChildrenThrift(children, childrenTColumn);
+            setChildrenTColumn(children, tColumn);
+        } else if (column.type.isStructType()) {
+            List<Column> childrenColumns = column.getChildren();
+            tColumn.setChildrenColumn(new ArrayList<>());
+            for (Column children : childrenColumns) {
+                setChildrenTColumn(children, tColumn);
+            }
         }
     }
 
