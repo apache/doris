@@ -196,6 +196,9 @@ public class SessionVariable implements Serializable, Writable {
 
     //percentage of EXEC_MEM_LIMIT
     public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
+
+    public static final String COMPACT_EQUAL_TO_IN_PREDICATE_THRESHOLD = "compact_equal_to_in_predicate_threshold";
+
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
@@ -542,6 +545,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
+    @VariableMgr.VarAttr(name = COMPACT_EQUAL_TO_IN_PREDICATE_THRESHOLD)
+    private int compactEqualToInPredicateThreshold = 2;
+
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
     private double nereidsCboPenaltyFactor = 0.7;
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
@@ -654,6 +660,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
+    }
+
+    public void setCompactEqualToInPredicateThreshold(int threshold) {
+        this.compactEqualToInPredicateThreshold = threshold;
+    }
+
+    public int getCompactEqualToInPredicateThreshold() {
+        return compactEqualToInPredicateThreshold;
     }
 
     public long getMaxExecMemByte() {
