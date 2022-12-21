@@ -597,24 +597,19 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         *eos = true;
         return Status::OK();
     }
-    if (need_more_input_data()) {
+    while (need_more_input_data()) {
         prepare_for_next();
-        do {
-            SCOPED_TIMER(_probe_next_timer);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(0)->get_next_after_projects(
-                            state, &_probe_block, &_probe_eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[0], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    child(0)->get_next_span(), _probe_eos);
-        } while (_probe_block.rows() == 0 && !_probe_eos);
+        SCOPED_TIMER(_probe_next_timer);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &_probe_block, &_probe_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), _probe_eos);
 
-        if (_probe_block.rows() != 0) {
-            RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
-        }
+        RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
     }
 
     return pull(state, output_block, eos);

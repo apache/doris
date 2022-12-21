@@ -262,8 +262,7 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
                    !_runtime_filter_ctxs[i].apply_mark) {
             _blocked_by_rf = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {
-            DCHECK(!_blocked_by_rf &&
-                   runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
+            DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
             _is_all_rf_applied = false;
         }
     }
