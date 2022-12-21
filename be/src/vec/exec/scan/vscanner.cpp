@@ -62,8 +62,16 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             {
                 SCOPED_TIMER(_parent->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
+                // record rows return (after filter) for _limit check
+                _num_rows_return += block->rows();
             }
         } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
+    }
+
+    // set eof to true if per scanner limit is reached
+    // currently for query: ORDER BY key LIMIT n
+    if (_limit > 0 && _num_rows_return > _limit) {
+        *eof = true;
     }
 
     return Status::OK();
