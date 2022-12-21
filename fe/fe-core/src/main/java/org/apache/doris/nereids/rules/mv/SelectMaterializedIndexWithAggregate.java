@@ -472,7 +472,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         @Override
         public PreAggStatus visitCount(Count count, CheckContext context) {
             // Now count(distinct key_column) is only supported for aggregate-keys and unique-keys OLAP table.
-            if (count.isDistinct()) {
+            if (count.isDistinct() && count.arity() == 1) {
                 Optional<ExprId> exprIdOpt = extractSlotId(count.child(0));
                 if (exprIdOpt.isPresent() && context.exprIdToKeyColumn.containsKey(exprIdOpt.get())) {
                     return PreAggStatus.on();
@@ -714,7 +714,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
          */
         @Override
         public Expression visitCount(Count count, RewriteContext context) {
-            if (count.isDistinct()) {
+            if (count.isDistinct() && count.arity() == 1) {
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
 
                 // count distinct a value column.
