@@ -660,6 +660,7 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
         }
         ContiguousRow dst_row = it.get_current_row();
         auto s = writer->append_row(dst_row);
+        _raw_num_rows_written++;
         if (PREDICT_FALSE(!s.ok())) {
             LOG(WARNING) << "failed to append row: " << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
