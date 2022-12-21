@@ -37,6 +37,10 @@ public class Node {
         this.index = index;
     }
 
+    public void replaceGroupWith(Group group) {
+        this.group = group;
+    }
+
     public int getIndex() {
         return index;
     }

@@ -46,22 +46,25 @@ Status PipelineTask::prepare(RuntimeState* state) {
     for (auto& o : _operators) {
         RETURN_IF_ERROR(o->prepare(state));
     }
+
+    _task_profile->add_info_string("SinkId", fmt::format("{}", _sink->id()));
+    fmt::memory_buffer operator_ids_str;
+    for (size_t i = 0; i < _operators.size(); i++) {
+        if (i == 0) {
+            fmt::format_to(operator_ids_str, fmt::format("[{}", _operators[i]->id()));
+        } else {
+            fmt::format_to(operator_ids_str, fmt::format(", {}", _operators[i]->id()));
+        }
+    }
+    fmt::format_to(operator_ids_str, "]");
+    _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
+
     _block.reset(new doris::vectorized::Block());
-    _init_state();
+
+    // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
+    set_state(RUNNABLE);
     _prepared = true;
     return Status::OK();
-}
-
-void PipelineTask::_init_state() {
-    if (has_dependency()) {
-        set_state(BLOCKED_FOR_DEPENDENCY);
-    } else if (!(_source->can_read())) {
-        set_state(BLOCKED_FOR_SOURCE);
-    } else if (!(_sink->can_write())) {
-        set_state(BLOCKED_FOR_SINK);
-    } else {
-        set_state(RUNNABLE);
-    }
 }
 
 bool PipelineTask::has_dependency() {
@@ -75,9 +78,8 @@ bool PipelineTask::has_dependency() {
     if (_pipeline->has_dependency()) {
         return true;
     }
-    // FE do not call execute
-    if (!_state->get_query_fragments_ctx()
-                 ->is_ready_to_execute()) { // TODO pipeline config::s_ready_to_execute
+
+    if (!query_fragments_context()->is_ready_to_execute()) {
         return true;
     }
 
@@ -87,11 +89,11 @@ bool PipelineTask::has_dependency() {
 }
 
 Status PipelineTask::open() {
-    if (_sink) {
-        RETURN_IF_ERROR(_sink->open(_state));
-    }
     for (auto& o : _operators) {
         RETURN_IF_ERROR(o->open(_state));
+    }
+    if (_sink) {
+        RETURN_IF_ERROR(_sink->open(_state));
     }
     _opened = true;
     return Status::OK();
@@ -104,6 +106,19 @@ Status PipelineTask::execute(bool* eos) {
     // The status must be runnable
     *eos = false;
     if (!_opened) {
+        {
+            SCOPED_RAW_TIMER(&time_spent);
+            auto st = open();
+            if (st.is_blocked_by_rf()) {
+                set_state(BLOCKED_FOR_RF);
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(st);
+        }
+        if (has_dependency()) {
+            set_state(BLOCKED_FOR_DEPENDENCY);
+            return Status::OK();
+        }
         if (!_source->can_read()) {
             set_state(BLOCKED_FOR_SOURCE);
             return Status::OK();
@@ -112,8 +127,6 @@ Status PipelineTask::execute(bool* eos) {
             set_state(BLOCKED_FOR_SINK);
             return Status::OK();
         }
-        SCOPED_RAW_TIMER(&time_spent);
-        RETURN_IF_ERROR(open());
     }
 
     while (!_fragment_context->is_canceled()) {
@@ -146,7 +159,6 @@ Status PipelineTask::execute(bool* eos) {
                 break;
             }
         }
-        *eos = false;
     }
 
     return Status::OK();
@@ -170,7 +182,6 @@ Status PipelineTask::close() {
         COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
     }
-    _pipeline->close(_state);
     return s;
 }
 
@@ -206,14 +217,14 @@ void PipelineTask::set_state(PipelineTaskState state) {
 }
 
 std::string PipelineTask::debug_string() const {
-    std::stringstream ss;
-    ss << "PipelineTask(" << _index << ")" << get_state_name(_cur_state) << "\nsink: ";
-    ss << _sink->debug_string();
-    ss << "\n operators(from source to root)";
-    for (auto operatr : _operators) {
-        ss << "\n" << operatr->debug_string();
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
+                   get_state_name(_cur_state));
+    for (size_t i = 0; i < _operators.size(); i++) {
+        fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
+                       _operators[i]->debug_string());
     }
-    return ss.str();
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace doris::pipeline

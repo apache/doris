@@ -85,12 +85,32 @@ under the License.
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hadoop.username' = 'hive'
-    'dfs.nameservices'='service1',
-    'dfs.ha.namenodes. service1'='nn1,nn2',
-    'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.service1'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+如果需要连接开启了 Kerberos 认证的 Hive MetaStore，示例如下：
+
+```
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.sasl.enabled' = 'true',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.service1'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
+    'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
 );
 ```
 
@@ -568,7 +588,7 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 外部数据源的元数据变动，如创建、删除表，加减列等操作，不会同步给 Doris。
 
-目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) 命令手动刷新元数据。
+目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
 后续会支持元数据的自动同步。
 

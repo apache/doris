@@ -65,9 +65,9 @@ public abstract class Type {
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
     public static final ScalarType TIMEV2 = new ScalarType(PrimitiveType.TIMEV2);
     public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
-    public static final ScalarType STRING = new ScalarType(PrimitiveType.STRING);
+    public static final ScalarType STRING = ScalarType.createStringType();
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
-                    ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
+            ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
 
     public static final ScalarType MAX_DECIMALV2_TYPE = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
             ScalarType.MAX_DECIMALV2_PRECISION, ScalarType.MAX_DECIMALV2_SCALE);

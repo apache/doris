@@ -111,10 +111,7 @@ public:
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
     }
 
-    void reserve(size_t n) override {
-        _reserve_size = n;
-        _codes.reserve(n);
-    }
+    void reserve(size_t n) override { _codes.reserve(n); }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
@@ -279,7 +276,7 @@ public:
             convert_dict_codes_if_necessary();
         }
         auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
-        res->reserve(_reserve_size);
+        res->reserve(_codes.size());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
             auto value = _dict.get_value(code);

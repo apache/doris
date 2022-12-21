@@ -321,6 +321,8 @@ protected:
     bool _is_closed = false;
 
     RuntimeState* _state;
+    // rows number received per tablet, tablet_id -> rows_num
+    std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
 
 private:
     std::unique_ptr<RowBatch> _cur_batch;
@@ -368,6 +370,12 @@ public:
         return mem_consumption;
     }
 
+    void set_tablets_received_rows(
+            const std::vector<std::pair<int64_t, int64_t>>& tablets_received_rows, int64_t node_id);
+
+    // check whether the rows num written by different replicas is consistent
+    Status check_tablet_received_rows_consistency();
+
 private:
     friend class NodeChannel;
     friend class VNodeChannel;
@@ -398,6 +406,9 @@ private:
     Status _intolerable_failure_status = Status::OK();
 
     std::unique_ptr<MemTracker> _index_channel_tracker;
+    // rows num received by DeltaWriter per tablet, tablet_id -> <node_Id, rows_num>
+    // used to verify whether the rows num received by different replicas is consistent
+    std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
 };
 
 template <typename Row>
@@ -409,7 +420,7 @@ void IndexChannel::add_row(const Row& tuple, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
+            mark_as_failed(channel->node_id(), channel->host(), st.to_string(), tablet_id);
             // continue add row to other node, the error will be checked for every batch outside
         }
     }

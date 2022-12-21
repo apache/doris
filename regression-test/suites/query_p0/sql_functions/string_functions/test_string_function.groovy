@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_string_function") {
-    sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
     qt_sql "select elt(0, \"hello\", \"doris\");"
@@ -117,8 +116,19 @@ suite("test_string_function") {
 
     qt_sql "SELECT REVERSE('hello');"
 
-    qt_sql "select split_part(\"hello world\", \" \", 1);"
-    qt_sql "select split_part(\"hello world\", \" \", 2);"
+    qt_sql "select split_part('hello world', ' ', 1)"
+    qt_sql "select split_part('hello world', ' ', 2)"
+    qt_sql "select split_part('hello world', ' ', 0)"
+    qt_sql "select split_part('hello world', ' ', -1)"
+    qt_sql "select split_part('hello world', ' ', -2)"
+    qt_sql "select split_part('hello world', ' ', -3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 0)"
+    qt_sql "select split_part('abc##123###xyz', '##', 1)"
+    qt_sql "select split_part('abc##123###xyz', '##', 3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 5)"
+    qt_sql "select split_part('abc##123###xyz', '##', -1)"
+    qt_sql "select split_part('abc##123###xyz', '##', -2)"
+    qt_sql "select split_part('abc##123###xyz', '##', -4)"
 
     qt_sql "select starts_with(\"hello world\",\"hello\");"
     qt_sql "select starts_with(\"hello world\",\"world\");"
@@ -139,6 +149,31 @@ suite("test_string_function") {
     qt_sql "select substr('a',-1,1);"
     qt_sql "select substr('a',-2,1);"
     qt_sql "select substr('a',-3,1);"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    qt_sql "select substring_index(\"hello world\", \" \", 1);"
+    qt_sql "select substring_index(\"hello world\", \" \", 2);"
+    qt_sql "select substring_index(\"hello world\", \" \", 3);"
+    qt_sql "select substring_index(\"hello world\", \" \", -1);"
+    qt_sql "select substring_index(\"hello world\", \" \", -2);"
+    qt_sql "select substring_index(\"hello world\", \" \", -3);"
+    qt_sql "select substring_index(\"prefix__string2\", \"__\", 2);"
+    qt_sql "select substring_index(\"prefix__string2\", \"_\", 2);"
+    qt_sql "select substring_index(\"prefix_string2\", \"__\", 1);"
+    qt_sql "select substring_index(null, \"__\", 1);"
+    qt_sql "select substring_index(\"prefix_string\", null, 1);"
+    qt_sql "select substring_index(\"prefix_string\", \"_\", null);"
+    qt_sql "select substring_index(\"prefix_string\", \"__\", -1);"
+
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"

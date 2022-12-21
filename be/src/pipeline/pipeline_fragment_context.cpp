@@ -17,11 +17,13 @@
 
 #include "pipeline_fragment_context.h"
 
+#include <gen_cpp/DataSinks_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "exec/agg_context.h"
 #include "exec/aggregation_sink_operator.h"
 #include "exec/aggregation_source_operator.h"
+#include "exec/analytic_sink_operator.h"
+#include "exec/analytic_source_operator.h"
 #include "exec/data_sink.h"
 #include "exec/datagen_operator.h"
 #include "exec/empty_set_operator.h"
@@ -29,20 +31,34 @@
 #include "exec/exchange_source_operator.h"
 #include "exec/hashjoin_build_sink.h"
 #include "exec/hashjoin_probe_operator.h"
+#include "exec/mysql_scan_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
 #include "exec/scan_operator.h"
+#include "exec/schema_scan_operator.h"
+#include "exec/select_operator.h"
+#include "exec/set_probe_sink_operator.h"
+#include "exec/set_sink_operator.h"
+#include "exec/set_source_operator.h"
 #include "exec/sort_sink_operator.h"
 #include "exec/sort_source_operator.h"
 #include "exec/streaming_aggregation_sink_operator.h"
 #include "exec/streaming_aggregation_source_operator.h"
+#include "exec/table_sink_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/broker_scan_operator.h"
+#include "pipeline/exec/const_value_operator.h"
+#include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/nested_loop_join_build_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/union_sink_operator.h"
+#include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
@@ -50,13 +66,17 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vrepeat_node.h"
+#include "vec/exec/vschema_scan_node.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
+#include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -65,21 +85,19 @@ using apache::thrift::TException;
 
 namespace doris::pipeline {
 
-PipelineFragmentContext::PipelineFragmentContext(const TUniqueId& query_id,
-                                                 const TUniqueId& instance_id, int backend_num,
-                                                 std::shared_ptr<QueryFragmentsCtx> query_ctx,
-                                                 ExecEnv* exec_env)
+PipelineFragmentContext::PipelineFragmentContext(
+        const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
+        std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+        std::function<void(RuntimeState*, Status*)> call_back)
         : _query_id(query_id),
-          _fragment_instance_id(instance_id),
+          _fragment_id(instance_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
-          _closed_pipeline_cnt(0),
-          _query_ctx(std::move(query_ctx)) {
+          _query_ctx(std::move(query_ctx)),
+          _call_back(call_back) {
     _fragment_watcher.start();
 }
-
-PipelineFragmentContext::~PipelineFragmentContext() = default;
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
@@ -98,7 +116,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-        _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
+        _exec_env->vstream_mgr()->cancel(_fragment_id);
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -108,7 +126,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, shared_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
     _pipelines.emplace_back(pipeline);
     return pipeline;
 }
@@ -117,11 +135,11 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
-    //    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-    //    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
-    //    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
-    //    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
-    //    SCOPED_TIMER(_prepare_timer);
+    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
+    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
+    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
+    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
+    SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
@@ -246,8 +264,10 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
         RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
+
     _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
+    _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _prepared = true;
     return Status::OK();
@@ -255,10 +275,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
 Status PipelineFragmentContext::_build_pipeline_tasks(
         const doris::TExecPlanFragmentParams& request) {
-    for (auto& pipeline : _pipelines) {
-        RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
-    }
-
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();
@@ -268,14 +284,16 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         Operators operators;
         RETURN_IF_ERROR(pipeline->build_operators(operators));
         auto task = std::make_unique<PipelineTask>(pipeline, 0, _runtime_state.get(), operators,
-                                                   sink, this, pipeline->runtime_profile());
+                                                   sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
+        _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
     }
 
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
+    _total_tasks = _tasks.size();
     return Status::OK();
 }
 
@@ -285,8 +303,30 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     auto node_type = node->type();
     switch (node_type) {
     // for source
-    case TPlanNodeType::OLAP_SCAN_NODE: {
+    case TPlanNodeType::BROKER_SCAN_NODE: {
+        OperatorBuilderPtr operator_t = std::make_shared<BrokerScanOperatorBuilder>(
+                fragment_context->next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::OLAP_SCAN_NODE:
+    case TPlanNodeType::JDBC_SCAN_NODE:
+    case TPlanNodeType::ODBC_SCAN_NODE:
+    case TPlanNodeType::FILE_SCAN_NODE:
+    case TPlanNodeType::ES_SCAN_NODE: {
         OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
+                fragment_context->next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::MYSQL_SCAN_NODE: {
+        OperatorBuilderPtr operator_t =
+                std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::SCHEMA_SCAN_NODE: {
+        OperatorBuilderPtr operator_t = std::make_shared<SchemaScanOperatorBuilder>(
                 fragment_context->next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
@@ -309,18 +349,41 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
+    case TPlanNodeType::UNION_NODE: {
+        auto* union_node = assert_cast<vectorized::VUnionNode*>(node);
+        if (union_node->children_count() == 0 &&
+            union_node->get_first_materialized_child_idx() == 0) { // only have const expr
+            OperatorBuilderPtr builder =
+                    std::make_shared<ConstValueOperatorBuilder>(next_operator_builder_id(), node);
+            RETURN_IF_ERROR(cur_pipe->add_operator(builder));
+        } else {
+            int child_count = union_node->children_count();
+            auto data_queue = std::make_shared<DataQueue>(child_count);
+            for (int child_id = 0; child_id < child_count; ++child_id) {
+                auto new_child_pipeline = add_pipeline();
+                RETURN_IF_ERROR(_build_pipelines(union_node->child(child_id), new_child_pipeline));
+                OperatorBuilderPtr child_sink_builder = std::make_shared<UnionSinkOperatorBuilder>(
+                        next_operator_builder_id(), child_id, union_node, data_queue);
+                RETURN_IF_ERROR(new_child_pipeline->set_sink(child_sink_builder));
+            }
+            OperatorBuilderPtr source_builder = std::make_shared<UnionSourceOperatorBuilder>(
+                    next_operator_builder_id(), union_node, data_queue);
+            RETURN_IF_ERROR(cur_pipe->add_operator(source_builder));
+        }
+        break;
+    }
     case TPlanNodeType::AGGREGATION_NODE: {
         auto* agg_node = assert_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
         if (agg_node->is_streaming_preagg()) {
-            auto agg_ctx = std::make_shared<AggContext>();
+            auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
-                    next_operator_builder_id(), agg_node, agg_ctx);
+                    next_operator_builder_id(), agg_node, data_queue);
             RETURN_IF_ERROR(new_pipe->set_sink(pre_agg_sink));
 
             OperatorBuilderPtr pre_agg_source = std::make_shared<StreamingAggSourceOperatorBuilder>(
-                    next_operator_builder_id(), agg_node, agg_ctx);
+                    next_operator_builder_id(), agg_node, data_queue);
             RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
         } else {
             OperatorBuilderPtr agg_sink =
@@ -344,6 +407,19 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr sort_source =
                 std::make_shared<SortSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
+        break;
+    }
+    case TPlanNodeType::ANALYTIC_EVAL_NODE: {
+        auto new_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
+
+        OperatorBuilderPtr analytic_sink =
+                std::make_shared<AnalyticSinkOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipeline->set_sink(analytic_sink));
+
+        OperatorBuilderPtr analytic_source =
+                std::make_shared<AnalyticSourceOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(analytic_source));
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {
@@ -383,6 +459,36 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         cur_pipe->add_dependency(new_pipe);
         break;
     }
+    case TPlanNodeType::CROSS_JOIN_NODE: {
+        auto new_pipe = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        OperatorBuilderPtr join_sink = std::make_shared<NestLoopJoinBuildOperatorBuilder>(
+                next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr join_source = std::make_shared<NestLoopJoinProbeOperatorBuilder>(
+                next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
+
+        cur_pipe->add_dependency(new_pipe);
+        break;
+    }
+    case TPlanNodeType::INTERSECT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(node, cur_pipe));
+        break;
+    }
+    case TPlanNodeType::EXCEPT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(node, cur_pipe));
+        break;
+    }
+    case TPlanNodeType::SELECT_NODE: {
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr builder =
+                std::make_shared<SelectOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(builder));
+        break;
+    }
     default:
         return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(node_type));
@@ -390,16 +496,55 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     return Status::OK();
 }
 
+template <bool is_intersect>
+Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode* node,
+                                                                        PipelinePtr cur_pipe) {
+    auto build_pipeline = add_pipeline();
+    RETURN_IF_ERROR(_build_pipelines(node->child(0), build_pipeline));
+    OperatorBuilderPtr sink_builder = std::make_shared<SetSinkOperatorBuilder<is_intersect>>(
+            next_operator_builder_id(), node);
+    RETURN_IF_ERROR(build_pipeline->set_sink(sink_builder));
+
+    for (int child_id = 1; child_id < node->children_count(); ++child_id) {
+        auto probe_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
+        OperatorBuilderPtr probe_sink_builder =
+                std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(
+                        next_operator_builder_id(), child_id, node);
+        RETURN_IF_ERROR(probe_pipeline->set_sink(probe_sink_builder));
+    }
+
+    OperatorBuilderPtr source_builder = std::make_shared<SetSourceOperatorBuilder<is_intersect>>(
+            next_operator_builder_id(), node);
+    return cur_pipe->add_operator(source_builder);
+}
+
 Status PipelineFragmentContext::submit() {
     if (_submitted) {
         return Status::InternalError("submitted");
     }
-
-    for (auto& task : _tasks) {
-        RETURN_IF_ERROR(_exec_env->pipeline_task_scheduler()->schedule_task(task.get()));
-    }
     _submitted = true;
-    return Status::OK();
+
+    int submit_tasks = 0;
+    Status st;
+    for (auto& task : _tasks) {
+        st = _exec_env->pipeline_task_scheduler()->schedule_task(task.get());
+        if (!st) {
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+            _total_tasks = submit_tasks;
+            break;
+        }
+        submit_tasks++;
+    }
+    if (!st.ok()) {
+        if (_closed_tasks == _total_tasks) {
+            std::call_once(_close_once_flag, [this] { _close_action(); });
+        }
+        return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
+                                     BackendOptions::get_localhost());
+    } else {
+        return st;
+    }
 }
 
 // construct sink operator
@@ -421,18 +566,29 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
                                                                _sink.get());
         break;
     }
+    case TDataSinkType::MYSQL_TABLE_SINK:
+    case TDataSinkType::JDBC_TABLE_SINK:
+    case TDataSinkType::ODBC_TABLE_SINK: {
+        sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
+        break;
+    }
     default:
         return Status::InternalError("Unsuported sink type in pipeline: {}", thrift_sink.type);
     }
     return _root_pipeline->set_sink(sink_);
 }
 
+void PipelineFragmentContext::_close_action() {
+    _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    send_report(true);
+    // all submitted tasks done
+    _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+}
+
 void PipelineFragmentContext::close_a_pipeline() {
-    ++_closed_pipeline_cnt;
-    if (_closed_pipeline_cnt == _pipelines.size()) {
-        //        _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-        send_report(true);
-        _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+    ++_closed_tasks;
+    if (_closed_tasks == _total_tasks) {
+        std::call_once(_close_once_flag, [this] { _close_action(); });
     }
 }
 
@@ -448,8 +604,6 @@ std::string PipelineFragmentContext::to_http_path(const std::string& file_name) 
 // TODO pipeline dump copy from FragmentExecState::coordinator_callback
 // TODO pipeline this callback should be placed in a thread pool
 void PipelineFragmentContext::send_report(bool done) {
-    DCHECK(_closed_pipeline_cnt == _pipelines.size());
-
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -485,7 +639,7 @@ void PipelineFragmentContext::send_report(bool done) {
     params.protocol_version = FrontendServiceVersion::V1;
     params.__set_query_id(_query_id);
     params.__set_backend_num(_backend_num);
-    params.__set_fragment_instance_id(_fragment_instance_id);
+    params.__set_fragment_instance_id(_fragment_id);
     exec_status.set_t_status(&params);
     params.__set_done(true);
 
@@ -570,8 +724,8 @@ void PipelineFragmentContext::send_report(bool done) {
             coord->reportExecStatus(res, params);
         } catch (TTransportException& e) {
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_query_id)
-                         << ", instance id: " << print_id(_fragment_instance_id) << " to "
-                         << coord_addr << ", err: " << e.what();
+                         << ", instance id: " << print_id(_fragment_id) << " to " << coord_addr
+                         << ", err: " << e.what();
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {

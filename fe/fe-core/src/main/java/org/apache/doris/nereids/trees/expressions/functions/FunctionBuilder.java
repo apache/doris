@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Preconditions;
@@ -28,6 +29,7 @@ import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -57,8 +59,12 @@ public class FunctionBuilder {
         }
         for (int i = 0; i < arguments.size(); i++) {
             Class constructorArgumentType = getConstructorArgumentType(i);
-            if (!constructorArgumentType.isInstance(arguments.get(i))) {
-                return false;
+            Object argument = arguments.get(i);
+            if (!constructorArgumentType.isInstance(argument)) {
+                Optional<Class> primitiveType = ReflectionUtils.getPrimitiveType(argument.getClass());
+                if (!primitiveType.isPresent() || !constructorArgumentType.isAssignableFrom(primitiveType.get())) {
+                    return false;
+                }
             }
         }
         return true;

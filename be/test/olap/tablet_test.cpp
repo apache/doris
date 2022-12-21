@@ -33,6 +33,7 @@
 using namespace std;
 
 namespace doris {
+using namespace ErrorCode;
 
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
@@ -62,35 +63,7 @@ public:
                 "hi": -5350970832824939812,
                 "lo": -6717994719194512122
             },
-            "creation_time": 1553765670,
-            "alpha_rowset_extra_meta_pb": {
-                "segment_groups": [
-                {
-                    "segment_group_id": 0,
-                    "num_segments": 2,
-                    "index_size": 132,
-                    "data_size": 576,
-                    "num_rows": 5,
-                    "zone_maps": [
-                    {
-                        "min": "MQ==",
-                        "max": "NQ==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MQ==",
-                        "max": "Mw==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "J2J1c2gn",
-                        "max": "J3RvbSc=",
-                        "null_flag": false
-                    }
-                    ],
-                    "empty": false
-                }]
-            }
+            "creation_time": 1553765670
         })";
 
         doris::EngineOptions options;
@@ -407,26 +380,23 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowLocation loc;
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is<NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
     LOG(INFO) << tablet->lookup_row_key("101", &rowset_ids, &loc, 7).to_string();
-    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).precise_code() ==
-                OLAP_ERR_ROWSET_LOAD_FAILED);
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).is<ROWSET_LOAD_FAILED>());
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is_not_found());
-    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).precise_code() ==
-                OLAP_ERR_ROWSET_LOAD_FAILED);
+    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is<NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).is<ROWSET_LOAD_FAILED>());
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).precise_code() ==
-                OLAP_ERR_ROWSET_LOAD_FAILED);
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).is<ROWSET_LOAD_FAILED>());
 }
 
 } // namespace doris

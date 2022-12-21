@@ -27,7 +27,6 @@ class ExecEnv;
 class StreamLoadContext;
 class Status;
 class TTxnCommitAttachment;
-class StreamLoadPipe;
 
 class StreamLoadExecutor {
 public:

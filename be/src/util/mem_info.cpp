@@ -104,6 +104,10 @@ void MemInfo::process_minor_gc() {
     freed_mem +=
             StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
     StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    if (config::enable_query_memroy_overcommit) {
+        freed_mem +=
+                MemTrackerLimiter::free_top_overcommit_query(_s_process_full_gc_size - freed_mem);
+    }
 }
 
 void MemInfo::process_full_gc() {
@@ -122,7 +126,7 @@ void MemInfo::process_full_gc() {
     if (freed_mem > _s_process_full_gc_size) {
         return;
     }
-    freed_mem += MemTrackerLimiter::free_top_query(_s_process_full_gc_size - freed_mem);
+    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem);
 }
 
 #ifndef __APPLE__

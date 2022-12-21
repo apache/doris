@@ -34,6 +34,7 @@ import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -260,6 +261,7 @@ public class ShowExecutorTest {
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("testCluster:testUser");
         ctx.setCluster("testCluster");
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
         new Expectations(ctx) {
             {
@@ -272,7 +274,14 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDb() throws AnalysisException {
+        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ShowDbStmt stmt = new ShowDbStmt(null);
+        try {
+            stmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -301,7 +310,14 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws AnalysisException {
+        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ShowDbStmt stmt = new ShowDbStmt(null);
+        try {
+            stmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         executor.execute();

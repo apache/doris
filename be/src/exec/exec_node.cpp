@@ -72,13 +72,12 @@
 #include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
-#include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vintersect_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
@@ -123,7 +122,7 @@ int ExecNode::RowBatchQueue::Cleanup() {
     //   delete batch;
     // }
 
-    lock_guard<std::mutex> l(lock_);
+    std::lock_guard<std::mutex> l(lock_);
     for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin(); it != cleanup_queue_.end();
          ++it) {
         // num_io_buffers += (*it)->num_io_buffers();
@@ -145,7 +144,6 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _rows_returned_counter(nullptr),
           _rows_returned_rate(nullptr),
           _memory_used_counter(nullptr),
-          _get_next_span(),
           _is_closed(false),
           _ref(0) {
     if (tnode.__isset.output_tuple_id) {
@@ -322,7 +320,7 @@ Status ExecNode::close(RuntimeState* state) {
 }
 
 void ExecNode::add_runtime_exec_option(const std::string& str) {
-    lock_guard<mutex> l(_exec_options_lock);
+    std::lock_guard<std::mutex> l(_exec_options_lock);
 
     if (_runtime_exec_options.empty()) {
         _runtime_exec_options = str;
@@ -657,7 +655,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         }
 
     default:
-        map<int, const char*>::const_iterator i =
+        std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
         const char* str = "unknown node type";
 
@@ -851,14 +849,16 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
     return Status::OK();
 }
 
-Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status ExecNode::get_next_after_projects(
+        RuntimeState* state, vectorized::Block* block, bool* eos,
+        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func) {
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
-        auto status = get_next(state, &_origin_block, eos);
+        auto status = func(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);
     }
-    return get_next(state, block, eos);
+    return func(state, block, eos);
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

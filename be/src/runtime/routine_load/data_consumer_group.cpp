@@ -140,7 +140,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             _thread_pool.shutdown();
             _thread_pool.join();
             if (!result_st.ok()) {
-                kafka_pipe->cancel(result_st.get_error_msg());
+                kafka_pipe->cancel(result_st.to_string());
                 return result_st;
             }
             kafka_pipe->finish();

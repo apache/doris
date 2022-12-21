@@ -82,6 +82,8 @@ public:
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
+    int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
+
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
@@ -110,7 +112,8 @@ private:
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
-    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
+                                       size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     Status _wait_flying_segcompaction();
@@ -175,7 +178,7 @@ protected:
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 
-    std::atomic<ErrorCode> _segcompaction_status;
+    std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
 };

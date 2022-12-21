@@ -27,6 +27,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VerticalBlockReader::~VerticalBlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
@@ -36,7 +37,8 @@ VerticalBlockReader::~VerticalBlockReader() {
 }
 
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
-                                                   std::vector<RowwiseIterator*>* segment_iters) {
+                                                   std::vector<RowwiseIterator*>* segment_iters,
+                                                   std::vector<bool>* iterator_init_flag) {
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
     if (!res.ok()) {
@@ -53,6 +55,24 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     for (auto& rs_reader : rs_readers) {
         // segment iterator will be inited here
         RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters));
+        // if segments overlapping, all segment iterator should be inited in
+        // heap merge iterator. If segments are none overlapping, only first segment of this
+        // rowset will be inited and push to heap, other segment will be inited later when current
+        // segment reached it's end.
+        // Use this iterator_init_flag so we can load few segments in HeapMergeIterator to save memory
+        if (rs_reader->rowset()->is_segments_overlapping()) {
+            for (int i = 0; i < rs_reader->rowset()->num_segments(); ++i) {
+                iterator_init_flag->push_back(true);
+            }
+        } else {
+            for (int i = 0; i < rs_reader->rowset()->num_segments(); ++i) {
+                if (i == 0) {
+                    iterator_init_flag->push_back(true);
+                    continue;
+                }
+                iterator_init_flag->push_back(false);
+            }
+        }
         rs_reader->reset_read_options();
     }
     return Status::OK();
@@ -61,7 +81,9 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
 Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // get segment iterators
     std::vector<RowwiseIterator*> segment_iters;
-    RETURN_IF_ERROR(_get_segment_iterators(read_params, &segment_iters));
+    std::vector<bool> iterator_init_flag;
+    RETURN_IF_ERROR(_get_segment_iterators(read_params, &segment_iters, &iterator_init_flag));
+    CHECK(segment_iters.size() == iterator_init_flag.size());
 
     // build heap if key column iterator or build vertical merge iterator if value column
     auto ori_return_col_size = _return_columns.size();
@@ -70,9 +92,9 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
         if (read_params.tablet->tablet_schema()->has_sequence_col()) {
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
-        _vcollect_iter = new_vertical_heap_merge_iterator(segment_iters, ori_return_col_size,
-                                                          read_params.tablet->keys_type(),
-                                                          seq_col_idx, _row_sources_buffer);
+        _vcollect_iter = new_vertical_heap_merge_iterator(
+                segment_iters, iterator_init_flag, ori_return_col_size,
+                read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(segment_iters, ori_return_col_size,
                                                           _row_sources_buffer);
@@ -84,7 +106,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     // In dup keys value columns compact, get first row for _init_agg_state
     if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
         auto st = _vcollect_iter->next_row(&_next_row);
-        _eof = st.is_end_of_file();
+        _eof = st.is<END_OF_FILE>();
     }
 
     return Status::OK();
@@ -160,10 +182,10 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 Status VerticalBlockReader::_direct_next_block(Block* block, MemPool* mem_pool,
                                                ObjectPool* agg_pool, bool* eof) {
     auto res = _vcollect_iter->next_batch(block);
-    if (UNLIKELY(!res.ok() && !res.is_end_of_file())) {
+    if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
-    *eof = (res.is_end_of_file());
+    *eof = (res.is<END_OF_FILE>());
     _eof = *eof;
     return Status::OK();
 }
@@ -266,10 +288,10 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
     if (_reader_context.is_key_column_group) {
         // collect_iter will filter agg keys
         auto res = _vcollect_iter->next_batch(block);
-        if (UNLIKELY(!res.ok() && !res.is_end_of_file())) {
+        if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
             return res;
         }
-        *eof = (res.is_end_of_file());
+        *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();
     }
@@ -288,7 +310,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
     do {
         Status res = _vcollect_iter->next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {
-            if (UNLIKELY(res.is_end_of_file())) {
+            if (UNLIKELY(res.is<END_OF_FILE>())) {
                 *eof = true;
                 _eof = true;
                 break;
@@ -325,14 +347,14 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
         auto row_source_idx = _row_sources_buffer->buffered_size();
 
         auto res = _vcollect_iter->next_batch(block);
-        if (UNLIKELY(!res.ok() && !res.is_end_of_file())) {
+        if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
             return res;
         }
         auto block_rows = block->rows();
         if (_filter_delete && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
-                *eof = (res.is_end_of_file());
+                *eof = (res.is<END_OF_FILE>());
                 _eof = *eof;
                 return Status::OK();
             }
@@ -365,7 +387,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
             _stats.rows_del_filtered += block_rows - block->rows();
             DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         }
-        *eof = (res.is_end_of_file());
+        *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();
     }
@@ -375,7 +397,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
     do {
         Status res = _vcollect_iter->unique_key_next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {
-            if (UNLIKELY(res.is_end_of_file())) {
+            if (UNLIKELY(res.is<END_OF_FILE>())) {
                 *eof = true;
                 _eof = true;
                 break;

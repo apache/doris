@@ -985,6 +985,9 @@ public class OlapScanNode extends ScanNode {
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
         output.append("\n");
+        if (pushDownAggNoGroupingOp != null) {
+            output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
+        }
 
         return output.toString();
     }
@@ -1215,5 +1218,20 @@ public class OlapScanNode extends ScanNode {
     @VisibleForTesting
     public String getSelectedIndexName() {
         return olapTable.getIndexNameById(selectedIndexId);
+    }
+
+    public void finalizeForNerieds() {
+        computeNumNodes();
+        computeStatsForNerieds();
+    }
+
+    private void computeStatsForNerieds() {
+        if (cardinality > 0 && avgRowSize <= 0) {
+            avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
+            capCardinalityAtLimit();
+        }
+        // when node scan has no data, cardinality should be 0 instead of a invalid
+        // value after computeStats()
+        cardinality = cardinality == -1 ? 0 : cardinality;
     }
 }

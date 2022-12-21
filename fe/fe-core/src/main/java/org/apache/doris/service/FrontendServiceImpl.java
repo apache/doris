@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -173,7 +172,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Env env = Env.getCurrentEnv();
-        List<CatalogIf> catalogIfs = env.getCatalogMgr().listCatalogs();
+        List<CatalogIf> catalogIfs = Lists.newArrayList();
+        if (Strings.isNullOrEmpty(params.catalog)) {
+            catalogIfs = env.getCatalogMgr().listCatalogs();
+        } else {
+            catalogIfs.add(env.getCatalogMgr()
+                    .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
+        }
         for (CatalogIf catalog : catalogIfs) {
             List<String> dbNames = catalog.getDbNames();
             LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
@@ -308,21 +313,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (matcher != null && !matcher.match(table.getName())) {
                             continue;
                         }
-                        long lastCheckTime = 0;
-                        if (table instanceof Table) {
-                            lastCheckTime = ((Table) table).getLastCheckTime();
-                        } else {
-                            lastCheckTime = ((ExternalTable) table).getLastCheckTime();
-                        }
+                        long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                         TTableStatus status = new TTableStatus();
                         status.setName(table.getName());
                         status.setType(table.getMysqlType());
                         status.setEngine(table.getEngine());
                         status.setComment(table.getComment());
                         status.setCreateTime(table.getCreateTime());
-                        status.setLastCheckTime(lastCheckTime);
+                        status.setLastCheckTime(lastCheckTime / 1000);
                         status.setUpdateTime(table.getUpdateTime() / 1000);
-                        status.setCheckTime(lastCheckTime);
+                        status.setCheckTime(lastCheckTime / 1000);
                         status.setCollation("utf-8");
                         status.setRows(table.getRowCount());
                         status.setDataLength(table.getDataLength());
@@ -899,7 +899,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
         }
         return result;
@@ -1230,3 +1230,4 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 }
+

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -60,7 +61,7 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Group root;
+    private Group root;
 
     // FOR TEST ONLY
     public Memo() {
@@ -71,8 +72,22 @@ public class Memo {
         root = init(plan);
     }
 
+    public static long getStateId() {
+        return stateId;
+    }
+
     public Group getRoot() {
         return root;
+    }
+
+    /**
+     * This function used to update the root group when DPHyp change the root Group
+     * Note it only used in DPHyp
+     *
+     * @param root The new root Group
+     */
+    public void setRoot(Group root) {
+        this.root = root;
     }
 
     public List<Group> getGroups() {
@@ -81,10 +96,6 @@ public class Memo {
 
     public Map<GroupExpression, GroupExpression> getGroupExpressions() {
         return groupExpressions;
-    }
-
-    public static long getStateId() {
-        return stateId;
     }
 
     /**
@@ -199,11 +210,11 @@ public class Memo {
      * Utility function to create a new {@link CascadesContext} with this Memo.
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(this, statementContext);
+        return new CascadesContext(this, statementContext, PhysicalProperties.ANY);
     }
 
     public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(this, statementContext, cteContext);
+        return new CascadesContext(this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -667,7 +678,8 @@ public class Memo {
             builder.append(group).append("\n");
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             StatsDeriveResult stats = group.getStatistics();
-            if (stats != null && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+            if (stats != null && !group.getLogicalExpressions().isEmpty()
+                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
                 for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }

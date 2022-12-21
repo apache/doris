@@ -65,6 +65,7 @@
 #include "jsonb_document.h"
 #include "jsonb_error.h"
 #include "jsonb_writer.h"
+#include "string_parser.hpp"
 
 namespace doris {
 
@@ -894,8 +895,12 @@ private:
         }
 
         *pbuf = 0; // set null-terminator
-        int64_t val = strtol(num_buf_, NULL, 10);
-        if (errno == ERANGE) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        int64_t val =
+                StringParser::string_to_int<int64_t>(num_buf_, pbuf - num_buf_, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            VLOG_ROW << "debug string_to_int error for " << num_buf_ << " val=" << val
+                     << " parse_result=" << parse_result;
             err_ = JsonbErrType::E_DECIMAL_OVERFLOW;
             return false;
         }
@@ -950,7 +955,7 @@ private:
         }
 
         *pbuf = 0; // set null-terminator
-        return internConvertBufferToDouble();
+        return internConvertBufferToDouble(num_buf_, pbuf - num_buf_);
     }
 
     // parse the exponent part of a double number
@@ -990,15 +995,17 @@ private:
         }
 
         *pbuf = 0; // set null-terminator
-        return internConvertBufferToDouble();
+        return internConvertBufferToDouble(num_buf_, pbuf - num_buf_);
     }
 
     // call system function to parse double to string
-    bool internConvertBufferToDouble() {
-        double val = strtod(num_buf_, NULL);
-
-        if (errno == ERANGE) {
-            err_ = JsonbErrType::E_DOUBLE_OVERFLOW;
+    bool internConvertBufferToDouble(char* num_buf_, int len) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        double val = StringParser::string_to_float<double>(num_buf_, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            VLOG_ROW << "debug string_to_float error for " << num_buf_ << " val=" << val
+                     << " parse_result=" << parse_result;
+            err_ = JsonbErrType::E_DECIMAL_OVERFLOW;
             return false;
         }
 

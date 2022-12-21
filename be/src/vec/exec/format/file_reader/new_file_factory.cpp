@@ -20,6 +20,7 @@
 #include "io/broker_reader.h"
 #include "io/broker_writer.h"
 #include "io/buffered_reader.h"
+#include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -31,6 +32,7 @@
 #include "io/s3_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -126,6 +128,12 @@ Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                            &file_system_ptr, file_reader));
         break;
     }
+    case TFileType::FILE_BROKER: {
+        RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[0],
+                                             system_properties.properties, file_description.path,
+                                             &file_system_ptr, file_reader));
+        break;
+    }
     default:
         return Status::NotSupported("unsupported file reader type: {}", std::to_string(type));
     }
@@ -135,9 +143,9 @@ Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
 
 // file scan node/stream load pipe
 Status NewFileFactory::create_pipe_reader(const TUniqueId& load_id,
-                                          std::shared_ptr<FileReader>& file_reader) {
-    file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
-    if (!file_reader) {
+                                          io::FileReaderSPtr* file_reader) {
+    *file_reader = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
+    if (!(*file_reader)) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     return Status::OK();
@@ -177,6 +185,17 @@ Status NewFileFactory::create_s3_reader(const std::map<std::string, std::string>
     *s3_file_system = new io::S3FileSystem(s3_conf, "");
     (dynamic_cast<io::S3FileSystem*>(*s3_file_system))->connect();
     (*s3_file_system)->open_file(s3_uri.get_key(), reader);
+    return Status::OK();
+}
+
+Status NewFileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
+                                            const std::map<std::string, std::string>& prop,
+                                            const std::string& path,
+                                            io::FileSystem** broker_file_system,
+                                            io::FileReaderSPtr* reader) {
+    *broker_file_system = new io::BrokerFileSystem(broker_addr, prop);
+    (dynamic_cast<io::BrokerFileSystem*>(*broker_file_system))->connect();
+    (*broker_file_system)->open_file(path, reader);
     return Status::OK();
 }
 } // namespace doris

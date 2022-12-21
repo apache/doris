@@ -141,8 +141,6 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
-    VExpr::close(_filter_src_expr_ctxs, state);
-    if (_vjoin_conjunct_ptr) (*_vjoin_conjunct_ptr)->close(state);
     _release_mem();
 
     return VJoinNodeBase::close(state);
@@ -154,49 +152,83 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
 
     bool eos = false;
     while (true) {
-        SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
 
         Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
-                                       child(1)->get_next_span(), eos);
-        auto rows = block.rows();
-        auto mem_usage = block.allocated_bytes();
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(1)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[1], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(1)->get_next_span(), eos);
 
-        if (rows != 0) {
-            _build_rows += rows;
-            _total_mem_usage += mem_usage;
-            _build_blocks.emplace_back(std::move(block));
-            if (_match_all_build || _is_right_semi_anti) {
-                _build_side_visited_flags.emplace_back(ColumnUInt8::create(rows, 0));
-            }
-        }
+        sink(state, &block, eos);
 
         if (eos) {
             break;
         }
     }
 
-    COUNTER_UPDATE(_build_rows_counter, _build_rows);
+    return Status::OK();
+}
 
-    RuntimeFilterBuild processRuntimeFilterBuild {this};
-    processRuntimeFilterBuild(state);
+Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
+    SCOPED_TIMER(_build_timer);
+    auto rows = block->rows();
+    auto mem_usage = block->allocated_bytes();
+
+    if (rows != 0) {
+        _build_rows += rows;
+        _total_mem_usage += mem_usage;
+        _build_blocks.emplace_back(std::move(*block));
+        if (_match_all_build || _is_right_semi_anti) {
+            _build_side_visited_flags.emplace_back(ColumnUInt8::create(rows, 0));
+        }
+    }
+
+    if (eos) {
+        COUNTER_UPDATE(_build_rows_counter, _build_rows);
+        RuntimeFilterBuild(this)(state);
+    }
 
     return Status::OK();
 }
 
-Status VNestedLoopJoinNode::get_left_side(RuntimeState* state, Block* block) {
+Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
+    COUNTER_UPDATE(_probe_rows_counter, block->rows());
+    _need_more_input_data = false;
+    _left_side_eos = eos;
+
+    if (!_is_output_left_side_only) {
+        auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
+                        auto set_probe_side_flag) {
+            return _generate_join_block_data<std::decay_t<decltype(join_op_variants)>,
+                                             set_build_side_flag, set_probe_side_flag>(
+                    state, join_op_variants);
+        };
+        RETURN_IF_ERROR(std::visit(func, _join_op_variants,
+                                   make_bool_variant(_match_all_build || _is_right_semi_anti),
+                                   make_bool_variant(_match_all_probe || _is_left_semi_anti)));
+    }
+    return Status::OK();
+}
+
+Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
     do {
-        release_block_memory(*block);
+        release_block_memory(_left_block);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(state, block, &_left_side_eos),
+                child(0)->get_next_after_projects(
+                        state, &_left_block, &_left_side_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 child(0)->get_next_span(), _left_side_eos);
 
-    } while (block->rows() == 0 && !_left_side_eos);
-    COUNTER_UPDATE(_probe_rows_counter, block->rows());
-    if (block->rows() == 0) {
-        _matched_rows_done = _left_side_eos;
-    }
+    } while (_left_block.rows() == 0 && !_left_side_eos);
+
     return Status::OK();
 }
 
@@ -208,128 +240,45 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
-    if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(get_left_side(state, &_left_block));
-        RETURN_IF_ERROR(_build_output_block(&_left_block, block));
-        *eos = _left_side_eos;
-        reached_limit(block, eos);
-        return Status::OK();
+    while (need_more_input_data()) {
+        RETURN_IF_ERROR(_fresh_left_block(state));
+        push(state, &_left_block, _left_side_eos);
     }
 
-    if ((_match_all_build && _matched_rows_done &&
-         _output_null_idx_build_side == _build_blocks.size()) ||
-        _matched_rows_done) {
-        *eos = true;
-        return Status::OK();
-    }
-
-    _join_block.clear_column_data();
-    MutableBlock mutable_join_block(&_join_block);
-    auto& dst_columns = mutable_join_block.mutable_columns();
-
-    std::stack<uint16_t> offset_stack;
-    RETURN_IF_ERROR(std::visit(
-            [&](auto&& join_op_variants, auto set_build_side_flag, auto set_probe_side_flag) {
-                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                while (mutable_join_block.rows() < state->batch_size() && !_matched_rows_done) {
-                    // If this left block is exhausted or empty, we need to pull data from left child.
-                    if (_left_block_pos == _left_block.rows()) {
-                        _left_block_pos = 0;
-
-                        if (_left_side_eos) {
-                            _matched_rows_done = true;
-                        } else {
-                            RETURN_IF_ERROR(get_left_side(state, &_left_block));
-                        }
-                    }
-
-                    // We should try to join rows if there still are some rows from probe side.
-                    if (!_matched_rows_done && _current_build_pos < _build_blocks.size()) {
-                        do {
-                            const auto& now_process_build_block =
-                                    _build_blocks[_current_build_pos++];
-                            if constexpr (set_build_side_flag) {
-                                offset_stack.push(mutable_join_block.rows());
-                            }
-                            _process_left_child_block(dst_columns, now_process_build_block);
-                        } while (mutable_join_block.rows() < state->batch_size() &&
-                                 _current_build_pos < _build_blocks.size());
-                    }
-
-                    if constexpr (set_probe_side_flag) {
-                        Block tmp_block = mutable_join_block.to_block(0);
-                        Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                                               set_probe_side_flag>(
-                                &tmp_block, offset_stack, !_is_left_semi_anti);
-                        _update_tuple_is_null_column(&tmp_block);
-                        if (!status.OK()) {
-                            return status;
-                        }
-                        mutable_join_block = MutableBlock(std::move(tmp_block));
-                        // If this join operation is left outer join or full outer join, when
-                        // `_current_build_pos == _build_blocks.size()`, means all rows from build
-                        // side have been joined with the current probe row, we should output current
-                        // probe row with null from build side.
-                        if (_current_build_pos == _build_blocks.size()) {
-                            if (!_matched_rows_done) {
-                                _finalize_current_phase<false, JoinOpType::value ==
-                                                                       TJoinOp::LEFT_SEMI_JOIN>(
-                                        dst_columns, state->batch_size());
-                                _reset_with_next_probe_row(dst_columns);
-                            }
-                            break;
-                        }
-                    }
-
-                    if (!_matched_rows_done && _current_build_pos == _build_blocks.size()) {
-                        _reset_with_next_probe_row(dst_columns);
-                    }
-                }
-                if constexpr (!set_probe_side_flag) {
-                    Block tmp_block = mutable_join_block.to_block(0);
-                    Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                                           set_probe_side_flag>(
-                            &tmp_block, offset_stack, !_is_right_semi_anti);
-                    _update_tuple_is_null_column(&tmp_block);
-                    mutable_join_block = MutableBlock(std::move(tmp_block));
-                    if (!status.OK()) {
-                        return status;
-                    }
-                }
-
-                if constexpr (set_build_side_flag) {
-                    if (_matched_rows_done && _output_null_idx_build_side < _build_blocks.size()) {
-                        auto& cols = mutable_join_block.mutable_columns();
-                        _finalize_current_phase<true,
-                                                JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
-                                cols, state->batch_size());
-                    }
-                }
-                return Status::OK();
-            },
-            _join_op_variants, make_bool_variant(_match_all_build || _is_right_semi_anti),
-            make_bool_variant(_match_all_probe || _is_left_semi_anti)));
-    *eos = _match_all_build
-                   ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
-                   : _matched_rows_done;
-
-    Block tmp_block = mutable_join_block.to_block(0);
-    if (_is_outer_join) {
-        _add_tuple_is_null_column(&tmp_block);
-    }
-    {
-        SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block, tmp_block.columns()));
-    }
-    RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
-    _reset_tuple_is_null_column();
-    reached_limit(block, eos);
-    return Status::OK();
+    return pull(state, block, eos);
 }
 
-void VNestedLoopJoinNode::_process_left_child_block(MutableColumns& dst_columns,
+void VNestedLoopJoinNode::_append_left_data_with_null(MutableBlock& mutable_block) const {
+    auto& dst_columns = mutable_block.mutable_columns();
+    DCHECK(_is_mark_join);
+    for (size_t i = 0; i < _num_probe_side_columns; ++i) {
+        const ColumnWithTypeAndName& src_column = _left_block.get_by_position(i);
+        if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
+            auto origin_sz = dst_columns[i]->size();
+            DCHECK(_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
+            assert_cast<ColumnNullable*>(dst_columns[i].get())
+                    ->get_nested_column_ptr()
+                    ->insert_many_from(*src_column.column, _left_block_pos, 1);
+            assert_cast<ColumnNullable*>(dst_columns[i].get())
+                    ->get_null_map_column()
+                    .get_data()
+                    .resize_fill(origin_sz + 1, 0);
+        } else {
+            dst_columns[i]->insert_many_from(*src_column.column, _left_block_pos, 1);
+        }
+    }
+    for (size_t i = 0; i < _num_build_side_columns; ++i) {
+        dst_columns[_num_probe_side_columns + i]->insert_default();
+    }
+    IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                                         *dst_columns[dst_columns.size() - 1])
+                                         .get_data();
+    mark_data.resize_fill(mark_data.size() + 1, 0);
+}
+
+void VNestedLoopJoinNode::_process_left_child_block(MutableBlock& mutable_block,
                                                     const Block& now_process_build_block) const {
+    auto& dst_columns = mutable_block.mutable_columns();
     const int max_added_rows = now_process_build_block.rows();
     for (size_t i = 0; i < _num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _left_block.get_by_position(i);
@@ -367,7 +316,7 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableColumns& dst_columns,
     }
 }
 
-void VNestedLoopJoinNode::_update_tuple_is_null_column(Block* block) {
+void VNestedLoopJoinNode::_update_additional_flags(Block* block) {
     if (_is_outer_join) {
         auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
         auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
@@ -383,26 +332,50 @@ void VNestedLoopJoinNode::_update_tuple_is_null_column(Block* block) {
             right_null_map.get_data().resize_fill(block->rows(), 0);
         }
     }
+    if (_is_mark_join) {
+        IColumn::Filter& mark_data =
+                assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                        *block->get_by_position(block->columns() - 1).column->assume_mutable())
+                        .get_data();
+        if (mark_data.size() < block->rows()) {
+            mark_data.resize_fill(block->rows(), 1);
+        }
+    }
+}
+
+void VNestedLoopJoinNode::_resize_fill_tuple_is_null_column(size_t new_size, int left_flag,
+                                                            int right_flag) {
+    if (_is_outer_join) {
+        reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                ->get_data()
+                .resize_fill(new_size, left_flag);
+        reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                ->get_data()
+                .resize_fill(new_size, right_flag);
+    }
 }
 
 void VNestedLoopJoinNode::_add_tuple_is_null_column(Block* block) {
-    DCHECK(_is_outer_join);
-    auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
-    auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
-    block->insert(
-            {std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(), "left_tuples_is_null"});
-    block->insert(
-            {std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(), "right_tuples_is_null"});
+    if (_is_outer_join) {
+        auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
+        auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+        block->insert({std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(),
+                       "left_tuples_is_null"});
+        block->insert({std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(),
+                       "right_tuples_is_null"});
+    }
 }
 
 template <bool BuildSide, bool IsSemi>
-void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, size_t batch_size) {
+void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, size_t batch_size) {
+    auto& dst_columns = mutable_block.mutable_columns();
     DCHECK_GT(dst_columns.size(), 0);
-    auto pre_size = dst_columns[0]->size();
+    auto column_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
+        DCHECK(!_is_mark_join);
         auto build_block_sz = _build_blocks.size();
         size_t i = _output_null_idx_build_side;
-        for (; i < build_block_sz; i++) {
+        for (; i < build_block_sz and column_size < batch_size; i++) {
             const auto& cur_block = _build_blocks[i];
             const auto* __restrict cur_visited_flags =
                     assert_cast<ColumnUInt8*>(_build_side_visited_flags[i].get())
@@ -423,6 +396,8 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
                     }
                 }
             }
+
+            column_size += selector_idx;
             for (size_t j = 0; j < _num_probe_side_columns; ++j) {
                 DCHECK(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                        _join_op == TJoinOp::FULL_OUTER_JOIN ||
@@ -430,23 +405,11 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
                        _join_op == TJoinOp::RIGHT_SEMI_JOIN);
                 dst_columns[j]->insert_many_defaults(selector_idx);
             }
-
-            if (_is_outer_join) {
-                reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
-                        ->get_data()
-                        .resize_fill(pre_size + selector_idx, 1);
-                reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
-                        ->get_data()
-                        .resize_fill(pre_size + selector_idx, 0);
-            }
-
             for (size_t j = 0; j < _num_build_side_columns; ++j) {
                 auto src_column = cur_block.get_by_position(j);
                 if (!src_column.column->is_nullable() &&
                     dst_columns[_num_probe_side_columns + j]->is_nullable()) {
-                    auto origin_sz = dst_columns[_num_probe_side_columns + j]->size();
-                    DCHECK(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
-                           _join_op == TJoinOp::FULL_OUTER_JOIN);
+                    DCHECK(_join_op == TJoinOp::FULL_OUTER_JOIN);
                     assert_cast<ColumnNullable*>(dst_columns[_num_probe_side_columns + j].get())
                             ->get_nested_column_ptr()
                             ->insert_indices_from(*src_column.column, selector.data(),
@@ -454,45 +417,51 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
                     assert_cast<ColumnNullable*>(dst_columns[_num_probe_side_columns + j].get())
                             ->get_null_map_column()
                             .get_data()
-                            .resize_fill(origin_sz + selector_idx, 0);
+                            .resize_fill(column_size, 0);
                 } else {
                     dst_columns[_num_probe_side_columns + j]->insert_indices_from(
                             *src_column.column.get(), selector.data(),
                             selector.data() + selector_idx);
                 }
             }
-            if (dst_columns[0]->size() > batch_size) {
-                i++;
-                break;
-            }
-            pre_size = dst_columns[0]->size();
+            _resize_fill_tuple_is_null_column(column_size, 1, 0);
         }
         _output_null_idx_build_side = i;
     } else {
         if constexpr (IsSemi) {
-            if (!_cur_probe_row_visited_flags) {
+            if (!_cur_probe_row_visited_flags && !_is_mark_join) {
                 return;
             }
         } else {
-            if (_cur_probe_row_visited_flags) {
+            if (_cur_probe_row_visited_flags && !_is_mark_join) {
                 return;
             }
+        }
+
+        auto new_size = column_size + 1;
+        if (_is_mark_join) {
+            IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                                                 *dst_columns[dst_columns.size() - 1])
+                                                 .get_data();
+            mark_data.resize_fill(mark_data.size() + 1,
+                                  (IsSemi && !_cur_probe_row_visited_flags) ||
+                                                  (!IsSemi && _cur_probe_row_visited_flags)
+                                          ? 0
+                                          : 1);
         }
 
         DCHECK_LT(_left_block_pos, _left_block.rows());
         for (size_t i = 0; i < _num_probe_side_columns; ++i) {
             const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
             if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
-                auto origin_sz = dst_columns[i]->size();
-                DCHECK(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                       _join_op == TJoinOp::FULL_OUTER_JOIN);
+                DCHECK(_join_op == TJoinOp::FULL_OUTER_JOIN);
                 assert_cast<ColumnNullable*>(dst_columns[i].get())
                         ->get_nested_column_ptr()
                         ->insert_many_from(*src_column.column, _left_block_pos, 1);
                 assert_cast<ColumnNullable*>(dst_columns[i].get())
                         ->get_null_map_column()
                         .get_data()
-                        .resize_fill(origin_sz + 1, 0);
+                        .resize_fill(new_size, 0);
             } else {
                 dst_columns[i]->insert_many_from(*src_column.column, _left_block_pos, 1);
             }
@@ -500,26 +469,53 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
         for (size_t i = 0; i < _num_build_side_columns; ++i) {
             dst_columns[_num_probe_side_columns + i]->insert_default();
         }
-        if (_is_outer_join) {
-            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
-                    ->get_data()
-                    .resize_fill(pre_size + 1, 0);
-            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
-                    ->get_data()
-                    .resize_fill(pre_size + 1, 1);
-        }
+        _resize_fill_tuple_is_null_column(new_size, 0, 1);
     }
 }
 
-void VNestedLoopJoinNode::_reset_with_next_probe_row(MutableColumns& dst_columns) {
+void VNestedLoopJoinNode::_reset_with_next_probe_row() {
+    // TODO: need a vector of left block to register the _probe_row_visited_flags
     _cur_probe_row_visited_flags = false;
     _current_build_pos = 0;
     _left_block_pos++;
 }
 
+#define CLEAR_BLOCK                                                  \
+    for (size_t i = 0; i < column_to_keep; ++i) {                    \
+        block->get_by_position(i).column->assume_mutable()->clear(); \
+    }
+
+template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
+void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
+        Block* block, int column_to_keep, int build_block_idx, int processed_blocks_num,
+        bool materialize, Filter& filter) {
+    if constexpr (SetBuildSideFlag) {
+        for (size_t i = 0; i < processed_blocks_num; i++) {
+            auto& build_side_flag =
+                    assert_cast<ColumnUInt8*>(_build_side_visited_flags[build_block_idx].get())
+                            ->get_data();
+            auto* __restrict build_side_flag_data = build_side_flag.data();
+            auto cur_sz = build_side_flag.size();
+            const size_t offset = _offset_stack.top();
+            _offset_stack.pop();
+            for (size_t j = 0; j < cur_sz; j++) {
+                build_side_flag_data[j] |= filter[offset + j];
+            }
+            build_block_idx = build_block_idx == 0 ? _build_blocks.size() - 1 : build_block_idx - 1;
+        }
+    }
+    if constexpr (SetProbeSideFlag) {
+        _cur_probe_row_visited_flags |= simd::contain_byte<uint8>(filter.data(), filter.size(), 1);
+    }
+    if (materialize) {
+        Block::filter_block_internal(block, filter, column_to_keep);
+    } else {
+        CLEAR_BLOCK
+    }
+}
+
 template <bool SetBuildSideFlag, bool SetProbeSideFlag>
-Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
-        Block* block, std::stack<uint16_t>& offset_stack, bool materialize) {
+Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize) {
     auto column_to_keep = block->columns();
     // If we need to set visited flags for build side,
     // 1. Execute conjuncts and get a column with bool type to do filtering.
@@ -527,7 +523,7 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
     // 3. Use bool column to do filtering.
     size_t build_block_idx =
             _current_build_pos == 0 ? _build_blocks.size() - 1 : _current_build_pos - 1;
-    size_t processed_blocks_num = offset_stack.size();
+    size_t processed_blocks_num = _offset_stack.size();
     if (LIKELY(_vjoin_conjunct_ptr != nullptr && block->rows() > 0)) {
         DCHECK((*_vjoin_conjunct_ptr) != nullptr);
         int result_column_id = -1;
@@ -550,42 +546,13 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
             for (size_t i = 0; i < size; ++i) {
                 filter_data[i] &= !null_map[i];
             }
-            if constexpr (SetBuildSideFlag) {
-                for (size_t i = 0; i < processed_blocks_num; i++) {
-                    auto& build_side_flag =
-                            assert_cast<ColumnUInt8*>(
-                                    _build_side_visited_flags[build_block_idx].get())
-                                    ->get_data();
-                    auto* __restrict build_side_flag_data = build_side_flag.data();
-                    auto cur_sz = build_side_flag.size();
-                    const size_t offset = offset_stack.top();
-                    offset_stack.pop();
-                    for (size_t j = 0; j < cur_sz; j++) {
-                        build_side_flag_data[j] |= filter_data[offset + j];
-                    }
-                    build_block_idx =
-                            build_block_idx == 0 ? _build_blocks.size() - 1 : build_block_idx - 1;
-                }
-            }
-            if constexpr (SetProbeSideFlag) {
-                _cur_probe_row_visited_flags |= simd::contain_byte<uint8>(filter_data, size, 1);
-            }
-#define CLEAR_BLOCK                                                  \
-    for (size_t i = 0; i < column_to_keep; ++i) {                    \
-        block->get_by_position(i).column->assume_mutable()->clear(); \
-    }
-            if (materialize) {
-                Block::filter_block_internal(block, filter, column_to_keep);
-            } else {
-                CLEAR_BLOCK
-            }
+            _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
+                                                        SetProbeSideFlag>(
+                    block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
+                    filter);
         } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
             bool ret = const_column->get_bool(0);
-            if (!ret) {
-                for (size_t i = 0; i < column_to_keep; ++i) {
-                    block->get_by_position(i).column->assume_mutable()->clear();
-                }
-            } else {
+            if (ret) {
                 if constexpr (SetBuildSideFlag) {
                     for (size_t i = 0; i < processed_blocks_num; i++) {
                         auto& build_side_flag =
@@ -594,7 +561,7 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
                                         ->get_data();
                         auto* __restrict build_side_flag_data = build_side_flag.data();
                         auto cur_sz = build_side_flag.size();
-                        offset_stack.pop();
+                        _offset_stack.pop();
                         memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
                         build_block_idx = build_block_idx == 0 ? _build_blocks.size() - 1
                                                                : build_block_idx - 1;
@@ -603,54 +570,35 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
                 if constexpr (SetProbeSideFlag) {
                     _cur_probe_row_visited_flags |= ret;
                 }
-                if (!materialize) {
-                    CLEAR_BLOCK
-                }
+            }
+            if (!materialize || !ret) {
+                CLEAR_BLOCK
             }
         } else {
             const IColumn::Filter& filter =
                     assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
                             .get_data();
-            if constexpr (SetBuildSideFlag) {
-                for (size_t i = 0; i < processed_blocks_num; i++) {
-                    auto& build_side_flag =
-                            assert_cast<ColumnUInt8*>(
-                                    _build_side_visited_flags[build_block_idx].get())
-                                    ->get_data();
-                    auto* __restrict build_side_flag_data = build_side_flag.data();
-                    auto cur_sz = build_side_flag.size();
-                    const size_t offset = offset_stack.top();
-                    offset_stack.pop();
-                    for (size_t j = 0; j < cur_sz; j++) {
-                        build_side_flag_data[j] |= filter[offset + j];
-                    }
-                    build_block_idx =
-                            build_block_idx == 0 ? _build_blocks.size() - 1 : build_block_idx - 1;
-                }
-            }
-            if constexpr (SetProbeSideFlag) {
-                _cur_probe_row_visited_flags |=
-                        simd::contain_byte<uint8>(filter.data(), filter.size(), 1);
-            }
-            if (materialize) {
-                Block::filter_block_internal(block, filter, column_to_keep);
-            } else {
-                CLEAR_BLOCK
-            }
+            _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
+                                                        SetProbeSideFlag>(
+                    block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
+                    filter);
         }
     }
-#undef CLEAR_BLOCK
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();
+}
+
+Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
+    if (_vjoin_conjunct_ptr) {
+        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->open(state));
+    }
+    return VExpr::open(_filter_src_expr_ctxs, state);
 }
 
 Status VNestedLoopJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(VExpr::open(_filter_src_expr_ctxs, state));
-    if (_vjoin_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->open(state));
-    }
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
@@ -680,6 +628,56 @@ void VNestedLoopJoinNode::_release_mem() {
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
+}
+
+Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    if (_is_output_left_side_only) {
+        RETURN_IF_ERROR(_build_output_block(&_left_block, block));
+        *eos = _left_side_eos;
+        _need_more_input_data = !_left_side_eos;
+    } else {
+        *eos = _match_all_build
+                       ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
+                       : _matched_rows_done;
+
+        {
+            Block tmp_block = _join_block;
+            _add_tuple_is_null_column(&tmp_block);
+            {
+                SCOPED_TIMER(_join_filter_timer);
+                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block,
+                                                           tmp_block.columns()));
+            }
+            RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+            _reset_tuple_is_null_column();
+        }
+        _join_block.clear_column_data();
+
+        if (!(*eos) and !_need_more_input_data) {
+            auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
+                            auto set_probe_side_flag) {
+                return _generate_join_block_data<std::decay_t<decltype(join_op_variants)>,
+                                                 set_build_side_flag, set_probe_side_flag>(
+                        state, join_op_variants);
+            };
+            RETURN_IF_ERROR(std::visit(func, _join_op_variants,
+                                       make_bool_variant(_match_all_build || _is_right_semi_anti),
+                                       make_bool_variant(_match_all_probe || _is_left_semi_anti)));
+        }
+    }
+
+    reached_limit(block, eos);
+    return Status::OK();
+}
+
+bool VNestedLoopJoinNode::need_more_input_data() const {
+    return _need_more_input_data and !_left_side_eos;
+}
+
+void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
+    VJoinNodeBase::release_resource(state);
+    VExpr::close(_filter_src_expr_ctxs, state);
+    if (_vjoin_conjunct_ptr) (*_vjoin_conjunct_ptr)->close(state);
 }
 
 } // namespace doris::vectorized

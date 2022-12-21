@@ -183,8 +183,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                     const PTransmitDataResult& result) {
         Status s = Status(result.status());
         if (!s.ok()) {
-            _failed(id,
-                    fmt::format("exchange req success but status isn't ok: {}", s.get_error_msg()));
+            _failed(id, fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
         } else if (eos) {
             _ended(id);
         } else {

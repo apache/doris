@@ -21,6 +21,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
@@ -89,7 +90,7 @@ public class ColumnStatistic {
     public ColumnStatistic(double count, double ndv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr,
-            LiteralExpr maxExpr, boolean isNaN) {
+            LiteralExpr maxExpr, boolean isUnKnown) {
         this.count = count;
         this.ndv = ndv;
         this.avgSizeByte = avgSizeByte;
@@ -100,7 +101,7 @@ public class ColumnStatistic {
         this.selectivity = selectivity;
         this.minExpr = minExpr;
         this.maxExpr = maxExpr;
-        this.isUnKnown = isNaN;
+        this.isUnKnown = isUnKnown;
     }
 
     // TODO: use thrift
@@ -120,12 +121,14 @@ public class ColumnStatistic {
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
             long catalogId = Long.parseLong(resultRow.getColumnValue("catalog_id"));
+            long idxId = Long.parseLong(resultRow.getColumnValue("idx_id"));
             long dbID = Long.parseLong(resultRow.getColumnValue("db_id"));
             long tblId = Long.parseLong(resultRow.getColumnValue("tbl_id"));
             String colName = resultRow.getColumnValue("col_id");
-            Column col = findColumn(catalogId, dbID, tblId, colName);
+            Column col = findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                LOG.warn("Failed to deserialize column statistics, column:{}.{}.{}.{} not exists",
+                LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                                + "tblId: {} column: {} not exists",
                         catalogId, dbID, tblId, colName);
                 return ColumnStatistic.DEFAULT;
             }
@@ -155,18 +158,29 @@ public class ColumnStatistic {
                 .setSelectivity(selectivity).setIsUnknown(isUnKnown).build();
     }
 
-    public ColumnStatistic multiply(double d) {
+    public ColumnStatistic updateByLimit(long limit, double rowCount) {
+        double ratio = 0;
+        if (rowCount != 0) {
+            ratio = limit / rowCount;
+        }
+        double newNdv = Math.ceil(Math.min(ndv, limit));
+        double newSelectivity = selectivity;
+        if (newNdv != 0) {
+            newSelectivity = newSelectivity * newNdv / ndv;
+        } else {
+            newSelectivity = 0;
+        }
         return new ColumnStatisticBuilder()
-                .setCount(Math.ceil(count * d))
-                .setNdv(Math.ceil(ndv * d))
-                .setAvgSizeByte(Math.ceil(avgSizeByte * d))
-                .setNumNulls(Math.ceil(numNulls * d))
-                .setDataSize(Math.ceil(dataSize * d))
+                .setCount(Math.ceil(limit))
+                .setNdv(newNdv)
+                .setAvgSizeByte(Math.ceil(avgSizeByte))
+                .setNumNulls(Math.ceil(numNulls * ratio))
+                .setDataSize(Math.ceil(dataSize * ratio))
                 .setMinValue(minValue)
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
-                .setSelectivity(selectivity)
+                .setSelectivity(newSelectivity)
                 .setIsUnknown(isUnKnown)
                 .build();
     }
@@ -175,7 +189,7 @@ public class ColumnStatistic {
         return Math.max(this.minValue, other.minValue) <= Math.min(this.maxValue, other.maxValue);
     }
 
-    public static Column findColumn(long catalogId, long dbId, long tblId, String columnName) {
+    public static Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
         CatalogIf<DatabaseIf<TableIf>> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (catalogIf == null) {
             return null;
@@ -187,6 +201,12 @@ public class ColumnStatistic {
         TableIf tblIf = db.getTable(tblId).orElse(null);
         if (tblIf == null) {
             return null;
+        }
+        if (idxId != -1) {
+            if (tblIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tblIf;
+                return olapTable.getIndexIdToMeta().get(idxId).getColumnByName(columnName);
+            }
         }
         return tblIf.getColumn(columnName);
     }

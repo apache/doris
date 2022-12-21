@@ -490,8 +490,14 @@ Status AggregationNode::open(RuntimeState* state) {
     while (!eos) {
         RETURN_IF_CANCELLED(state);
         release_block_memory(block);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next_after_projects(state, &block, &eos),
-                                       _children[0]->get_next_span(), eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                _children[0]->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                _children[0]->get_next_span(), eos);
         RETURN_IF_ERROR(sink(state, &block, eos));
     }
     _children[0]->close(state);
@@ -526,7 +532,13 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         do {
             release_block_memory(_preagg_block);
             RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    _children[0]->get_next_after_projects(state, &_preagg_block, &child_eos),
+                    _children[0]->get_next_after_projects(
+                            state, &_preagg_block, &child_eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[0], std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3)),
                     _children[0]->get_next_span(), child_eos);
         } while (_preagg_block.rows() == 0 && !child_eos);
         {

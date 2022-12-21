@@ -29,7 +29,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/disk_io_mgr.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch_interface.hpp"
 
 namespace doris::vectorized {
 class Block;
@@ -73,7 +72,7 @@ class PRowBatch;
 // A row batch is considered at capacity if all the rows are full or it has accumulated
 // auxiliary memory up to a soft cap. (See _at_capacity_mem_usage comment).
 // TODO: stick _tuple_ptrs into a pool?
-class RowBatch : public RowBatchInterface {
+class RowBatch {
 public:
     /// Flag indicating whether the resources attached to a RowBatch need to be flushed.
     /// Defined here as a convenience for other modules that need to communicate flushing

@@ -221,6 +221,15 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
+# abseil patch
+cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+if [[ ! -f "${PATCHED_MARK}" ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/absl.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ABSEIL_SOURCE}"
+
 # glog patch
 cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
@@ -256,15 +265,6 @@ if [[ ! -f "${PATCHED_MARK}" ]]; then
 fi
 cd -
 echo "Finished patching ${LIBEVENT_SOURCE}"
-
-# s2 patch to disable shared library
-cd "${TP_SOURCE_DIR}/${S2_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/s2geometry-0.9.0.patch"
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${S2_SOURCE}"
 
 # gsasl2 patch to fix link error such as mutilple func defination
 # when link target with kerberos

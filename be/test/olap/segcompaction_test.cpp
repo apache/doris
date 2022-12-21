@@ -44,6 +44,7 @@
 #include "util/slice.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 StorageEngine* l_engine = nullptr;
@@ -252,6 +253,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         ls.push_back("10047_3.dat");
         ls.push_back("10047_4.dat");
         ls.push_back("10047_5.dat");
+        ls.push_back("10047_6.dat");
         EXPECT_TRUE(check_dir(ls));
     }
 
@@ -294,7 +296,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());

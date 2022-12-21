@@ -23,13 +23,12 @@ namespace doris {
 namespace vectorized {
 
 //build hash table for operation node, intersect/except node
-template <class HashTableContext>
+template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
-    HashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode* operation_node, uint8_t offset)
+    HashTableBuild(int rows, ColumnRawPtrs& build_raw_ptrs,
+                   VSetOperationNode<is_intersect>* operation_node, uint8_t offset)
             : _rows(rows),
               _offset(offset),
-              _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
               _operation_node(operation_node) {}
 
@@ -60,7 +59,6 @@ struct HashTableBuild {
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
                 new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                _operation_node->_valid_element_in_hash_tbl++;
             }
         }
         return Status::OK();
@@ -69,35 +67,95 @@ struct HashTableBuild {
 private:
     const int _rows;
     const uint8_t _offset;
-    Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
-    VSetOperationNode* _operation_node;
+    VSetOperationNode<is_intersect>* _operation_node;
 };
 
-VSetOperationNode::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs)
+template <class HashTableContext, bool is_intersected>
+struct HashTableProbe {
+    HashTableProbe(VSetOperationNode<is_intersected>* operation_node, int probe_rows)
+            : _operation_node(operation_node),
+              _probe_rows(probe_rows),
+              _probe_raw_ptrs(operation_node->_probe_columns),
+              _arena(new Arena) {}
+
+    Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
+        using KeyGetter = typename HashTableContext::State;
+        using Mapped = typename HashTableContext::Mapped;
+
+        KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
+            if (_probe_keys.size() < _probe_rows) {
+                _probe_keys.resize(_probe_rows);
+            }
+            size_t keys_size = _probe_raw_ptrs.size();
+            for (size_t i = 0; i < _probe_rows; ++i) {
+                _probe_keys[i] =
+                        serialize_keys_to_pool_contiguous(i, keys_size, _probe_raw_ptrs, *_arena);
+            }
+            key_getter.set_serialized_keys(_probe_keys.data());
+        }
+
+        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
+            for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
+                auto find_result =
+                        key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
+                if (find_result.is_found()) { //if found, marked visited
+                    auto it = find_result.get_mapped().begin();
+                    if (!(it->visited)) {
+                        it->visited = true;
+                        if constexpr (is_intersected) { //intersected
+                            _operation_node->_valid_element_in_hash_tbl++;
+                        } else {
+                            _operation_node->_valid_element_in_hash_tbl--; //except
+                        }
+                    }
+                }
+            }
+        } else {
+            LOG(FATAL) << "Invalid RowRefListType!";
+        }
+        return Status::OK();
+    }
+
+private:
+    VSetOperationNode<is_intersected>* _operation_node;
+    const size_t _probe_rows;
+    ColumnRawPtrs& _probe_raw_ptrs;
+    std::unique_ptr<Arena> _arena;
+    std::vector<StringRef> _probe_keys;
+};
+
+template <bool is_intersect>
+VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
+                                                   const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _valid_element_in_hash_tbl(0),
           _mem_used(0),
-          _probe_index(-1),
-          _probe_rows(0) {
+          _build_block_index(0),
+          _build_finished(false) {
     _hash_table_variants = std::make_unique<HashTableVariants>();
     _arena = std::make_unique<Arena>();
 }
 
-Status VSetOperationNode::close(RuntimeState* state) {
-    if (is_closed()) {
-        return Status::OK();
-    }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode::close");
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::release_resource(RuntimeState* state) {
     for (auto& exprs : _child_expr_lists) {
         VExpr::close(exprs, state);
     }
     release_mem();
+}
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
+    if (is_closed()) {
+        return Status::OK();
+    }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::close");
     return ExecNode::close(state);
 }
 
-Status VSetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     std::vector<std::vector<::doris::TExpr>> result_texpr_lists;
 
@@ -116,23 +174,66 @@ Status VSetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _child_expr_lists.push_back(ctxs);
     }
 
+    _probe_finished_children_index.assign(_child_expr_lists.size(), false);
+
     return Status::OK();
 }
 
-Status VSetOperationNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode::open");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     // open result expr lists.
     for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    RETURN_IF_ERROR(hash_table_build(state));
+    _probe_columns.resize(_child_expr_lists[1].size());
     return Status::OK();
 }
 
-Status VSetOperationNode::prepare(RuntimeState* state) {
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
+    // TODO: build the hash table in a thread to open other children asynchronously.
+    RETURN_IF_ERROR(hash_table_build(state));
+    bool eos = false;
+    Status st = Status::OK();
+    for (int i = 1; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(child(i)->open(state));
+        eos = false;
+
+        while (!eos) {
+            release_block_memory(_probe_block, i);
+            RETURN_IF_CANCELLED(state);
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(i)->get_next_after_projects(
+                            state, &_probe_block, &eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[i], std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3)),
+                    child(i)->get_next_span(), eos);
+
+            RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
+        }
+        finalize_probe(state, i);
+    }
+    return st;
+}
+
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::get_next(RuntimeState* state, Block* output_block,
+                                                 bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExceptNode::get_next");
+    SCOPED_TIMER(_probe_timer);
+    return pull(state, output_block, eos);
+}
+
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
@@ -153,7 +254,8 @@ Status VSetOperationNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-void VSetOperationNode::hash_table_init() {
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::hash_table_init() {
     if (_child_expr_lists[0].size() == 1 && (!_build_not_ignore_null[0])) {
         // Single column optimization
         switch (_child_expr_lists[0][0]->root()->result_type()) {
@@ -244,49 +346,92 @@ void VSetOperationNode::hash_table_init() {
     }
 }
 
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool eos) {
+    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
+
+    if (block->rows() != 0) {
+        _mem_used += block->allocated_bytes();
+        _mutable_block.merge(*block);
+    }
+
+    if (eos || _mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
+        _build_blocks.emplace_back(_mutable_block.to_block());
+        RETURN_IF_ERROR(process_build_block(_build_blocks[_build_block_index], _build_block_index));
+        _mutable_block.clear();
+        ++_build_block_index;
+
+        if (eos) {
+            if constexpr (is_intersect) {
+                _valid_element_in_hash_tbl = 0;
+            } else {
+                std::visit(
+                        [&](auto&& arg) {
+                            using HashTableCtxType = std::decay_t<decltype(arg)>;
+                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                                _valid_element_in_hash_tbl = arg.hash_table.size();
+                            }
+                        },
+                        *_hash_table_variants);
+            }
+            _build_finished = true;
+        }
+    }
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_block, bool* eos) {
+    create_mutable_cols(output_block);
+    auto st = std::visit(
+            [&](auto&& arg) -> Status {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    return get_data_in_hashtable<HashTableCtxType>(arg, output_block,
+                                                                   state->batch_size(), eos);
+                } else {
+                    LOG(FATAL) << "FATAL: uninited hash table";
+                }
+            },
+            *_hash_table_variants);
+    RETURN_IF_ERROR(st);
+    RETURN_IF_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    reached_limit(output_block, eos);
+    return Status::OK();
+}
+
 //build a hash table from child(0)
-Status VSetOperationNode::hash_table_build(RuntimeState* state) {
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
     MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 
-    uint8_t index = 0;
-    int64_t last_mem_used = 0;
     bool eos = false;
     while (!eos) {
         block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, &block, &eos),
-                                       child(0)->get_next_span(), eos);
-
-        size_t allocated_bytes = block.allocated_bytes();
-        _mem_used += allocated_bytes;
-
-        if (block.rows() != 0) {
-            mutable_block.merge(block);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), eos);
+        if (eos) {
+            child(0)->close(state);
         }
-
-        // make one block for each 4 gigabytes
-        constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
-        if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
-            _build_blocks.emplace_back(mutable_block.to_block());
-            // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
-            // which is better.
-            RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
-            mutable_block = MutableBlock();
-            ++index;
-            last_mem_used = _mem_used;
-        }
+        sink(state, &block, eos);
     }
 
-    _build_blocks.emplace_back(mutable_block.to_block());
-    child(0)->close(state);
-    RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
     return Status::OK();
 }
 
-Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_t offset) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
@@ -300,8 +445,8 @@ Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, block, raw_ptrs,
-                                                                              this, offset);
+                    HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
+                            rows, raw_ptrs, this, offset);
                     hash_table_build_process(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -312,28 +457,83 @@ Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
     return Status::OK();
 }
 
-Status VSetOperationNode::process_probe_block(RuntimeState* state, int child_id, bool* eos) {
-    if (!_probe_column_inserted_id.empty()) {
-        for (int j = 0; j < _probe_column_inserted_id.size(); ++j) {
-            auto column_to_erase = _probe_column_inserted_id[j];
-            _probe_block.erase(column_to_erase - j);
-        }
-        _probe_column_inserted_id.clear();
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& value,
+                                                         int& block_size) {
+    auto it = value.begin();
+    for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
+        auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
+        _mutable_cols[idx->second]->insert_from(column, it->row_num);
     }
-    release_block_memory(_probe_block, child_id);
-    _probe_index = 0;
-    _probe_rows = 0;
+    block_size++;
+}
 
-    RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR_AND_CHECK_SPAN(
-            child(child_id)->get_next_after_projects(state, &_probe_block, eos),
-            child(child_id)->get_next_span(), *eos);
-    _probe_rows = _probe_block.rows();
-    RETURN_IF_ERROR(extract_probe_column(_probe_block, _probe_columns, child_id));
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* /*state*/, int child_id,
+                                                   Block* block, bool eos) {
+    CHECK(_build_finished) << "cannot sink probe data before build finished";
+    if (child_id > 1) {
+        CHECK(_probe_finished_children_index[child_id - 1])
+                << fmt::format("child with id: {} should be probed first", child_id);
+    }
+    auto probe_rows = block->rows();
+
+    if (probe_rows == 0) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(extract_probe_column(*block, _probe_columns, child_id));
+
+    return std::visit(
+            [&](auto&& arg) -> Status {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    HashTableProbe<HashTableCtxType, is_intersect> process_hashtable_ctx(
+                            this, probe_rows);
+                    return process_hashtable_ctx.mark_data_in_hashtable(arg);
+                } else {
+                    LOG(FATAL) << "FATAL: uninited hash table";
+                }
+            },
+            *_hash_table_variants);
+}
+
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, int child_id) {
+    if (child_id != (_children.size() - 1)) {
+        refresh_hash_table();
+        if constexpr (is_intersect) {
+            _valid_element_in_hash_tbl = 0;
+        } else {
+            std::visit(
+                    [&](auto&& arg) {
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            _valid_element_in_hash_tbl = arg.hash_table.size();
+                        }
+                    },
+                    *_hash_table_variants);
+        }
+        _probe_columns.resize(_child_expr_lists[child_id + 1].size());
+    } else {
+        _can_read = true;
+    }
+    _probe_finished_children_index[child_id] = true;
     return Status::OK();
 }
 
-Status VSetOperationNode::extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs) {
+template <bool is_intersect>
+bool VSetOperationNode<is_intersect>::is_child_finished(int child_id) const {
+    if (child_id == 0) {
+        return _build_finished;
+    }
+
+    return _probe_finished_children_index[child_id];
+}
+
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
+                                                             ColumnRawPtrs& raw_ptrs) {
     for (size_t i = 0; i < _child_expr_lists[0].size(); ++i) {
         int result_col_id = -1;
         RETURN_IF_ERROR(_child_expr_lists[0][i]->execute(&block, &result_col_id));
@@ -358,9 +558,10 @@ Status VSetOperationNode::extract_build_column(Block& block, ColumnRawPtrs& raw_
     return Status::OK();
 }
 
-Status VSetOperationNode::extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs,
-                                               int child_id) {
-    if (_probe_rows == 0) {
+template <bool is_intersect>
+Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs,
+                                                             int child_id) {
+    if (block.rows() == 0) {
         return Status::OK();
     }
 
@@ -395,7 +596,8 @@ Status VSetOperationNode::extract_probe_column(Block& block, ColumnRawPtrs& raw_
     return Status::OK();
 }
 
-void VSetOperationNode::create_mutable_cols(Block* output_block) {
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::create_mutable_cols(Block* output_block) {
     _mutable_cols.resize(_left_table_data_types.size());
     bool mem_reuse = output_block->mem_reuse();
 
@@ -408,7 +610,9 @@ void VSetOperationNode::create_mutable_cols(Block* output_block) {
     }
 }
 
-void VSetOperationNode::debug_string(int indentation_level, std::stringstream* out) const {
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::debug_string(int indentation_level,
+                                                   std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << " _child_expr_lists=[";
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
@@ -419,7 +623,8 @@ void VSetOperationNode::debug_string(int indentation_level, std::stringstream* o
     *out << ")" << std::endl;
 }
 
-void VSetOperationNode::release_mem() {
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::release_mem() {
     _hash_table_variants = nullptr;
     _arena = nullptr;
 
@@ -428,6 +633,114 @@ void VSetOperationNode::release_mem() {
 
     _probe_block.clear();
 }
+
+template <bool is_intersect>
+void VSetOperationNode<is_intersect>::refresh_hash_table() {
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    if constexpr (std::is_same_v<typename HashTableCtxType::Mapped,
+                                                 RowRefListWithFlags>) {
+                        HashTableCtxType tmp_hash_table;
+                        bool is_need_shrink =
+                                arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
+                        if (is_need_shrink) {
+                            tmp_hash_table.hash_table.init_buf_size(
+                                    _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
+                        }
+
+                        arg.init_once();
+                        auto& iter = arg.iter;
+                        auto iter_end = arg.hash_table.end();
+                        while (iter != iter_end) {
+                            auto& mapped = iter->get_second();
+                            auto it = mapped.begin();
+
+                            if constexpr (is_intersect) { //intersected
+                                if (it->visited) {
+                                    it->visited = false;
+                                    if (is_need_shrink) {
+                                        tmp_hash_table.hash_table.insert(iter->get_value());
+                                    }
+                                    ++iter;
+                                } else {
+                                    if (!is_need_shrink) {
+                                        arg.hash_table.delete_zero_key(iter->get_first());
+                                        // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
+                                        // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
+                                        auto iter_prev = iter;
+                                        ++iter;
+                                        iter_prev->set_zero();
+                                    } else {
+                                        ++iter;
+                                    }
+                                }
+                            } else { //except
+                                if (!it->visited && is_need_shrink) {
+                                    tmp_hash_table.hash_table.insert(iter->get_value());
+                                }
+                                ++iter;
+                            }
+                        }
+
+                        arg.inited = false;
+                        if (is_need_shrink) {
+                            arg.hash_table = std::move(tmp_hash_table.hash_table);
+                        }
+                    } else {
+                        LOG(FATAL) << "FATAL: Invalid RowRefList";
+                    }
+                } else {
+                    LOG(FATAL) << "FATAL: uninited hash table";
+                }
+            },
+            *_hash_table_variants);
+}
+
+template <bool is_intersected>
+template <typename HashTableContext>
+Status VSetOperationNode<is_intersected>::get_data_in_hashtable(HashTableContext& hash_table_ctx,
+                                                                Block* output_block,
+                                                                const int batch_size, bool* eos) {
+    hash_table_ctx.init_once();
+    int left_col_len = _left_table_data_types.size();
+    auto& iter = hash_table_ctx.iter;
+    auto block_size = 0;
+
+    if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
+        for (; iter != hash_table_ctx.hash_table.end() && block_size < batch_size; ++iter) {
+            auto& value = iter->get_second();
+            auto it = value.begin();
+            if constexpr (is_intersected) {
+                if (it->visited) { //intersected: have done probe, so visited values it's the result
+                    add_result_columns(value, block_size);
+                }
+            } else {
+                if (!it->visited) { //except: haven't visited values it's the needed result
+                    add_result_columns(value, block_size);
+                }
+            }
+        }
+    } else {
+        LOG(FATAL) << "Invalid RowRefListType!";
+    }
+
+    *eos = iter == hash_table_ctx.hash_table.end();
+    if (!output_block->mem_reuse()) {
+        for (int i = 0; i < left_col_len; ++i) {
+            output_block->insert(ColumnWithTypeAndName(std::move(_mutable_cols[i]),
+                                                       _left_table_data_types[i], ""));
+        }
+    } else {
+        _mutable_cols.clear();
+    }
+
+    return Status::OK();
+}
+
+template class VSetOperationNode<true>;
+template class VSetOperationNode<false>;
 
 } // namespace vectorized
 } // namespace doris

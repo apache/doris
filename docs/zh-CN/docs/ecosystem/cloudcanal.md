@@ -35,8 +35,6 @@ CloudCanal 社区版是一款由 [ClouGence 公司](https://www.clougence.com) �
 
 [CloudCanal 最新版下载地址](https://clougence.com)
 
-[CloudCanal 社区版安装部署参考文档](https://doc-cloudcanal.clougence.com/operation/install_linux)
-
 ## 功能说明
 
 - 推荐使用2.2.5.0及以上的CloudCanal版本写入Doris
@@ -111,6 +109,6 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 
 更多关于 CloudCanal 同步 Doris 的资料，可以查看
 
-- [5 分钟搞定 MySQL/PostgreSQL/Oracle 到 Doris 数据迁移同步-CloudCanal 实战](https://www.askcug.com/topic/262)
+- [5 分钟搞定 MySQL/PostgreSQL/Oracle 到 Doris 数据迁移同步-CloudCanal 实战](https://www.clougence.com/cc-doc/blog/postgresql_doris_sync/)
 
 - [CloudCanal 官方社区](https://www.askcug.com/)

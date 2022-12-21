@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -36,29 +37,31 @@ public class Min extends AggregateFunction implements UnaryExpression, Propagate
         super("min", child);
     }
 
-    public Min(AggregateParam aggregateParam, Expression child) {
-        super("min", aggregateParam, child);
+    public Min(boolean isDistinct, Expression arg) {
+        super("min", false, arg);
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(argumentTypes.get(0)).args(argumentTypes.get(0));
+    public FunctionSignature customSignature() {
+        DataType dataType = getArgument(0).getDataType();
+        return FunctionSignature.ret(dataType).args(dataType);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes;
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(getDataType());
+    }
+
+    @Override
+    public Min withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Min(isDistinct, children.get(0));
     }
 
     @Override
     public Min withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Min(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public Min withAggregateParam(AggregateParam aggregateParam) {
-        return new Min(aggregateParam, child());
+        return new Min(children.get(0));
     }
 
     @Override

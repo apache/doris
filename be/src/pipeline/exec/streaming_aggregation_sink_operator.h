@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "agg_context.h"
 #include "operator.h"
+#include "pipeline/exec/data_queue.h"
 
 namespace doris {
 namespace vectorized {
@@ -31,7 +31,7 @@ namespace pipeline {
 
 class StreamingAggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
 public:
-    StreamingAggSinkOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<AggContext>);
+    StreamingAggSinkOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<DataQueue>);
 
     OperatorPtr build_operator() override;
 
@@ -39,13 +39,13 @@ public:
     bool is_source() const override { return false; };
 
 private:
-    std::shared_ptr<AggContext> _agg_context;
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public Operator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
-                             std::shared_ptr<AggContext>);
+                             std::shared_ptr<DataQueue>);
 
     Status prepare(RuntimeState*) override;
 
@@ -61,7 +61,7 @@ private:
     RuntimeProfile::Counter* _queue_byte_size_counter;
     RuntimeProfile::Counter* _queue_size_counter;
 
-    std::shared_ptr<AggContext> _agg_context;
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 } // namespace pipeline

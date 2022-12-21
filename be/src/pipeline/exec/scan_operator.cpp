@@ -22,24 +22,16 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ScanOperator, Operator)
-
-Status ScanOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(Operator::open(state));
-    return _node->open(state);
-}
+OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
 
 bool ScanOperator::can_read() {
-    if (_node->_eos || !_node->_scanner_ctx || _node->_scanner_ctx->done() ||
-        _node->_scanner_ctx->can_finish()) {
+    if (_node->_eos || _node->_scanner_ctx->done() || _node->_scanner_ctx->can_finish()) {
         // _eos: need eos
-        // !_scanner_ctx: need call open
         // _scanner_ctx->done(): need finish
         // _scanner_ctx->can_finish(): should be scheduled
         return true;
     } else {
-        return !_node->_scanner_ctx->empty_in_queue(); // have block to process
+        return !_node->_scanner_ctx->empty_in_queue(); // there are some blocks to process
     }
 }
 
@@ -47,10 +39,8 @@ bool ScanOperator::is_pending_finish() const {
     return _node->_scanner_ctx && !_node->_scanner_ctx->can_finish();
 }
 
-Status ScanOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::close(state));
-    _node->close(state);
-    return Status::OK();
+bool ScanOperator::runtime_filters_are_ready_or_timeout() {
+    return _node->runtime_filters_are_ready_or_timeout();
 }
 
 } // namespace doris::pipeline

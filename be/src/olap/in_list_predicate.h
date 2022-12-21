@@ -114,7 +114,8 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
+        using HybridSetType =
+                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
 
         CHECK(hybrid_set != nullptr);
 
@@ -220,7 +221,7 @@ public:
             bool exact_match;
             Status s = iterator->seek_dictionary(&value, &exact_match);
             rowid_t seeked_ordinal = iterator->current_ordinal();
-            if (!s.is_not_found()) {
+            if (!s.is<ErrorCode::NOT_FOUND>()) {
                 if (!s.ok()) {
                     return s;
                 }

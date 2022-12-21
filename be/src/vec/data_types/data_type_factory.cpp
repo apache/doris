@@ -98,6 +98,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_BINARY:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case TYPE_JSONB:

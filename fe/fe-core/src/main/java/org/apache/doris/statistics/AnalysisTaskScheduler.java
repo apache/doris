@@ -30,7 +30,6 @@ import org.apache.log4j.Logger;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
@@ -47,12 +46,6 @@ public class AnalysisTaskScheduler {
     private final Set<BaseAnalysisTask> systemJobSet = new HashSet<>();
 
     private final Set<BaseAnalysisTask> manualJobSet = new HashSet<>();
-
-    public synchronized void scheduleJobs(List<AnalysisTaskInfo> analysisJobInfos) {
-        for (AnalysisTaskInfo job : analysisJobInfos) {
-            schedule(job);
-        }
-    }
 
     public synchronized void schedule(AnalysisTaskInfo analysisJobInfo) {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(analysisJobInfo.catalogName);

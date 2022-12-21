@@ -63,7 +63,7 @@ Status SmallFileMgr::_load_local_files() {
         }
         auto st = _load_single_file(_local_path, file);
         if (!st.ok()) {
-            LOG(WARNING) << "load small file failed: " << st.get_error_msg();
+            LOG(WARNING) << "load small file failed: " << st;
         }
         return true;
     };

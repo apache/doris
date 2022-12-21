@@ -1970,6 +1970,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
                     groupSchema.checkColocateSchema(olapTable);
+                    groupSchema.checkDynamicPartition(properties, olapTable.getDefaultDistributionInfo());
                 }
                 // add table to this group, if group does not exist, create a new one
                 Env.getCurrentColocateIndex()
@@ -2242,7 +2243,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
-    private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException, AnalysisException {
         String tableName = stmt.getTableName();
 
         // validate props to get column from es.

@@ -239,7 +239,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public Column getColumn(String name) {
         List<Column> schema = getFullSchema();
         for (Column column : schema) {
-            if (name.equals(column.getName())) {
+            if (name.equalsIgnoreCase(column.getName())) {
                 return column;
             }
         }
