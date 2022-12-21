@@ -270,6 +270,8 @@ valueExpression
     | left=valueExpression operator=(PLUS | MINUS | DIV | HAT | PIPE | AMPERSAND)
                            right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
+    | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
+                COMMA right = valueExpression RIGHT_PAREN                                    #bitOperation
     ;
 
 datetimeUnit
