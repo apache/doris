@@ -27,6 +27,7 @@ namespace doris::vectorized {
 VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
+          _fn_place_ptr(nullptr),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
           _window(tnode.analytic_node.window) {
@@ -712,6 +713,9 @@ Status VAnalyticEvalNode::_create_agg_status() {
 }
 
 Status VAnalyticEvalNode::_destroy_agg_status() {
+    if (UNLIKELY(_fn_place_ptr == nullptr)) {
+        return Status::OK();
+    }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
