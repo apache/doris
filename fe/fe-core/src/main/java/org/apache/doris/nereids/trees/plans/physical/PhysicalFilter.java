@@ -30,6 +30,7 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -49,7 +50,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child);
-        this.conjuncts = Objects.requireNonNull(conjuncts, "conjuncts can not be null");
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
     public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
@@ -57,7 +58,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
             StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
                 child);
-        this.conjuncts = Objects.requireNonNull(conjuncts, "conjuncts can not be null");
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
     @Override
