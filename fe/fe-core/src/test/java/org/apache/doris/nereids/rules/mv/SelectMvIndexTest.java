@@ -19,9 +19,16 @@ package org.apache.doris.nereids.rules.mv;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.PatternMatchSupported;
@@ -135,17 +142,14 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
     //     dorisAssert.query(query2).explainWithout(QUERY_USE_EMPS_MV);
     // }
 
-    /**
-     * TODO: enable this when union is supported.
-     */
-    @Disabled
+    @Test
     public void testUnionQueryOnProjectionMV() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + " order by deptno;";
         String union = "select empid from " + EMPS_TABLE_NAME + " where deptno > 300" + " union all select empid from"
                 + " " + EMPS_TABLE_NAME + " where deptno < 200";
         createMv(createMVSql);
-        testMv(union, EMPS_MV_NAME);
+        testMvWithTwoTable(union, EMPS_MV_NAME, EMPS_MV_NAME);
     }
 
     @Test
@@ -166,22 +170,6 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         createMv(createMVSql);
         testMv(query, EMPS_MV_NAME);
     }
-
-    /*
-    TODO
-    The deduplicate materialized view is not yet supported
-    @Test
-    public void testAggQueryOnDeduplicatedMV() throws Exception {
-        String deduplicateSQL = "select deptno, empid, name, salary, commission from " + EMPS_TABLE_NAME + " group "
-                + "by" + " deptno, empid, name, salary, commission";
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as " + deduplicateSQL + ";";
-        String query1 = "select deptno, sum(salary) from (" + deduplicateSQL + ") A group by deptno;";
-        createMv(createMVSql);
-        testMv(query1, EMPS_MV_NAME);
-        String query2 = "select deptno, empid from " + EMPS_TABLE_NAME + ";";
-        dorisAssert.query(query2).explainWithout(QUERY_USE_EMPS_MV);
-    }
-    */
 
     @Test
     public void testAggQueryOnAggMV3() throws Exception {
@@ -308,11 +296,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         testMv(query, EMPS_TABLE_NAME);
     }
 
-    /**
-     * Aggregation query with set operand
-     * TODO: enable this when union is supported.
-     */
-    @Disabled
+    @Test
     public void testAggQueryWithSetOperandOnAggMV() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, count(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
@@ -321,7 +305,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
                 + "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
                 + " group by deptno;";
         createMv(createMVSql);
-        testMv(query, EMPS_TABLE_NAME);
+        testMvWithTwoTable(query, EMPS_TABLE_NAME, EMPS_TABLE_NAME);
     }
 
     @Test
@@ -627,28 +611,24 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         testMv(query, EMPS_MV_NAME);
     }
 
-    /**
-     * TODO: enable this when union is supported.
-     */
-    @Disabled
+    @Test
     public void testUnionAll() throws Exception {
-        // String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
-        //         + EMPS_TABLE_NAME + " order by empid, deptno;";
-        // String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union all select empid,"
-        //         + " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
-        // dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV, 2);
+        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+                + EMPS_TABLE_NAME + " order by empid, deptno;";
+        String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union all select empid,"
+                + " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
+        createMv(createEmpsMVsql);
+        testMvWithTwoTable(query, EMPS_MV_NAME, EMPS_MV_NAME);
     }
 
-    /**
-     * TODO: enable this when union is supported.
-     */
-    @Disabled
+    @Test
     public void testUnionDistinct() throws Exception {
-        // String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
-        //         + EMPS_TABLE_NAME + " order by empid, deptno;";
-        // String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union select empid,"
-        //         + " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
-        // dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV, 2);
+        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
+                + EMPS_TABLE_NAME + " order by empid, deptno;";
+        createMv(createEmpsMVsql);
+        String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union select empid,"
+                + " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
+        testMvWithTwoTable(query, EMPS_MV_NAME, EMPS_MV_NAME);
     }
 
     /**
@@ -668,6 +648,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         String query = "select k1, k2 from agg_table;";
         // todo: `preagg` should be ture when rollup could be used.
         singleTableTest(query, "only_keys", false);
+        dropTable("agg_table", true);
     }
 
     /**
@@ -855,18 +836,30 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         dropTable(TEST_TABLE_NAME, true);
     }
 
-    /**
-     * TODO: enable this when hll is supported.
-     */
-    @Disabled
+    @Test
     public void testAggTableCountDistinctInHllType() throws Exception {
-        // String aggTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 hll " + FunctionSet.HLL_UNION
-        //         + ") Aggregate KEY (k1) "
-        //         + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
-        // dorisAssert.withTable(aggTable);
-        // String query = "select k1, count(distinct v1) from " + TEST_TABLE_NAME + " group by k1;";
-        // dorisAssert.query(query).explainContains(TEST_TABLE_NAME, "hll_union_agg");
-        // dorisAssert.dropTable(TEST_TABLE_NAME, true);
+        String aggTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 hll " + FunctionSet.HLL_UNION
+                + ") Aggregate KEY (k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+        createTable(aggTable);
+        String query = "select k1, count(distinct v1) from " + TEST_TABLE_NAME + " group by k1;";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate(logicalOlapScan()).when(agg -> {
+                    // k1#0, hll_union_agg(v1#1) AS `count(distinct v1)`#2
+                    List<NamedExpression> output = agg.getOutputExpressions();
+                    Assertions.assertEquals(2, output.size());
+                    NamedExpression output1 = output.get(1);
+                    Assertions.assertTrue(output1 instanceof Alias);
+                    Alias alias = (Alias) output1;
+                    Expression aliasChild = alias.child();
+                    Assertions.assertTrue(aliasChild instanceof HllUnionAgg);
+                    HllUnionAgg hllUnionAgg = (HllUnionAgg) aliasChild;
+                    Assertions.assertEquals("v1", ((Slot) hllUnionAgg.child()).getName());
+                    return true;
+                }));
+        dropTable(TEST_TABLE_NAME, true);
     }
 
     /**
@@ -904,17 +897,14 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         testMv(query, USER_TAG_TABLE_NAME);
     }
 
-    /**
-     * TODO: enable this when hll is supported.
-     */
-    @Disabled
+    @Test
     public void testNDVToHll() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME
-        //         + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select ndv(tag_id) from " + USER_TAG_TABLE_NAME + ";";
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, "hll_union_agg");
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME
+                + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select ndv(tag_id) from " + USER_TAG_TABLE_NAME + ";";
+        testMv(query, USER_TAG_MV_NAME);
     }
 
     /**
@@ -930,23 +920,43 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, "hll_union_agg");
     }
 
-    /**
-     * TODO: enable this when hll is supported.
-     */
     @Test
     public void testHLLUnionFamilyRewrite() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME
-        //         + " group by user_id;";
-        // createMv(createUserTagMVSql);
-        // String query = "select `" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from "
-        //         + USER_TAG_TABLE_NAME + ";";
-        // String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder("" + FunctionSet.HLL_UNION + "", "tag_id");
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
-        // query = "select hll_union_agg(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
-        // query = "select hll_raw_agg(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME
+                + " group by user_id;";
+        createMv(createUserTagMVSql);
+
+        String query = "select `" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from "
+                + USER_TAG_TABLE_NAME + ";";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, HllUnion.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_MV_NAME);
+
+        query = "select hll_union_agg(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, HllUnionAgg.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_MV_NAME);
+
+        query = "select hll_raw_agg(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, HllUnion.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_MV_NAME);
     }
 
     @Test
@@ -958,41 +968,20 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         testMv(query, EMPS_TABLE_NAME);
     }
 
-    /**
-     * TODO: support count in mv.
-     */
-    @Disabled
+    @Test
     public void testCountFieldInQuery() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // createMv(createUserTagMVSql);
-        // String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + ";";
-        // String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, "tag_id");
-        // // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
-        //
-        // String explain = getSQLPlanOrErrorMsg(query);
-        // mv_count_tag_id
-        /*
-         PARTITION: HASH_PARTITIONED: `default_cluster:db1`.`user_tags`.`time_col`
-
-         STREAM DATA SINK
-         EXCHANGE ID: 02
-         UNPARTITIONED
-
-         1:VAGGREGATE (update serialize)
-         |  output: sum(`mv_count_tag_id`)
-         |  group by:
-         |  cardinality=1
-         |
-         0:VOlapScanNode
-         TABLE: user_tags(user_tags_mv), PREAGGREGATION: ON
-         partitions=1/1, tablets=3/3, tabletList=10034,10036,10038
-         cardinality=0, avgRowSize=8.0, numNodes=1
-         */
-        // System.out.println("mvColumnName:" + mvColumnName);
-        // System.out.println("explain:\n" + explain);
-        // query = "select user_name, count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
-        // dorisAssert.query(query).explainWithout(USER_TAG_MV_NAME);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + ";";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, Sum.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_MV_NAME);
     }
 
     @Test
@@ -1013,17 +1002,20 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         dropTable("agg_table", true);
     }
 
-    /**
-     * TODO: support count in mv.
-     */
-    @Disabled
+    @Test
     public void testSelectMVWithTableAlias() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + " t ;";
-        // String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, "tag_id");
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + " t ;";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, Sum.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_MV_NAME);
     }
 
     @Test

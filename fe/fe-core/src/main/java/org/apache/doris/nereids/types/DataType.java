@@ -488,6 +488,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof BitmapType;
     }
 
+    public boolean isHll() {
+        return this instanceof HllType;
+    }
+
     public DataType promotion() {
         if (PROMOTION_MAP.containsKey(this.getClass())) {
             return PROMOTION_MAP.get(this.getClass()).get();
