@@ -133,7 +133,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                         .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
                                         .collect(Collectors.toList());
                                 return new LogicalJoin<>(join.getJoinType(),
-                                        hashJoinConjuncts, cond, join.left(), join.right());
+                                        hashJoinConjuncts, cond, join.getHint(), join.left(), join.right());
                             })
             ),
             RuleType.BINDING_USING_JOIN_SLOT.build(
@@ -154,7 +154,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             hashEqExpr.add(new EqualTo(leftSlots.get(i), rightSlots.get(i)));
                         }
                         return new LogicalJoin(JoinType.INNER_JOIN, hashEqExpr,
-                                join.getOtherJoinConjuncts(), join.left(), join.right());
+                                join.getOtherJoinConjuncts(), join.getHint(), join.left(), join.right());
                     })
                 ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
