@@ -63,6 +63,17 @@ suite("test_hive_other", "p0") {
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );
             """
+
+        // test user's grants on external catalog
+        sql """drop user if exists ext_catalog_user"""
+        sql """create user ext_catalog_user identified by '12345'"""
+        sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
+        sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
+        connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
+            order_qt_ext_catalog_grants """show databases from ${catalog_name}"""
+        }
+        sql """drop user ext_catalog_user"""
+
         sql """switch ${catalog_name}"""
         sql """use `default`"""
         // order_qt_show_tables """show tables"""
