@@ -629,7 +629,7 @@ public class DistributedPlanner {
         OlapTable leftTable = leftScanNode.getOlapTable();
 
         //1 the left table has more than one partition or left table is not a stable colocate table
-        if (leftScanNode.getSelectedPartitionIds().size() != 1) {
+        if (leftScanNode.getSelectedPartitionIds().size() > 1) {
             ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
             if (!leftTable.isColocateTable()
                     || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId()))) {
@@ -656,7 +656,7 @@ public class DistributedPlanner {
                     continue;
                 }
 
-                SlotRef leftSlot = lhsJoinExpr.unwrapSlotRef();
+                SlotRef leftSlot = node.getChild(0).findSrcSlotRef(lhsJoinExpr.getSrcSlotRef());
                 if (leftSlot.getTable() instanceof OlapTable
                         && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`
