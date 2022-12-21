@@ -93,7 +93,9 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
 
             if constexpr (type == TYPE_OBJECT) {
                 if (column->is_bitmap() && output_object_data()) {
-                    const vectorized::ColumnComplexType<BitmapValue>* pColumnComplexType = assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(column.get());
+                    const vectorized::ColumnComplexType<BitmapValue>* pColumnComplexType =
+                            assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(
+                                    column.get());
                     BitmapValue bitmapValue = pColumnComplexType->get_element(i);
                     size_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf(new char[size]);
