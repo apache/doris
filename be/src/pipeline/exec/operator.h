@@ -449,6 +449,8 @@ public:
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {
                 source_state = SourceState::MORE_DATA;
+            } else if (source_state == SourceState::MORE_DATA) {
+                source_state = _child_source_state;
             }
         }
         return Status::OK();

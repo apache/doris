@@ -747,8 +747,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                         fragments_ctx, _exec_env, cb);
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            RETURN_IF_ERROR(context->prepare(params));
+            auto prepare_st = context->prepare(params);
             g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+            if (!prepare_st.ok()) {
+                context->close_if_prepare_failed();
+                return prepare_st;
+            }
         }
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;

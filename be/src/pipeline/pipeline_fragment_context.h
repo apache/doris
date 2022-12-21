@@ -41,7 +41,7 @@ public:
                             ExecEnv* exec_env,
                             std::function<void(RuntimeState*, Status*)> call_back);
 
-    ~PipelineFragmentContext() { _call_back(_runtime_state.get(), &_exec_status); }
+    ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
@@ -57,6 +57,8 @@ public:
     Status prepare(const doris::TExecPlanFragmentParams& request);
 
     Status submit();
+
+    void close_if_prepare_failed();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 

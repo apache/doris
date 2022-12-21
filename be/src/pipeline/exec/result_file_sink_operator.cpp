@@ -15,16 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_split_part") {
-  test {
-    sql """
-      select
-          name
-      from
-          tpch_tiny_nation
-      where
-          split_part("bCKHDX07at", "5.7.37", cast(name as int)) is not null;
-    """
-    exception "[RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
-  }
+#include "result_file_sink_operator.h"
+
+#include "vec/sink/vresult_file_sink.h"
+
+namespace doris::pipeline {
+
+ResultFileSinkOperatorBuilder::ResultFileSinkOperatorBuilder(int32_t id, DataSink* sink)
+        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
+
+OperatorPtr ResultFileSinkOperatorBuilder::build_operator() {
+    return std::make_shared<ResultFileSinkOperator>(this, _sink);
 }
+
+ResultFileSinkOperator::ResultFileSinkOperator(OperatorBuilderBase* operator_builder,
+                                               DataSink* sink)
+        : DataSinkOperator(operator_builder, sink) {};
+} // namespace doris::pipeline
