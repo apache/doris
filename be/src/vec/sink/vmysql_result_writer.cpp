@@ -17,6 +17,7 @@
 
 #include "vec/sink/vmysql_result_writer.h"
 
+#include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
@@ -100,6 +101,15 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     size_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf(new char[size]);
                     bitmapValue.write(buf.get());
+                    buf_ret = _buffer.push_string(buf.get(), size);
+                } else if (column->is_hll() && output_object_data()) {
+                    const vectorized::ColumnComplexType<HyperLogLog>* pColumnComplexType =
+                            assert_cast<const vectorized::ColumnComplexType<HyperLogLog>*>(
+                                    column.get());
+                    HyperLogLog hyperLogLog = pColumnComplexType->get_element(i);
+                    size_t size = hyperLogLog.max_serialized_size();
+                    std::unique_ptr<char[]> buf(new char[size]);
+                    hyperLogLog.serialize((uint8*)buf.get());
                     buf_ret = _buffer.push_string(buf.get(), size);
                 } else {
                     buf_ret = _buffer.push_null();

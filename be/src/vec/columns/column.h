@@ -527,6 +527,8 @@ public:
 
     virtual bool is_bitmap() const { return false; }
 
+    virtual bool is_hll() const { return false; }
+
     // true if column has null element
     virtual bool has_null() const { return false; }
 
