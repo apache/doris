@@ -394,7 +394,10 @@ public:
                      SourceState& source_state) override {
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
-        RETURN_IF_ERROR(node->pull(state, block, &eos));
+        RETURN_IF_ERROR(node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
         return Status::OK();
     }

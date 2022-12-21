@@ -49,7 +49,12 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
     do {
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(state, block, &_child_eos),
+                _children[0]->get_next_after_projects(
+                        state, block, &_child_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _children[0]->get_next_span(), _child_eos);
         if (_child_eos) {
             *eos = true;

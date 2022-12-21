@@ -208,7 +208,13 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
             release_block_memory(_probe_block, i);
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(i)->get_next_after_projects(state, &_probe_block, &eos),
+                    child(i)->get_next_after_projects(
+                            state, &_probe_block, &eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[i], std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3)),
                     child(i)->get_next_span(), eos);
 
             RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
@@ -407,8 +413,14 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, &block, &eos),
-                                       child(0)->get_next_span(), eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), eos);
         if (eos) {
             child(0)->close(state);
         }
