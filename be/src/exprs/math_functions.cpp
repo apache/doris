@@ -228,11 +228,12 @@ BigIntVal MathFunctions::round_bankers(FunctionContext* ctx, const DoubleVal& v)
 
 DoubleVal MathFunctions::round_bankers(doris_udf::FunctionContext* ctx, const DoubleVal& v,
                                        const IntVal& d) {
+    const double TOLERANCE = 1e-10;
     double shift = std::pow(10, d.val);
     double t = v.val * shift;
     double rounded = std::round(t);
     if (int64_t(rounded) % 2 == 1) {
-        if (::abs(rounded - t) < 0.5) {
+        if (::abs(rounded - t) - 0.5 < TOLERANCE) {
             rounded -= 1;
         } else {
             rounded += 1;
