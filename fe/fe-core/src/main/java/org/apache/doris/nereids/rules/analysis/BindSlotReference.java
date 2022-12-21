@@ -411,16 +411,30 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
     private Plan bindSortWithAggregateFunction(
             LogicalSort<? extends Plan> sort, Aggregate<? extends Plan> aggregate, CascadesContext ctx) {
-        // We should deduplicate the slots, otherwise the binding process will fail due to the
-        // ambiguous slots exist.
-        Set<Slot> boundSlots = Stream.concat(Stream.of(aggregate), aggregate.children().stream())
-                .flatMap(plan -> plan.getOutput().stream())
-                .collect(Collectors.toSet());
+        // 1. We should deduplicate the slots, otherwise the binding process will fail due to the
+        //    ambiguous slots exist.
+        // 2. try to bound order-key with agg output, if failed, try to bound with output of agg.child
+        //    binding priority example:
+        //        select
+        //        col1 * -1 as col1    # inner_col1 * -1 as alias_col1
+        //        from
+        //                (
+        //                        select 1 as col1
+        //                        union
+        //                        select -2 as col1
+        //                ) t
+        //        group by col1
+        //        order by col1;     # order by order_col1
+        //    bind order_col1 with alias_col1, then, bind it with inner_col1
+        SlotBinder outputBinder = new SlotBinder(
+                toScope(aggregate.getOutputSet().stream().collect(Collectors.toList())), sort, ctx);
+        List<Slot> childOutputSlots = aggregate.child().getOutputSet().stream().collect(Collectors.toList());
+        SlotBinder childOutputBinder = new SlotBinder(toScope(childOutputSlots), sort, ctx);
         List<OrderKey> sortItemList = sort.getOrderKeys()
                 .stream()
                 .map(orderKey -> {
-                    Expression item = new SlotBinder(toScope(new ArrayList<>(boundSlots)), sort, ctx)
-                            .bind(orderKey.getExpr());
+                    Expression item = outputBinder.bind(orderKey.getExpr());
+                    item = childOutputBinder.bind(item);
                     return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                 }).collect(Collectors.toList());
         return new LogicalSort<>(sortItemList, sort.child());
