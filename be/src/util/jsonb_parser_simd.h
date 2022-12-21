@@ -59,10 +59,10 @@
 #ifndef JSONB_JSONBJSONPARSERSIMD_H
 #define JSONB_JSONBJSONPARSERSIMD_H
 
+#include <simdjson.h>
+
 #include <cmath>
 #include <limits>
-
-#include <simdjson.h>
 
 #include "jsonb_document.h"
 #include "jsonb_error.h"
@@ -104,9 +104,9 @@ public:
 
         // parse json using simdjson, return false on exception
         try {
-            simdjson::padded_string json_str{pch, len};
+            simdjson::padded_string json_str {pch, len};
             simdjson::ondemand::document doc = parser_.iterate(json_str);
-            
+
             switch (doc.type()) {
             case simdjson::ondemand::json_type::object:
             case simdjson::ondemand::json_type::array: {
@@ -311,7 +311,7 @@ public:
             err_ = JsonbErrType::E_INVALID_DECIMAL;
             LOG(WARNING) << "invalid number: "; // << num;
             return;
-        }        
+        }
     }
 
     JsonbWriterT<OS_TYPE>& getWriter() { return writer_; }
