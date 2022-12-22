@@ -242,7 +242,7 @@ under the License.
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
         <dlf-metastore-client-hive2.version>0.2.14</dlf-metastore-client-hive2.version>
-
+        <hadoop.version>2.10.2</hadoop.version>
         <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
     </properties>
@@ -311,7 +311,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client</artifactId>
-                <version>2.8.0</version>
+                <version>${hadoop.version}</version>
                 <scope>compile</scope>
             </dependency>
             <dependency>
