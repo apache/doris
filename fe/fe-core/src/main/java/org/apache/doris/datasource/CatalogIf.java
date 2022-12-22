@@ -68,6 +68,12 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     Map<String, String> getProperties();
 
+    default String getResource() {
+        return null;
+    }
+
+    default void notifyPropertiesUpdated() { }
+
     void modifyCatalogName(String name);
 
     void modifyCatalogProps(Map<String, String> props);
