@@ -93,6 +93,14 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);
                 context.params.setHdfsParams(tHdfsParams);
+
+                if (locationType == TFileType.FILE_BROKER) {
+                    FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    if (broker == null) {
+                        throw new UserException("No alive broker.");
+                    }
+                    context.params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                }
             } else if (locationType == TFileType.FILE_S3) {
                 context.params.setProperties(locationProperties);
             }
@@ -153,9 +161,6 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     }
 
     private TScanRangeLocations newLocations(TFileScanRangeParams params, BackendPolicy backendPolicy) {
-        FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
-        params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
-
         // Generate on file scan range
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.setParams(params);
