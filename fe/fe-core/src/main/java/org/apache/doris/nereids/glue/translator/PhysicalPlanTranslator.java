@@ -437,7 +437,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         // Create OlapScanNode
-        List<Slot> slotList = olapScan.getOutput();
+        List<Slot> slotList = new ImmutableList.Builder<Slot>()
+                .addAll(olapScan.getOutput())
+                .addAll(olapScan.getNonUserVisibleOutput())
+                .build();
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
@@ -745,7 +748,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
 
         if (hashJoin.getOtherJoinConjuncts().isEmpty()
-                && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
+                && (joinType == JoinType.LEFT_ANTI_JOIN
+                    || joinType == JoinType.LEFT_SEMI_JOIN
+                    || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                 if (!leftSlotDescriptor.isMaterialized()) {
                     continue;
@@ -903,7 +908,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toList());
 
             if (nestedLoopJoinNode.getConjuncts().isEmpty()
-                    && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
+                    && (joinType == JoinType.LEFT_ANTI_JOIN
+                        || joinType == JoinType.LEFT_SEMI_JOIN
+                        || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                     if (!leftSlotDescriptor.isMaterialized()) {
                         continue;

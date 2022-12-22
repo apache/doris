@@ -50,6 +50,7 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.CROSS_JOIN
@@ -85,7 +86,7 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
                     Plan right = PlanUtils.filterOrSelf(rightConjuncts, join.right());
 
                     return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                            remainingOther, left, right);
+                            remainingOther, join.getHint(), left, right);
 
                 }).toRule(RuleType.PUSHDOWN_JOIN_OTHER_CONDITION);
     }

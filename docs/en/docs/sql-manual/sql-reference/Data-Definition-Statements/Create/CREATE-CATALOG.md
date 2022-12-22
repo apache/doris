@@ -38,52 +38,109 @@ Syntax:
 
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
-    [PROPERTIES ("key"="value", ...)];
+	[WITH RESOURCE resource_name]
+	| [PROPERTIES ("key"="value", ...)];
 ```
 
-`PROPERTIES` is the connection information for the catalog. The "type" attribute must be specified, currently supports:
+`RESOURCE` can be created from [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md), current supports：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
-* jdbc: Database access standard interface (JDBC), currently only support `jdbc:mysql`
+* jdbc：数据库访问的标准接口(JDBC), 当前只支持`jdbc:mysql`
+
+### Create catalog
+
+**Create catalog through resource**
+
+In later versions of `1.2.0`, it is recommended to create a catalog through resource.
+```sql
+CREATE RESOURCE catalog_resource PROPERTIES (
+    'type'='hms|es|jdbc',
+    ...
+);
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+```
+
+**Create catalog through properties**
+
+Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+```sql
+CREATE CATALOG catalog_name PROPERTIES (
+    'type'='hms|es|jdbc',
+    ...
+);
+```
 
 ### Example
 
 1. Create catalog hive
 
-   ```sql
-   CREATE CATALOG hive PROPERTIES (
-		"type"="hms",
-		'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-		'dfs.nameservices'='HDFS8000871',
-		'dfs.ha.namenodes.HDFS8000871'='nn1,nn2',
-		'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
-		'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
-		'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+	```sql
+	-- 1.2.0+ Version
+	CREATE RESOURCE hms_resource PROPERTIES (
+		'type'='hms',
+		'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
+		'dfs.nameservices'='HANN',
+		'dfs.ha.namenodes.HANN'='nn1,nn2',
+		'dfs.namenode.rpc-address.HANN.nn1'='nn1_host:rpc_port',
+		'dfs.namenode.rpc-address.HANN.nn2'='nn2_host:rpc_port',
+		'dfs.client.failover.proxy.provider.HANN'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+	);
+	CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+	-- 1.2.0 Version
+	CREATE CATALOG hive PROPERTIES (
+		'type'='hms',
+		'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
+		'dfs.nameservices'='HANN',
+		'dfs.ha.namenodes.HANN'='nn1,nn2',
+		'dfs.namenode.rpc-address.HANN.nn1'='nn1_host:rpc_port',
+		'dfs.namenode.rpc-address.HANN.nn2'='nn2_host:rpc_port',
+		'dfs.client.failover.proxy.provider.HANN'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 	);
 	```
 
 2. Create catalog es
 
-   ```sql
-   CREATE CATALOG es PROPERTIES (
-	   "type"="es",
-	   "elasticsearch.hosts"="http://127.0.0.1:9200"
-   );
-   ```
+	```sql
+	-- 1.2.0+ Version
+	CREATE RESOURCE es_resource PROPERTIES (
+		"type"="es",
+		"hosts"="http://127.0.0.1:9200"
+	);
+	CREATE CATALOG es WITH RESOURCE es_resource;
+
+	-- 1.2.0 Version
+	CREATE CATALOG es PROPERTIES (
+		"type"="es",
+		"hosts"="http://127.0.0.1:9200"
+	);
+	```
 
 3. Create catalog jdbc
 
-   ```sql
-   CREATE CATALOG jdbc PROPERTIES (
+	```sql
+	-- 1.2.0+ Version
+	CREATE RESOURCE mysql_resource PROPERTIES (
 		"type"="jdbc",
-		"jdbc.user"="root",
-		"jdbc.password"="123456",
-		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-		"jdbc.driver_url" = "file:/mnt/disk2/ftw/tools/jar/mysql-connector-java-5.1.47/mysql-connector-java-5.1.47.jar",
-		"jdbc.driver_class" = "com.mysql.jdbc.Driver"
+		"user"="root",
+		"password"="123456",
+		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
-   ```
+	CREATE CATALOG jdbc WITH RESOURCE msyql_resource;
+
+	-- 1.2.0 Version
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"user"="root",
+		"password"="123456",
+		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"driver_class" = "com.mysql.cj.jdbc.Driver"
+	);
+	```
 
 ### Keywords
 

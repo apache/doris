@@ -84,6 +84,11 @@ public interface Command extends LogicalPlan {
     }
 
     @Override
+    default List<Slot> getNonUserVisibleOutput() {
+        throw new RuntimeException("Command do not implement getNonUserVisibleOutput");
+    }
+
+    @Override
     default String treeString() {
         throw new RuntimeException("Command do not implement treeString");
     }

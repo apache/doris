@@ -50,25 +50,9 @@ import java.util.Set;
 @Getter
 @Setter
 public class EsTable extends Table {
-
-    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Arrays.asList("text"));
-
-    public static final String HOSTS = "hosts";
-    public static final String USER = "user";
-    public static final String PASSWORD = "password";
-    public static final String INDEX = "index";
-    public static final String TYPE = "type";
-    public static final String VERSION = "version";
-    public static final String DOC_VALUES_MODE = "doc_values_mode";
-
-    public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
-    public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
-    public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
-    public static final String NODES_DISCOVERY = "nodes_discovery";
-    public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
-    public static final String QUERY_DSL = "query_dsl";
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
 
+    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Arrays.asList("text"));
     // Solr doc_values vs stored_fields performance-smackdown indicate:
     // It is possible to notice that retrieving an high number of fields leads
     // to a sensible worsening of performance if DocValues are used.
@@ -157,63 +141,43 @@ public class EsTable extends Table {
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
-        if (properties == null) {
-            throw new DdlException(
-                    "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
-        }
-        if (StringUtils.isBlank(properties.get(HOSTS))) {
-            throw new DdlException("Hosts of ES table is null. "
-                    + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
-        }
-        hosts = properties.get(HOSTS).trim();
+        EsResource.valid(properties, false);
+        hosts = properties.get(EsResource.HOSTS).trim();
         seeds = hosts.split(",");
-        if (properties.containsKey(USER)) {
-            userName = properties.get(USER).trim();
+        if (properties.containsKey(EsResource.USER)) {
+            userName = properties.get(EsResource.USER).trim();
         }
 
-        if (properties.containsKey(PASSWORD)) {
-            passwd = properties.get(PASSWORD).trim();
+        if (properties.containsKey(EsResource.PASSWORD)) {
+            passwd = properties.get(EsResource.PASSWORD).trim();
         }
 
-        if (StringUtils.isBlank(properties.get(INDEX))) {
-            throw new DdlException(
-                    "Index of ES table is null. " + "Please add properties('index'='xxxx') when create table");
-        }
-        indexName = properties.get(INDEX).trim();
+        indexName = properties.get(EsResource.INDEX).trim();
 
         // enable doc value scan for Elasticsearch
-        if (properties.containsKey(DOC_VALUE_SCAN)) {
-            enableDocValueScan = EsUtil.getBoolean(properties, DOC_VALUE_SCAN);
+        if (properties.containsKey(EsResource.DOC_VALUE_SCAN)) {
+            enableDocValueScan = EsUtil.getBoolean(properties, EsResource.DOC_VALUE_SCAN);
         }
 
-        if (properties.containsKey(KEYWORD_SNIFF)) {
-            enableKeywordSniff = EsUtil.getBoolean(properties, KEYWORD_SNIFF);
+        if (properties.containsKey(EsResource.KEYWORD_SNIFF)) {
+            enableKeywordSniff = EsUtil.getBoolean(properties, EsResource.KEYWORD_SNIFF);
         }
 
-        if (properties.containsKey(NODES_DISCOVERY)) {
-            nodesDiscovery = EsUtil.getBoolean(properties, NODES_DISCOVERY);
+        if (properties.containsKey(EsResource.NODES_DISCOVERY)) {
+            nodesDiscovery = EsUtil.getBoolean(properties, EsResource.NODES_DISCOVERY);
         }
 
-        if (properties.containsKey(HTTP_SSL_ENABLED)) {
-            httpSslEnabled = EsUtil.getBoolean(properties, HTTP_SSL_ENABLED);
-            // check protocol
-            for (String seed : seeds) {
-                if (httpSslEnabled && seed.startsWith("http://")) {
-                    throw new DdlException("if http_ssl_enabled is true, the https protocol must be used");
-                }
-                if (!httpSslEnabled && seed.startsWith("https://")) {
-                    throw new DdlException("if http_ssl_enabled is false, the http protocol must be used");
-                }
-            }
+        if (properties.containsKey(EsResource.HTTP_SSL_ENABLED)) {
+            httpSslEnabled = EsUtil.getBoolean(properties, EsResource.HTTP_SSL_ENABLED);
         }
 
-        if (StringUtils.isNotBlank(properties.get(TYPE))) {
-            mappingType = properties.get(TYPE).trim();
+        if (StringUtils.isNotBlank(properties.get(EsResource.TYPE))) {
+            mappingType = properties.get(EsResource.TYPE).trim();
         }
 
-        if (properties.containsKey(MAX_DOCVALUE_FIELDS)) {
+        if (properties.containsKey(EsResource.MAX_DOCVALUE_FIELDS)) {
             try {
-                maxDocValueFields = Integer.parseInt(properties.get(MAX_DOCVALUE_FIELDS).trim());
+                maxDocValueFields = Integer.parseInt(properties.get(EsResource.MAX_DOCVALUE_FIELDS).trim());
                 if (maxDocValueFields < 0) {
                     maxDocValueFields = 0;
                 }
@@ -231,8 +195,8 @@ public class EsTable extends Table {
         tableContext.put("enableDocValueScan", String.valueOf(enableDocValueScan));
         tableContext.put("enableKeywordSniff", String.valueOf(enableKeywordSniff));
         tableContext.put("maxDocValueFields", String.valueOf(maxDocValueFields));
-        tableContext.put(NODES_DISCOVERY, String.valueOf(nodesDiscovery));
-        tableContext.put(HTTP_SSL_ENABLED, String.valueOf(httpSslEnabled));
+        tableContext.put(EsResource.NODES_DISCOVERY, String.valueOf(nodesDiscovery));
+        tableContext.put(EsResource.HTTP_SSL_ENABLED, String.valueOf(httpSslEnabled));
     }
 
     @Override
@@ -309,13 +273,13 @@ public class EsTable extends Table {
                 maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
             }
         }
-        if (tableContext.containsKey(NODES_DISCOVERY)) {
-            nodesDiscovery = Boolean.parseBoolean(tableContext.get(NODES_DISCOVERY));
+        if (tableContext.containsKey(EsResource.NODES_DISCOVERY)) {
+            nodesDiscovery = Boolean.parseBoolean(tableContext.get(EsResource.NODES_DISCOVERY));
         } else {
             nodesDiscovery = true;
         }
-        if (tableContext.containsKey(HTTP_SSL_ENABLED)) {
-            httpSslEnabled = Boolean.parseBoolean(tableContext.get(HTTP_SSL_ENABLED));
+        if (tableContext.containsKey(EsResource.HTTP_SSL_ENABLED)) {
+            httpSslEnabled = Boolean.parseBoolean(tableContext.get(EsResource.HTTP_SSL_ENABLED));
         } else {
             httpSslEnabled = false;
         }

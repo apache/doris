@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -52,6 +53,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
+                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject abProject = topSemi.left();
@@ -72,14 +74,14 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                             }
                     );
                     LogicalJoin newBottomSemi = new LogicalJoin(topSemi.getJoinType(), topSemi.getHashJoinConjuncts(),
-                            topSemi.getOtherJoinConjuncts(), a, c,
+                            topSemi.getOtherJoinConjuncts(), JoinHint.NONE, a, c,
                             bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
                     LogicalProject acProject = new LogicalProject(acProjects.stream().collect(Collectors.toList()),
                             newBottomSemi);
                     LogicalJoin newTopSemi = new LogicalJoin(bottomSemi.getJoinType(),
-                            bottomSemi.getHashJoinConjuncts(), bottomSemi.getOtherJoinConjuncts(),
+                            bottomSemi.getHashJoinConjuncts(), bottomSemi.getOtherJoinConjuncts(), JoinHint.NONE,
                             acProject, b,
                             topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);

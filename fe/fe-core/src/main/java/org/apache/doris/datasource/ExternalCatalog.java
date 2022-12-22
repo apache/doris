@@ -168,6 +168,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         return listDatabaseNames(null);
     }
 
+    @Override
+    public String getResource() {
+        return catalogProperty.getResource();
+    }
+
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
@@ -204,7 +209,8 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        catalogProperty.getProperties().putAll(props);
+        catalogProperty.modifyCatalogProps(props);
+        notifyPropertiesUpdated();
     }
 
     @Override
@@ -268,6 +274,10 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void gsonPostProcess() throws IOException {
+        if (idToDb == null) {
+            // ExternalCatalog is loaded from meta with older version
+            idToDb = Maps.newConcurrentMap();
+        }
         dbNameToId = Maps.newConcurrentMap();
         for (ExternalDatabase db : idToDb.values()) {
             dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());

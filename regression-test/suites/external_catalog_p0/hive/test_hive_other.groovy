@@ -57,12 +57,11 @@ suite("test_hive_other", "p0") {
         String catalog_name = "hive_test_other"
 
         sql """drop catalog if exists ${catalog_name}"""
-        sql """
-            create catalog ${catalog_name} properties (
-                "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
-            );
-            """
+        sql """create resource if not exists hms_resource_hive_other properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+        );"""
+        sql """create catalog if not exists ${catalog_name} with resource hms_resource_hive_other;"""
 
         // test user's grants on external catalog
         sql """drop user if exists ext_catalog_user"""
@@ -131,9 +130,8 @@ suite("test_hive_other", "p0") {
                 "uri" = "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_*"
             ) order by name;
         """
+
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """drop resource if exists hms_resource_hive_other"""
     }
 }
-
-
-
-

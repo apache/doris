@@ -29,7 +29,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/buffer_control_block.h"
-#include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
@@ -111,60 +110,18 @@ PInternalServiceImpl::~PInternalServiceImpl() {
 void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_base,
                                          const PTransmitDataParams* request,
                                          PTransmitDataResult* response,
-                                         google::protobuf::Closure* done) {
-    // TODO(zxy) delete in 1.2 version
-    google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    attachment_transfer_request_row_batch<PTransmitDataParams>(request, cntl);
-
-    _transmit_data(cntl_base, request, response, new_done, Status::OK());
-}
+                                         google::protobuf::Closure* done) {}
 
 void PInternalServiceImpl::transmit_data_by_http(google::protobuf::RpcController* cntl_base,
                                                  const PEmptyRequest* request,
                                                  PTransmitDataResult* response,
-                                                 google::protobuf::Closure* done) {
-    PTransmitDataParams* new_request = new PTransmitDataParams();
-    google::protobuf::Closure* new_done =
-            new NewHttpClosure<PTransmitDataParams>(new_request, done);
-    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    Status st = attachment_extract_request_contain_tuple<PTransmitDataParams>(new_request, cntl);
-    _transmit_data(cntl_base, new_request, response, new_done, st);
-}
+                                                 google::protobuf::Closure* done) {}
 
 void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_base,
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done,
-                                          const Status& extract_st) {
-    std::string query_id;
-    TUniqueId finst_id;
-    if (request->has_query_id()) {
-        query_id = print_id(request->query_id());
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
-    }
-    VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
-             << " query_id=" << query_id << " node=" << request->node_id();
-    // The response is accessed when done->Run is called in transmit_data(),
-    // give response a default value to avoid null pointers in high concurrency.
-    Status st;
-    st.to_protobuf(response->mutable_status());
-    if (extract_st.ok()) {
-        st = _exec_env->stream_mgr()->transmit_data(request, &done);
-        if (!st.ok()) {
-            LOG(WARNING) << "transmit_data failed, message=" << st
-                         << ", fragment_instance_id=" << print_id(request->finst_id())
-                         << ", node=" << request->node_id();
-        }
-    } else {
-        st = extract_st;
-    }
-    if (done != nullptr) {
-        st.to_protobuf(response->mutable_status());
-        done->Run();
-    }
-}
+                                          const Status& extract_st) {}
 
 void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* controller,
                                               const PTabletWriterOpenRequest* request,

@@ -51,8 +51,8 @@ import java.util.stream.Collectors;
  */
 public class JoinUtils {
     public static boolean couldShuffle(Join join) {
-        // Cross-join only can be broadcast join.
-        return !(join.getJoinType().isCrossJoin());
+        // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
+        return !(join.getJoinType().isCrossJoin()) && !(join.getJoinType().isNullAwareLeftAntiJoin());
     }
 
     public static boolean couldBroadcast(Join join) {

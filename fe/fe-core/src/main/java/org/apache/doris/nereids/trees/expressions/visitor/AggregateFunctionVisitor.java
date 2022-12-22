@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -71,5 +72,9 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSum(Sum sum, C context) {
         return visitAggregateFunction(sum, context);
+    }
+
+    default R visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, C context) {
+        return visitAggregateFunction(bitmapUnionCount, context);
     }
 }
