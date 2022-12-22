@@ -88,7 +88,10 @@ es_6_port=19200
 es_7_port=29200
 es_8_port=39200
 
+//alert configs when run regression
+//CLOSE represent not send alert,ON represent send alert
 alertOn="CLOSE"
+//Currently only support feishu webhook
 webhook=""
 
 
