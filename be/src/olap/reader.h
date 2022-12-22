@@ -34,8 +34,6 @@ namespace doris {
 
 class Tablet;
 class RowCursor;
-class RowBlock;
-class CollectIterator;
 class RuntimeState;
 
 namespace vectorized {
@@ -120,13 +118,6 @@ public:
     // Initialize TabletReader with tablet, data version and fetch range.
     virtual Status init(const ReaderParams& read_params);
 
-    // Read next row with aggregation.
-    // Return OK and set `*eof` to false when next row is read into `row_cursor`.
-    // Return OK and set `*eof` to true when no more rows can be read.
-    // Return others when unexpected error happens.
-    virtual Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                             ObjectPool* agg_pool, bool* eof) = 0;
-
     // Read next block with aggregation.
     // Return OK and set `*eof` to false when next block is read
     // Return OK and set `*eof` to true when no more rows can be read.
@@ -153,7 +144,6 @@ public:
     virtual bool update_profile(RuntimeProfile* profile) { return false; }
 
 protected:
-    friend class CollectIterator;
     friend class vectorized::VCollectIterator;
     friend class DeleteHandler;
 

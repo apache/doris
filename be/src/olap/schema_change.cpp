@@ -1218,27 +1218,6 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     }
 }
 
-SchemaChangeDirectly::SchemaChangeDirectly(const RowBlockChanger& row_block_changer)
-        : _row_block_changer(row_block_changer), _row_block_allocator(nullptr), _cursor(nullptr) {}
-
-SchemaChangeDirectly::~SchemaChangeDirectly() {
-    VLOG_NOTICE << "~SchemaChangeDirectly()";
-    SAFE_DELETE(_row_block_allocator);
-    SAFE_DELETE(_cursor);
-}
-
-bool SchemaChangeDirectly::_write_row_block(RowsetWriter* rowset_writer, RowBlock* row_block) {
-    for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
-        row_block->get_row(i, _cursor);
-        if (!rowset_writer->add_row(*_cursor)) {
-            LOG(WARNING) << "fail to write to new rowset for direct schema change";
-            return false;
-        }
-    }
-
-    return true;
-}
-
 Status reserve_block(std::unique_ptr<RowBlock, RowBlockDeleter>* block_handle_ptr, int row_num,
                      RowBlockAllocator* allocator) {
     auto& block_handle = *block_handle_ptr;
@@ -1255,75 +1234,6 @@ Status reserve_block(std::unique_ptr<RowBlock, RowBlockDeleter>* block_handle_pt
         block_handle->clear();
     }
     return Status::OK();
-}
-
-Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
-                                            RowsetWriter* rowset_writer, TabletSharedPtr new_tablet,
-                                            TabletSchemaSPtr base_tablet_schema) {
-    if (_row_block_allocator == nullptr) {
-        _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
-        if (_row_block_allocator == nullptr) {
-            LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
-            return Status::Error<INVALID_ARGUMENT>();
-        }
-    }
-
-    if (nullptr == _cursor) {
-        _cursor = new (nothrow) RowCursor();
-        if (nullptr == _cursor) {
-            LOG(WARNING) << "fail to allocate row cursor.";
-            return Status::Error<INVALID_ARGUMENT>();
-        }
-
-        if (!_cursor->init(new_tablet->tablet_schema())) {
-            LOG(WARNING) << "fail to init row cursor.";
-            return Status::Error<INVALID_ARGUMENT>();
-        }
-    }
-
-    Status res = Status::OK();
-
-    VLOG_NOTICE << "init writer. new_tablet=" << new_tablet->full_name()
-                << ", block_row_number=" << new_tablet->num_rows_per_row_block();
-
-    std::unique_ptr<RowBlock, RowBlockDeleter> new_row_block(nullptr, [&](RowBlock* block) {
-        if (block != nullptr) {
-            _row_block_allocator->release(block);
-        }
-    });
-
-    RowBlock* ref_row_block = nullptr;
-    rowset_reader->next_block(&ref_row_block);
-    while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
-        // We will allocate blocks of the same size as before
-        // to ensure that the data can be stored
-        RETURN_NOT_OK(reserve_block(&new_row_block, ref_row_block->row_block_info().row_num,
-                                    _row_block_allocator));
-
-        // Change ref to new. This step is reasonable to say that it does need to wait for a large block, but theoretically it has nothing to do with the writer.
-        uint64_t filtered_rows = 0;
-        res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                                                  new_row_block.get(), &filtered_rows);
-        RETURN_NOT_OK_LOG(res, "failed to change data in row block.");
-
-        // rows filtered by delete handler one by one
-        _add_filtered_rows(filtered_rows);
-
-        if (!_write_row_block(rowset_writer, new_row_block.get())) {
-            res = Status::Error<SCHEMA_CHANGE_INFO_INVALID>();
-            LOG(WARNING) << "failed to write row block.";
-            return res;
-        }
-
-        ref_row_block->clear();
-        rowset_reader->next_block(&ref_row_block);
-    }
-
-    if (!rowset_writer->flush()) {
-        return Status::Error<ALTER_STATUS_ERR>();
-    }
-
-    return res;
 }
 
 Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
@@ -1351,18 +1261,6 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     return Status::OK();
 }
 
-SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
-                                                 size_t memory_limitation)
-        : _row_block_changer(row_block_changer),
-          _memory_limitation(memory_limitation),
-          _temp_delta_versions(Version::mock()),
-          _row_block_allocator(nullptr) {}
-
-SchemaChangeWithSorting::~SchemaChangeWithSorting() {
-    VLOG_NOTICE << "~SchemaChangeWithSorting()";
-    SAFE_DELETE(_row_block_allocator);
-}
-
 VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
                                                    size_t memory_limitation)
         : _changer(row_block_changer),
@@ -1370,173 +1268,6 @@ VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_bl
           _temp_delta_versions(Version::mock()) {
     _mem_tracker = std::make_unique<MemTracker>(fmt::format(
             "VSchemaChangeWithSorting:changer={}", std::to_string(int64(&row_block_changer))));
-}
-
-Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
-                                               RowsetWriter* rowset_writer,
-                                               TabletSharedPtr new_tablet,
-                                               TabletSchemaSPtr base_tablet_schema) {
-    if (_row_block_allocator == nullptr) {
-        _row_block_allocator =
-                new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
-        if (_row_block_allocator == nullptr) {
-            LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
-            return Status::Error<INVALID_ARGUMENT>();
-        }
-    }
-
-    Status res = Status::OK();
-    RowsetSharedPtr rowset = rowset_reader->rowset();
-
-    RowBlockSorter row_block_sorter(_row_block_allocator);
-
-    // for internal sorting
-    RowBlock* new_row_block = nullptr;
-    std::vector<RowBlock*> row_block_arr;
-
-    // for external sorting
-    // src_rowsets to store the rowset generated by internal sorting
-    std::vector<RowsetSharedPtr> src_rowsets;
-
-    Defer defer {[&]() {
-        // remove the intermediate rowsets generated by internal sorting
-        for (auto& row_set : src_rowsets) {
-            StorageEngine::instance()->add_unused_rowset(row_set);
-        }
-
-        for (auto block : row_block_arr) {
-            _row_block_allocator->release(block);
-        }
-
-        row_block_arr.clear();
-    }};
-
-    _temp_delta_versions.first = _temp_delta_versions.second;
-
-    SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
-    int64_t oldest_write_timestamp = rowset->oldest_write_timestamp();
-    int64_t newest_write_timestamp = rowset->newest_write_timestamp();
-    RowBlock* ref_row_block = nullptr;
-    rowset_reader->next_block(&ref_row_block);
-    while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
-        auto st = _row_block_allocator->allocate(&new_row_block,
-                                                 ref_row_block->row_block_info().row_num, true);
-        // if OLAP_ERR_FETCH_MEMORY_EXCEEDED == st.precise_code()
-        // that mean RowBlockAllocator::alocate() memory exceeded.
-        // But we can flush row_block_arr if row_block_arr is not empty.
-        // Don't return directly.
-        if (st.is<MEM_ALLOC_FAILED>()) {
-            return st;
-        } else if (st) {
-            // do memory check for sorting, in case schema change task fail at row block sorting because of
-            // not doing internal sorting first
-            if (!_row_block_allocator->is_memory_enough_for_sorting(
-                        ref_row_block->row_block_info().row_num, row_block_sorter.num_rows())) {
-                if (new_row_block != nullptr) {
-                    _row_block_allocator->release(new_row_block);
-                    new_row_block = nullptr;
-                }
-            }
-        }
-
-        if (new_row_block == nullptr) {
-            if (row_block_arr.empty()) {
-                LOG(WARNING) << "Memory limitation is too small for Schema Change: "
-                             << "memory_limitation=" << _memory_limitation
-                             << ". You can increase the memory by changing the config: "
-                             << "memory_limitation_per_thread_for_schema_change_bytes";
-                return Status::Error<FETCH_MEMORY_EXCEEDED>();
-            }
-
-            // enter here while memory limitation is reached.
-            RowsetSharedPtr rowset;
-            if (!_internal_sorting(
-                        row_block_arr,
-                        Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                        oldest_write_timestamp, newest_write_timestamp, new_tablet,
-                        segments_overlap, &rowset)) {
-                LOG(WARNING) << "failed to sorting internally.";
-                return Status::Error<ALTER_STATUS_ERR>();
-            }
-
-            src_rowsets.push_back(rowset);
-
-            for (auto block : row_block_arr) {
-                _row_block_allocator->release(block);
-            }
-
-            row_block_arr.clear();
-
-            // increase temp version
-            ++_temp_delta_versions.second;
-            continue;
-        }
-
-        uint64_t filtered_rows = 0;
-        res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                                                  new_row_block, &filtered_rows);
-        if (!res) {
-            row_block_arr.push_back(new_row_block);
-            LOG(WARNING) << "failed to change data in row block.";
-            return res;
-        }
-        _add_filtered_rows(filtered_rows);
-
-        if (new_row_block->row_block_info().row_num > 0) {
-            if (!row_block_sorter.sort(&new_row_block)) {
-                row_block_arr.push_back(new_row_block);
-                LOG(WARNING) << "failed to sort row block.";
-                return Status::Error<ALTER_STATUS_ERR>();
-            }
-            row_block_arr.push_back(new_row_block);
-        } else {
-            LOG(INFO) << "new block num rows is: " << new_row_block->row_block_info().row_num;
-            _row_block_allocator->release(new_row_block);
-            new_row_block = nullptr;
-        }
-
-        ref_row_block->clear();
-        rowset_reader->next_block(&ref_row_block);
-    }
-
-    if (!row_block_arr.empty()) {
-        // enter here while memory limitation is reached.
-        RowsetSharedPtr rowset = nullptr;
-
-        if (!_internal_sorting(row_block_arr,
-                               Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                               oldest_write_timestamp, newest_write_timestamp, new_tablet,
-                               segments_overlap, &rowset)) {
-            LOG(WARNING) << "failed to sorting internally.";
-            return Status::Error<ALTER_STATUS_ERR>();
-        }
-
-        src_rowsets.push_back(rowset);
-
-        for (auto block : row_block_arr) {
-            _row_block_allocator->release(block);
-        }
-
-        row_block_arr.clear();
-
-        // increase temp version
-        ++_temp_delta_versions.second;
-    }
-
-    if (src_rowsets.empty()) {
-        res = rowset_writer->flush();
-        if (!res) {
-            LOG(WARNING) << "create empty version for schema change failed."
-                         << " version=" << rowset_writer->version().first << "-"
-                         << rowset_writer->version().second;
-            return Status::Error<ALTER_STATUS_ERR>();
-        }
-    } else if (!_external_sorting(src_rowsets, rowset_writer, new_tablet)) {
-        LOG(WARNING) << "failed to sorting externally.";
-        return Status::Error<ALTER_STATUS_ERR>();
-    }
-
-    return res;
 }
 
 Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
@@ -1626,36 +1357,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     return Status::OK();
 }
 
-bool SchemaChangeWithSorting::_internal_sorting(
-        const std::vector<RowBlock*>& row_block_arr, const Version& version,
-        int64_t oldest_write_timestamp, int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
-        SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
-    uint64_t merged_rows = 0;
-    RowBlockMerger merger(new_tablet);
-
-    VLOG_NOTICE << "init rowset builder. tablet=" << new_tablet->full_name()
-                << ", block_row_size=" << new_tablet->num_rows_per_row_block();
-
-    std::unique_ptr<RowsetWriter> rowset_writer;
-    if (!new_tablet->create_rowset_writer(version, VISIBLE, segments_overlap,
-                                          new_tablet->tablet_schema(), oldest_write_timestamp,
-                                          newest_write_timestamp, &rowset_writer)) {
-        return false;
-    }
-
-    if (!merger.merge(row_block_arr, rowset_writer.get(), &merged_rows)) {
-        LOG(WARNING) << "failed to merge row blocks.";
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-        return false;
-    }
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                               rowset_writer->rowset_id().to_string());
-    _add_merged_rows(merged_rows);
-    *rowset = rowset_writer->build();
-    return true;
-}
-
 Status VSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
         int64_t oldest_write_timestamp, int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
@@ -1678,34 +1379,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     _add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
     return Status::OK();
-}
-
-bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
-                                                RowsetWriter* rowset_writer,
-                                                TabletSharedPtr new_tablet) {
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    for (auto& rowset : src_rowsets) {
-        RowsetReaderSharedPtr rs_reader;
-        auto res = rowset->create_reader(&rs_reader);
-        if (!res) {
-            LOG(WARNING) << "failed to create rowset reader.";
-            return false;
-        }
-        rs_readers.push_back(rs_reader);
-    }
-
-    Merger::Statistics stats;
-    auto res = Merger::merge_rowsets(new_tablet, READER_ALTER_TABLE, new_tablet->tablet_schema(),
-                                     rs_readers, rowset_writer, &stats);
-    if (!res) {
-        LOG(WARNING) << "failed to merge rowsets. tablet=" << new_tablet->full_name()
-                     << ", version=" << rowset_writer->version().first << "-"
-                     << rowset_writer->version().second;
-        return false;
-    }
-    _add_merged_rows(stats.merged_rows);
-    _add_filtered_rows(stats.filtered_rows);
-    return true;
 }
 
 Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
