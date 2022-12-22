@@ -629,7 +629,7 @@ public class DistributedPlanner {
         OlapTable leftTable = leftScanNode.getOlapTable();
 
         //1 the left table has more than one partition or left table is not a stable colocate table
-        if (leftScanNode.getSelectedPartitionIds().size() > 1) {
+        if (leftScanNode.getSelectedPartitionIds().size() != 1) {
             ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
             if (!leftTable.isColocateTable()
                     || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId()))) {
