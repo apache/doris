@@ -153,6 +153,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Mask;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
@@ -226,6 +229,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
@@ -404,6 +408,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lpad.class, "lpad"),
             scalar(Ltrim.class, "ltrim"),
             scalar(MakeDate.class, "makedate"),
+            scalar(Mask.class, "mask"),
+            scalar(MaskFirstN.class, "mask_first_n"),
+            scalar(MaskLastN.class, "mask_last_n"),
             scalar(Md5.class, "md5"),
             scalar(Md5Sum.class, "md5sum"),
             scalar(Minute.class, "minute"),
@@ -477,6 +484,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StrRight.class, "strright"),
             scalar(StrToDate.class, "str_to_date"),
             scalar(SubBitmap.class, "sub_bitmap"),
+            scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring"),
             scalar(Tan.class, "tan"),
             scalar(TimeDiff.class, "timediff"),

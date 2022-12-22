@@ -703,7 +703,8 @@ public class ShowExecutor {
                 continue;
             }
 
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName, PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
+                    fullName, PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -721,9 +722,9 @@ public class ShowExecutor {
     private void handleShowTable() throws AnalysisException {
         ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        // TODO(gaoxin): Whether to support "show tables from `ctl.db`" syntax in show statement?
-        String catalogName = ctx.getDefaultCatalog();
-        DatabaseIf<TableIf> db = ctx.getCurrentCatalog().getDbOrAnalysisException(showTableStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(showTableStmt.getCatalog())
+                .getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
@@ -735,7 +736,7 @@ public class ShowExecutor {
             }
             // check tbl privs
             if (!Env.getCurrentEnv().getAuth()
-                    .checkTblPriv(ConnectContext.get(), catalogName, db.getFullName(), tbl.getName(),
+                    .checkTblPriv(ConnectContext.get(), showTableStmt.getCatalog(), db.getFullName(), tbl.getName(),
                             PrivPredicate.SHOW)) {
                 continue;
             }
@@ -761,7 +762,9 @@ public class ShowExecutor {
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getCurrentCatalog().getDbNullable(showStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(showStmt.getCatalog())
+                .getDbOrAnalysisException(showStmt.getDb());
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
@@ -865,7 +868,7 @@ public class ShowExecutor {
     // Show create table
     private void handleShowCreateTable() throws AnalysisException {
         ShowCreateTableStmt showStmt = (ShowCreateTableStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalog(showStmt.getCtl())
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
                 .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
@@ -1877,10 +1880,10 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
-    private void handleShowDynamicPartition() {
+    private void handleShowDynamicPartition() throws AnalysisException {
         ShowDynamicPartitionStmt showDynamicPartitionStmt = (ShowDynamicPartitionStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbNullable(showDynamicPartitionStmt.getDb());
+        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showDynamicPartitionStmt.getDb());
         if (db != null && (db instanceof Database)) {
             List<Table> tableList = db.getTables();
             for (Table tbl : tableList) {

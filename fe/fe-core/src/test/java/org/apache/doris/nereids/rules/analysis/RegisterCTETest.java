@@ -28,7 +28,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
@@ -120,7 +120,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         new MockUp<RuleSet>() {
             @Mock
             public List<Rule> getExplorationRules() {
-                return Lists.newArrayList(new AggregateDisassemble().build());
+                return Lists.newArrayList(new AggregateStrategies().buildRules());
             }
         };
 
@@ -198,9 +198,9 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("cte1"));
         SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        SlotReference count = new SlotReference(new ExprId(14), "count()", BigIntType.INSTANCE,
+        SlotReference count = new SlotReference(new ExprId(14), "count(*)", BigIntType.INSTANCE,
                 false, ImmutableList.of());
-        Alias countAlias = new Alias(new ExprId(14), new Count(), "count()");
+        Alias countAlias = new Alias(new ExprId(14), new Count(), "count(*)");
 
         PlanChecker.from(connectContext)
                 .analyze(sql3)
@@ -340,6 +340,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testDifferenceRelationId() {
+        final Integer[] integer = {0};
         PlanChecker.from(connectContext)
                 .analyze("with s as (select * from supplier) select * from s as s1, s as s2")
                 .matchesFromRoot(
@@ -348,14 +349,17 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                             logicalSubQueryAlias(// as s1
                                 logicalSubQueryAlias(// as s
                                     logicalProject(// select * from supplier
-                                        logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                                        logicalOlapScan().when(scan -> {
+                                            integer[0] = scan.getId().asInt();
+                                            return true;
+                                        })
                                     )
                                 ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s1")),
                             logicalSubQueryAlias(
                                 logicalSubQueryAlias(
                                      logicalProject(
-                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                         logicalOlapScan().when(scan -> scan.getId().asInt() != integer[0])
                                      )
                                  ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s2"))

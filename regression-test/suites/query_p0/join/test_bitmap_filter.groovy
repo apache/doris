@@ -16,13 +16,11 @@
 // under the License.
 
 suite("test_bitmap_filter", "query_p0") {
-    def tbl1 = "bigtable"
+    def tbl1 = "test_query_db.bigtable"
     def tbl2 = "bitmap_table"
-    def tbl3 = "baseall"
+    def tbl3 = "test_query_db.baseall"
 
     sql "set runtime_filter_type = 16"
-    sql "set enable_vectorized_engine = true"
-    sql "use test_query_db"
     sql "DROP TABLE IF EXISTS ${tbl2}"
     sql """
     CREATE TABLE ${tbl2} (
@@ -51,4 +49,9 @@ suite("test_bitmap_filter", "query_p0") {
     qt_sql5 "select k1, k2 from ${tbl1} where k1 in (select k2 from ${tbl2}) and k2 not in (select k3 from ${tbl2}) order by k1;"
 
     qt_sql6 "select k2, count(k2) from ${tbl1} where k1 in (select k2 from ${tbl2}) group by k2 order by k2;"
+
+    test {
+        sql "select k1, k2 from ${tbl1} b1 where k1 in (select k2 from ${tbl2} b2 where b1.k2 = b2.k1) order by k1;"
+        exception "In bitmap does not support correlated subquery"
+    }
 }

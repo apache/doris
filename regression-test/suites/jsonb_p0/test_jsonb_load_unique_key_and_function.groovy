@@ -20,8 +20,6 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     def testTable = "tbl_test_jsonb_unique"
     def dataFile = "test_jsonb_unique_key.csv"
 
-    sql """ set enable_vectorized_engine = true """
-
     sql "DROP TABLE IF EXISTS ${testTable}"
 
     sql """
@@ -41,6 +39,7 @@ suite("test_jsonb_unique_load_and_function", "p0") {
         
         file dataFile // import csv file
         time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition
@@ -68,6 +67,7 @@ suite("test_jsonb_unique_load_and_function", "p0") {
         set 'max_filter_ratio', '0.3'
         file dataFile // import csv file
         time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition

@@ -30,19 +30,16 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-
-    bool need_more_input_data() { return !_child_block || !_child_block->rows(); }
+    bool need_more_input_data() { return !_child_block.rows() && !_child_eos; }
 
     Status push(RuntimeState*, vectorized::Block* input_block, bool eos) override {
-        if (eos) {
+        _child_eos = eos;
+        if (input_block->rows() == 0) {
             return Status::OK();
         }
 
-        if (input_block != _child_block.get()) {
-            _child_block.reset(input_block);
-        }
         for (TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_init(_child_block.get()));
+            RETURN_IF_ERROR(fn->process_init(input_block));
         }
         RETURN_IF_ERROR(_process_next_child_row());
         return Status::OK();
@@ -53,6 +50,8 @@ public:
         reached_limit(output_block, eos);
         return Status::OK();
     }
+
+    Block* get_child_block() { return &_child_block; }
 
 private:
     Status _process_next_child_row() override;
@@ -81,7 +80,7 @@ private:
 
     Status get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
 
-    std::unique_ptr<Block> _child_block;
+    Block _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
 };

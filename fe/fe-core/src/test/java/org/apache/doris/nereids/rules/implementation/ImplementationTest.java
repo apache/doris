@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -54,7 +53,6 @@ public class ImplementationTest {
     private static final Map<String, Rule> rulesMap
             = ImmutableMap.<String, Rule>builder()
             .put(LogicalProject.class.getName(), (new LogicalProjectToPhysicalProject()).build())
-            .put(LogicalAggregate.class.getName(), (new LogicalAggToPhysicalHashAgg()).build())
             .put(LogicalJoin.class.getName(), (new LogicalJoinToHashJoin()).build())
             .put(LogicalOlapScan.class.getName(), (new LogicalOlapScanToPhysicalOlapScan()).build())
             .put(LogicalFilter.class.getName(), (new LogicalFilterToPhysicalFilter()).build())

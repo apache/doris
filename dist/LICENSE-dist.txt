@@ -883,6 +883,8 @@ The Apache Software License, Version 2.0
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
         - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
+    * velocity:
+        - org.apache.velocity:velocity-engine-core:2.3 (https://velocity.apache.org/engine/2.3/)        
     * Hive Common:
         - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
@@ -1518,9 +1520,10 @@ The Apache Software License, Version 2.0
     * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
-    * S2: 0.9.0
+    * S2: 0.10.0
     * croaringbitmap: 0.4.0
-    * parallel-hashmap: 1.33
+    * Abseil LTS 20220623
+    * parallel-hashmap: 1.3.8
     * orc: 1.7.2
     * cctz: 2.3
     * aws sdk: 1.9.211

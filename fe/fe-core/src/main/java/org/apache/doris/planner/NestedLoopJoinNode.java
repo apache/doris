@@ -176,6 +176,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (vJoinConjunct != null) {
             msg.nested_loop_join_node.setVjoinConjunct(vJoinConjunct.treeToThrift());
         }
+        msg.nested_loop_join_node.setIsMark(innerRef != null && innerRef.isMark());
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 // TODO: Enable it after we support new optimizers
@@ -244,7 +245,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (!runtimeFilters.isEmpty()) {
             output.append(detailPrefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(true));
-            output.append("isOutputLeftSideOnly: ").append(isOutputLeftSideOnly).append("\n");
+            output.append(detailPrefix).append("is output left side only: ").append(isOutputLeftSideOnly).append("\n");
         }
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         // todo unify in plan node

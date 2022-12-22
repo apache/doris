@@ -42,24 +42,20 @@ public class BitmapUnionCount extends AggregateFunction
         super("bitmap_union_count", arg0);
     }
 
-    public BitmapUnionCount(AggregateParam aggregateParam, Expression arg0) {
-        super("bitmap_union_count", aggregateParam, arg0);
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(BitmapType.INSTANCE);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return ImmutableList.of(BitmapType.INSTANCE);
+    public BitmapUnionCount withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
     }
 
     @Override
     public BitmapUnionCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnionCount(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public BitmapUnionCount withAggregateParam(AggregateParam aggregateParam) {
-        return new BitmapUnionCount(aggregateParam, child());
+        return new BitmapUnionCount(children.get(0));
     }
 
     @Override

@@ -23,12 +23,6 @@ options { tokenVocab = DorisLexer; }
 
 @members {
   /**
-   * When false, INTERSECT is given the greater precedence over the other set
-   * operations (UNION, EXCEPT and MINUS) as per the SQL standard.
-   */
-  public boolean legacy_setops_precedence_enabled = false;
-
-  /**
    * When false, a literal with an exponent would be converted into
    * double type rather than decimal type.
    */
@@ -37,7 +31,7 @@ options { tokenVocab = DorisLexer; }
   /**
    * When true, the behavior of keywords follows ANSI SQL standard.
    */
-  public boolean SQL_standard_keyword_behavior = false;
+  public boolean SQL_standard_keyword_behavior = true;
 }
 
 multiStatements
@@ -49,7 +43,7 @@ singleStatement
     ;
 
 statement
-    : explain? cte? query                           #statementDefault
+    : explain? query                           #statementDefault
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
@@ -72,11 +66,18 @@ planType
 
 //  -----------------Query-----------------
 query
-    : queryTerm queryOrganization
+    : cte? queryTerm queryOrganization
     ;
 
 queryTerm
     : queryPrimary                                                                       #queryTermDefault
+    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
+      setQuantifier? right=queryTerm                                                     #setOperation
+    ;
+
+setQuantifier
+    : DISTINCT
+    | ALL
     ;
 
 queryPrimary
@@ -127,7 +128,13 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN right=relationPrimary joinCriteria?
+    : (joinType) JOIN joinHint? right=relationPrimary joinCriteria?
+    ;
+
+// Just like `opt_plan_hints` in legacy CUP parser.
+joinHint
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketStyleHint
+    | HINT_START identifier HINT_END                                  #commentStyleHint
     ;
 
 aggClause
@@ -241,6 +248,8 @@ expression
 booleanExpression
     : NOT booleanExpression                                         #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN        #is_not_null_pred
     | valueExpression predicate?                                    #predicated
     | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
@@ -256,9 +265,10 @@ predicate
 
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
-    | operator=(MINUS | PLUS) valueExpression                                                #arithmeticUnary
+    | operator=(MINUS | PLUS | TILDE) valueExpression                                        #arithmeticUnary
     | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression       #arithmeticBinary
-    | left=valueExpression operator=(PLUS | MINUS) right=valueExpression                     #arithmeticBinary
+    | left=valueExpression operator=(PLUS | MINUS | DIV | HAT | PIPE | AMPERSAND)
+                           right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
@@ -275,6 +285,18 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
+    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_add
+    | name=(SUBDATE | DAYS_SUB | DATE_SUB)
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_sub
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
@@ -371,6 +393,7 @@ number
 ansiNonReserved
 //--ANSI-NON-RESERVED-START
     : ADD
+    | ADDDATE
     | AFTER
     | ALTER
     | ANALYZE
@@ -409,11 +432,14 @@ ansiNonReserved
     | DATABASE
     | DATABASES
     | DATE
-    | DATEADD
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
     | DAY
+    | DAYS_ADD
+    | DAYS_SUB
+    | DATE_ADD
+    | DATE_SUB
     | DBPROPERTIES
     | DEFINED
     | DELETE
@@ -443,6 +469,7 @@ ansiNonReserved
     | FUNCTIONS
     | GLOBAL
     | GROUPING
+    | GRAPH
     | HOUR
     | IF
     | IGNORE
@@ -453,12 +480,15 @@ ansiNonReserved
     | INPUTFORMAT
     | INSERT
     | INTERVAL
+    | ISNULL
     | ITEMS
     | KEYS
     | LAST
     | LAZY
     | LIKE
     | ILIKE
+    | IS_NOT_NULL_PRED
+    | IS_NULL_PRED
     | LIMIT
     | OFFSET
     | LINES
@@ -498,6 +528,7 @@ ansiNonReserved
     | PIVOT
     | PLACING
     | PLAN
+    | POLICY
     | POSITION
     | PRECEDING
     | PRINCIPALS
@@ -545,6 +576,7 @@ ansiNonReserved
     | STORED
     | STRATIFY
     | STRUCT
+    | SUBDATE
     | SUBSTR
     | SUBSTRING
     | SUM
@@ -576,6 +608,7 @@ ansiNonReserved
     | UPDATE
     | USE
     | VALUES
+    | VERBOSE
     | VERSION
     | VIEW
     | VIEWS
@@ -670,7 +703,6 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
-    | DATEADD
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
@@ -686,6 +718,7 @@ nonReserved
     | DIRECTORY
     | DISTINCT
     | DISTRIBUTE
+    | DIV
     | DROP
     | ELSE
     | END

@@ -76,8 +76,8 @@ public class CascadesContext {
 
     private List<Table> tables = null;
 
-    public CascadesContext(Memo memo, StatementContext statementContext) {
-        this(memo, statementContext, new CTEContext());
+    public CascadesContext(Memo memo, StatementContext statementContext, PhysicalProperties requestProperties) {
+        this(memo, statementContext, new CTEContext(), requestProperties);
     }
 
     /**
@@ -86,20 +86,22 @@ public class CascadesContext {
      * @param memo {@link Memo} reference
      * @param statementContext {@link StatementContext} reference
      */
-    public CascadesContext(Memo memo, StatementContext statementContext, CTEContext cteContext) {
+    public CascadesContext(Memo memo, StatementContext statementContext,
+            CTEContext cteContext, PhysicalProperties requireProperties) {
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.cteContext = cteContext;
     }
 
-    public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
-        return new CascadesContext(new Memo(initPlan), statementContext);
+    public static CascadesContext newContext(StatementContext statementContext,
+            Plan initPlan, PhysicalProperties requireProperties) {
+        return new CascadesContext(new Memo(initPlan), statementContext, requireProperties);
     }
 
     public NereidsAnalyzer newAnalyzer() {
@@ -328,7 +330,7 @@ public class CascadesContext {
             this.cascadesContext = cascadesContext;
             cascadesContext.extractTables(plan);
             for (Table table : cascadesContext.tables) {
-                if (!table.tryReadLock(1, TimeUnit.SECONDS)) {
+                if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));
                 }
                 locked.push(table);

@@ -192,6 +192,7 @@ public:
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
     }
+    bool stopped() { return _stopped; }
 
 private:
     // Instance should be inited from `static open()`
@@ -315,6 +316,7 @@ private:
     bool _is_all_cluster_id_exist;
 
     static StorageEngine* _s_instance;
+    bool _stopped;
 
     std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func

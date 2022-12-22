@@ -348,7 +348,7 @@ There are two ways to configure BE configuration items:
 * Type: int
 * Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../../advanced/variables).
   - When the concurrency cannot be improved in high concurrency scenarios, try to reduce this value and observe the impact.
-* Default value: 1024
+* Default value: 48
 
 #### `doris_scan_range_row_count`
 
@@ -366,6 +366,12 @@ There are two ways to configure BE configuration items:
 
 * Description: The maximum number of data rows returned by each scanning thread in a single execution
 * Default value: 16384
+
+#### `doris_scanner_row_bytes`
+
+* Description: single read execute fragment row bytes
+    - Note: If there are too many columns in the table, you can adjust this config if you encounter a `select *` stuck
+* Default value: 10485760
 
 #### `doris_scanner_thread_pool_queue_size`
 

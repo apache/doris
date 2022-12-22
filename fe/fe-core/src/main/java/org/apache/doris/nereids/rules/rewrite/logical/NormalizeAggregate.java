@@ -23,22 +23,18 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -56,100 +52,86 @@ import java.util.stream.Collectors;
  * After rule:
  * Project(k1#1, Alias(SR#9)#4, Alias(k1#1 + 1)#5, Alias(SR#10))#6, Alias(SR#11))#7, Alias(SR#10 + 1)#8)
  * +-- Aggregate(keys:[k1#1, SR#9], outputs:[k1#1, SR#9, Alias(SUM(v1#3))#10, Alias(SUM(v1#3 + 1))#11])
- * +-- Project(k1#1, Alias(K2#2 + 1)#9, v1#3)
+ *   +-- Project(k1#1, Alias(K2#2 + 1)#9, v1#3)
  * <p>
  * More example could get from UT {NormalizeAggregateTest}
  */
-public class NormalizeAggregate extends OneRewriteRuleFactory {
+public class NormalizeAggregate extends OneRewriteRuleFactory implements NormalizeToSlot {
     @Override
     public Rule build() {
         return logicalAggregate().whenNot(LogicalAggregate::isNormalized).then(aggregate -> {
-            // substitution map used to substitute expression in aggregate's output to use it as top projections
-            Map<Expression, Expression> substitutionMap = Maps.newHashMap();
-            List<Expression> keys = aggregate.getGroupByExpressions();
-            List<NamedExpression> newOutputs = Lists.newArrayList();
+            // push expression to bottom project
+            Set<Alias> existsAliases = ExpressionUtils.collect(
+                    aggregate.getOutputExpressions(), Alias.class::isInstance);
+            Set<Expression> needToSlots = collectGroupByAndArgumentsOfAggregateFunctions(aggregate);
+            NormalizeToSlotContext groupByAndArgumentToSlotContext =
+                    NormalizeToSlotContext.buildContext(existsAliases, needToSlots);
+            Set<NamedExpression> bottomProjects =
+                    groupByAndArgumentToSlotContext.pushDownToNamedExpression(needToSlots);
+            Plan normalizedChild = bottomProjects.isEmpty()
+                    ? aggregate.child()
+                    : new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
 
-            // keys
-            Map<Boolean, List<Expression>> partitionedKeys = keys.stream()
-                    .collect(Collectors.groupingBy(SlotReference.class::isInstance));
-            List<Expression> newKeys = Lists.newArrayList();
-            List<NamedExpression> bottomProjections = Lists.newArrayList();
-            if (partitionedKeys.containsKey(false)) {
-                // process non-SlotReference keys
-                newKeys.addAll(partitionedKeys.get(false).stream()
-                        .map(e -> new Alias(e, e.toSql()))
-                        .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
-                        .peek(bottomProjections::add)
-                        .map(Alias::toSlot)
-                        .collect(Collectors.toList()));
-            }
-            if (partitionedKeys.containsKey(true)) {
-                // process SlotReference keys
-                partitionedKeys.get(true).stream()
-                        .map(SlotReference.class::cast)
-                        .peek(s -> substitutionMap.put(s, s))
-                        .peek(bottomProjections::add)
-                        .forEach(newKeys::add);
-            }
-            // add all necessary key to output
-            substitutionMap.entrySet().stream()
-                    .filter(kv -> aggregate.getOutputExpressions().stream()
-                            .anyMatch(e -> e.anyMatch(kv.getKey()::equals)))
-                    .map(Entry::getValue)
-                    .map(NamedExpression.class::cast)
-                    .forEach(newOutputs::add);
+            // begin normalize aggregate
 
-            // if we generate bottom, we need to generate to project too.
-            // output
-            List<NamedExpression> outputs = aggregate.getOutputExpressions();
-            Map<Boolean, List<NamedExpression>> partitionedOutputs = outputs.stream()
-                    .collect(Collectors.groupingBy(e -> e.anyMatch(AggregateFunction.class::isInstance)));
+            // replace groupBy and arguments of aggregate function to slot, may be this output contains
+            // some expression on the aggregate functions, e.g. `sum(value) + 1`, we should replace
+            // the sum(value) to slot and move the `slot + 1` to the upper project later.
+            List<NamedExpression> normalizeOutputPhase1 = groupByAndArgumentToSlotContext
+                    .normalizeToUseSlotRef(aggregate.getOutputExpressions());
+            Set<AggregateFunction> normalizedAggregateFunctions =
+                    ExpressionUtils.collect(normalizeOutputPhase1, AggregateFunction.class::isInstance);
 
-            boolean needBottomProjects = partitionedKeys.containsKey(false);
-            if (partitionedOutputs.containsKey(true)) {
-                // process expressions that contain aggregate function
-                Set<AggregateFunction> aggregateFunctions = partitionedOutputs.get(true).stream()
-                        .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
-                        .collect(Collectors.toSet());
+            existsAliases = ExpressionUtils.collect(normalizeOutputPhase1, Alias.class::isInstance);
 
-                // replace all non-slot expression in aggregate functions children.
-                for (AggregateFunction aggregateFunction : aggregateFunctions) {
-                    List<Expression> newChildren = Lists.newArrayList();
-                    for (Expression child : aggregateFunction.getArguments()) {
-                        if (child instanceof SlotReference || child instanceof Literal) {
-                            newChildren.add(child);
-                            if (child instanceof SlotReference) {
-                                bottomProjections.add((SlotReference) child);
-                            }
-                        } else {
-                            needBottomProjects = true;
-                            Alias alias = new Alias(child, child.toSql());
-                            bottomProjections.add(alias);
-                            newChildren.add(alias.toSlot());
-                        }
-                    }
-                    AggregateFunction newFunction = (AggregateFunction) aggregateFunction.withChildren(newChildren);
-                    Alias alias = new Alias(newFunction, newFunction.toSql());
-                    newOutputs.add(alias);
-                    substitutionMap.put(aggregateFunction, alias.toSlot());
-                }
-            }
+            // now reuse the exists alias for the aggregate functions,
+            // or create new alias for the aggregate functions
+            NormalizeToSlotContext aggregateFunctionToSlotContext =
+                    NormalizeToSlotContext.buildContext(existsAliases, normalizedAggregateFunctions);
 
-            // assemble
-            LogicalPlan root = aggregate.child();
-            if (needBottomProjects) {
-                root = new LogicalProject<>(bottomProjections, root);
-            }
-            root = new LogicalAggregate<>(newKeys, newOutputs, aggregate.isDisassembled(),
-                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(),
-                    aggregate.getSourceRepeat(), root);
-            List<NamedExpression> projections = outputs.stream()
-                    .map(e -> ExpressionUtils.replace(e, substitutionMap))
-                    .map(NamedExpression.class::cast)
-                    .collect(Collectors.toList());
-            root = new LogicalProject<>(projections, root);
+            Set<NamedExpression> normalizedAggregateFunctionsWithAlias =
+                    aggregateFunctionToSlotContext.pushDownToNamedExpression(normalizedAggregateFunctions);
 
-            return root;
+            List<Slot> normalizedGroupBy =
+                    (List) groupByAndArgumentToSlotContext.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
+
+            // we can safely add all groupBy and aggregate functions to output, because we will
+            // add a project on it, and the upper project can protect the scope of visible of slot
+            List<NamedExpression> normalizedAggregateOutput = ImmutableList.<NamedExpression>builder()
+                    .addAll(normalizedGroupBy)
+                    .addAll(normalizedAggregateFunctionsWithAlias)
+                    .build();
+
+            LogicalAggregate<Plan> normalizedAggregate = aggregate.withNormalized(
+                    (List) normalizedGroupBy, normalizedAggregateOutput, normalizedChild);
+
+            // replace aggregate function to slot
+            List<NamedExpression> upperProjects =
+                    aggregateFunctionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
+            return new LogicalProject<>(upperProjects, normalizedAggregate);
         }).toRule(RuleType.NORMALIZE_AGGREGATE);
+    }
+
+    private Set<Expression> collectGroupByAndArgumentsOfAggregateFunctions(LogicalAggregate<? extends Plan> aggregate) {
+        // 2 parts need push down:
+        // groupingByExpr, argumentsOfAggregateFunction
+
+        Set<Expression> groupingByExpr = ImmutableSet.copyOf(aggregate.getGroupByExpressions());
+
+        Set<AggregateFunction> aggregateFunctions = ExpressionUtils.collect(
+                aggregate.getOutputExpressions(), AggregateFunction.class::isInstance);
+
+        ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
+                .flatMap(function -> function.getArguments().stream())
+                .collect(ImmutableSet.toImmutableSet());
+
+        ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()
+                // group by should be pushed down, e.g. group by (k + 1),
+                // we should push down the `k + 1` to the bottom plan
+                .addAll(groupingByExpr)
+                // e.g. sum(k + 1), we should push down the `k + 1` to the bottom plan
+                .addAll(argumentsOfAggregateFunction)
+                .build();
+        return needPushDown;
     }
 }

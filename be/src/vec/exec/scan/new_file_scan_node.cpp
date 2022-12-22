@@ -17,10 +17,7 @@
 
 #include "vec/exec/scan/new_file_scan_node.h"
 
-#include "vec/columns/column_const.h"
-#include "vec/exec/scan/new_olap_scanner.h"
 #include "vec/exec/scan/vfile_scanner.h"
-#include "vec/functions/in.h"
 
 namespace doris::vectorized {
 

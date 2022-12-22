@@ -24,6 +24,13 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.Maps;
+
+import java.util.Map;
+import javax.annotation.concurrent.GuardedBy;
+
 /**
  * Statement context for nereids
  */
@@ -36,6 +43,9 @@ public class StatementContext {
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
+
+    @GuardedBy("this")
+    private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 
     private StatementBase parsedStatement;
 
@@ -78,5 +88,15 @@ public class StatementContext {
 
     public void setParsedStatement(StatementBase parsedStatement) {
         this.parsedStatement = parsedStatement;
+    }
+
+    /** getOrRegisterCache */
+    public synchronized <T> T getOrRegisterCache(String key, Supplier<T> cacheSupplier) {
+        Supplier<T> supplier = (Supplier<T>) contextCacheMap.get(key);
+        if (supplier == null) {
+            contextCacheMap.put(key, (Supplier<Object>) Suppliers.memoize(cacheSupplier));
+            supplier = cacheSupplier;
+        }
+        return supplier.get();
     }
 }

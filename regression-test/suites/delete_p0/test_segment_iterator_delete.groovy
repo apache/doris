@@ -46,29 +46,25 @@ suite("test_segment_iterator_delete") {
     // delete first key
     sql """delete from ${tableName} where c1 = 1;"""
     sql """INSERT INTO ${tableName} VALUES (4,4,4)"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
     // delete second key
     sql """delete from ${tableName} where c2 = 2;"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
     // delete by multi columns
     sql """INSERT INTO ${tableName} VALUES (5,5,5)"""
     sql """INSERT INTO ${tableName} VALUES (6,6,6)"""
     sql """delete from ${tableName} where c1 = 5 and c2=5;"""
     sql """delete from ${tableName} where c1 = 5 and c2=6;"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
 
     // delete by value columns
     sql """INSERT INTO ${tableName} VALUES (7,7,7)"""
     sql """INSERT INTO ${tableName} VALUES (8,8,8)"""
     sql """delete from ${tableName} where c3 = 7;"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
 
     sql """drop table ${tableName} force"""
@@ -86,26 +82,23 @@ suite("test_segment_iterator_delete") {
     // delete first key
     sql """delete from ${tableName} where c1 = 1;"""
     sql """INSERT INTO ${tableName} VALUES (4,4,4)"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
     // delete second key
     sql """delete from ${tableName} where c2 = 2;"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
     // delete by multi columns
     sql """INSERT INTO ${tableName} VALUES (5,5,5)"""
     sql """INSERT INTO ${tableName} VALUES (6,6,6)"""
     sql """delete from ${tableName} where c1 = 5 and c2=5;"""
     sql """delete from ${tableName} where c1 = 5 and c2=6;"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
+    order_qt_sql """select * from ${tableName};"""
 
     sql """drop table ${tableName} force"""
 
     // delete ColumnDictionary
     sql """INSERT INTO ${tableName_dict} VALUES(1, 'dddd', 'adgs'), (1, 'SSS', 'sk6S0'), (1, 'ttt', 'zdges');"""
     sql """delete from ${tableName_dict} where character_key < "sk6S0";"""
-    order_qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName_dict} order by tinyint_key, char_50_key;"""
+    order_qt_sql """select * from ${tableName_dict} order by tinyint_key, char_50_key;"""
 }

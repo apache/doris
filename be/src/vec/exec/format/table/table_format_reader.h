@@ -29,6 +29,7 @@ namespace doris::vectorized {
 class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(GenericReader* file_format_reader);
+    ~TableFormatReader() override = default;
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
         return _file_format_reader->get_next_block(block, read_rows, eof);
     }
@@ -37,7 +38,7 @@ public:
         return _file_format_reader->get_columns(name_to_type, missing_cols);
     }
 
-    virtual void filter_rows() = 0;
+    virtual void filter_rows(const TFileRangeDesc& range) = 0;
 
 protected:
     std::string _table_format;                          // hudi, iceberg

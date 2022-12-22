@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
@@ -57,7 +58,7 @@ public class PlanOutputTest {
     @Test
     public void testLazyComputeOutput() {
         // not throw exception when create new UnboundRelation
-        UnboundRelation relationPlan = new UnboundRelation(ImmutableList.of("a"));
+        UnboundRelation relationPlan = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("a"));
 
         try {
             // throw exception when getOutput
@@ -85,7 +86,7 @@ public class PlanOutputTest {
     @Test
     public void testPhysicalPlanMustHaveLogicalProperties() {
         Assertions.assertThrows(NullPointerException.class, () ->
-                new PhysicalRelation(RelationId.createGenerator().getNextId(),
+                new PhysicalRelation(RelationUtil.newRelationId(),
                         PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
                     @Override
                     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {

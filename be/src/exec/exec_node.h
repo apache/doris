@@ -44,7 +44,6 @@ class RowBatch;
 class RuntimeState;
 class TPlan;
 class TupleRow;
-class DataSink;
 class MemTracker;
 
 namespace vectorized {
@@ -61,9 +60,6 @@ class OperatorBase;
 using std::string;
 using std::stringstream;
 using std::vector;
-using std::map;
-using std::lock_guard;
-using std::mutex;
 
 // Superclass of all executor nodes.
 // All subclasses need to make sure to check RuntimeState::is_cancelled()
@@ -116,7 +112,9 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status get_next_after_projects(
+            RuntimeState* state, vectorized::Block* block, bool* eos,
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn);
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
@@ -196,7 +194,7 @@ public:
     // This improve is cautious, we ensure the correctness firstly.
     void try_do_aggregate_serde_improve();
 
-    typedef bool (*EvalConjunctsFn)(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
+    using EvalConjunctsFn = bool (*)(ExprContext* const*, int, TupleRow*);
     // Evaluate exprs over row.  Returns true if all exprs return true.
     // TODO: This doesn't use the vector<Expr*> signature because I haven't figured
     // out how to deal with declaring a templated std:vector type in IR
@@ -226,6 +224,9 @@ public:
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
+    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
+    // and add block rows for profile
+    void reached_limit(vectorized::Block* block, bool* eos);
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
@@ -262,10 +263,6 @@ protected:
     // 1. clear mem of valid column get from child, make sure child can reuse the mem
     // 2. delete and release the column which create by function all and other reason
     void release_block_memory(vectorized::Block& block, uint16_t child_idx = 0);
-
-    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
-    // and add block rows for profile
-    void reached_limit(vectorized::Block* block, bool* eos);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);

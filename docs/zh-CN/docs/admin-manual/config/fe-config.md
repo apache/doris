@@ -989,6 +989,12 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 是否开启向量化导入
 
+#### `enable_new_load_scan_node`
+
+默认值：false
+
+是否开启新的 file scan node
+
 #### `default_max_filter_ratio`
 
 默认值：0
@@ -2225,17 +2231,6 @@ OlapTable在做schema change时，允许的最大副本数，副本数过大会�
 
 ### 外部表
 
-#### `enable_multi_catalog`
-
-默认值：false
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-是否开启 multi catalog 功能，默认关闭
-后续版本可能会默认开启 multi catalog， 此配置将被删除
-
 #### `file_scan_node_split_num`
 
 默认值：128
@@ -2577,3 +2572,13 @@ SmallFileMgr 中存储的最大文件数
 #### `proxy_auth_enable`
 
 默认值：false
+
+#### `enable_func_pushdown`
+
+默认值：true
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+在ODBC、JDBC的MYSQL外部表查询时，是否将带函数的过滤条件下推到MYSQL中执行

@@ -230,7 +230,7 @@ This is helpful when you try to stop the Master FE for a relatively long time fo
 
 #### `meta_delay_toleration_second`
 
-Default：300 （5分钟）
+Default：300 （5 min）
 
 Non-master FE will stop offering service  if meta data delay gap exceeds *meta_delay_toleration_second*
 
@@ -989,6 +989,12 @@ Default: true
 
 Whether to enable vectorized load
 
+#### `enable_new_load_scan_node`
+
+Default: false
+
+Whether to enable file scan node
+
 #### `default_max_filter_ratio`
 
 Default：0
@@ -1362,7 +1368,7 @@ Default broker load timeout
 
 #### `spark_load_default_timeout_second`
 
-Default：86400  (1 Day)
+Default：86400  (1 day)
 
 IsMutable：true
 
@@ -1372,7 +1378,7 @@ Default spark load timeout
 
 #### `hadoop_load_default_timeout_second`
 
-Default：86400 * 3   (3 Day)
+Default：86400 * 3   (3 day)
 
 IsMutable：true
 
@@ -1451,7 +1457,7 @@ This is also used when waiting for publish tasks
 
 #### `label_keep_max_second`
 
-Default：`3 * 24 * 3600`  (3 days)
+Default：`3 * 24 * 3600`  (3 day)
 
 IsMutable：true
 
@@ -2081,7 +2087,7 @@ MasterOnly：true
 
 #### `catalog_trash_expire_second`
 
-Default：86400L (1day)
+Default：86400L (1 day)
 
 IsMutable：true
 
@@ -2091,7 +2097,7 @@ After dropping database(table/partition), you can recover it by using RECOVER st
 
 #### `storage_cooldown_second`
 
-Default：`30 * 24 * 3600L`  （30 days）
+Default：`30 * 24 * 3600L`  （30 day）
 
 When create a table(or partition), you can specify its storage medium(HDD or SSD). If set to SSD, this specifies the default duration that tablets will stay on SSD.  After that, tablets will be moved to HDD automatically.  You can set storage cooldown time in CREATE TABLE stmt.
 
@@ -2205,7 +2211,7 @@ Whether it is a configuration item unique to the Master FE node: true
 
 #### `history_job_keep_max_second`
 
-Default：`7 * 24 * 3600`   （7 day）
+Default：`7 * 24 * 3600` （7 day）
 
 IsMutable：true
 
@@ -2224,17 +2230,6 @@ MasterOnly：true
 In order not to wait too long for create table(index), set a max timeout.
 
 ### External Table
-
-#### `enable_multi_catalog`
-
-Default：false
-
-IsMutable：true
-
-MasterOnly：true
-
-Whether to enable the multi catalog function, it is disabled by default. 
-Subsequent versions may enable multi catalog by default, and this configuration will be deleted
 
 #### `file_scan_node_split_num`
 
@@ -2526,7 +2521,7 @@ This threshold is to avoid piling up too many report task in FE, which may cause
 
 #### `backup_job_default_timeout_ms`
 
-Default：86400 * 1000  (1day)
+Default：86400 * 1000  (1 day)
 
 IsMutable：true
 
@@ -2577,3 +2572,13 @@ Default：x@8
 #### `proxy_auth_enable`
 
 Default：false
+
+#### `enable_func_pushdown`
+
+Default：true
+
+IsMutable：true
+
+MasterOnly：false
+
+Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables

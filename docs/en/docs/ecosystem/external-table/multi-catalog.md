@@ -85,12 +85,32 @@ The following example is used to create a Catalog named hive to connect the spec
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hadoop.username' = 'hive'
-    'dfs.nameservices'='service1',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+If you want to connect to a Hive MetaStore with kerberos authentication, you can do like this:
+
+```
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.sasl.enabled' = 'true',
+    'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes. service1'='nn1,nn2',
-    'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
-    'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
+    'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
 );
 ```
 
@@ -571,7 +591,7 @@ The privilege management of Doris provides an extension to the Cataloig level. F
 
 Metadata changes of external data sources, such as creating, dropping tables, adding or dropping columns, etc., will not be synchronized to Doris.
 
-Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) command.
+Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
 Automatic synchronization of metadata will be supported soon.
 

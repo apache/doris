@@ -169,6 +169,7 @@ PROPERTIES (
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
+| BIT(1)   | BOOLEAN  |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
@@ -205,7 +206,7 @@ PROPERTIES (
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
-|   REAL   |   FLOAT  |
+|   REAL   |   DOUBLE |
 |   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 

@@ -1,4 +1,3 @@
-set enable_vectorized_engine=true;
 DROP TABLE IF EXISTS array_element_test;
 CREATE TABLE IF NOT EXISTS array_element_test (x int, arr array<int>, id int) ENGINE = Olap DUPLICATE KEY(x) DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES("replication_num" = "1");;
 insert into array_element_test VALUES (1, [11,12,13], 2), (2, [11,12], 3), (3, [11,12,13], -1), (4, [11,12], -2), (5, [11,12], -3), (6, [11], 0);

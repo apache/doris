@@ -16,8 +16,6 @@
 // under the License.
 
 suite("cte") {
-
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
 
     sql "DROP VIEW IF EXISTS cte_v1"
@@ -214,6 +212,25 @@ suite("cte") {
         SELECT *
         FROM cte1 JOIN cte2
         ON cte1.sk = cte2.sk
+    """
+
+    order_qt_cte12 """
+            WITH t1 AS (
+                WITH t AS (
+                    SELECT 
+                        s_suppkey
+                    FROM 
+                        supplier
+                ) 
+                    SELECT 
+                        s_suppkey
+                    FROM
+                    t
+            )
+            SELECT 
+              *
+            FROM t1;
+     
     """
 
     test {

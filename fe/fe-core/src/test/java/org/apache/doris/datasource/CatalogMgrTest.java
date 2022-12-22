@@ -36,7 +36,6 @@ import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -69,7 +68,6 @@ public class CatalogMgrTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        Config.enable_multi_catalog = true;
         FeConstants.runningUnitTest = true;
         mgr = Env.getCurrentEnv().getCatalogMgr();
 

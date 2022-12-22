@@ -50,37 +50,12 @@ suite("test_hive_other", "p0") {
     }
 
 
-    def set_be_config = { ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            // No need to set this config anymore, but leave this code sample here
-            // StringBuilder setConfigCommand = new StringBuilder();
-            // setConfigCommand.append("curl -X POST http://")
-            // setConfigCommand.append(backend[2])
-            // setConfigCommand.append(":")
-            // setConfigCommand.append(backend[5])
-            // setConfigCommand.append("/api/update_config?")
-            // String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=true"
-            // logger.info(command1)
-            // String command2 = setConfigCommand.toString() + "enable_new_file_scanner=true"
-            // logger.info(command2)
-            // def process1 = command1.execute()
-            // int code = process1.waitFor()
-            // assertEquals(code, 0)
-            // def process2 = command2.execute()
-            // code = process1.waitFor()
-            // assertEquals(code, 0)
-        }
-    }
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
+        String hdfs_port = context.config.otherConfigs.get("hdfs_port")
         String catalog_name = "hive_test_other"
-        set_be_config.call()
 
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists ${catalog_name}"""
         sql """
             create catalog ${catalog_name} properties (
@@ -88,6 +63,17 @@ suite("test_hive_other", "p0") {
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );
             """
+
+        // test user's grants on external catalog
+        sql """drop user if exists ext_catalog_user"""
+        sql """create user ext_catalog_user identified by '12345'"""
+        sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
+        sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
+        connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
+            order_qt_ext_catalog_grants """show databases from ${catalog_name}"""
+        }
+        sql """drop user ext_catalog_user"""
+
         sql """switch ${catalog_name}"""
         sql """use `default`"""
         // order_qt_show_tables """show tables"""
@@ -100,7 +86,51 @@ suite("test_hive_other", "p0") {
         // order_qt_show_tables2 """show tables"""
         q01()
         sql """refresh table `default`.table_with_vertical_line"""
-        order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""        
+        order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
+
+        // external table
+        sql """switch internal"""
+        sql """drop database if exists external_hive_table_test"""
+        sql """create database external_hive_table_test"""
+        sql """use external_hive_table_test"""
+        sql """drop table if exists external_hive_student"""
+
+        sql """
+            create external table `external_hive_student` (
+                `id` varchar(100),
+                `name` varchar(100),
+                `age` int,
+                `gender` varchar(100),
+                `addr` varchar(100),
+                `phone` varchar(100)
+            ) ENGINE=HIVE
+            PROPERTIES
+            (
+                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}',
+                'database' = 'default',
+                'table' = 'student'
+            );
+        """
+        qt_student """select * from external_hive_student order by name;"""
+
+        // read external table
+        String csv_output_dir = UUID.randomUUID().toString()
+        sql """
+            select * from external_hive_student
+            into outfile "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_"
+            format as csv_with_names
+            properties (
+                "column_separator" = ",",
+                "line_delimiter" = "\n"
+            );
+        """
+        qt_tvf_student """
+            select * from hdfs (
+                "format" = "csv_with_names",
+                "fs.defaultFS" = "hdfs://127.0.0.1:${hdfs_port}",
+                "uri" = "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_*"
+            ) order by name;
+        """
     }
 }
 

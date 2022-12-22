@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 
@@ -153,18 +155,18 @@ public class ExecutableFunctions {
     }
 
     @ExecFunction(name = "divide", argTypes = {"DOUBLE", "DOUBLE"}, returnType = "DOUBLE")
-    public static DoubleLiteral divideDouble(DoubleLiteral first, DoubleLiteral second) {
+    public static Literal divideDouble(DoubleLiteral first, DoubleLiteral second) {
         if (second.getValue() == 0.0) {
-            return null;
+            return new NullLiteral(first.getDataType());
         }
         double result = first.getValue() / second.getValue();
         return new DoubleLiteral(result);
     }
 
     @ExecFunction(name = "divide", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
-    public static DecimalLiteral divideDecimal(DecimalLiteral first, DecimalLiteral second) {
+    public static Literal divideDecimal(DecimalLiteral first, DecimalLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return null;
+            return new NullLiteral(first.getDataType());
         }
         BigDecimal result = first.getValue().divide(second.getValue());
         return new DecimalLiteral(result);

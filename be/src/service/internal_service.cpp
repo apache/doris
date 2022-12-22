@@ -835,7 +835,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t brpc_port = request->brpc_port();
     std::string token = request->token();
     int64_t node_id = request->node_id();
-    _slave_replica_worker_pool.offer([=]() {
+    _slave_replica_worker_pool.offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
+                                      http_port, token, rowset_path, this]() {
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
         if (tablet == nullptr) {
