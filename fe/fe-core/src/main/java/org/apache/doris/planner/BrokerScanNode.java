@@ -319,13 +319,7 @@ public class BrokerScanNode extends LoadScanNode {
         brokerScanRange.setParams(params);
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
                 || brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
-            FsBroker broker = null;
-            try {
-                broker = Env.getCurrentEnv().getBrokerMgr()
-                        .getBroker(brokerDesc.getName(), selectedBackend.getHost());
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
             brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
         } else {
             brokerScanRange.setBrokerAddresses(new ArrayList<>());
