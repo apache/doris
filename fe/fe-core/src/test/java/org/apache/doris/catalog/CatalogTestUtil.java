@@ -315,13 +315,13 @@ public class CatalogTestUtil {
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsTable.HOSTS, "xxx");
-        properties.put(EsTable.INDEX, "doe");
-        properties.put(EsTable.TYPE, "doc");
-        properties.put(EsTable.PASSWORD, "");
-        properties.put(EsTable.USER, "root");
-        properties.put(EsTable.DOC_VALUE_SCAN, "true");
-        properties.put(EsTable.KEYWORD_SNIFF, "true");
+        properties.put(EsResource.HOSTS, "xxx");
+        properties.put(EsResource.INDEX, "doe");
+        properties.put(EsResource.TYPE, "doc");
+        properties.put(EsResource.PASSWORD, "");
+        properties.put(EsResource.USER, "root");
+        properties.put(EsResource.DOC_VALUE_SCAN, "true");
+        properties.put(EsResource.KEYWORD_SNIFF, "true");
         EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
                 columns, properties, partitionInfo);
         db.createTable(esTable);

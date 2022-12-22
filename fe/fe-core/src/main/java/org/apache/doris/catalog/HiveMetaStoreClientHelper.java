@@ -90,8 +90,6 @@ import java.util.stream.Collectors;
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
 
-    public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
-    public static final String DLF_TYPE = "dlf";
     public static final String COMMENT = "comment";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
@@ -146,7 +144,7 @@ public class HiveMetaStoreClientHelper {
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         IMetaStoreClient metaStoreClient = null;
-        String type = hiveConf.get(HIVE_METASTORE_TYPE);
+        String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
         try {
             if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
@@ -812,42 +810,6 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return output.toString();
-    }
-
-    public static Map<String, String> getPropertiesForDLF(String catalogName, HiveConf hiveConf) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get properties from hive-site.xml for catalog {}: {}", catalogName, hiveConf.getAllProperties());
-        }
-        Map<String, String> res = Maps.newHashMap();
-        String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
-        if (!"dlf".equalsIgnoreCase(metastoreType)) {
-            return res;
-        }
-
-        // get following properties from hive-site.xml
-        // 1. region and endpoint. eg: cn-beijing
-        String region = hiveConf.get("dlf.catalog.region");
-        if (!Strings.isNullOrEmpty(region)) {
-            // See: https://help.aliyun.com/document_detail/31837.html
-            // And add "-internal" to access oss within vpc
-            // TODO: find to way to access oss on public?
-            res.put(S3Resource.S3_REGION, "oss-" + region);
-            res.put(S3Resource.S3_ENDPOINT, "http://oss-" + region + "-internal.aliyuncs.com");
-        }
-
-        // 2. ak and sk
-        String ak = hiveConf.get("dlf.catalog.accessKeyId");
-        String sk = hiveConf.get("dlf.catalog.accessKeySecret");
-        if (!Strings.isNullOrEmpty(ak)) {
-            res.put(S3Resource.S3_ACCESS_KEY, ak);
-        }
-        if (!Strings.isNullOrEmpty(sk)) {
-            res.put(S3Resource.S3_SECRET_KEY, sk);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get properties for oss in hive-site.xml for catalog {}: {}", catalogName, res);
-        }
-        return res;
     }
 }
 
