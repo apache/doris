@@ -255,7 +255,7 @@ protected:
     // user cancel or get some errors
     std::atomic<bool> _cancelled {false};
     doris::SpinLock _cancel_msg_lock;
-    std::string _cancel_msg = "";
+    std::string _cancel_msg;
 
     // send finished means the consumer thread which send the rpc can exit
     std::atomic<bool> _send_finished {false};
