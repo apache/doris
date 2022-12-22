@@ -228,7 +228,6 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::get_next(RuntimeState* state, Block* output_block,
                                                  bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExceptNode::get_next");
-    SCOPED_TIMER(_probe_timer);
     return pull(state, output_block, eos);
 }
 
@@ -239,6 +238,7 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
+    _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
 
     // Prepare result expr lists.
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
@@ -348,6 +348,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool eos) {
+    SCOPED_TIMER(_build_timer);
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (block->rows() != 0) {
@@ -382,6 +383,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_block, bool* eos) {
+    SCOPED_TIMER(_pull_timer);
     create_mutable_cols(output_block);
     auto st = std::visit(
             [&](auto&& arg) -> Status {
@@ -411,7 +413,6 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     bool eos = false;
     while (!eos) {
         block.clear_column_data();
-        SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 child(0)->get_next_after_projects(
@@ -471,6 +472,7 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* /*state*/, int child_id,
                                                    Block* block, bool eos) {
+    SCOPED_TIMER(_probe_timer);
     CHECK(_build_finished) << "cannot sink probe data before build finished";
     if (child_id > 1) {
         CHECK(_probe_finished_children_index[child_id - 1])

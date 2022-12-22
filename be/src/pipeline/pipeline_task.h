@@ -121,6 +121,8 @@ public:
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
 
+    int pipeline_id() const { return _pipeline->_pipeline_id; }
+
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -191,6 +193,7 @@ private:
     RuntimeProfile::Counter* _sink_timer;
     RuntimeProfile::Counter* _get_block_timer;
     RuntimeProfile::Counter* _block_counts;
+    RuntimeProfile::Counter* _schedule_counts;
     MonotonicStopWatch _wait_source_watcher;
     RuntimeProfile::Counter* _wait_source_timer;
     MonotonicStopWatch _wait_sink_watcher;
