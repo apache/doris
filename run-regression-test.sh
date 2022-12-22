@@ -128,7 +128,7 @@ export MVN_CMD
 CONF_DIR="${DORIS_HOME}/regression-test/conf"
 if [[ -n "${CUSTOM_CONFIG_FILE}" ]] && [[ -f "${CUSTOM_CONFIG_FILE}" ]]; then
     CONFIG_FILE="${CUSTOM_CONFIG_FILE}"
-    echo "Using custom config file $CONFIG_FILE"
+    echo "Using custom config file ${CONFIG_FILE}"
 else
     CONFIG_FILE="${CONF_DIR}/regression-conf.groovy"
 fi
