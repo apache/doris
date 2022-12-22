@@ -465,7 +465,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
     return _send_finished ? 0 : 1;
 }
 
-void VNodeChannel::_cancel_with_msg(const std::string& msg) {
+void VNodeChannel::_cancel_with_msg(const std::string& msg) const {
     LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);

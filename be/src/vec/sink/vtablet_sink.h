@@ -60,7 +60,7 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure final : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) = default;
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -183,7 +183,7 @@ public:
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
-                     int64_t* total_add_batch_num) {
+                     int64_t* total_add_batch_num) const {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
@@ -210,7 +210,7 @@ public:
 
 protected:
     void _close_check();
-    void _cancel_with_msg(const std::string& msg);
+    void _cancel_with_msg(const std::string& msg) const;
 
     VOlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
