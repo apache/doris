@@ -192,6 +192,7 @@ public class FileGroupInfo {
             long tmpBytes = curInstanceBytes + leftBytes;
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            context.params.setFormatType(formatType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             // Assign scan range locations only for broker load.
