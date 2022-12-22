@@ -4,9 +4,18 @@ doris_test
 
 -- !select --
 ex_tb0
+ex_tb1
 
 -- !select --
 ex_tb0
+
+-- !select --
+ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb0
+ex_tb1
 
 -- !select --
 doris_test
@@ -18,10 +27,29 @@ ex_tb0
 ex_tb0
 
 -- !select --
+ex_tb0
+
+-- !select --
+ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb0
+
+-- !select --
 doris_test
 
 -- !select --
 ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb1
 
 -- !select --
 ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb0
+
