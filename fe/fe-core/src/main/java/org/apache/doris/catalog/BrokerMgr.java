@@ -128,6 +128,22 @@ public class BrokerMgr {
         }
     }
 
+    public FsBroker getAnyAliveBroker() {
+        lock.lock();
+        try {
+            for (List<FsBroker> list : brokerListMap.values()) {
+                for (FsBroker fsBroker : list) {
+                    if (fsBroker.isAlive) {
+                        return fsBroker;
+                    }
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+        return null;
+    }
+
     public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
         if (brokerName.equalsIgnoreCase(BrokerDesc.MULTI_LOAD_BROKER)) {
             return new FsBroker("127.0.0.1", 0);
