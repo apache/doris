@@ -140,8 +140,8 @@ Status VJsonScanner<JsonReader>::_open_vjson_reader() {
     if (_cur_vjson_reader != nullptr) {
         _cur_vjson_reader.reset();
     }
-    std::string json_root = "";
-    std::string jsonpath = "";
+    std::string json_root;
+    std::string jsonpath;
     bool strip_outer_array = false;
     bool num_as_string = false;
     bool fuzzy_parse = false;
