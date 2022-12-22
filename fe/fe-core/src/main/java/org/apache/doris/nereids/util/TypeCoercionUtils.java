@@ -81,7 +81,7 @@ public class TypeCoercionUtils {
     );
 
     public static final List<Function<BinaryOperator, Boolean>> typeCoercionCheckers = ImmutableList.of(
-            TypeCoercionUtils::checkCanHandleCoercionForBinaryArithmeticChildren,
+            // TypeCoercionUtils::checkCanHandleCoercionForBinaryArithmeticChildren,
             op -> childrenCanHandleTypeCoercion(op.left().getDataType(), op.right().getDataType())
     );
 
@@ -185,7 +185,7 @@ public class TypeCoercionUtils {
      */
     public static boolean checkCanHandleCoercionForBinaryArithmeticChildren(BinaryOperator binaryOperator) {
         if (!(binaryOperator instanceof BinaryArithmetic)) {
-            return false;
+            return true;
         }
 
         return binaryOperator.children().stream().filter(Expression::isLiteral).map(Literal.class::cast)
