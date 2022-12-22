@@ -133,7 +133,7 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
         _state->exec_env()->scanner_scheduler()->submit(this);
     }
     // Wait for block from queue
-    {
+    if (wait) {
         SCOPED_TIMER(_parent->_scanner_wait_batch_timer);
         _blocks_queue_added_cv.wait(l, [this]() {
             return !_blocks_queue.empty() || _is_finished || !_process_status.ok() ||
@@ -240,7 +240,7 @@ void ScannerContext::clear_and_join() {
     return;
 }
 
-bool ScannerContext::can_finish() {
+bool ScannerContext::no_schedule() {
     std::unique_lock<std::mutex> l(_transfer_lock);
     return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
 }
@@ -263,10 +263,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     }
 
     std::lock_guard<std::mutex> l(_transfer_lock);
-    // Should plus _num_scheduling_ctx before reduce _num_running_scanners
-    // because `PipScannerContext::can_finish` will check _num_running_scanners
     _num_scheduling_ctx++;
-    _num_running_scanners--;
     auto submit_st = _state->exec_env()->scanner_scheduler()->submit(this);
     if (!submit_st.ok()) {
         _num_scheduling_ctx--;
@@ -287,6 +284,8 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
         _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }
+    // In pipeline engine, doris will close scanners when `no_schedule`.
+    _num_running_scanners--;
     _ctx_finish_cv.notify_one();
 }
 

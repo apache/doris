@@ -35,10 +35,14 @@ public:
 
     void _update_block_queue_empty() override { _blocks_queue_empty = _blocks_queue.empty(); }
 
+    Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = false) override {
+        return vectorized::ScannerContext::get_block_from_queue(block, eos, false);
+    }
+
     // We should make those method lock free.
     bool done() override { return _is_finished || _should_stop || _status_error; }
-    bool can_finish() override {
-        return _num_running_scanners == 0 && _num_scheduling_ctx == 0 && _is_finished;
+    bool no_schedule() override {
+        return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
     }
     bool empty_in_queue() override { return _blocks_queue_empty; }
 
