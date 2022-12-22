@@ -19,6 +19,7 @@
 suite("test_show_where", "query") {
     String ex_db_name = "doris_test";
     String ex_tb0 = "ex_tb0";
+    String ex_tb1 = "ex_tb1";
     String catalog_name = "test_show_where_mysql_jdbc_catalog";
     try {
         sql  """ drop database if exists ${ex_db_name} """
@@ -32,17 +33,25 @@ suite("test_show_where", "query") {
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
                 PROPERTIES("replication_num" = "1");
         """
+        sql  """
+                CREATE TABLE `${ex_db_name}`.`${ex_tb1}` (
+                `id` INT NULL COMMENT "主键id",
+                `name` string NULL COMMENT "名字"
+                ) DISTRIBUTED BY HASH(id) BUCKETS 10
+                PROPERTIES("replication_num" = "1");
+        """
         sql """ use ${ex_db_name}"""
 
         qt_select "show databases where schema_name= '${ex_db_name}'"
         qt_select "show tables"
         qt_select "show tables where table_name= '${ex_tb0}'"
+        qt_select "show tables from ${ex_db_name}"
+        qt_select "show tables from internal.${ex_db_name}"
 
 
         String enabled = context.config.otherConfigs.get("enableJdbcTest")
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            sql """admin set frontend config ("enable_multi_catalog" = "true")"""
             
             sql """drop catalog if exists ${catalog_name} """
 
@@ -62,6 +71,9 @@ suite("test_show_where", "query") {
             qt_select "show databases where schema_name= '${ex_db_name}'"
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb0}'"
+            qt_select "show tables from ${ex_db_name}"
+            qt_select "show tables from internal.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${ex_db_name}"
 
 
             sql """switch internal"""
@@ -69,7 +81,9 @@ suite("test_show_where", "query") {
 
             qt_select "show databases where schema_name= '${ex_db_name}'"
             qt_select "show tables"
-            qt_select "show tables where table_name= '${ex_tb0}'"
+            qt_select "show tables where table_name= '${ex_tb1}'"
+            qt_select "show tables from internal.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${ex_db_name}"
 
         }
 
@@ -79,3 +93,4 @@ suite("test_show_where", "query") {
         try_sql("DROP CATALOG IF EXISTS `${catalog_name}`")
     }
 }
+
