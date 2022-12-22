@@ -26,6 +26,7 @@
                         "install/source-install/compilation",
                         "install/source-install/compilation-with-ldb-toolchain",
                         "install/source-install/compilation-arm",
+                        "install/source-install/compilation-win",
                         "install/source-install/compilation-mac"
                     ]
                 },
