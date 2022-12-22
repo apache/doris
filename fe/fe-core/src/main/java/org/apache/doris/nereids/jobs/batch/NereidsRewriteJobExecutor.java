@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
@@ -95,6 +96,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
+                .add(topDownBatch(ImmutableList.of(new CountDistinctRewrite())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithAggregate())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithoutAggregate())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanTablet())))
