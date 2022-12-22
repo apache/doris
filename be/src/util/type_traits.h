@@ -36,4 +36,5 @@ using is_complex = is_specialization_of<T, std::complex>;
 
 template <class T>
 inline constexpr bool is_complex_v = is_specialization_of_v<T, std::complex>;
+
 } // namespace doris
