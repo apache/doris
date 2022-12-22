@@ -414,6 +414,7 @@ public class JdbcClient {
             case "BIT":
             case "BINARY":
             case "VARBINARY":
+            case "ENUM":
                 return ScalarType.createStringType();
             default:
                 throw new JdbcClientException("Can not convert mysql data type to doris data type for type ["
