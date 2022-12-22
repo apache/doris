@@ -1061,7 +1061,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdList));
         }
-        if (!hasExprCalc(project) && (!hasPrune(project) || nonPredicate) && !projectOnAgg(project)) {
+        if (!hasExprCalc(project) && (!hasPrune(project) || (nonPredicate && inputPlanNode instanceof ScanNode))
+                && !projectOnAgg(project)) {
             List<NamedExpression> namedExpressions = project.getProjects();
             for (int i = 0; i < namedExpressions.size(); i++) {
                 NamedExpression n = namedExpressions.get(i);
