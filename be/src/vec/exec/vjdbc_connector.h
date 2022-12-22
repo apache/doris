@@ -19,8 +19,11 @@
 
 #include <jni.h>
 
+#include <string_view>
+
 #include "common/status.h"
 #include "exec/table_connector.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris {
 namespace vectorized {
@@ -65,12 +68,21 @@ private:
     Status _check_column_type();
     Status _check_type(SlotDescriptor*, const std::string& type_str);
     Status _convert_column_data(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
-                                vectorized::IColumn* column_ptr);
+                                vectorized::IColumn* column_ptr, std::string_view column_name);
+    Status _insert_column_data(JNIEnv* env, jobject jobj, const TypeDescriptor& type,
+                               vectorized::IColumn* column_ptr, std::string_view column_name);
+    Status _insert_arr_column_data(JNIEnv* env, jobject jobj, const TypeDescriptor& type, int nums,
+                                   vectorized::IColumn* column_ptr, std::string_view column_name);
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
     int64_t _jobject_to_date(JNIEnv* env, jobject jobj);
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
 
     const JdbcConnectorParam& _conn_param;
+    //java.sql.Types: https://docs.oracle.com/javase/7/docs/api/constant-values.html#java.sql.Types.INTEGER
+    std::map<int, PrimitiveType> _arr_jdbc_map {
+            {16, TYPE_BOOLEAN}, {-6, TYPE_TINYINT},    {5, TYPE_SMALLINT}, {4, TYPE_INT},
+            {-5, TYPE_BIGINT},  {12, TYPE_STRING},     {6, TYPE_FLOAT},    {8, TYPE_DOUBLE},
+            {91, TYPE_DATE},    {93, TYPE_DATETIMEV2}, {3, TYPE_DECIMALV2}};
     bool _closed;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
@@ -83,6 +95,8 @@ private:
     jmethodID _executor_has_next_id;
     jmethodID _executor_get_blocks_id;
     jmethodID _executor_get_types_id;
+    jmethodID _executor_get_arr_list_id;
+    jmethodID _executor_get_arr_type_id;
     jmethodID _executor_close_id;
     jmethodID _executor_get_list_id;
     jmethodID _executor_get_list_size_id;
