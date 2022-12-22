@@ -35,6 +35,7 @@ void PipelineTask::_init_profile() {
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
     _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
 }
 
@@ -178,6 +179,7 @@ Status PipelineTask::close() {
     }
     if (_opened) {
         COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
+        COUNTER_UPDATE(_schedule_counts, _schedule_time);
         COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
