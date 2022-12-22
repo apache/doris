@@ -117,7 +117,6 @@ set(OLAP_TEST_FILES
     olap/rowset/segment_v2/ordinal_page_index_test.cpp
     olap/rowset/segment_v2/rle_page_test.cpp
     olap/rowset/segment_v2/binary_dict_page_test.cpp
-    olap/rowset/segment_v2/segment_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
     olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
