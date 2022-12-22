@@ -24,6 +24,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -254,5 +255,48 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser1 = new NereidsParser();
         LogicalPlan logicalPlan1 = nereidsParser1.parseSingle(union1);
         System.out.println(logicalPlan1.treeString());
+    }
+
+    @Test
+    public void testJoinHint() {
+        // no hint
+        parsePlan("select * from t1 join t2 on t1.key=t2.key")
+                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
+
+        // valid hint
+        parsePlan("select * from t1 join [shuffle] t2 on t1.key=t2.key")
+                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+
+        parsePlan("select * from t1 join [  shuffle ] t2 on t1.key=t2.key")
+                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+
+        parsePlan("select * from t1 join [broadcast] t2 on t1.key=t2.key")
+                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+
+        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.key=t2.key")
+                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+
+        // invalid hint position
+        parsePlan("select * from [shuffle] t1 join t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class);
+
+        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class);
+
+        // invalid hint content
+        parsePlan("select * from t1 join [bucket] t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("Invalid join hint: bucket(line 1, pos 22)\n"
+                        + "\n"
+                        + "== SQL ==\n"
+                        + "select * from t1 join [bucket] t2 on t1.key=t2.key\n"
+                        + "----------------------^^^");
+
+        // invalid multiple hints
+        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class);
+
+        parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class);
     }
 }

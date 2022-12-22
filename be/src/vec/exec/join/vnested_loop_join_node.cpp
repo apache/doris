@@ -671,7 +671,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
 }
 
 bool VNestedLoopJoinNode::need_more_input_data() const {
-    return _need_more_input_data;
+    return _need_more_input_data and !_left_side_eos;
 }
 
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {

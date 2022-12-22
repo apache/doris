@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -62,6 +63,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
+                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .then(topJoin -> {
 
                     /* ********** init ********** */
@@ -151,7 +153,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, JoinHint.NONE,
                             a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
@@ -168,7 +170,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts,
+                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts, JoinHint.NONE,
                             left, right, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

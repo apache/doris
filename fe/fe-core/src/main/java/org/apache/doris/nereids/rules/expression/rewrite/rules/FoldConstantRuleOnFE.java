@@ -262,15 +262,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
         }
 
-        Expression defaultResult;
+        Expression defaultResult = caseWhen.getDefaultValue().isPresent() ? rewrite(caseWhen.getDefaultValue().get(),
+                context) : null;
         if (foundNewDefault) {
             defaultResult = newDefault;
-        } else {
-            defaultResult = caseWhen.getDefaultValue().orElse(Literal.of(null));
         }
-
         if (whenClauses.isEmpty()) {
-            return defaultResult;
+            return defaultResult == null ? Literal.of(null) : defaultResult;
+        }
+        if (defaultResult == null) {
+            return new CaseWhen(whenClauses);
         }
         return new CaseWhen(whenClauses, defaultResult);
     }

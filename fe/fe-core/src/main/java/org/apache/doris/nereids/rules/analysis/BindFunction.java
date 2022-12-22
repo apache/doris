@@ -130,6 +130,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     List<Expression> hashConjuncts = bind(join.getHashJoinConjuncts(), ctx.connectContext.getEnv());
                     List<Expression> otherConjuncts = bind(join.getOtherJoinConjuncts(), ctx.connectContext.getEnv());
                     return new LogicalJoin<>(join.getJoinType(), hashConjuncts, otherConjuncts,
+                            join.getHint(),
                             join.left(), join.right());
                 })
             ),

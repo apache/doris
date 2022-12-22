@@ -99,6 +99,8 @@ public class ShowDataStmt extends ShowStmt {
             // disallow external catalog
             Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
             dbName = tableName.getDb();
+        } else {
+            Util.prohibitExternalCatalog(analyzer.getDefaultCatalog(), this.getClass().getSimpleName());
         }
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);

@@ -44,7 +44,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                     LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
                     otherConditions.addAll(join.getOtherJoinConjuncts());
                     return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                            otherConditions, join.left(), join.right());
+                            otherConditions, join.getHint(), join.left(), join.right());
                 }).toRule(RuleType.PUSH_FILTER_INSIDE_JOIN);
     }
 }

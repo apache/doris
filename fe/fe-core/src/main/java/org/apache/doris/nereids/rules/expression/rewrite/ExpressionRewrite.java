@@ -157,7 +157,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return join;
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
-                        rewriteOtherJoinConjuncts, join.left(), join.right());
+                        rewriteOtherJoinConjuncts, join.getHint(), join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }
