@@ -31,6 +31,7 @@ import org.apache.commons.lang.StringUtils;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * some check need to do after analyze whole plan.
@@ -49,8 +50,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(Collectors.toSet());
         Set<Slot> childrenOutput = plan.children().stream()
-                .map(Plan::getOutput)
-                .flatMap(List::stream)
+                .flatMap(child -> Stream.concat(child.getOutput().stream(), child.getNonUserVisibleOutput().stream()))
                 .collect(Collectors.toSet());
         notFromChildren.removeAll(childrenOutput);
         notFromChildren = removeValidVirtualSlots(notFromChildren, childrenOutput);

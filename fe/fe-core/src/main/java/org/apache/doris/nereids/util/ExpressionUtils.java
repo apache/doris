@@ -44,6 +44,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -235,12 +236,20 @@ public class ExpressionUtils {
      *         Otherwise, return empty optional result.
      */
     public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
+        return extractSlotOrCastOnSlot(expr).map(Slot::getExprId);
+    }
+
+    /**
+     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     */
+    public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
         while (expr instanceof Cast) {
             expr = expr.child(0);
         }
 
         if (expr instanceof SlotReference) {
-            return Optional.of(((SlotReference) expr).getExprId());
+            return Optional.of((Slot) expr);
         } else {
             return Optional.empty();
         }
@@ -424,5 +433,14 @@ public class ExpressionUtils {
 
         // skip current expression
         cubeToGroupingSets(cubeExpressions, activeIndex + 1, currentGroupingSet, groupingSets);
+    }
+
+    /**
+     * Get input slot set from list of expressions.
+     */
+    public static Set<Slot> getInputSlotSet(Collection<? extends Expression> exprs) {
+        return exprs.stream()
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .collect(ImmutableSet.toImmutableSet());
     }
 }
