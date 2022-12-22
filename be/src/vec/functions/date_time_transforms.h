@@ -21,7 +21,10 @@
 #pragma once
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "udf/udf_internal.h"
 #include "util/binary_cast.hpp"
+#include "util/type_traits.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -209,10 +212,8 @@ struct FromUnixTimeImpl {
     static constexpr auto name = "from_unixtime";
 
     static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
-        // TODO: use default time zone, slowly and incorrect, just for test use
-        static cctz::time_zone time_zone = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
-
+                               size_t& offset, FunctionContext* context) {
+        static cctz::time_zone time_zone = context->impl()->state()->timezone_obj();
         DateType dt;
         if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
             return std::pair {offset, true};
@@ -234,7 +235,7 @@ template <typename Transform>
 struct TransformerToStringOneArgument {
     static void vector(const PaddedPODArray<typename Transform::OpArgType>& ts,
                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
-                       NullMap& null_map) {
+                       NullMap& null_map, FunctionContext* context) {
         const auto len = ts.size();
         res_data.resize(len * Transform::max_size);
         res_offsets.resize(len);
@@ -256,8 +257,8 @@ template <typename Transform>
 struct TransformerToStringTwoArgument {
     static void vector_constant(const PaddedPODArray<typename Transform::FromType>& ts,
                                 const std::string& format, ColumnString::Chars& res_data,
-                                ColumnString::Offsets& res_offsets,
-                                PaddedPODArray<UInt8>& null_map) {
+                                ColumnString::Offsets& res_offsets, PaddedPODArray<UInt8>& null_map,
+                                FunctionContext* context) {
         auto len = ts.size();
         res_offsets.resize(len);
         res_data.reserve(len * format.size() + len);
@@ -266,11 +267,17 @@ struct TransformerToStringTwoArgument {
         size_t offset = 0;
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
-            const auto [new_offset, is_null] = Transform::execute(
-                    t, StringRef(format.c_str(), format.size()), res_data, offset);
-
-            res_offsets[i] = new_offset;
-            null_map[i] = is_null;
+            if constexpr (is_specialization_of_v<Transform, FromUnixTimeImpl>) {
+                const auto [new_offset, is_null] = Transform::execute(
+                        t, StringRef(format.c_str(), format.size()), res_data, offset, context);
+                res_offsets[i] = new_offset;
+                null_map[i] = is_null;
+            } else {
+                const auto [new_offset, is_null] = Transform::execute(
+                        t, StringRef(format.c_str(), format.size()), res_data, offset);
+                res_offsets[i] = new_offset;
+                null_map[i] = is_null;
+            }
         }
     }
 };

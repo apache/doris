@@ -63,7 +63,7 @@ public:
         if (sources) {
             TransformerToStringOneArgument<Transform>::vector(
                     sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
-                    null_map->get_data());
+                    null_map->get_data(), context);
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
