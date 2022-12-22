@@ -349,7 +349,9 @@ public:
         return status;
     }
 
-    static Status OK() { return Status(); }
+    static Status OK() {
+        return Status();
+    }
 
 #define ERROR_CTOR(name, code)                                                  \
     template <typename... Args>                                                 \
@@ -386,9 +388,13 @@ public:
         return code == _code;
     }
 
-    bool ok() const { return _code == ErrorCode::OK; }
+    bool ok() const {
+        return _code == ErrorCode::OK;
+    }
 
-    bool is_blocked_by_rf() const { return _code == ErrorCode::PIP_WAIT_FOR_RF; }
+    bool is_blocked_by_rf() const {
+        return _code == ErrorCode::PIP_WAIT_FOR_RF;
+    }
 
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
@@ -419,7 +425,9 @@ public:
     /// @return A json representation of this status.
     std::string to_json() const;
 
-    int code() const { return _code; }
+    int code() const {
+        return _code;
+    }
 
     /// Clone this status and add the specified prefix to the message.
     ///
@@ -440,15 +448,21 @@ public:
     Status& append(std::string_view msg);
 
     // if(!status) or if (status) will use this operator
-    operator bool() const { return this->ok(); }
+    operator bool() const {
+        return this->ok();
+    }
 
     // Used like if (res == Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
-    bool operator==(const Status& st) const { return _code == st._code; }
+    bool operator==(const Status& st) const {
+        return _code == st._code;
+    }
 
     // Used like if (res != Status::OK())
-    bool operator!=(const Status& st) const { return _code != st._code; }
+    bool operator!=(const Status& st) const {
+        return _code != st._code;
+    }
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
@@ -487,6 +501,9 @@ inline std::string Status::to_string() const {
             return _status_;            \
         }                               \
     } while (false)
+
+#define RETURN_ERROR_IF_NON_VEC \
+    return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
 
 // End _get_next_span after last call to get_next method
 #define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \

@@ -86,11 +86,6 @@ Status VDataGenFunctionScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VDataGenFunctionScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    LOG(FATAL) << "VDataGenFunctionScanNode only support vectorized execution";
-    return Status::OK();
-}
-
 Status VDataGenFunctionScanNode::get_next(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {

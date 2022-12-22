@@ -305,10 +305,6 @@ bool VAnalyticEvalNode::can_read() {
     return true;
 }
 
-Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VAnalyticEvalNode::get_next.");
-}
-
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
                                  "VAnalyticEvalNode::get_next");

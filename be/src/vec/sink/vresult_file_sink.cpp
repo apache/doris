@@ -137,10 +137,6 @@ Status VResultFileSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status VResultFileSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VResultFileSink Node::get_next scalar");
-}
-
 Status VResultFileSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultFileSink::send");
     RETURN_IF_ERROR(_writer->append_block(*block));

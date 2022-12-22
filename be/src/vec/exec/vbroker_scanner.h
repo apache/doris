@@ -47,11 +47,6 @@ public:
 
     Status open() override;
 
-    virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
-                            bool* fill_tuple) override {
-        return Status::NotSupported("Not Implemented get next");
-    }
-
     Status get_next(Block* block, bool* eof) override;
 
     void close() override;

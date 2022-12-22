@@ -74,7 +74,6 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status send(RuntimeState* state, RowBatch* batch) override;
     Status send(RuntimeState* state, Block* block, bool eos = false) override;
 
     Status close(RuntimeState* state, Status exec_status) override;

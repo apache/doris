@@ -24,6 +24,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/parquet_scanner.h"
 #include "olap/row.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -32,7 +33,6 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
-#include "vec/exec/vparquet_scanner.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -821,9 +821,9 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     BaseScanner* scanner = nullptr;
     switch (t_scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scanner = new vectorized::VParquetScanner(
-                _runtime_state.get(), _runtime_profile, t_scan_range.params, t_scan_range.ranges,
-                t_scan_range.broker_addresses, _pre_filter_texprs, _counter.get());
+        scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
+                                     t_scan_range.ranges, t_scan_range.broker_addresses,
+                                     _pre_filter_texprs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;

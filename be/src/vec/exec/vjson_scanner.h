@@ -59,10 +59,6 @@ public:
     // Open this scanner, will initialize information needed
     Status open() override;
 
-    Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
-                    bool* fill_tuple) override {
-        return Status::NotSupported("Not Implemented get tuple");
-    }
     Status get_next(vectorized::Block* output_block, bool* eof) override;
 
     void close() override;
