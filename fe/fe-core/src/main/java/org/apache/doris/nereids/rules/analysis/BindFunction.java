@@ -75,7 +75,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 logicalProject().thenApply(ctx -> {
                     LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundExpr = bind(project.getProjects(), ctx.connectContext.getEnv());
-                    return new LogicalProject<>(boundExpr, project.child());
+                    return new LogicalProject<>(boundExpr, project.child(), project.isDistinct());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
