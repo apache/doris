@@ -1145,6 +1145,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan filter = withFilter(inputRelation, whereClause);
             SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
             LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause);
+            boolean isDistinct = (selectClause.DISTINCT() != null);
+            if (isDistinct && aggregate instanceof Aggregate) {
+                throw new ParseException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY",
+                        selectClause);
+            }
             // TODO: replace and process having at this position
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
@@ -1156,15 +1161,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     project = new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
-                        expressions, aggregate);
+                        expressions, aggregate, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, Collections.emptyList(), aggregate);
+                    project = new LogicalProject<>(projects, Collections.emptyList(), aggregate, isDistinct);
                 }
                 return new LogicalHaving<>(getExpression((havingClause.get().booleanExpression())), project);
             } else {
                 LogicalPlan having = withHaving(aggregate, havingClause);
-                return withProjection(having, selectColumnCtx, aggClause);
+                return withProjection(having, selectColumnCtx, aggClause, isDistinct);
             }
         });
     }
@@ -1280,7 +1285,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
-                                       Optional<AggClauseContext> aggCtx) {
+                                       Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
             // TODO: skip if havingClause exists
             if (aggCtx.isPresent()) {
@@ -1292,10 +1297,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
-                            expressions, input);
+                            expressions, input, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, Collections.emptyList(), input);
+                    return new LogicalProject<>(projects, Collections.emptyList(), input, isDistinct);
                 }
             }
         });

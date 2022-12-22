@@ -111,7 +111,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             ctx.cascadesContext);
                     List<NamedExpression> newOutput = flatBoundStar(adjustNullableForProjects(project, boundSlots));
                     newOutput.removeAll(exceptSlots);
-                    return new LogicalProject<>(newOutput, project.child());
+                    return new LogicalProject<>(newOutput, project.child(), project.isDistinct());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
