@@ -216,41 +216,6 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     _iterator.reset(final_iterator);
 
-    // The data in _input_block will be copied shallowly to _output_block.
-    // Therefore, for nestable fields, the _input_block can't be shared.
-    bool has_nestable_fields = false;
-    for (const auto* field : _input_schema->columns()) {
-        if (field != nullptr && field->get_sub_field_count() > 0) {
-            has_nestable_fields = true;
-            break;
-        }
-    }
-
-    // init input block
-    if (_can_reuse_schema && !has_nestable_fields) {
-        if (read_context->reuse_block == nullptr) {
-            read_context->reuse_block.reset(
-                    new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
-        }
-        _input_block = read_context->reuse_block;
-    } else {
-        _input_block.reset(
-                new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
-    }
-
-    if (!read_context->is_vec) {
-        // init input/output block and row
-        _output_block.reset(new RowBlock(read_context->tablet_schema));
-
-        RowBlockInfo output_block_info;
-        output_block_info.row_num = std::min(1024, read_context->batch_size);
-        output_block_info.null_supported = true;
-        output_block_info.column_ids = *(_context->return_columns);
-        _output_block->init(output_block_info);
-        _row.reset(new RowCursor());
-        RETURN_NOT_OK(_row->init(read_context->tablet_schema, *(_context->return_columns)));
-    }
-
     return Status::OK();
 }
 
