@@ -35,7 +35,7 @@ suite("test_not_supported_agg_fn") {
             WHERE ref_0.`PS_PARTKEY` IS NULL
             ORDER BY ref_0.`PS_COMMENT`
             """
-            exception "errCode = 2, detailMessage = Agg Function last_value(BITMAP) is not implemented"            
+            exception "errCode = 2, detailMessage = No matching function with signature: last_value(bitmap)"            
         }
     } finally {
     }
