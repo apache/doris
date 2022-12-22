@@ -24,10 +24,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
 
@@ -56,7 +58,20 @@ public class LimitPushDown implements RewriteRuleFactory {
                             return limit.withChildren(
                                     project.withChildren(
                                             pushLimitThroughJoin(limit, join)));
-                        }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_JOIN)
+                        }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_JOIN),
+
+                // limit -> union
+                logicalLimit(logicalUnion(multi()).when(union -> union.getQualifier() == Qualifier.ALL))
+                        .whenNot(Limit::hasValidOffset)
+                        .then(limit -> {
+                            LogicalUnion union = limit.child();
+                            ImmutableList<Plan> newUnionChildren = union.children()
+                                    .stream()
+                                    .map(child -> addLimit(limit, child))
+                                    .collect(ImmutableList.toImmutableList());
+                            return limit.withChildren(union.withChildren(newUnionChildren));
+                        })
+                        .toRule(RuleType.PUSH_LIMIT_THROUGH_UNION)
         );
     }
 
@@ -106,7 +121,7 @@ public class LimitPushDown implements RewriteRuleFactory {
                 return plan;
             }
         } else if (plan instanceof OneRowRelation) {
-            return pushdownLimit.getLimit() > 0 ? plan : new LogicalEmptyRelation((List) plan.getOutput());
+            return pushdownLimit.getLimit() > 0 ? plan : new LogicalEmptyRelation(plan.getOutput());
         } else if (plan instanceof EmptyRelation) {
             return plan;
         } else {
