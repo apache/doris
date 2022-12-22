@@ -317,7 +317,8 @@ public class BrokerScanNode extends LoadScanNode {
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
-        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                || brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
             FsBroker broker = null;
             try {
                 broker = Env.getCurrentEnv().getBrokerMgr()
