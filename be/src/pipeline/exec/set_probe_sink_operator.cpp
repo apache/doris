@@ -41,6 +41,7 @@ SetProbeSinkOperator<is_intersect>::SetProbeSinkOperator(OperatorBuilderBase* op
 template <bool is_intersect>
 Status SetProbeSinkOperator<is_intersect>::sink(RuntimeState* state, vectorized::Block* block,
                                                 SourceState source_state) {
+    SCOPED_TIMER(this->_runtime_profile->total_time_counter());
     return this->_node->sink_probe(state, _child_id, block, source_state == SourceState::FINISHED);
 }
 
