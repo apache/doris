@@ -50,6 +50,14 @@ suite("test_bitmap_filter", "query_p0") {
 
     qt_sql6 "select k2, count(k2) from ${tbl1} where k1 in (select k2 from ${tbl2}) group by k2 order by k2;"
 
+    qt_sql7 "select k1, k2 from (select 2 k1, 2 k2) t where k1 in (select k2 from ${tbl2}) order by 1, 2;"
+
+    qt_sql8 "select k1, k2 from (select 11 k1, 11 k2) t where k1 in (select k2 from ${tbl2}) order by 1, 2;"
+
+    qt_sql9 "select k1, k2 from (select 2 k1, 11 k2) t where k1 not in (select k2 from ${tbl2}) order by 1, 2;"
+
+    qt_sql10 "select k1, k2 from (select 1 k1, 11 k2) t where k1 not in (select k2 from ${tbl2}) order by 1, 2;"
+
     test {
         sql "select k1, k2 from ${tbl1} b1 where k1 in (select k2 from ${tbl2} b2 where b1.k2 = b2.k1) order by k1;"
         exception "In bitmap does not support correlated subquery"
