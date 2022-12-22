@@ -3349,12 +3349,22 @@ show_param ::=
     /* show table status */
     | KW_TABLE KW_STATUS opt_db:db opt_wild_where
     {:
-        RESULT = new ShowTableStatusStmt(db, parser.wild, parser.where);
+        RESULT = new ShowTableStatusStmt(db, null, parser.wild, parser.where);
     :}
     /* show table status */
+    | KW_TABLE KW_STATUS from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStatusStmt(db, ctl, parser.wild, parser.where);
+    :}
+    /* show tables */
     | opt_full KW_TABLES opt_db:db opt_wild_where
     {:
-        RESULT = new ShowTableStmt(db, parser.isVerbose, parser.wild, parser.where);
+        RESULT = new ShowTableStmt(db, null, parser.isVerbose, parser.wild, parser.where);
+    :}
+    /* show tables */
+    | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
     :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
