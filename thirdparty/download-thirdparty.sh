@@ -221,6 +221,15 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
+# abseil patch
+cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+if [[ ! -f "${PATCHED_MARK}" ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/absl.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ABSEIL_SOURCE}"
+
 # glog patch
 cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
@@ -386,3 +395,14 @@ if [[ ! -f "${PATCHED_MARK}" ]]; then
 fi
 cd -
 echo "Finished patching ${BRPC_SOURCE}"
+
+# patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
+if [[ "${SIMDJSON_SOURCE}" = "simdjson-1.0.2" ]]; then
+    cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/simdjson-1.0.2.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${SIMDJSON_SOURCE}"

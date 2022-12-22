@@ -32,6 +32,7 @@
 #include "io/s3_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -142,9 +143,9 @@ Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
 
 // file scan node/stream load pipe
 Status NewFileFactory::create_pipe_reader(const TUniqueId& load_id,
-                                          std::shared_ptr<FileReader>& file_reader) {
-    file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
-    if (!file_reader) {
+                                          io::FileReaderSPtr* file_reader) {
+    *file_reader = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
+    if (!(*file_reader)) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     return Status::OK();

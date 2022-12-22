@@ -18,8 +18,6 @@
 suite("test_mysql_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -49,15 +47,17 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
         sql """drop catalog if exists ${catalog_name} """
 
+        sql """create resource if not exists jdbc_resource_catalog_mysql properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
         // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
-        sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
-                "type"="jdbc",
-                "jdbc.user"="root",
-                "jdbc.password"="123456",
-                "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-                "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-                "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
-             """
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE jdbc_resource_catalog_mysql"""
+
 
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -96,5 +96,22 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+
+        sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists jdbc_resource_catalog_mysql"""
+
+        // test old create-catalog syntax for compatibility
+        sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+        """
+        sql """switch ${catalog_name}"""
+        sql """use ${ex_db_name}"""
+        order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
+        sql """drop resource if exists jdbc_resource_catalog_mysql"""
     }
 }

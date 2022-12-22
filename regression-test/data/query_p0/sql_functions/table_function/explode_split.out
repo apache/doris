@@ -20,24 +20,3 @@
 6	b
 6	c
 
--- !explode_split --
-1	a,b,c	a
-1	a,b,c	b
-1	a,b,c	c
-
--- !explode_split --
-1	a,b,c	a	a
-1	a,b,c	a	b
-1	a,b,c	a	c
-1	a,b,c	b	a
-1	a,b,c	b	b
-1	a,b,c	b	c
-1	a,b,c	c	a
-1	a,b,c	c	b
-1	a,b,c	c	c
-
--- !explode_split --
-6	a
-6	b
-6	c
-

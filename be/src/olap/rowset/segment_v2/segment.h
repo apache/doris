@@ -37,7 +37,6 @@
 
 namespace doris {
 
-class SegmentGroup;
 class TabletSchema;
 class ShortKeyIndexDecoder;
 class Schema;

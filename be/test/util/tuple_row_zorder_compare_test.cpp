@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
-#include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/memtable.h"

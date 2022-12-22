@@ -25,9 +25,13 @@ under the License.
 -->
 
 ## JSONB
+
 <version since="1.2.0">
+
 JSONB
+
 </version>
+
 ### description
     JSONB(JSON Binary)类型
         二进制JSON类型，采用二进制JSONB格式存储，通过jsonb函数访问JSON内部字段。

@@ -77,6 +77,11 @@ public:
 
     std::string to_http_path(const std::string& file_name);
 
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
     void send_report(bool);
 
 private:
@@ -98,11 +103,13 @@ private:
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic<int> _closed_pipeline_cnt;
+    std::atomic_int _closed_tasks = 0;
+    // After prepared, `_total_tasks` is equal to the size of `_tasks`.
+    // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
+    std::atomic_int _total_tasks = 0;
+    std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
-
-    std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     PipelinePtr _root_pipeline;
 
@@ -118,10 +125,11 @@ private:
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
-    //    RuntimeProfile::Counter* _start_timer;
-    //    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _start_timer;
+    RuntimeProfile::Counter* _prepare_timer;
 
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
@@ -130,6 +138,8 @@ private:
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     std::function<void(RuntimeState*, Status*)> _call_back;
+    void _close_action();
+    std::once_flag _close_once_flag;
 };
 } // namespace pipeline
 } // namespace doris

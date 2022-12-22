@@ -24,7 +24,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/parquet_scanner.h"
 #include "olap/row.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -33,6 +32,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
+#include "vec/exec/vparquet_scanner.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -240,7 +240,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             uint8_t* tuple_buf = reader->mem_pool()->allocate(schema->schema_size());
             ContiguousRow row(schema.get(), tuple_buf);
 
-            // 4. Read data from broker and write into SegmentGroup of cur_tablet
+            // 4. Read data from broker and write into cur_tablet
             // Convert from raw to delta
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
@@ -368,7 +368,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
             break;
         }
 
-        // 5. Read data from raw file and write into SegmentGroup of cur_tablet
+        // 5. Read data from raw file and write into cur_tablet
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
             VLOG_NOTICE << "start to convert row file to delta.";
@@ -821,9 +821,9 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     BaseScanner* scanner = nullptr;
     switch (t_scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
-                                     t_scan_range.ranges, t_scan_range.broker_addresses,
-                                     _pre_filter_texprs, _counter.get());
+        scanner = new vectorized::VParquetScanner(
+                _runtime_state.get(), _runtime_profile, t_scan_range.params, t_scan_range.ranges,
+                t_scan_range.broker_addresses, _pre_filter_texprs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;

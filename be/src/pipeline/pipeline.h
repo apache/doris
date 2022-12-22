@@ -37,21 +37,17 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
 public:
     Pipeline() = delete;
     explicit Pipeline(PipelineId pipeline_id, std::weak_ptr<PipelineFragmentContext> context)
-            : _complete_dependency(0), _pipeline_id(pipeline_id), _context(context) {}
-
-    Status prepare(RuntimeState* state);
-
-    void close(RuntimeState*);
+            : _complete_dependency(0), _pipeline_id(pipeline_id), _context(context) {
+        _init_profile();
+    }
 
     void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
         pipeline->_parents.push_back(shared_from_this());
         _dependencies.push_back(pipeline);
     }
 
-    // If all dependency be finished, the pipeline task shoule be scheduled
-    // pipeline is finish must call the parents `finish_one_dependency`
-    // like the condition variables.
-    // Eg: hash build finish must call the hash probe the method
+    // If all dependencies are finished, this pipeline task should be scheduled.
+    // e.g. Hash join probe task will be scheduled once Hash join build task is finished.
     bool finish_one_dependency() {
         DCHECK(_complete_dependency < _dependencies.size());
         return _complete_dependency.fetch_add(1) == _dependencies.size() - 1;
@@ -67,9 +63,10 @@ public:
 
     Status build_operators(Operators&);
 
-    RuntimeProfile* runtime_profile() { return _pipeline_profile.get(); }
+    RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
 private:
+    void _init_profile();
     std::atomic<uint32_t> _complete_dependency;
 
     OperatorBuilders _operator_builders; // left is _source, right is _root

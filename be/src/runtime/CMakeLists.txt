@@ -27,8 +27,6 @@ set(RUNTIME_FILES
     broker_mgr.cpp
     buffer_control_block.cpp
     client_cache.cpp
-    data_stream_mgr.cpp
-    data_stream_sender.cpp
     datetime_value.cpp
     descriptors.cpp
     exec_env.cpp
@@ -38,8 +36,6 @@ set(RUNTIME_FILES
     plan_fragment_executor.cpp
     primitive_type.cpp
     raw_value.cpp
-    result_sink.cpp
-    result_file_sink.cpp
     result_buffer_mgr.cpp
     result_writer.cpp
     row_batch.cpp
@@ -64,9 +60,6 @@ set(RUNTIME_FILES
     disk_io_mgr_reader_context.cc
     disk_io_mgr_scan_range.cc 
     buffered_block_mgr2.cc
-    spill_sorter.cc
-    sorted_run_merger.cc
-    data_stream_recvr.cc
     buffered_tuple_stream2.cc
     buffered_tuple_stream3.cc
     export_sink.cpp
@@ -84,6 +77,7 @@ set(RUNTIME_FILES
     stream_load/stream_load_executor.cpp
     stream_load/stream_load_recorder.cpp
     stream_load/load_stream_mgr.cpp
+    stream_load/new_load_stream_mgr.cpp
     routine_load/data_consumer.cpp
     routine_load/data_consumer_group.cpp
     routine_load/data_consumer_pool.cpp
@@ -93,7 +87,6 @@ set(RUNTIME_FILES
     result_queue_mgr.cpp
     memory_scratch_sink.cpp
     external_scan_context_mgr.cpp
-    file_result_writer.cpp
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp

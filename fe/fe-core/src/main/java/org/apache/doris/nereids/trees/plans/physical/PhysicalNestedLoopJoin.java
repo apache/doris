@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,11 +42,15 @@ public class PhysicalNestedLoopJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
-            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                Optional.empty(), logicalProperties, leftChild, rightChild);
+    public PhysicalNestedLoopJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            LogicalProperties logicalProperties,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, Optional.empty(), logicalProperties, leftChild,
+                rightChild);
     }
 
     /**
@@ -54,11 +59,16 @@ public class PhysicalNestedLoopJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param hashJoinConjuncts conjunct list could use for build hash table in hash join
      */
-    public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+    public PhysicalNestedLoopJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
+                // nested loop join ignores join hints.
+                JoinHint.NONE,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -68,12 +78,19 @@ public class PhysicalNestedLoopJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param hashJoinConjuncts conjunct list could use for build hash table in hash join
      */
-    public PhysicalNestedLoopJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild,
+    public PhysicalNestedLoopJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult,
+            LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
+                // nested loop join ignores join hints.
+                JoinHint.NONE,
                 groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
     }
 

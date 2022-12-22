@@ -19,8 +19,6 @@
 
 #include <queue>
 
-#include "common/object_pool.h"
-#include "util/tuple_row_compare.h"
 #include "vec/core/sort_cursor.h"
 
 namespace doris {

@@ -26,6 +26,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vexpr.h"
+#include "vfile_scanner.h"
 
 namespace doris::vectorized {
 
@@ -232,11 +233,20 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         auto block = ctx->get_free_block(&get_free_block);
         status = scanner->get_block(state, block, &eos);
         VLOG_ROW << "VOlapScanNode input rows: " << block->rows() << ", eos: " << eos;
-        if (!status.ok()) {
+        // The VFileScanner for external table may try to open not exist files,
+        // Because FE file cache for external table may out of date.
+        if (!status.ok() && (typeid(*scanner) != typeid(doris::vectorized::VFileScanner) ||
+                             !status.is<ErrorCode::NOT_FOUND>())) {
             LOG(WARNING) << "Scan thread read VOlapScanner failed: " << status.to_string();
             // Add block ptr in blocks, prevent mem leak in read failed
             blocks.push_back(block);
             break;
+        }
+        if (status.is<ErrorCode::NOT_FOUND>()) {
+            // The only case in this if branch is external table file delete and fe cache has not been updated yet.
+            // Set status to OK.
+            status = Status::OK();
+            eos = true;
         }
 
         raw_bytes_read += block->bytes();

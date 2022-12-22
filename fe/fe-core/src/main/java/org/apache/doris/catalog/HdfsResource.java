@@ -27,8 +27,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,10 +42,7 @@ import java.util.Map;
  * );
  */
 public class HdfsResource extends Resource {
-    public static final String HADOOP_PREFIX = "hadoop.";
     public static final String HADOOP_FS_PREFIX = "dfs.";
-    public static final String HIVE_PREFIX = "hive.";
-    public static final String YARN_PREFIX = "yarn.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
     // simple or kerberos
     public static String HADOOP_USER_NAME = "hadoop.username";
@@ -56,7 +51,6 @@ public class HdfsResource extends Resource {
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
-    public static List<String> REQUIRED_FIELDS = Collections.singletonList(HADOOP_FS_NAME);
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -71,15 +65,11 @@ public class HdfsResource extends Resource {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        super.modifyProperties(properties);
     }
 
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
-        for (String field : REQUIRED_FIELDS) {
-            if (!properties.containsKey(field)) {
-                throw new DdlException("Missing [" + field + "] in properties.");
-            }
-        }
         // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
         // We should disable short circuit read if they are not both set because it will cause performance down.
         if (!properties.containsKey(HADOOP_SHORT_CIRCUIT) || !properties.containsKey(HADOOP_SOCKET_PATH)) {

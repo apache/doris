@@ -17,7 +17,15 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Physical properties used in cascades.
@@ -54,6 +62,19 @@ public class PhysicalProperties {
     public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
         this.distributionSpec = distributionSpec;
         this.orderSpec = orderSpec;
+    }
+
+    public static PhysicalProperties createHash(
+            Collection<? extends Expression> orderedShuffledColumns, ShuffleType shuffleType) {
+        List<ExprId> partitionedSlots = orderedShuffledColumns.stream()
+                .map(SlotReference.class::cast)
+                .map(SlotReference::getExprId)
+                .collect(Collectors.toList());
+        return createHash(partitionedSlots, shuffleType);
+    }
+
+    public static PhysicalProperties createHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
+        return new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
     }
 
     public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {
@@ -99,6 +120,15 @@ public class PhysicalProperties {
 
     @Override
     public String toString() {
+        if (this.equals(ANY)) {
+            return "ANY";
+        }
+        if (this.equals(REPLICATED)) {
+            return "REPLICATED";
+        }
+        if (this.equals(GATHER)) {
+            return "GATHER";
+        }
         return distributionSpec.toString() + " " + orderSpec.toString();
     }
 

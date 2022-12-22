@@ -16,8 +16,6 @@
 // under the License.
 
 suite("set_var") {
-    // enable nereids and vectorized engine
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -27,9 +25,9 @@ suite("set_var") {
     // test multi set_var, comma between hints is optional
     sql """ select
         /*+
-            SET_VAR(query_timeout=1800, enable_vectorized_engine=true)
-            SET_VAR(query_timeout=1800, enable_vectorized_engine=true),
-            SET_VAR(query_timeout=1800, enable_vectorized_engine=true)
+            SET_VAR(query_timeout=1800)
+            SET_VAR(query_timeout=1800),
+            SET_VAR(query_timeout=1800)
         */
         *
         from supplier

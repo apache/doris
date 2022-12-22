@@ -174,6 +174,8 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
         _child_expr_lists.push_back(ctxs);
     }
 
+    _probe_finished_children_index.assign(_child_expr_lists.size(), false);
+
     return Status::OK();
 }
 
@@ -183,7 +185,6 @@ Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    _probe_finished_children_index.assign(_child_expr_lists.size(), false);
     _probe_columns.resize(_child_expr_lists[1].size());
     return Status::OK();
 }
@@ -202,27 +203,18 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
     for (int i = 1; i < _children.size(); ++i) {
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;
-        int probe_expr_ctxs_sz = _child_expr_lists[i].size();
-        _probe_columns.resize(probe_expr_ctxs_sz);
-
-        if constexpr (is_intersect) {
-            _valid_element_in_hash_tbl = 0;
-        } else {
-            std::visit(
-                    [&](auto&& arg) {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            _valid_element_in_hash_tbl = arg.hash_table.size();
-                        }
-                    },
-                    *_hash_table_variants);
-        }
 
         while (!eos) {
             release_block_memory(_probe_block, i);
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(i)->get_next_after_projects(state, &_probe_block, &eos),
+                    child(i)->get_next_after_projects(
+                            state, &_probe_block, &eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[i], std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3)),
                     child(i)->get_next_span(), eos);
 
             RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
@@ -370,6 +362,18 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
         ++_build_block_index;
 
         if (eos) {
+            if constexpr (is_intersect) {
+                _valid_element_in_hash_tbl = 0;
+            } else {
+                std::visit(
+                        [&](auto&& arg) {
+                            using HashTableCtxType = std::decay_t<decltype(arg)>;
+                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                                _valid_element_in_hash_tbl = arg.hash_table.size();
+                            }
+                        },
+                        *_hash_table_variants);
+            }
             _build_finished = true;
         }
     }
@@ -409,8 +413,14 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, &block, &eos),
-                                       child(0)->get_next_span(), eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), eos);
         if (eos) {
             child(0)->close(state);
         }
@@ -492,6 +502,18 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, int child_id) {
     if (child_id != (_children.size() - 1)) {
         refresh_hash_table();
+        if constexpr (is_intersect) {
+            _valid_element_in_hash_tbl = 0;
+        } else {
+            std::visit(
+                    [&](auto&& arg) {
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            _valid_element_in_hash_tbl = arg.hash_table.size();
+                        }
+                    },
+                    *_hash_table_variants);
+        }
         _probe_columns.resize(_child_expr_lists[child_id + 1].size());
     } else {
         _can_read = true;

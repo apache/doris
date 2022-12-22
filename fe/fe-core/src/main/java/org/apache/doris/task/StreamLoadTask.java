@@ -68,6 +68,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private Separator lineDelimiter;
     private PartitionNames partitions;
     private String path;
+    private long fileSize = 0;
     private boolean negative;
     private boolean strictMode = false; // default is false
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
@@ -159,6 +160,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return path;
     }
 
+    @Override
+    public long getFileSize() {
+        return fileSize;
+    }
+
     public boolean getNegative() {
         return negative;
     }
@@ -234,6 +240,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
+
     @Override
     public String getSequenceCol() {
         return sequenceCol;
@@ -249,6 +256,9 @@ public class StreamLoadTask implements LoadTaskInfo {
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
+        if (request.isSetFileSize()) {
+            streamLoadTask.fileSize = request.getFileSize();
+        }
         return streamLoadTask;
     }
 
@@ -416,3 +426,4 @@ public class StreamLoadTask implements LoadTaskInfo {
         return maxFilterRatio;
     }
 }
+

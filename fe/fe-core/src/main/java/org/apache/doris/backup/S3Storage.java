@@ -134,27 +134,7 @@ public class S3Storage extends BlobStorage {
             checkS3(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            conf.set("fs.s3a.access.key", caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY));
-            conf.set("fs.s3a.secret.key", caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
-            conf.set("fs.s3a.endpoint", caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
-            conf.set("fs.s3a.endpoint.region", caseInsensitiveProperties.get(S3Resource.S3_REGION));
-            if (caseInsensitiveProperties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
-                conf.set("fs.s3a.connection.maximum",
-                        caseInsensitiveProperties.get(S3Resource.S3_MAX_CONNECTIONS));
-            }
-            if (caseInsensitiveProperties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
-                conf.set("fs.s3a.connection.request.timeout",
-                        caseInsensitiveProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
-            }
-            if (caseInsensitiveProperties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
-                conf.set("fs.s3a.connection.timeout",
-                        caseInsensitiveProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
-            }
-            conf.set("fs.s3.impl.disable.cache", "true");
-            conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-            // introducing in hadoop aws 2.8.0
-            conf.set("fs.s3a.path.style.access", forceHostedStyle ? "false" : "true");
-            conf.set("fs.s3a.attempts.maximum", "2");
+            S3Resource.getS3HadoopProperties(caseInsensitiveProperties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {

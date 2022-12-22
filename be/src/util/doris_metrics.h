@@ -185,6 +185,7 @@ public:
     UIntGauge* routine_load_task_count;
     UIntGauge* small_file_cache_count;
     UIntGauge* stream_load_pipe_count;
+    UIntGauge* new_stream_load_pipe_count;
     UIntGauge* brpc_endpoint_stub_count;
     UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;

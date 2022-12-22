@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATEV2
+## JSONB
 
 <version since="1.2.0">
 

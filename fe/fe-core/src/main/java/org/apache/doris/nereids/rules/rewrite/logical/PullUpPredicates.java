@@ -91,6 +91,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 case LEFT_OUTER_JOIN:
                 case LEFT_ANTI_JOIN:
+                case NULL_AWARE_LEFT_ANTI_JOIN:
                     predicates.addAll(leftPredicates);
                     break;
                 case RIGHT_OUTER_JOIN:

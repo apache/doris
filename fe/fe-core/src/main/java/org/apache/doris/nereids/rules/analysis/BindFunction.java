@@ -33,11 +33,8 @@ import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -133,6 +130,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     List<Expression> hashConjuncts = bind(join.getHashJoinConjuncts(), ctx.connectContext.getEnv());
                     List<Expression> otherConjuncts = bind(join.getOtherJoinConjuncts(), ctx.connectContext.getEnv());
                     return new LogicalJoin<>(join.getJoinType(), hashConjuncts, otherConjuncts,
+                            join.getHint(),
                             join.left(), join.right());
                 })
             ),
@@ -176,27 +174,21 @@ public class BindFunction implements AnalysisRuleFactory {
         }
 
         @Override
-        public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+        public Expression visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
             unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
 
-            // FunctionRegistry can't support boolean arg now, tricky here.
-            if (unboundFunction.getName().equalsIgnoreCase("count")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if ((arguments.size() == 0 && unboundFunction.isStar()) || arguments.stream()
-                        .allMatch(Expression::isConstant)) {
-                    return new Count();
-                }
-                if (arguments.size() == 1) {
-                    AggregateParam aggregateParam = new AggregateParam(
-                            unboundFunction.isDistinct(), true, AggPhase.LOCAL, false);
-                    return new Count(aggregateParam, unboundFunction.getArguments().get(0));
-                }
-            }
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
             String functionName = unboundFunction.getName();
-            FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                    functionName, unboundFunction.getArguments());
-            return builder.build(functionName, unboundFunction.getArguments());
+            List<Object> arguments = unboundFunction.isDistinct()
+                    ? ImmutableList.builder()
+                        .add(unboundFunction.isDistinct())
+                        .addAll(unboundFunction.getArguments())
+                        .build()
+                    : (List) unboundFunction.getArguments();
+
+            FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+            BoundFunction boundFunction = builder.build(functionName, arguments);
+            return boundFunction;
         }
 
         /**

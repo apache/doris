@@ -1000,13 +1000,15 @@ public:
         if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets(), null_map->get_data());
+                              res->get_chars(), res->get_offsets(), null_map->get_data(),
+                              context->impl()->state()->repeat_max_num());
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = col2_const->get_int(0);
+                int repeat = std::min<int>(col2_const->get_int(0),
+                                           context->impl()->state()->repeat_max_num());
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1026,7 +1028,8 @@ public:
 
     void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                        const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map) {
+                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
+                       const int repeat_max_num) {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1036,7 +1039,7 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
-            int repeat = repeats[i];
+            int repeat = std::min<int>(repeats[i], repeat_max_num);
 
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);

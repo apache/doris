@@ -146,6 +146,10 @@ public enum JoinType {
         return this != LEFT_SEMI_JOIN && this != LEFT_ANTI_JOIN && this != NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
+    public final boolean isNullAwareLeftAntiJoin() {
+        return this == NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
     public final boolean isSwapJoinType() {
         return joinSwapMap.containsKey(this);
     }

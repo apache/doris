@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "runtime/result_file_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 namespace vectorized {

@@ -68,7 +68,7 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
                 .build();
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().build());
+        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
         cascadesContext.topDownRewrite(rules);
 
         Plan actual = cascadesContext.getMemo().copyOut();
@@ -82,7 +82,7 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
                 .build();
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().build());
+        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
         cascadesContext.topDownRewrite(rules);
 
         Plan actual = cascadesContext.getMemo().copyOut();
@@ -96,7 +96,7 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
                 .build();
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().build());
+        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
         cascadesContext.topDownRewrite(rules);
 
         Plan actual = cascadesContext.getMemo().copyOut();

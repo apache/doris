@@ -72,6 +72,7 @@ public abstract class AggregateInfoBase {
     // exprs that need to be materialized.
     // Populated in materializeRequiredSlots() which must be implemented by subclasses.
     protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
+    protected List<String> materializedSlotLabels = Lists.newArrayList();
 
     protected AggregateInfoBase(ArrayList<Expr> groupingExprs,
                                 ArrayList<FunctionCallExpr> aggExprs)  {
@@ -94,6 +95,7 @@ public abstract class AggregateInfoBase {
         intermediateTupleDesc = other.intermediateTupleDesc;
         outputTupleDesc = other.outputTupleDesc;
         materializedSlots = Lists.newArrayList(other.materializedSlots);
+        materializedSlotLabels = Lists.newArrayList(other.materializedSlotLabels);
     }
 
     /**
@@ -232,6 +234,10 @@ public abstract class AggregateInfoBase {
 
     public TupleId getOutputTupleId() {
         return outputTupleDesc.getId();
+    }
+
+    public List<String> getMaterializedAggregateExprLabels() {
+        return Lists.newArrayList(materializedSlotLabels);
     }
 
     public boolean requiresIntermediateTuple() {

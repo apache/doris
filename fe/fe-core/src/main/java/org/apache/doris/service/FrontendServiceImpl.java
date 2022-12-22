@@ -172,7 +172,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Env env = Env.getCurrentEnv();
-        List<CatalogIf> catalogIfs = env.getCatalogMgr().listCatalogs();
+        List<CatalogIf> catalogIfs = Lists.newArrayList();
+        if (Strings.isNullOrEmpty(params.catalog)) {
+            catalogIfs = env.getCatalogMgr().listCatalogs();
+        } else {
+            catalogIfs.add(env.getCatalogMgr()
+                    .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
+        }
         for (CatalogIf catalog : catalogIfs) {
             List<String> dbNames = catalog.getDbNames();
             LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
@@ -893,7 +899,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
         }
         return result;
@@ -1224,3 +1230,4 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 }
+

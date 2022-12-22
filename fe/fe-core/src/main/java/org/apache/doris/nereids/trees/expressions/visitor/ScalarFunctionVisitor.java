@@ -155,6 +155,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Mask;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
@@ -1272,5 +1275,17 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYearsDiff(YearsDiff yearsDiff, C context) {
         return visitScalarFunction(yearsDiff, context);
+    }
+
+    default R visitMask(Mask mask, C context) {
+        return visitScalarFunction(mask, context);
+    }
+
+    default R visitMaskFirstN(MaskFirstN maskFirstN, C context) {
+        return visitScalarFunction(maskFirstN, context);
+    }
+
+    default R visitMaskLastN(MaskLastN maskLastN, C context) {
+        return visitScalarFunction(maskLastN, context);
     }
 }

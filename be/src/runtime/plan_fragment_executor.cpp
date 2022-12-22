@@ -25,10 +25,8 @@
 #include <unordered_map>
 
 #include "exec/data_sink.h"
-#include "exec/exchange_node.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
-#include "runtime/data_stream_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -151,7 +149,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         if (_runtime_state->enable_vectorized_exec()) {
             static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
         } else {
-            static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+            return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
         }
     }
 
@@ -342,7 +340,12 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _plan->get_next_after_projects(_runtime_state.get(), block, &_done),
+                _plan->get_next_after_projects(
+                        _runtime_state.get(), block, &_done,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _plan, std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _plan->get_next_span(), _done);
 
         if (block->rows() > 0) {
@@ -634,12 +637,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();
     auto id = _runtime_state->fragment_instance_id();
-    if (_runtime_state->enable_vectorized_exec()) {
-        env->vstream_mgr()->cancel(id);
-    } else {
-        env->stream_mgr()->cancel(id);
-        env->result_mgr()->cancel(id);
-    }
+    DCHECK(_runtime_state->enable_vectorized_exec());
+    env->vstream_mgr()->cancel(id);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }

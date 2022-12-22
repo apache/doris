@@ -56,7 +56,7 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
     public Rule build() {
         return RuleType.COLUMN_PRUNE_AGGREGATION_CHILD.build(logicalAggregate().then(agg -> {
             List<Slot> childOutput = agg.child().getOutput();
-            if (isAggregateWithConstant(agg)) {
+            if (isAggregateWithConstant(agg) && agg.getGroupByExpressions().isEmpty()) {
                 Slot slot = ExpressionUtils.selectMinimumColumn(childOutput);
                 if (childOutput.size() == 1 && childOutput.get(0).equals(slot)) {
                     return agg;

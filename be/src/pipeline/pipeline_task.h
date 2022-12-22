@@ -57,7 +57,8 @@ enum PipelineTaskState : uint8_t {
     PENDING_FINISH =
             5, // compute task is over, but still hold resource. like some scan and sink task
     FINISHED = 6,
-    CANCELED = 7
+    CANCELED = 7,
+    BLOCKED_FOR_RF = 8,
 };
 
 inline const char* get_state_name(PipelineTaskState idx) {
@@ -78,6 +79,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
         return "FINISHED";
     case PipelineTaskState::CANCELED:
         return "CANCELED";
+    case PipelineTaskState::BLOCKED_FOR_RF:
+        return "BLOCKED_FOR_RF";
     }
     __builtin_unreachable();
 }
@@ -110,27 +113,24 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close();
 
-    void start_worker_watcher() { _wait_worker_watcher.start(); }
-    void stop_worker_watcher() { _wait_worker_watcher.stop(); }
+    void put_in_runnable_queue() {
+        _schedule_time++;
+        _wait_worker_watcher.start();
+    }
+    void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
 
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
-    bool is_blocking_state() {
-        switch (_cur_state) {
-        case BLOCKED_FOR_DEPENDENCY:
-        case BLOCKED_FOR_SOURCE:
-        case BLOCKED_FOR_SINK:
-            return true;
-        default:
-            return false;
-        }
-    }
 
     bool is_pending_finish() { return _source->is_pending_finish() || _sink->is_pending_finish(); }
 
     bool source_can_read() { return _source->can_read(); }
+
+    bool runtime_filters_are_ready_or_timeout() {
+        return _source->runtime_filters_are_ready_or_timeout();
+    }
 
     bool sink_can_write() { return _sink->can_write(); }
 
@@ -160,12 +160,13 @@ public:
 
     RuntimeState* runtime_state() { return _state; }
 
+    const uint32_t total_schedule_time() const { return _schedule_time; }
+
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:
     Status open();
     void _init_profile();
-    void _init_state();
 
     uint32_t _index;
     PipelinePtr _pipeline;
@@ -179,6 +180,7 @@ private:
     bool _opened;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
+    uint32_t _schedule_time = 0;
     PipelineTaskState _cur_state;
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;

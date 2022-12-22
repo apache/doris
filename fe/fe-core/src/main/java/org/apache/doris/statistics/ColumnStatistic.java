@@ -43,12 +43,13 @@ public class ColumnStatistic {
     public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
+    public static final StatsType HISTOGRAM = StatsType.HISTOGRAM;
 
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)
-            .setSelectivity(1.0).setIsUnknown(true)
+            .setHistogram(Histogram.defaultHistogram()).setSelectivity(1.0).setIsUnknown(true)
             .build();
 
     public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
@@ -68,6 +69,7 @@ public class ColumnStatistic {
     public final double avgSizeByte;
     public final double minValue;
     public final double maxValue;
+    public final Histogram histogram;
     public final boolean isUnKnown;
     /*
     selectivity of Column T1.A:
@@ -89,8 +91,8 @@ public class ColumnStatistic {
 
     public ColumnStatistic(double count, double ndv, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
-            double selectivity, LiteralExpr minExpr,
-            LiteralExpr maxExpr, boolean isNaN) {
+            Histogram histogram, double selectivity, LiteralExpr minExpr,
+            LiteralExpr maxExpr, boolean isUnKnown) {
         this.count = count;
         this.ndv = ndv;
         this.avgSizeByte = avgSizeByte;
@@ -98,10 +100,11 @@ public class ColumnStatistic {
         this.dataSize = dataSize;
         this.minValue = minValue;
         this.maxValue = maxValue;
+        this.histogram = histogram;
         this.selectivity = selectivity;
         this.minExpr = minExpr;
         this.maxExpr = maxExpr;
-        this.isUnKnown = isNaN;
+        this.isUnKnown = isUnKnown;
     }
 
     // TODO: use thrift
@@ -134,8 +137,10 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
+            String histogram = resultRow.getColumnValue("histogram");
             columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
             columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+            columnStatisticBuilder.setHistogram(Histogram.deserializeFromJson(col.getType(), histogram));
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
             columnStatisticBuilder.setSelectivity(1.0);
@@ -154,22 +159,34 @@ public class ColumnStatistic {
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
+                .setMaxValue(maxValue).setHistogram(histogram).setMinExpr(minExpr).setMaxExpr(maxExpr)
                 .setSelectivity(selectivity).setIsUnknown(isUnKnown).build();
     }
 
-    public ColumnStatistic multiply(double d) {
+    public ColumnStatistic updateByLimit(long limit, double rowCount) {
+        double ratio = 0;
+        if (rowCount != 0) {
+            ratio = limit / rowCount;
+        }
+        double newNdv = Math.ceil(Math.min(ndv, limit));
+        double newSelectivity = selectivity;
+        if (newNdv != 0) {
+            newSelectivity = newSelectivity * newNdv / ndv;
+        } else {
+            newSelectivity = 0;
+        }
         return new ColumnStatisticBuilder()
-                .setCount(Math.ceil(count * d))
-                .setNdv(Math.ceil(ndv * d))
-                .setAvgSizeByte(Math.ceil(avgSizeByte * d))
-                .setNumNulls(Math.ceil(numNulls * d))
-                .setDataSize(Math.ceil(dataSize * d))
+                .setCount(Math.ceil(limit))
+                .setNdv(newNdv)
+                .setAvgSizeByte(Math.ceil(avgSizeByte))
+                .setNumNulls(Math.ceil(numNulls * ratio))
+                .setDataSize(Math.ceil(dataSize * ratio))
                 .setMinValue(minValue)
                 .setMaxValue(maxValue)
+                .setHistogram(histogram)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
-                .setSelectivity(selectivity)
+                .setSelectivity(newSelectivity)
                 .setIsUnknown(isUnKnown)
                 .build();
     }

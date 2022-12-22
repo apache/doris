@@ -25,15 +25,16 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -96,6 +97,15 @@ public class CostCalculator {
         public CostEstimate visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(statistics.getRowCount());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalStorageLayerAggregate(
+                PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
+            CostEstimate costEstimate = storageLayerAggregate.getRelation().accept(this, context);
+            // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
+            return new CostEstimate(costEstimate.getCpuCost() * 0.7, costEstimate.getMemoryCost(),
+                    costEstimate.getNetworkCost(), costEstimate.getPenalty());
         }
 
         @Override
@@ -190,7 +200,8 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalAggregate(PhysicalAggregate<? extends Plan> aggregate, PlanContext context) {
+        public CostEstimate visitPhysicalHashAggregate(
+                PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
             // TODO: stage.....
 
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
