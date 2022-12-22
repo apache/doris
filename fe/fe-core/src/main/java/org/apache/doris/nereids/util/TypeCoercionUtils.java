@@ -19,8 +19,6 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -56,7 +54,6 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -78,11 +75,6 @@ public class TypeCoercionUtils {
             IntegerType.INSTANCE,
             SmallIntType.INSTANCE,
             TinyIntType.INSTANCE
-    );
-
-    public static final List<Function<BinaryOperator, Boolean>> typeCoercionCheckers = ImmutableList.of(
-            // TypeCoercionUtils::checkCanHandleCoercionForBinaryArithmeticChildren,
-            op -> childrenCanHandleTypeCoercion(op.left().getDataType(), op.right().getDataType())
     );
 
     /**
@@ -155,10 +147,8 @@ public class TypeCoercionUtils {
      * return ture if two type could do type coercion.
      */
     public static boolean childrenCanHandleTypeCoercion(DataType leftType, DataType rightType) {
-        if (leftType instanceof DecimalV2Type && rightType instanceof NullType) {
-            return true;
-        }
-        if (leftType instanceof NullType && rightType instanceof DecimalV2Type) {
+        if (leftType instanceof DecimalV2Type && rightType instanceof NullType
+                || leftType instanceof NullType && rightType instanceof DecimalV2Type) {
             return true;
         }
         if (leftType instanceof DecimalV2Type && rightType instanceof IntegralType
@@ -185,12 +175,8 @@ public class TypeCoercionUtils {
     /**
      * check the input type for binary arithmetic: add, sub, mul, div, mod.
      */
-    public static boolean checkCanHandleCoercionForBinaryArithmeticChildren(BinaryOperator binaryOperator) {
-        if (!(binaryOperator instanceof BinaryArithmetic)) {
-            return true;
-        }
-
-        return binaryOperator.children().stream().filter(Expression::isLiteral).map(Literal.class::cast)
+    public static boolean checkCanHandleTypeCoercionForBinaryArithmetic(Expression left, Expression right) {
+        return Stream.of(left, right).filter(Expression::isLiteral).map(Literal.class::cast)
                 .allMatch(literal -> {
                     if (literal.getDataType() instanceof StringType) {
                         try {
@@ -204,18 +190,6 @@ public class TypeCoercionUtils {
                     return NUMERIC_PRECEDENCE.contains(literal.getDataType())
                             || literal.getDataType() instanceof BooleanType;
                 });
-    }
-
-    /**
-     * check can handle type coercion
-     */
-    public static boolean checkCanHandleTypeCoercion(BinaryOperator binaryOperator) {
-        for (Function<BinaryOperator, Boolean> f : typeCoercionCheckers) {
-            if (!f.apply(binaryOperator)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
