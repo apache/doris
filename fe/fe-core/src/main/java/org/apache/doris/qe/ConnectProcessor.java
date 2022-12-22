@@ -429,6 +429,8 @@ public class ConnectProcessor {
                 channel.sendOnePacket(serializer.toByteBuffer());
             }
 
+        } catch (Exception e) {
+            LOG.warn("Get the column definitions of a jdbc table failed. {}", ctx.getQueryIdentifier(), e);
         } finally {
             table.readUnlock();
         }
