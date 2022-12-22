@@ -1416,7 +1416,9 @@ public class StmtExecutor implements ProfileWriter {
     // Process a select statement.
     private void handleInsertStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
-        context.getMysqlChannel().reset();
+        if (context.getMysqlChannel() != null) {
+            context.getMysqlChannel().reset();
+        }
         // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
@@ -1439,6 +1441,7 @@ public class StmtExecutor implements ProfileWriter {
         int filteredRows = 0;
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
         String errMsg = "";
+        TableType tblType = insertStmt.getTargetTable().getType();
         if (context.isTxnModel()) {
             if (insertStmt.getQueryStmt() instanceof SelectStmt) {
                 if (((SelectStmt) insertStmt.getQueryStmt()).getTableRefs().size() > 0) {
@@ -1498,7 +1501,7 @@ public class StmtExecutor implements ProfileWriter {
                     }
                 }
 
-                if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
+                if (tblType != TableType.OLAP && tblType != TableType.MATERIALIZED_VIEW) {
                     // no need to add load job.
                     // MySQL table is already being inserted.
                     context.getState().setOk(loadedRows, filteredRows, null);
@@ -1570,6 +1573,9 @@ public class StmtExecutor implements ProfileWriter {
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label).append("', 'status':'").append(txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
+        if (tblType == TableType.MATERIALIZED_VIEW) {
+            sb.append("', 'rows':'").append(loadedRows).append("'");
+        }
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
         }
