@@ -30,7 +30,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "runtime/buffered_block_mgr2.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
