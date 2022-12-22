@@ -65,8 +65,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
     protected boolean containAllRequiredColumns(
             MaterializedIndex index,
             LogicalOlapScan scan,
-            Set<Slot> requiredScanOutput,
-            Set<Expression> predicates) {
+            Set<Slot> requiredScanOutput) {
 
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
@@ -93,7 +92,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
     protected long selectBestIndex(
             List<MaterializedIndex> candidates,
             LogicalOlapScan scan,
-            List<Expression> predicates) {
+            Set<Expression> predicates) {
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
         Map<ExprId, String> exprIdToName = scan.getOutput()

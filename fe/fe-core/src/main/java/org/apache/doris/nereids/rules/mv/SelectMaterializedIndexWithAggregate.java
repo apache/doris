@@ -615,7 +615,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private AggRewriteResult rewriteAgg(MaterializedIndex index,
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
-            List<Expression> predicates,
+            Set<Expression> predicates,
             List<AggregateFunction> aggregateFunctions,
             List<Expression> groupingExprs) {
         ExprRewriteMap exprRewriteMap = new ExprRewriteMap();
@@ -631,7 +631,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             // The query `select c1, count(distinct c2) from t where c2 > 0 group by c1` can't use the materialized
             // index because we have a filter `c2 > 0` for the aggregated column c2.
             Set<Slot> slotsToReplace = slotMap.keySet();
-            if (!isInputSlotsContainsAny(predicates, slotsToReplace)
+            if (!isInputSlotsContainsAny(ImmutableList.copyOf(predicates), slotsToReplace)
                     && !isInputSlotsContainsAny(groupingExprs, slotsToReplace)) {
                 ImmutableSet<Slot> newRequiredSlots = requiredScanOutput.stream()
                         .map(slot -> (Slot) ExpressionUtils.replace(slot, slotMap))
