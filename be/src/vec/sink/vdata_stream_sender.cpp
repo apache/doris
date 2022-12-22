@@ -103,7 +103,7 @@ Status VDataStreamSender::Channel::send_current_block(bool eos) {
     return Status::OK();
 }
 
-Status Channel::send_local_block(bool eos) {
+Status VDataStreamSender::Channel::send_local_block(bool eos) {
     SCOPED_TIMER(_parent->_local_send_timer);
     std::shared_ptr<VDataStreamRecvr> recvr =
             _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
@@ -122,7 +122,7 @@ Status Channel::send_local_block(bool eos) {
     return Status::OK();
 }
 
-Status Channel::send_local_block(Block* block) {
+Status VDataStreamSender::Channel::send_local_block(Block* block) {
     SCOPED_TIMER(_parent->_local_send_timer);
     std::shared_ptr<VDataStreamRecvr> recvr =
             _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
