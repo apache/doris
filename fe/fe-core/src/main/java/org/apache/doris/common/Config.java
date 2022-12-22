@@ -1918,5 +1918,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_storage_policy = false;
+
+    /**
+     * Only for branch-1.2
+     * Set to true to disable the session variable: enable_vectorized_engine.
+     * And the vec engine will be used by default, no matter the value of enable_vectorized_engine.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_enable_vectorized_engine = true;
 }
 
