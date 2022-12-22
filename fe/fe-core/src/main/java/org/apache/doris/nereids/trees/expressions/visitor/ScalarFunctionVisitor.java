@@ -199,6 +199,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -1006,6 +1007,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRound(Round round, C context) {
         return visitScalarFunction(round, context);
+    }
+
+    default R visitRoundBankers(RoundBankers roundBankers, C context) {
+        return visitScalarFunction(roundBankers, context);
     }
 
     default R visitRpad(Rpad rpad, C context) {
