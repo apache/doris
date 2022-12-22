@@ -164,6 +164,7 @@ public enum RuleType {
     // limit push down
     PUSH_LIMIT_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),
+    PUSH_LIMIT_THROUGH_UNION(RuleTypeClass.REWRITE),
 
     // Join Reorder
     JOIN_REORDER(RuleTypeClass.REWRITE),
