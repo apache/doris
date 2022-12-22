@@ -629,7 +629,7 @@ public class ScalarType extends Type {
     public void toThrift(TTypeDesc container) {
         if (type.isDecimalV3Type() || type.isDateV2Type()) {
             Preconditions.checkArgument((Config.enable_vectorized_load && ConnectContext.get() == null)
-                            || ConnectContext.get() != null,
+                            || (VectorizedUtil.isVectorized() && ConnectContext.get() != null),
                     "Please make sure vectorized load and vectorized query engine are enabled to use data type: "
                             + type);
         }
