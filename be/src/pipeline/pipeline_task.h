@@ -150,7 +150,15 @@ public:
 
     int get_previous_core_id() const { return _previous_schedule_id; }
 
-    void set_previous_core_id(int id) { _previous_schedule_id = id; }
+    void set_previous_core_id(int id) {
+        if (id == _previous_schedule_id) {
+            return;
+        }
+        if (_previous_schedule_id != -1) {
+            COUNTER_UPDATE(_core_change_times, 1);
+        }
+        _previous_schedule_id = id;
+    }
 
     bool has_dependency();
 
@@ -190,8 +198,14 @@ private:
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;
-    RuntimeProfile::Counter* _sink_timer;
+    RuntimeProfile::Counter* _task_cpu_timer;
+    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _open_timer;
+    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _get_block_timer;
+    RuntimeProfile::Counter* _sink_timer;
+    RuntimeProfile::Counter* _finalize_timer;
+    RuntimeProfile::Counter* _close_timer;
     RuntimeProfile::Counter* _block_counts;
     RuntimeProfile::Counter* _block_by_source_counts;
     RuntimeProfile::Counter* _block_by_sink_counts;
@@ -206,5 +220,6 @@ private:
     MonotonicStopWatch _wait_schedule_watcher;
     RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
+    RuntimeProfile::Counter* _core_change_times;
 };
 } // namespace doris::pipeline
