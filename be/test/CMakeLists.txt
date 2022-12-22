@@ -94,7 +94,6 @@ set(OLAP_TEST_FILES
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
     olap/row_block_test.cpp
-    olap/row_block_v2_test.cpp
     olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
