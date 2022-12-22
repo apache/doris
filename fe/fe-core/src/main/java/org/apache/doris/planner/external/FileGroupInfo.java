@@ -307,6 +307,7 @@ public class FileGroupInfo {
             rangeDesc.setPath(fileStatus.path);
             rangeDesc.setStartOffset(curFileOffset);
             rangeDesc.setSize(rangeBytes);
+            rangeDesc.setFileSize(fileStatus.size);
             rangeDesc.setColumnsFromPath(columnsFromPath);
         } else {
             // for stream load
@@ -316,10 +317,10 @@ public class FileGroupInfo {
                 Preconditions.checkState(fileGroup.getFilePaths().size() == 1);
                 rangeDesc.setPath(fileGroup.getFilePaths().get(0));
                 rangeDesc.setStartOffset(0);
-                rangeDesc.setSize(fileStatus.size);
             }
             rangeDesc.setLoadId(loadId);
             rangeDesc.setSize(fileStatus.size);
+            rangeDesc.setFileSize(fileStatus.size);
         }
         return rangeDesc;
     }
