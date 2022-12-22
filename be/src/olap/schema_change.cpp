@@ -1261,18 +1261,6 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     return Status::OK();
 }
 
-SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
-                                                 size_t memory_limitation)
-        : _row_block_changer(row_block_changer),
-          _memory_limitation(memory_limitation),
-          _temp_delta_versions(Version::mock()),
-          _row_block_allocator(nullptr) {}
-
-SchemaChangeWithSorting::~SchemaChangeWithSorting() {
-    VLOG_NOTICE << "~SchemaChangeWithSorting()";
-    SAFE_DELETE(_row_block_allocator);
-}
-
 VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
                                                    size_t memory_limitation)
         : _changer(row_block_changer),
@@ -1367,36 +1355,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     }
 
     return Status::OK();
-}
-
-bool SchemaChangeWithSorting::_internal_sorting(
-        const std::vector<RowBlock*>& row_block_arr, const Version& version,
-        int64_t oldest_write_timestamp, int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
-        SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
-    uint64_t merged_rows = 0;
-    RowBlockMerger merger(new_tablet);
-
-    VLOG_NOTICE << "init rowset builder. tablet=" << new_tablet->full_name()
-                << ", block_row_size=" << new_tablet->num_rows_per_row_block();
-
-    std::unique_ptr<RowsetWriter> rowset_writer;
-    if (!new_tablet->create_rowset_writer(version, VISIBLE, segments_overlap,
-                                          new_tablet->tablet_schema(), oldest_write_timestamp,
-                                          newest_write_timestamp, &rowset_writer)) {
-        return false;
-    }
-
-    if (!merger.merge(row_block_arr, rowset_writer.get(), &merged_rows)) {
-        LOG(WARNING) << "failed to merge row blocks.";
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-        return false;
-    }
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                               rowset_writer->rowset_id().to_string());
-    _add_merged_rows(merged_rows);
-    *rowset = rowset_writer->build();
-    return true;
 }
 
 Status VSchemaChangeWithSorting::_internal_sorting(

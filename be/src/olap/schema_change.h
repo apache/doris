@@ -207,21 +207,12 @@ public:
     static std::unique_ptr<SchemaChange> get_sc_procedure(const RowBlockChanger& rb_changer,
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
-            if (config::enable_vectorized_alter_table) {
-                return std::make_unique<VSchemaChangeWithSorting>(
-                        rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
-            } else {
-                return std::make_unique<SchemaChangeWithSorting>(
-                        rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
-            }
+            return std::make_unique<VSchemaChangeWithSorting>(
+                    rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
         }
 
         if (sc_directly) {
-            if (config::enable_vectorized_alter_table) {
-                return std::make_unique<VSchemaChangeDirectly>(rb_changer);
-            } else {
-                return std::make_unique<SchemaChangeDirectly>(rb_changer);
-            }
+            return std::make_unique<VSchemaChangeDirectly>(rb_changer);
         }
 
         return std::make_unique<LinkedSchemaChange>(rb_changer);
