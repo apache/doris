@@ -108,14 +108,15 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return cacheOrElse(project, () -> {
             ImmutableSet<Expression> childPredicates = project.child().accept(this, context);
-            Map<Expression, Slot> expressionSlotMap = project.getAliasToProducer()
-                    .entrySet()
-                    .stream()
-                    .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
-            Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap);
-            List<Expression> predicates = ExpressionUtils.extractConjunction(expression);
-            return getAvailableExpressions(predicates, project);
+
+            Set<Expression> allPredicates = Sets.newHashSet(childPredicates);
+            project.getAliasToProducer().forEach((k, v) -> {
+                Set<Expression> expressions = childPredicates.stream()
+                        .map(e -> e.rewriteDownShortCircuit(c -> c.equals(v) ? k : c)).collect(Collectors.toSet());
+                allPredicates.addAll(expressions);
+            });
+
+            return getAvailableExpressions(allPredicates, project);
         });
     }
 
