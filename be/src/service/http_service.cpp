@@ -24,6 +24,7 @@
 #include "http/action/config_action.h"
 #include "http/action/download_action.h"
 #include "http/action/health_action.h"
+#include "http/action/jeprofile_actions.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/pprof_actions.h"
@@ -116,6 +117,9 @@ Status HttpService::start() {
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get(), _pool);
+
+    // register jeprof actions
+    JeprofileActions::setup(_env, _ev_http_server.get(), _pool);
 
     // register metrics
     {
