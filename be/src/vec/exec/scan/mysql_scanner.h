@@ -32,7 +32,7 @@
 #define __DorisMysqlRes void
 #endif
 
-namespace doris {
+namespace doris::vectorized {
 
 struct MysqlScannerParam {
     std::string host;
@@ -72,4 +72,4 @@ private:
     int _field_num;
 };
 
-} // namespace doris
+} // namespace doris::vectorized

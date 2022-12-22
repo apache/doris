@@ -37,57 +37,8 @@ set(ENV_TEST_FILES
 )
 
 set(EXEC_TEST_FILES
-    exec/hash_table_test.cpp
-    exec/olap_common_test.cpp
-    exec/json_scanner_test.cpp
-    exec/json_scanner_with_jsonpath_test.cpp
-    exec/parquet_scanner_test.cpp
-    exec/orc_scanner_test.cpp
-    exec/plain_text_line_reader_uncompressed_test.cpp
-    exec/plain_text_line_reader_gzip_test.cpp
-    exec/plain_text_line_reader_bzip_test.cpp
-    exec/plain_text_line_reader_lz4frame_test.cpp
-    exec/broker_scanner_test.cpp
-    exec/broker_scan_node_test.cpp
-    exec/tablet_info_test.cpp
-    exec/tablet_sink_test.cpp
-    exec/buffered_reader_test.cpp
-    exec/es_http_scan_node_test.cpp
-    exec/es_predicate_test.cpp
-    exec/es_query_builder_test.cpp
-    exec/es_scan_reader_test.cpp
-    exec/s3_reader_test.cpp
-    exec/multi_bytes_separator_test.cpp
-    exec/hdfs_file_reader_test.cpp
     vec/exec/parquet/parquet_thrift_test.cpp
     vec/exec/parquet/parquet_reader_test.cpp
-    # exec/new_olap_scan_node_test.cpp
-    # exec/pre_aggregation_node_test.cpp
-    # exec/partitioned_hash_table_test.cpp
-    # exec/olap_scanner_test.cpp
-    # exec/olap_meta_reader_test.cpp
-    # exec/olap_scan_node_test.cpp
-    # exec/mysql_scan_node_test.cpp
-    # exec/mysql_scanner_test.cpp
-    # exec/csv_scanner_test.cpp
-    # exec/csv_scan_node_test.cpp
-    # exec/csv_scan_bench_test.cpp
-    # exec/schema_scan_node_test.cpp
-    # exec/unix_odbc_test.cpp
-    # exec/schema_scanner_test.cpp
-    # exec/set_executor_test.cpp
-    # exec/schema_scanner/schema_authors_scanner_test.cpp
-    # exec/schema_scanner/schema_columns_scanner_test.cpp
-    # exec/schema_scanner/schema_create_table_scanner_test.cpp
-    # exec/schema_scanner/schema_open_tables_scanner_test.cpp
-    # exec/schema_scanner/schema_schemata_scanner_test.cpp
-    # exec/schema_scanner/schema_table_names_scanner_test.cpp
-    # exec/schema_scanner/schema_tables_scanner_test.cpp
-    # exec/schema_scanner/schema_variables_scanner_test.cpp
-    # exec/schema_scanner/schema_engines_scanner_test.cpp
-    # exec/schema_scanner/schema_collations_scanner_test.cpp
-    # exec/schema_scanner/schema_charsets_scanner_test.cpp
-    # exec/broker_reader_test.cpp
 )
 
 if(DEFINED DORIS_WITH_LZO)
@@ -198,8 +149,6 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/common_test.cpp
     olap/primary_key_index_test.cpp
-    # olap/memtable_flush_executor_test.cpp
-    # olap/push_handler_test.cpp
     olap/tablet_cooldown_test.cpp
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
@@ -209,7 +158,6 @@ set(OLAP_TEST_FILES
 
 set(RUNTIME_TEST_FILES
     # runtime/buffered_tuple_stream_test.cpp
-    # runtime/sorter_test.cpp
     # runtime/buffer_control_block_test.cpp
     # runtime/result_buffer_mgr_test.cpp
     # runtime/result_sink_test.cpp
@@ -242,7 +190,6 @@ set(RUNTIME_TEST_FILES
     runtime/small_file_mgr_test.cpp
     runtime/heartbeat_flags_test.cpp
     runtime/result_queue_mgr_test.cpp
-    runtime/memory_scratch_sink_test.cpp
     runtime/test_env.cc
     runtime/external_scan_context_mgr_test.cpp
     runtime/memory/chunk_allocator_test.cpp
@@ -290,9 +237,6 @@ set(UTIL_TEST_FILES
     util/rle_encoding_test.cpp
     util/tdigest_test.cpp
     util/block_compression_test.cpp
-    util/arrow/arrow_row_block_test.cpp
-    util/arrow/arrow_row_batch_test.cpp
-    util/arrow/arrow_work_flow_test.cpp
     util/counter_cond_variable_test.cpp
     util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp

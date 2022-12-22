@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/row.h"
