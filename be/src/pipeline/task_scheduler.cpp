@@ -285,7 +285,6 @@ void TaskScheduler::_do_work(size_t index) {
             break;
         }
     }
-    LOG(INFO) << "Stop TaskScheduler worker " << index;
 }
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {

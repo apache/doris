@@ -166,7 +166,7 @@ PipelineTask* TaskQueue::steal_take(size_t core_id) {
             next_id = 0;
         }
         DCHECK(next_id < _core_size);
-        auto task = _async_queue[core_id].try_take();
+        auto task = _async_queue[next_id].try_take();
         if (task) {
             return task;
         }

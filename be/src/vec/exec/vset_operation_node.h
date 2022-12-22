@@ -110,6 +110,7 @@ private:
     MutableBlock _mutable_block;
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
+    RuntimeProfile::Counter* _pull_timer;  // time to pull data
 
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;
