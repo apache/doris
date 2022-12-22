@@ -16,10 +16,31 @@
 // under the License.
 
 #pragma once
+#include <brpc/controller.h>
 
-#include "exec/tablet_sink.h"
+#include <memory>
+#include <queue>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "exec/data_sink.h"
+#include "exec/tablet_info.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/row_batch.h"
+#include "runtime/thread_context.h"
+#include "util/bitmap.h"
+#include "util/countdown_latch.h"
+#include "util/ref_count_closure.h"
+#include "util/spinlock.h"
+#include "util/thread.h"
 #include "vec/columns/column.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -60,7 +81,7 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure final : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) = default;
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -210,7 +231,7 @@ public:
 
 protected:
     void _close_check();
-    void _cancel_with_msg(const std::string& msg) const;
+    void _cancel_with_msg(const std::string& msg);
 
     VOlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
@@ -233,7 +254,7 @@ protected:
 
     // user cancel or get some errors
     std::atomic<bool> _cancelled {false};
-    SpinLock _cancel_msg_lock;
+    doris::SpinLock _cancel_msg_lock;
     std::string _cancel_msg = "";
 
     // send finished means the consumer thread which send the rpc can exit
@@ -357,7 +378,7 @@ private:
     std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
 
     // lock to protect _failed_channels and _failed_channels_msgs
-    mutable SpinLock _fail_lock;
+    mutable doris::SpinLock _fail_lock;
     // key is tablet_id, value is a set of failed node id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
     // key is tablet_id, value is error message

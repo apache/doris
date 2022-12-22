@@ -17,13 +17,29 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+
 #include "exec/tablet_info.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "olap/hll.h"
+#include "runtime/exec_env.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/proto_util.h"
+#include "util/threadpool.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 #include "vec/columns/column_array.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
@@ -81,7 +97,7 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
     }
 
     {
-        std::lock_guard<SpinLock> l(_fail_lock);
+        std::lock_guard<doris::SpinLock> l(_fail_lock);
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
@@ -103,14 +119,14 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
 }
 
 Status IndexChannel::check_intolerable_failure() {
-    std::lock_guard<SpinLock> l(_fail_lock);
+    std::lock_guard<doris::SpinLock> l(_fail_lock);
     return _intolerable_failure_status;
 }
 
 void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
     std::vector<TErrorTabletInfo>& error_tablet_infos = state->error_tablet_infos();
 
-    std::lock_guard<SpinLock> l(_fail_lock);
+    std::lock_guard<doris::SpinLock> l(_fail_lock);
     for (const auto& it : _failed_channels_msgs) {
         TErrorTabletInfo error_info;
         error_info.__set_tabletId(it.first);
@@ -392,7 +408,7 @@ Status VNodeChannel::add_block(vectorized::Block* block,
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
-            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
             return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
@@ -465,10 +481,10 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
     return _send_finished ? 0 : 1;
 }
 
-void VNodeChannel::_cancel_with_msg(const std::string& msg) const {
+void VNodeChannel::_cancel_with_msg(const std::string& msg) {
     LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
-        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
         if (_cancel_msg == "") {
             _cancel_msg = msg;
         }
@@ -661,7 +677,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
-            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("wait close failed. {}", _cancel_msg);
         } else {
             return std::move(
@@ -689,7 +705,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     std::stringstream ss;
     ss << "close wait failed coz rpc error";
     {
-        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
         if (_cancel_msg != "") {
             ss << ". " << _cancel_msg;
         }
