@@ -120,6 +120,16 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
+    default T getTableOrMetaException(String tableName, List<TableIf.TableType> tableTypes)
+            throws MetaNotFoundException {
+        T table = getTableOrMetaException(tableName);
+        if (!tableTypes.contains(table.getType())) {
+            throw new MetaNotFoundException(
+                    "Tye type of " + tableName + " doesn't match, expected data tables=" + tableTypes);
+        }
+        return table;
+    }
+
     default T getTableOrMetaException(long tableId, TableIf.TableType tableType) throws MetaNotFoundException {
         T table = getTableOrMetaException(tableId);
         if (table.getType() != tableType) {
