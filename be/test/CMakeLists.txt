@@ -138,7 +138,6 @@ set(OLAP_TEST_FILES
     olap/rowset/unique_rowset_id_generator_test.cpp
     olap/rowset/rowset_tree_test.cpp
     olap/txn_manager_test.cpp
-    olap/generic_iterators_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
     olap/primary_key_index_test.cpp
