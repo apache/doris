@@ -47,6 +47,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.LEFT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
             JoinType.CROSS_JOIN
     );
 

@@ -68,8 +68,15 @@ public class JoinCommute extends OneExplorationRuleFactory {
         LEFT_DEEP, ZIG_ZAG, BUSHY
     }
 
+    /**
+     * Check if commutative law needs to be enforced.
+     */
     public static boolean check(SwapType swapType, LogicalJoin<GroupPlan, GroupPlan> join) {
         if (swapType == SwapType.LEFT_DEEP && isNotBottomJoin(join)) {
+            return false;
+        }
+
+        if (join.getJoinType().isNullAwareLeftAntiJoin()) {
             return false;
         }
 
