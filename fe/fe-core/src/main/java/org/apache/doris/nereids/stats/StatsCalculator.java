@@ -501,6 +501,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                         leftStats.dataSize + rightStats.dataSize,
                         Math.min(leftStats.minValue, rightStats.minValue),
                         Math.max(leftStats.maxValue, rightStats.maxValue),
+                        null,
                         1.0 / (leftStats.ndv + rightStats.ndv),
                         leftStats.minExpr,
                         leftStats.maxExpr,
