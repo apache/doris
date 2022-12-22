@@ -15,32 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("redundant_conjuncts") {
+suite("test_split_part") {
+  test {
     sql """
-        SET enable_vectorized_engine = true;
+      select
+          name
+      from
+          tpch_tiny_nation
+      where
+          split_part("bCKHDX07at", "5.7.37", cast(name as int)) is not null;
     """
-
-    sql """
-    DROP TABLE IF EXISTS redundant_conjuncts;
-    """
-    sql """
-    CREATE TABLE IF NOT EXISTS `redundant_conjuncts` (
-      `k1` int(11) NULL COMMENT "",
-      `v1` int(11) NULL COMMENT ""
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`k1`, `v1`)
-    DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-    PROPERTIES (
-      "replication_allocation" = "tag.location.default: 1"
-    );
-    """
-    
-    qt_redundant_conjuncts """
-    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
-    """
-
-    sql "set COMPACT_EQUAL_TO_IN_PREDICATE_THRESHOLD = 100"
-    qt_redundant_conjuncts_gnerated_by_extract_common_filter """
-    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
-    """
+    exception "errCode = 2, detailMessage = [RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
+  }
 }

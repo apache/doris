@@ -47,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -149,7 +150,7 @@ public class TableRef implements ParseNode, Writable {
      * This method construct TableRef.
      */
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
-                    TableSample tableSample, ArrayList<String> commonHints) {
+            TableSample tableSample, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
             if (Env.isStoredTableNamesLowerCase()) {
@@ -226,6 +227,13 @@ public class TableRef implements ParseNode, Writable {
             output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
         }
         output.append(tableRefToSql()).append(" ");
+        if (partitionNames != null) {
+            StringJoiner sj = new StringJoiner(",", "", " ");
+            for (String partName : partitionNames.getPartitionNames()) {
+                sj.add(partName);
+            }
+            output.append(sj.toString());
+        }
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
@@ -416,7 +424,7 @@ public class TableRef implements ParseNode, Writable {
     protected void analyzeSample() throws AnalysisException {
         if ((sampleTabletIds != null || tableSample != null) && desc.getTable().getType() != TableIf.TableType.OLAP) {
             throw new AnalysisException("Sample table " + desc.getTable().getName()
-                + " type " + desc.getTable().getType() + " is not OLAP");
+                    + " type " + desc.getTable().getType() + " is not OLAP");
         }
     }
 
@@ -863,5 +871,13 @@ public class TableRef implements ParseNode, Writable {
             String alias = Text.readString(in);
             aliases = new String[]{alias};
         }
+    }
+
+    public void setPartitionNames(PartitionNames partitionNames) {
+        this.partitionNames = partitionNames;
+    }
+
+    public void setName(TableName name) {
+        this.name = name;
     }
 }

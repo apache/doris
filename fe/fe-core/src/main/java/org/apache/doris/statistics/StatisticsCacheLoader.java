@@ -41,7 +41,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
 
     private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
-            + "id = CONCAT('${tblId}', '-', '${colId}')";
+            + "id = CONCAT('${tblId}', '-', ${idxId}, '-', '${colId}')";
 
     private static int CUR_RUNNING_LOAD = 0;
 
@@ -64,6 +64,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
                 try {
                     Map<String, String> params = new HashMap<>();
                     params.put("tblId", String.valueOf(key.tableId));
+                    params.put("idxId", String.valueOf(key.idxId));
                     params.put("colId", String.valueOf(key.colName));
                     List<ResultRow> resultBatches =
                             StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)

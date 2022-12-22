@@ -18,60 +18,66 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.FutureTask;
 
-public class AnalysisJobWrapper extends FutureTask<Void> {
+public class AnalysisTaskWrapper extends FutureTask<Void> {
 
-    private static final Logger LOG = LogManager.getLogger(AnalysisJobWrapper.class);
+    private static final Logger LOG = LogManager.getLogger(AnalysisTaskWrapper.class);
 
-    private final AnalysisJob job;
+    private final BaseAnalysisTask task;
 
     private long startTime;
 
-    private final AnalysisJobExecutor executor;
+    private final AnalysisTaskExecutor executor;
 
-    public AnalysisJobWrapper(AnalysisJobExecutor executor, AnalysisJob job) {
+    public AnalysisTaskWrapper(AnalysisTaskExecutor executor, BaseAnalysisTask job) {
         super(() -> {
             job.execute();
             return null;
         });
         this.executor = executor;
-        this.job = job;
+        this.task = job;
     }
 
     @Override
     public void run() {
         startTime = System.currentTimeMillis();
-        Exception except = null;
+        Throwable except = null;
         try {
             executor.putJob(this);
             super.run();
+            Object result = get();
+            if (result instanceof Throwable) {
+                except = (Throwable) result;
+            }
         } catch (Exception e) {
             except = e;
         } finally {
             executor.decr();
             if (except != null) {
-                Env.getCurrentEnv().getAnalysisJobScheduler()
-                        .updateJobStatus(job.getJobId(), JobState.FAILED, except.getMessage(), -1);
+                LOG.warn("Failed to execute task", except);
+                Env.getCurrentEnv().getAnalysisManager()
+                        .updateTaskStatus(task.info,
+                                AnalysisState.FAILED, except.getMessage(), -1);
             } else {
-                Env.getCurrentEnv().getAnalysisJobScheduler()
-                        .updateJobStatus(job.getJobId(), JobState.FINISHED, "", System.currentTimeMillis());
+                Env.getCurrentEnv().getAnalysisManager()
+                        .updateTaskStatus(task.info,
+                                AnalysisState.FINISHED, "", System.currentTimeMillis());
             }
-            LOG.warn("{} finished, cost time:{}", job.toString(), System.currentTimeMillis() - startTime);
+            LOG.warn("{} finished, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
         }
     }
 
     public boolean cancel() {
         try {
-            LOG.warn("{} cancelled, cost time:{}", job.toString(), System.currentTimeMillis() - startTime);
-            job.cancel();
+            LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
+            task.cancel();
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s", job.toString()));
+            LOG.warn(String.format("Cancel job failed job info : %s", task.toString()));
         } finally {
             executor.decr();
         }

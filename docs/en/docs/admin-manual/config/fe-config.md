@@ -2358,3 +2358,12 @@ Is it possible to dynamically configure: true
 
 Is it a configuration item unique to the Master FE node: true
 
+#### `enable_func_pushdown`
+
+Default：true
+
+IsMutable：true
+
+MasterOnly：false
+
+Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables

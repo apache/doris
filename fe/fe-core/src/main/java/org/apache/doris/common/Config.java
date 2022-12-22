@@ -1926,5 +1926,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean disable_enable_vectorized_engine = true;
+
+    /**
+     * This is used whether to push down function to MYSQL in external Table with query sql
+     * like odbc, jdbc for mysql table
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_func_pushdown = true;
 }
 
