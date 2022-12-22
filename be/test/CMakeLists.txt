@@ -94,14 +94,9 @@ set(OLAP_TEST_FILES
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
     olap/row_block_test.cpp
-    olap/row_block_v2_test.cpp
     olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
-    olap/bloom_filter_column_predicate_test.cpp
-    olap/comparison_predicate_test.cpp
-    olap/in_list_predicate_test.cpp
-    olap/null_predicate_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
@@ -122,7 +117,6 @@ set(OLAP_TEST_FILES
     olap/rowset/segment_v2/ordinal_page_index_test.cpp
     olap/rowset/segment_v2/rle_page_test.cpp
     olap/rowset/segment_v2/binary_dict_page_test.cpp
-    olap/rowset/segment_v2/segment_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
     olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
@@ -138,7 +132,6 @@ set(OLAP_TEST_FILES
     olap/rowset/unique_rowset_id_generator_test.cpp
     olap/rowset/rowset_tree_test.cpp
     olap/txn_manager_test.cpp
-    olap/generic_iterators_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
     olap/primary_key_index_test.cpp

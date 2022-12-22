@@ -118,10 +118,6 @@ public:
     // into input batch with Status::OK() returned
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
-    virtual Status next_batch(RowBlockV2* block) {
-        return Status::NotSupported("to be implemented");
-    }
-
     virtual Status next_batch(vectorized::Block* block) {
         return Status::NotSupported("to be implemented");
     }
