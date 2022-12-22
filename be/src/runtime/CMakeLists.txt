@@ -59,9 +59,6 @@ set(RUNTIME_FILES
     disk_io_mgr.cc
     disk_io_mgr_reader_context.cc
     disk_io_mgr_scan_range.cc 
-    buffered_block_mgr2.cc
-    buffered_tuple_stream2.cc
-    buffered_tuple_stream3.cc
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp

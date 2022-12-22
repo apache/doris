@@ -121,8 +121,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         _is_report_success = request.query_options.is_report_success;
     }
 
-    RETURN_IF_ERROR(_runtime_state->create_block_mgr());
-
     // set up desc tbl
     DescriptorTbl* desc_tbl = nullptr;
     if (fragments_ctx != nullptr) {

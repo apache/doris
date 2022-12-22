@@ -84,9 +84,6 @@ public:
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
-    // Gets/Creates the query wide block mgr.
-    Status create_block_mgr();
-
     Status create_load_dir();
 
     const TQueryOptions& query_options() const { return _query_options; }

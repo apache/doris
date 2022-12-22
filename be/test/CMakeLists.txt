@@ -157,7 +157,6 @@ set(OLAP_TEST_FILES
 )
 
 set(RUNTIME_TEST_FILES
-    # runtime/buffered_tuple_stream_test.cpp
     # runtime/buffer_control_block_test.cpp
     # runtime/result_buffer_mgr_test.cpp
     # runtime/result_sink_test.cpp
@@ -170,8 +169,6 @@ set(RUNTIME_TEST_FILES
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
-    # runtime/buffered_block_mgr2_test.cpp
-    # runtime/buffered_tuple_stream2_test.cpp
     # runtime/export_task_mgr_test.cpp
     runtime/mem_pool_test.cpp
     runtime/string_buffer_test.cpp
