@@ -226,6 +226,8 @@ std::string PipelineTask::debug_string() const {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
                        _operators[i]->debug_string());
     }
+    fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
+                   _sink->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
