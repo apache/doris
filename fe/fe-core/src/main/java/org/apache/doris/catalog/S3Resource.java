@@ -186,7 +186,6 @@ public class S3Resource extends Resource {
         s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         s3Properties.put("fs.s3a.attempts.maximum", "2");
 
-        LOG.info("--ftw: ok2asd");
         if (Boolean.valueOf(properties.getOrDefault(S3Resource.USE_PATH_STYLE, "false")).booleanValue()) {
             s3Properties.put("fs.s3a.path.style.access", "true");
         } else {
