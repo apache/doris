@@ -111,7 +111,7 @@ fromClause
     ;
 
 relation
-    : LATERAL? relationPrimary joinRelation*
+    : relationPrimary joinRelation*
     ;
 
 joinRelation
@@ -153,6 +153,10 @@ hintAssignment
     : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
     ;
 
+lateralView
+    : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+      tableName=identifier AS columnName=identifier
+    ;
 queryOrganization
     : sortClause? limitClause?
     ;
@@ -197,11 +201,11 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                                            #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
-    | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
+    : multipartIdentifier tableAlias lateralView*                               #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
+      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      RIGHT_PAREN tableAlias                                                    #tableValuedFunction
     ;
 
 tvfProperty

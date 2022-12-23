@@ -43,7 +43,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** BoundFunction. */
-public abstract class BoundFunction extends Expression implements FunctionTrait, ComputeSignature {
+public abstract class BoundFunction extends Function implements FunctionTrait, ComputeSignature {
     private final String name;
 
     private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {

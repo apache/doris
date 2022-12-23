@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -60,11 +61,28 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
+                new GenerateExpressionRewrite().build(),
                 new OneRowRelationExpressionRewrite().build(),
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
                 new FilterExpressionRewrite().build(),
                 new JoinExpressionRewrite().build());
+    }
+
+    private class GenerateExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalGenerate().then(generate -> {
+                List<Function> generators = generate.getGenerators();
+                List<Function> newGenerators = generators.stream()
+                        .map(func -> (Function) rewriter.rewrite(func))
+                        .collect(Collectors.toList());
+                if (generators.equals(newGenerators)) {
+                    return generate;
+                }
+                return generate.withGenerators(newGenerators);
+            }).toRule(RuleType.REWRITE_GENERATE_EXPRESSION);
+        }
     }
 
     private class OneRowRelationExpressionRewrite extends OneRewriteRuleFactory {

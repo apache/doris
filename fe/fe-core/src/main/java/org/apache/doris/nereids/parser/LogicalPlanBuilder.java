@@ -23,7 +23,6 @@ import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
-import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
@@ -54,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
@@ -102,7 +102,6 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
@@ -140,6 +139,7 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
@@ -186,6 +186,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -286,9 +287,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * ******************************************************************************************** */
 
     /**
+     * process lateral view, add a {@link org.apache.doris.nereids.trees.plans.logical.LogicalGenerate} on plan.
+     */
+    private LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
+        if (ctx.LATERAL() == null) {
+            return plan;
+        }
+        String generateName = ctx.tableName.getText();
+        String columnName = ctx.columnName.getText();
+        String functionName = ctx.functionName.getText();
+        List<Expression> arguments = ctx.expression().stream()
+                .<Expression>map(this::typedVisit)
+                .collect(Collectors.toList());
+        Function unboundFunction = new UnboundFunction(functionName, arguments);
+        return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
+                ImmutableList.of(new UnboundSlot(generateName, columnName)), plan);
+    }
+
+    /**
      * process CTE and store the results in a logical plan node LogicalCTE
      */
-    public LogicalPlan withCte(LogicalPlan plan, CteContext ctx) {
+    private LogicalPlan withCte(LogicalPlan plan, CteContext ctx) {
         if (ctx == null) {
             return plan;
         }
@@ -390,7 +409,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
-    @Developing
     private LogicalPlan withTableAlias(LogicalPlan plan, TableAliasContext ctx) {
         if (ctx.strictIdentifier() == null) {
             return plan;
@@ -413,17 +431,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
         LogicalPlan checkedRelation = withCheckPolicy(new UnboundRelation(RelationUtil.newRelationId(), tableId));
-        return withTableAlias(checkedRelation, ctx.tableAlias());
+        LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
+        for (LateralViewContext lateralViewContext : ctx.lateralView()) {
+            plan = withGenerate(plan, lateralViewContext);
+        }
+        return plan;
     }
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
         return withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
-    }
-
-    @Override
-    public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
-        return withTableAlias(visitRelation(ctx.relation()), ctx.tableAlias());
     }
 
     @Override
@@ -976,13 +993,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitRelation(RelationContext ctx) {
-        LogicalPlan right = plan(ctx.relationPrimary());
-        if (ctx.LATERAL() != null) {
-            if (!(right instanceof LogicalSubQueryAlias)) {
-                throw new ParseException("lateral join right table should be sub-query", ctx);
-            }
-        }
-        return right;
+        return plan(ctx.relationPrimary());
     }
 
     @Override

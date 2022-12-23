@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -97,7 +98,8 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
  * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
 public abstract class ExpressionVisitor<R, C>
-        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>, TableValuedFunctionVisitor<R, C> {
+        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>,
+        TableValuedFunctionVisitor<R, C>, TableGeneratingFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
 
@@ -114,6 +116,11 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitTableValuedFunction(TableValuedFunction tableValuedFunction, C context) {
         return visitBoundFunction(tableValuedFunction, context);
+    }
+
+    @Override
+    public R visitTableGeneratingFunction(TableGeneratingFunction tableGeneratingFunction, C context) {
+        return visitBoundFunction(tableGeneratingFunction, context);
     }
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
