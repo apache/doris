@@ -860,7 +860,7 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
                             {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
                             {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        check_function<DataTypeTime, true>(func_name, input_types, data_set);
     }
 
     {
