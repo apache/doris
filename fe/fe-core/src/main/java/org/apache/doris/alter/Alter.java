@@ -437,6 +437,8 @@ public class Alter {
                 needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, clusterName, db);
                 break;
             case ODBC:
+            case JDBC:
+            case HIVE:
             case MYSQL:
             case ELASTICSEARCH:
                 processAlterExternalTable(stmt, table, db);
