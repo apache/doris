@@ -444,7 +444,7 @@ public class InsertStmt extends DdlStmt {
          */
         List<Pair<Integer, Column>> origColIdxsForExtendCols = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
-            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
                 String origName = Column.removeNamePrefix(column.getName());
                 for (int i = 0; i < targetColumns.size(); i++) {
                     if (targetColumns.get(i).nameEquals(origName, false)) {
