@@ -75,8 +75,9 @@ public:
                 if (const auto* delta_const_column =
                             typeid_cast<const ColumnConst*>(&source_col1)) {
                     TransformerToStringTwoArgument<Transform>::vector_constant(
-                            sources->get_data(), delta_const_column->get_field().get<String>(),
-                            col_res->get_chars(), col_res->get_offsets(), vec_null_map_to, context);
+                            context, sources->get_data(),
+                            delta_const_column->get_field().get<String>(), col_res->get_chars(),
+                            col_res->get_offsets(), vec_null_map_to);
                 } else {
                     return Status::InternalError(
                             "Illegal column {} is not const {}",
@@ -84,8 +85,8 @@ public:
                 }
             } else {
                 TransformerToStringTwoArgument<Transform>::vector_constant(
-                        sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
-                        col_res->get_offsets(), vec_null_map_to, context);
+                        context, sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
+                        col_res->get_offsets(), vec_null_map_to);
             }
 
             if (nullable_column) {

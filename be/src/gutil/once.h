@@ -63,7 +63,7 @@ inline void GoogleOnceInitArg(GoogleOnceType* state, void (*func_with_arg)(T*), 
     Atomic32 s = Acquire_Load(&state->state);
     if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
         // Deal with const T as well as non-const T.
-        typedef typename std::remove_const<T>::type mutable_T;
+        using mutable_T = typename std::remove_const<T>::type;
         GoogleOnceInternalInit(&state->state, 0, reinterpret_cast<void (*)(void*)>(func_with_arg),
                                const_cast<mutable_T*>(arg));
     }
@@ -101,7 +101,7 @@ public:
         Atomic32 s = Acquire_Load(&this->state_);
         if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
             // Deal with const T as well as non-const T.
-            typedef typename std::remove_const<T>::type mutable_T;
+            using mutable_T = typename std::remove_const<T>::type;
             GoogleOnceInternalInit(&this->state_, 0,
                                    reinterpret_cast<void (*)(void*)>(func_with_arg),
                                    const_cast<mutable_T*>(arg));
