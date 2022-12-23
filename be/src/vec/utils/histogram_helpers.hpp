@@ -24,6 +24,7 @@
 #include <boost/dynamic_bitset.hpp>
 
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -236,18 +237,18 @@ bool value_to_string(std::stringstream& ss, T input, const DataTypePtr& data_typ
     }
     case TypeIndex::Decimal32: {
         auto scale = get_decimal_scale(*data_type);
-        vectorized::write_text<int32_t>(*(reinterpret_cast<const int32_t*>(&input)), scale, ss);
+        write_text<int32_t>(*(reinterpret_cast<const int32_t*>(&input)), scale, ss);
         break;
     }
     case TypeIndex::Decimal64: {
         auto scale = get_decimal_scale(*data_type);
-        vectorized::write_text<int64_t>(*(reinterpret_cast<const int64_t*>(&input)), scale, ss);
+        write_text<int64_t>(*(reinterpret_cast<const int64_t*>(&input)), scale, ss);
         break;
     }
     case TypeIndex::Decimal128:
     case TypeIndex::Decimal128I: {
         auto scale = get_decimal_scale(*data_type);
-        vectorized::write_text<int128_t>(*(reinterpret_cast<const int128_t*>(&input)), scale, ss);
+        write_text<int128_t>(*(reinterpret_cast<const int128_t*>(&input)), scale, ss);
         break;
     }
     default:

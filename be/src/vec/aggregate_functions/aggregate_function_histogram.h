@@ -19,7 +19,6 @@
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/io/io_helper.h"
 #include "vec/utils/histogram_helpers.hpp"
 
 namespace doris::vectorized {
