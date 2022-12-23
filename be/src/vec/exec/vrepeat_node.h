@@ -45,11 +45,10 @@ public:
 
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
-    bool need_more_input_data();
+    bool need_more_input_data() const;
     Block* get_child_block() { return &_child_block; }
 
-protected:
-    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);

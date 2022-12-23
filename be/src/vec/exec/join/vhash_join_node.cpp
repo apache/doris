@@ -448,7 +448,7 @@ Status HashJoinNode::close(RuntimeState* state) {
     return VJoinNodeBase::close(state);
 }
 
-bool HashJoinNode::need_more_input_data() {
+bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
            !_short_circuit_for_null_in_probe_side;
 }
@@ -812,7 +812,9 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             }
             _shared_hashtable_controller->signal(id());
         }
-    } else if (!_should_build_hash_table) {
+    } else if (!_should_build_hash_table &&
+               ((state->enable_pipeline_exec() && eos) || !state->enable_pipeline_exec())) {
+        // TODO: For pipeline engine, we should finish this pipeline task if _should_build_hash_table is false
         if (!state->enable_pipeline_exec()) {
             child(1)->close(state);
         }
@@ -858,10 +860,21 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         }
     }
 
-    if (eos || !_should_build_hash_table) {
+    if (eos || (!_should_build_hash_table && !state->enable_pipeline_exec())) {
         _process_hashtable_ctx_variants_init(state);
     }
     return Status::OK();
+}
+
+void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
+         << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
+         << " _probe_eos=" << _probe_eos
+         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+    *out << ")\n children=(";
+    ExecNode::debug_string(indentation_level, out);
+    *out << ")";
 }
 
 template <bool BuildSide>

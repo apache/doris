@@ -15,16 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_split_part") {
-  test {
-    sql """
-      select
-          name
-      from
-          tpch_tiny_nation
-      where
-          split_part("bCKHDX07at", "5.7.37", cast(name as int)) is not null;
-    """
-    exception "[RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
-  }
+#pragma once
+
+#include "operator.h"
+
+namespace doris {
+namespace vectorized {
+class VResultFileSink;
 }
+
+namespace pipeline {
+
+class ResultFileSinkOperatorBuilder final
+        : public DataSinkOperatorBuilder<vectorized::VResultFileSink> {
+public:
+    ResultFileSinkOperatorBuilder(int32_t id, DataSink* sink);
+
+    OperatorPtr build_operator() override;
+};
+
+class ResultFileSinkOperator final : public DataSinkOperator<ResultFileSinkOperatorBuilder> {
+public:
+    ResultFileSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
+
+    bool can_write() override { return true; }
+};
+
+} // namespace pipeline
+} // namespace doris

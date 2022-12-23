@@ -37,8 +37,7 @@ public:
         return _children[0]->open(state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-
-    bool need_more_input_data() { return !_child_block.rows() && !_child_eos; }
+    bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
         Expr::close(_fn_ctxs, state);
