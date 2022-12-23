@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -38,12 +39,14 @@ import org.apache.doris.thrift.TUnionNode;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -451,6 +454,26 @@ public abstract class SetOperationNode extends PlanNode {
         }
         numInstances = Math.max(1, numInstances);
         return numInstances;
+    }
+
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
+    }
+
+    public void projectOutputTuple() {
+    }
+
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) {
+        Set<SlotId> results = Sets.newHashSet();
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            List<Expr> substituteList =
+                    Expr.substituteList(resultExprLists.get(i), children.get(i).getOutputSmap(), analyzer, true);
+            for (Expr expr : substituteList) {
+                List<SlotId> slotIdList = Lists.newArrayList();
+                expr.getIds(null, slotIdList);
+                results.addAll(slotIdList);
+            }
+        }
+        return results;
     }
 
     /**
