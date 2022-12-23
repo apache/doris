@@ -224,3 +224,37 @@
 3
 4
 
+-- !select1 --
+a	1
+all	1
+all	2
+
+-- !select2 --
+a	1
+all	1
+all	2
+
+-- !select3 --
+\N	2
+a	1
+all	1
+
+-- !select4 --
+2	1
+2	1
+2	2
+
+-- !select5 --
+2	1
+2	1
+2	2
+
+-- !select6 --
+2	1
+2	1
+2	2
+
+-- !select7 --
+2	1
+2	1
+2	2

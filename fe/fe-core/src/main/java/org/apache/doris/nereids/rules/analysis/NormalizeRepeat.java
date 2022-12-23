@@ -119,13 +119,14 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         // normalize grouping sets to List<List<Slot>>
         List<List<Slot>> normalizedGroupingSets = repeat.getGroupingSets()
                 .stream()
-                .map(groupingSet -> (List<Slot>) (List) context.normalizeToUseSlotRef(groupingSet))
+                .map(groupingSet -> (List<Slot>) (List) context.normalizeToUseSlotRef(
+                        groupingSet, false))
                 .collect(ImmutableList.toImmutableList());
 
         // replace the arguments of grouping scalar function to virtual slots
         // replace some complex expression to slot, e.g. `a + 1`
         List<NamedExpression> normalizedAggOutput = context.normalizeToUseSlotRef(
-                        repeat.getOutputExpressions(), this::normalizeGroupingScalarFunction);
+                        repeat.getOutputExpressions(), this::normalizeGroupingScalarFunction, true);
 
         Set<VirtualSlotReference> virtualSlotsInFunction =
                 ExpressionUtils.collect(normalizedAggOutput, VirtualSlotReference.class::isInstance);
@@ -152,7 +153,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .addAll(allVirtualSlots)
                 .build();
 
-        Set<NamedExpression> pushedProject = context.pushDownToNamedExpression(needToSlots);
+        Set<NamedExpression> pushedProject = context.pushDownToNamedExpression(needToSlots, repeat);
         Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
 
         LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
@@ -200,7 +201,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
-        if (!pushedExprs.equals(originBottomPlan.getOutputSet())) {
+        if (!pushedExprs.equals(originBottomPlan.getOutputSet()) && !pushedExprs.isEmpty()) {
             return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan);
         }
         return originBottomPlan;
@@ -241,7 +242,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 normalizeToSlotMap.put(expression, pushDownTriplet.get());
             }
         }
-        return new NormalizeToSlotContext(normalizeToSlotMap);
+        return new NormalizeToSlotContext(normalizeToSlotMap, repeat);
     }
 
     private Optional<NormalizeToSlotTriplet> toGroupingSetExpressionPushDownTriplet(
@@ -255,7 +256,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     private Expression normalizeGroupingScalarFunction(NormalizeToSlotContext context, Expression expr) {
         if (expr instanceof GroupingScalarFunction) {
             GroupingScalarFunction function = (GroupingScalarFunction) expr;
-            List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
+            List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(
+                    function.getArguments(), false);
             function = function.withChildren(normalizedRealExpressions);
             // eliminate GroupingScalarFunction and replace to VirtualSlotReference
             return Repeat.generateVirtualSlotByFunction(function);
