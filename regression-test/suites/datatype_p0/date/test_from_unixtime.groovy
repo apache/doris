@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,31 +16,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
-#include <vector>
+suite("test_from_unixtime") {
+    sql "set enable_vectorized_engine=true"
+    sql "set enable_fold_constant_by_be=true"
 
-#include "udf/udf.h"
-#include "udf/udf_internal.h"
+    qt_sql1 "select from_unixtime(1553152255)"
 
-namespace doris {
+    sql "set time_zone='+00:00'"
 
-class MemPool;
-class RuntimeState;
-
-class FunctionUtils {
-public:
-    FunctionUtils();
-    FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
-                  const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
-                  int varargs_buffer_size);
-    ~FunctionUtils();
-
-    doris_udf::FunctionContext* get_fn_ctx() { return _fn_ctx; }
-
-private:
-    RuntimeState* _state = nullptr;
-    MemPool* _memory_pool = nullptr;
-    doris_udf::FunctionContext* _fn_ctx = nullptr;
-};
-
-} // namespace doris
+    qt_sql2 "select from_unixtime(1553152255)"
+}
