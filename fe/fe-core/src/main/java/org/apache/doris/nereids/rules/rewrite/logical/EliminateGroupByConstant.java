@@ -50,11 +50,17 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
             List<Expression> groupByExprs = aggregate.getGroupByExpressions();
             List<NamedExpression> outputExprs = aggregate.getOutputExpressions();
             Set<Expression> slotGroupByExprs = Sets.newLinkedHashSet();
+            Expression lit = null;
             for (Expression expression : groupByExprs) {
                 expression = FoldConstantRule.INSTANCE.rewrite(expression);
                 if (!(expression instanceof Literal)) {
                     slotGroupByExprs.add(expression);
+                } else {
+                    lit = expression;
                 }
+            }
+            if (slotGroupByExprs.isEmpty() && lit != null) {
+                slotGroupByExprs.add(lit);
             }
             return aggregate.withGroupByAndOutput(ImmutableList.copyOf(slotGroupByExprs), outputExprs);
         }).toRule(RuleType.ELIMINATE_GROUP_BY_CONSTANT);
