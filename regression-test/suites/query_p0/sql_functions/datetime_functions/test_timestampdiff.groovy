@@ -36,4 +36,8 @@ suite("test_timestampdiff") {
                         TIMESTAMPDIFF(MONTH,'2020-04-29','2022-04-28') AS `str-str`,
                         TIMESTAMPDIFF(MONTH,DATE('2020-04-29'),DATE('2022-04-28')) AS `date-date`,
                         TIMESTAMPDIFF(MONTH,'2020-04-29',DATE('2022-04-28')) AS `str-date`"""
+
+    qt_select """select  timediff(now(), now() -1) as 延迟时长1,
+                     cast(timediff(now(), now() -1) as varchar(50)) as 延迟时长2,
+                     replace(cast(timediff(now(), now() -1) as varchar(50)),'''','') as 延迟时长; """
 }
