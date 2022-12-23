@@ -58,6 +58,15 @@ std::string BetaRowset::segment_cache_path(int segment_id) {
     return fmt::format("{}/{}_{}", _tablet_path, rowset_id().to_string(), segment_id);
 }
 
+// just check that the format is xxx_segmentid and segmentid is numeric
+bool BetaRowset::is_segment_cache_dir(const std::string& cache_dir) {
+    auto segment_id_pos = cache_dir.find_last_of('_') + 1;
+    if (segment_id_pos >= cache_dir.size() || segment_id_pos == 0) {
+        return false;
+    }
+    return std::all_of(cache_dir.cbegin() + segment_id_pos, cache_dir.cend(), ::isdigit);
+}
+
 std::string BetaRowset::segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                           int segment_id) {
     // {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
