@@ -106,11 +106,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    if (read_context->all_compound_predicates != nullptr) {
-        _read_options.all_compound_column_predicates.insert(
-                _read_options.all_compound_column_predicates.end(),
-                read_context->all_compound_predicates->begin(),
-                read_context->all_compound_predicates->end());
+    if (read_context->predicates_except_leafnode_of_andnode != nullptr) {
+        _read_options.column_predicates_except_leafnode_of_andnode.insert(
+                _read_options.column_predicates_except_leafnode_of_andnode.end(),
+                read_context->predicates_except_leafnode_of_andnode->begin(),
+                read_context->predicates_except_leafnode_of_andnode->end());
     }
 
     // Take a delete-bitmap for each segment, the bitmap contains all deletes

@@ -100,7 +100,7 @@ public:
 
     bool is_fixed_value_range() const;
 
-    bool is_boundary_value_range() const;
+    bool is_in_compound_value_range() const;
 
     bool is_scope_value_range() const;
 
@@ -232,7 +232,6 @@ public:
         TCondition condition;
         condition.__set_column_name(_column_name);
         condition.__set_condition_op(is_in ? "*=" : "!*=");
-        condition.__set_compound_type(_compound_type);
 
         for (const auto& value : _fixed_values) {
             condition.condition_values.push_back(
@@ -244,11 +243,10 @@ public:
         }
     }
 
-    void to_boundary_condition(std::vector<TCondition>& filters) {
-        for (const auto& value : _boundary_values) {
+    void to_condition_in_compound(std::vector<TCondition>& filters) {
+        for (const auto& value : _compound_values) {
             TCondition condition;
             condition.__set_column_name(_column_name);
-            condition.__set_compound_type(_compound_type);
             if (value.first == FILTER_LARGER) {
                 condition.__set_condition_op(">>");
             } else if (value.first == FILTER_LARGER_OR_EQUAL) {
@@ -257,6 +255,10 @@ public:
                 condition.__set_condition_op("<<");
             } else if (value.first == FILTER_LESS_OR_EQUAL) {
                 condition.__set_condition_op("<=");
+            } else if (value.first == FILTER_IN) {
+                condition.__set_condition_op("*=");
+            } else if (value.first == FILTER_NOT_IN) {
+                condition.__set_condition_op("!*=");
             }
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
@@ -299,12 +301,6 @@ public:
     int precision() const { return _precision; }
 
     int scale() const { return _scale; }
-
-    void set_compound_type(const TCompoundType::type& compound_type) {
-        _compound_type = compound_type;
-    }
-
-    TCompoundType::type get_compound_type() const;
 
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
         range.add_fixed_value(*value);
@@ -374,9 +370,8 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_DATETIME ||
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
 
-    // range boundary value in CompoundPredicate
-    std::set<std::pair<SQLFilterOp, CppType>> _boundary_values;
-    TCompoundType::type _compound_type = TCompoundType::UNKNOWN;
+    // range value except leaf node of and node in compound expr tree
+    std::set<std::pair<SQLFilterOp, CppType>> _compound_values;
 };
 
 class OlapScanKeys {
@@ -520,8 +515,8 @@ Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {
 
 template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppType value) {
-    std::pair<SQLFilterOp, CppType> boundary_val(op, value);
-    _boundary_values.insert(boundary_val);
+    std::pair<SQLFilterOp, CppType> val_with_op(op, value);
+    _compound_values.insert(val_with_op);
     _contain_null = false;
 
     _high_value = TYPE_MIN;
@@ -541,8 +536,8 @@ bool ColumnValueRange<primitive_type>::is_fixed_value_range() const {
 }
 
 template <PrimitiveType primitive_type>
-bool ColumnValueRange<primitive_type>::is_boundary_value_range() const {
-    return _boundary_values.size() != 0;
+bool ColumnValueRange<primitive_type>::is_in_compound_value_range() const {
+    return _compound_values.size() != 0;
 }
 
 template <PrimitiveType primitive_type>
@@ -557,12 +552,7 @@ bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
     }
 
     return (!is_fixed_value_range() && !is_scope_value_range() && !contain_null() &&
-            !is_boundary_value_range());
-}
-
-template <PrimitiveType primitive_type>
-TCompoundType::type ColumnValueRange<primitive_type>::get_compound_type() const {
-    return _compound_type;
+            !is_in_compound_value_range());
 }
 
 template <PrimitiveType primitive_type>

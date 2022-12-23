@@ -170,8 +170,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     }
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
-    if (!opts.all_compound_column_predicates.empty()) {
-        _all_compound_col_predicates = opts.all_compound_column_predicates;
+    if (!opts.column_predicates_except_leafnode_of_andnode.empty()) {
+        _col_preds_except_leafnode_of_andnode = opts.column_predicates_except_leafnode_of_andnode;
     }
     _remaining_vconjunct_root = opts.remaining_vconjunct_root;
 
@@ -292,12 +292,12 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
-    if (config::enable_index_apply_compound_predicates) {
-        RETURN_IF_ERROR(_apply_index_in_compound());
-        if (_is_index_for_compound_predicate()) {
-            auto res = _execute_all_compound_predicates(_remaining_vconjunct_root);
-            if (res.ok() && _compound_predicate_execute_result.size() == 1) {
-                _row_bitmap &= _compound_predicate_execute_result[0];
+    if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
+        RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
+        if (_can_filter_by_preds_except_leafnode_of_andnode()) {
+            auto res = _execute_predicates_except_leafnode_of_andnode(_remaining_vconjunct_root);
+            if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
+                _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
             }
         }
     }
@@ -406,14 +406,14 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     }
 }
 
-Status SegmentIterator::_execute_all_compound_predicates(vectorized::VExpr* expr) {
+Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr) {
     if (expr == nullptr) {
         return Status::OK();
     }
 
     auto children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
-        RETURN_IF_ERROR(_execute_all_compound_predicates(children[i]));
+        RETURN_IF_ERROR(_execute_predicates_except_leafnode_of_andnode(children[i]));
     }
 
     auto node_type = expr->node_type();
@@ -425,12 +425,12 @@ Status SegmentIterator::_execute_all_compound_predicates(vectorized::VExpr* expr
     } else if (node_type == TExprNodeType::BINARY_PRED) {
         _column_predicate_info->query_op = expr->fn().name.function_name;
         // get child condition result in compound condtions
-        auto column_sign = _gen_predicate_sign(_column_predicate_info.get());
+        auto pred_result_sign = _gen_predicate_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
-        if (_rowid_result_for_index.count(column_sign) > 0 &&
-            _rowid_result_for_index[column_sign].first) {
-            auto apply_reuslt = _rowid_result_for_index[column_sign].second;
-            _compound_predicate_execute_result.push_back(apply_reuslt);
+        if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
+            _rowid_result_for_index[pred_result_sign].first) {
+            auto apply_reuslt = _rowid_result_for_index[pred_result_sign].second;
+            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_reuslt);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
@@ -442,51 +442,34 @@ Status SegmentIterator::_execute_all_compound_predicates(vectorized::VExpr* expr
 }
 
 Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
-    auto and_execute_result = [&]() {
-        auto size = _compound_predicate_execute_result.size();
+    auto size = _pred_except_leafnode_of_andnode_evaluate_result.size();
+    if (function_name == "and") {
         if (size < 2) {
             return Status::InternalError("execute and logic compute error.");
         }
-        _compound_predicate_execute_result.at(size - 2) &=
-                _compound_predicate_execute_result.at(size - 1);
-        _compound_predicate_execute_result.pop_back();
-        return Status::OK();
-    };
-
-    auto or_execute_result = [&]() {
-        auto size = _compound_predicate_execute_result.size();
+        _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) &=
+                _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
+        _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
+    } else if (function_name == "or") {
         if (size < 2) {
             return Status::InternalError("execute or logic compute error.");
         }
-        _compound_predicate_execute_result.at(size - 2) |=
-                _compound_predicate_execute_result.at(size - 1);
-        _compound_predicate_execute_result.pop_back();
-        return Status::OK();
-    };
-
-    auto not_execute_result = [&]() {
-        auto size = _compound_predicate_execute_result.size();
+        _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) |=
+                _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
+        _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
+    } else if (function_name == "not") {
         if (size < 1) {
             return Status::InternalError("execute not logic compute error.");
         }
         roaring::Roaring tmp = _row_bitmap;
-        tmp -= _compound_predicate_execute_result.at(size - 1);
-        _compound_predicate_execute_result.at(size - 1) = tmp;
-        return Status::OK();
-    };
-
-    if (function_name == "and") {
-        RETURN_IF_ERROR(and_execute_result());
-    } else if (function_name == "or") {
-        RETURN_IF_ERROR(or_execute_result());
-    } else if (function_name == "not") {
-        RETURN_IF_ERROR(not_execute_result());
+        tmp -= _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
+        _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1) = tmp;
     }
     return Status::OK();
 }
 
-bool SegmentIterator::_is_index_for_compound_predicate() {
-    for (auto pred : _all_compound_col_predicates) {
+bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
+    for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (!_check_apply_by_bitmap_index(pred)) {
             return false;
         }
@@ -504,7 +487,7 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
     return true;
 }
 
-Status SegmentIterator::_apply_bitmap_index_in_compound(ColumnPredicate* pred,
+Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                         roaring::Roaring* output_result) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
     RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
@@ -512,14 +495,14 @@ Status SegmentIterator::_apply_bitmap_index_in_compound(ColumnPredicate* pred,
     return Status::OK();
 }
 
-Status SegmentIterator::_apply_index_in_compound() {
-    for (auto pred : _all_compound_col_predicates) {
+Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
+    for (auto pred : _col_preds_except_leafnode_of_andnode) {
         auto pred_type = pred->type();
-        bool is_support_in_compound =
+        bool is_support =
                 pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                 pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
                 pred_type == PredicateType::GT || pred_type == PredicateType::GE;
-        if (!is_support_in_compound) {
+        if (!is_support) {
             continue;
         }
 
@@ -527,7 +510,7 @@ Status SegmentIterator::_apply_index_in_compound() {
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
         if (can_apply_by_bitmap_index) {
-            res = _apply_bitmap_index_in_compound(pred, &bitmap);
+            res = _apply_bitmap_index_except_leafnode_of_andnode(pred, &bitmap);
         } else {
             continue;
         }
@@ -535,34 +518,34 @@ Status SegmentIterator::_apply_index_in_compound() {
         if (!res.ok()) {
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res.get_error_msg();
+                         << ", error msg: " << res.code_as_string();
             return res;
         }
 
-        std::string pred_sign = _gen_predicate_sign(pred);
-        _rowid_result_for_index.emplace(std::make_pair(pred_sign, std::make_pair(true, bitmap)));
+        std::string pred_result_sign = _gen_predicate_sign(pred);
+        _rowid_result_for_index.emplace(std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
     }
 
     return Status::OK();
 }
 
 std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
-    std::string pred_sign;
+    std::string pred_result_sign;
 
     auto column_desc = _schema.column(predicate->column_id());
     auto pred_type = predicate->type();
     auto predicate_params = predicate->predicate_params();
-    pred_sign = column_desc->name() + "_" + predicate->pred_type_string(pred_type) + "_" +
+    pred_result_sign = column_desc->name() + "_" + predicate->pred_type_string(pred_type) + "_" +
                 predicate_params->value;
 
-    return pred_sign;
+    return pred_result_sign;
 }
 
 std::string SegmentIterator::_gen_predicate_sign(ColumnPredicateInfo* predicate_info) {
-    std::string pred_sign;
-    pred_sign = predicate_info->column_name + "_" + predicate_info->query_op + "_" +
+    std::string pred_result_sign;
+    pred_result_sign = predicate_info->column_name + "_" + predicate_info->query_op + "_" +
                 predicate_info->query_value;
-    return pred_sign;
+    return pred_result_sign;
 }
 
 Status SegmentIterator::_init_return_column_iterators() {
@@ -1058,7 +1041,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
         auto next_range = RowRanges::create_single(range_from, range_to);
         auto next_bm_in_row_bitmap = RowRanges::ranges_to_roaring(next_range);
-        _split_row_bitmaps.emplace_back(next_bm_in_row_bitmap);
+        _split_row_ranges.emplace_back(next_bm_in_row_bitmap);
         // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
     } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
     return Status::OK();
@@ -1204,7 +1187,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // read 100 rows to estimate average row size
         nrows_read_limit = 100;
     }
-    _split_row_bitmaps.clear();
+    _split_row_ranges.clear();
     _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
                            _lazy_materialization_read || _opts.record_rowids);
 
@@ -1225,6 +1208,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     if (!_is_need_vec_eval && !_is_need_short_eval) {
         _output_non_pred_columns(block);
+        _output_index_result_column(nullptr, 0, block);
     } else {
         _convert_dict_code_for_predicate_if_necessary();
         uint16_t selected_size = _current_batch_rows_read;
@@ -1281,9 +1265,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
                                                       selected_size));
         }
+        _output_index_result_column(sel_rowid_idx, selected_size, block);
     }
-
-    _output_index_return_column(block);
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
@@ -1307,41 +1290,50 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     return Status::OK();
 }
 
-void SegmentIterator::_output_index_return_column(vectorized::Block* block) {
+void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+                                                  vectorized::Block* block) {
     if (block->rows() == 0) {
         return;
     }
 
-    for (auto column_sign : _rowid_result_for_index) {
+    for (auto iter : _rowid_result_for_index) {
         block->insert({vectorized::ColumnUInt8::create(),
-                       std::make_shared<vectorized::DataTypeUInt8>(), column_sign.first});
-        if (!column_sign.second.first) {
+                       std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
+        if (!iter.second.first) {
             // predicate not in compound query
             continue;
         }
-        _build_index_return_column(block, column_sign.first, column_sign.second.second);
+        _build_index_result_column(sel_rowid_idx, select_size, block, iter.first,
+                                   iter.second.second);
     }
 }
 
-void SegmentIterator::_build_index_return_column(vectorized::Block* block,
-                                                 const std::string& index_result_column_sign,
+void SegmentIterator::_build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+                                                 vectorized::Block* block,
+                                                 const std::string& pred_result_sign,
                                                  const roaring::Roaring& index_result) {
     auto index_result_column = vectorized::ColumnUInt8::create();
     vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
     vec_match_pred.resize(block->rows());
-    auto idx = 0;
-    for (auto origin_row_bitmap : _split_row_bitmaps) {
-        for (auto rowid : origin_row_bitmap) {
-            if (index_result.contains(rowid)) {
-                vec_match_pred[idx] = true;
-            } else {
-                vec_match_pred[idx] = false;
+    size_t idx_in_block = 0;
+    size_t idx_in_row_range = 0;
+    size_t idx_in_selected = 0;
+    for (auto origin_row_range : _split_row_ranges) {
+        for (auto rowid : origin_row_range) {
+            if (sel_rowid_idx == nullptr || (idx_in_selected < select_size &&
+                                             idx_in_row_range == sel_rowid_idx[idx_in_selected])) {
+                if (index_result.contains(rowid)) {
+                    vec_match_pred[idx_in_block++] = true;
+                } else {
+                    vec_match_pred[idx_in_block++] = false;
+                }
+                idx_in_selected++;
             }
-            idx++;
+            idx_in_row_range++;
         }
     }
     assert(block->rows() == vec_match_pred.size());
-    auto index_result_position = block->get_position_by_name(index_result_column_sign);
+    auto index_result_position = block->get_position_by_name(pred_result_sign);
     block->replace_by_position(index_result_position, std::move(index_result_column));
 }
 

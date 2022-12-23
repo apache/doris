@@ -233,27 +233,17 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             }
         }
 
-        for (auto i = 0; i < _compound_value_ranges.size(); ++i) {
-            std::vector<TCondition> conditions;
-            for (auto& iter : _compound_value_ranges[i]) {
-                std::vector<TCondition> filters;
-                std::visit(
-                        [&](auto&& range) {
-                            if (range.is_boundary_value_range()) {
-                                range.to_boundary_condition(filters);
-                            } else {
-                                range.to_olap_filter(filters);
-                            }
-                        },
-                        iter);
-
-                for (const auto& filter : filters) {
-                    conditions.push_back(filter);
-                }
-            }
-
-            if (!conditions.empty()) {
-                _compound_filters.emplace_back(conditions);
+        for (auto& iter : _compound_value_ranges) {
+            std::vector<TCondition> filters;
+            std::visit(
+                    [&](auto&& range) {
+                        if (range.is_in_compound_value_range()) {
+                            range.to_condition_in_compound(filters);
+                        }
+                    },
+                    iter);
+            for (const auto& filter : filters) {
+                _compound_filters.push_back(filter);
             }
         }
 

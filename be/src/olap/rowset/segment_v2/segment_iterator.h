@@ -123,11 +123,11 @@ private:
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
 
-    Status _apply_index_in_compound();
-    Status _apply_bitmap_index_in_compound(ColumnPredicate* pred, roaring::Roaring* output_result);
+    Status _apply_index_except_leafnode_of_andnode();
+    Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred, roaring::Roaring* output_result);
 
-    bool _is_index_for_compound_predicate();
-    Status _execute_all_compound_predicates(vectorized::VExpr* expr);
+    bool _can_filter_by_preds_except_leafnode_of_andnode();
+    Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
     Status _execute_compound_fn(const std::string& function_name);
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
@@ -187,11 +187,12 @@ private:
     std::string _gen_predicate_sign(ColumnPredicate* predicate);
     std::string _gen_predicate_sign(ColumnPredicateInfo* predicate_info);
 
-    void _build_index_return_column(vectorized::Block* block,
-                                    const std::string& index_result_column_sign,
+    void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+                                    vectorized::Block* block,
+                                    const std::string& pred_result_sign,
                                     const roaring::Roaring& index_result);
-
-    void _output_index_return_column(vectorized::Block* block);
+    void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+                                            vectorized::Block* block);
 
 private:
     class BitmapRangeIterator;
@@ -208,7 +209,7 @@ private:
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
     std::unordered_map<std::string, std::pair<bool, roaring::Roaring> > _rowid_result_for_index;
-    std::vector<roaring::Roaring> _split_row_bitmaps;
+    std::vector<roaring::Roaring> _split_row_ranges;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
@@ -252,9 +253,9 @@ private:
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _all_compound_col_predicates;
+    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     doris::vectorized::VExpr* _remaining_vconjunct_root;
-    std::vector<roaring::Roaring> _compound_predicate_execute_result;
+    std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
 
     // row schema of the key to seek

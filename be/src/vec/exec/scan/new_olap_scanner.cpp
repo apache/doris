@@ -128,7 +128,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 }
 
 void NewOlapScanner::set_compound_filters(
-        const std::vector<std::vector<TCondition>>& compound_filters) {
+        const std::vector<TCondition>& compound_filters) {
     _compound_filters = compound_filters;
 }
 
@@ -182,8 +182,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
     }
 
     std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
-              std::inserter(_tablet_reader_params.compound_conditions,
-                            _tablet_reader_params.compound_conditions.begin()));
+              std::inserter(_tablet_reader_params.conditions_except_leafnode_of_andnode,
+                            _tablet_reader_params.conditions_except_leafnode_of_andnode.begin()));
 
     std::copy(filter_predicates.bloom_filters.cbegin(), filter_predicates.bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
