@@ -49,6 +49,8 @@ public:
     static std::string segment_cache_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                           int segment_id);
 
+    static bool is_segment_cache_dir(const std::string& cache_dir);
+
     static std::string segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                          int segment_id);
 
