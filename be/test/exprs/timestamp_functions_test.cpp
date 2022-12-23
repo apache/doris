@@ -39,15 +39,13 @@ class TimestampFunctionsTest : public testing::Test {
 public:
     TimestampFunctionsTest() {}
 
-    void SetUp() {
+    void SetUp() override {
         utils = new FunctionUtils();
         ctx = utils->get_fn_ctx();
     }
 
-    void TearDown() { delete utils; }
+    void TearDown() override { delete utils; }
 
-private:
-    RuntimeState* state = nullptr;
     FunctionUtils* utils = nullptr;
     FunctionContext* ctx = nullptr;
 };
