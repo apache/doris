@@ -109,7 +109,6 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
     Status get_next_after_projects(

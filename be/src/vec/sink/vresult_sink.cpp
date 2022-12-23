@@ -83,10 +83,6 @@ Status VResultSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented Result Sink::send scalar");
-}
-
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
     // The memory consumption in the process of sending the results is not check query memory limit.

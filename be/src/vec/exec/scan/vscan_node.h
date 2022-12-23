@@ -65,10 +65,6 @@ public:
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not implement");
-    }
-
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;

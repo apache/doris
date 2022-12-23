@@ -505,10 +505,6 @@ Status AggregationNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented Aggregation Node::get_next scalar");
-}
-
 Status AggregationNode::do_pre_agg(vectorized::Block* input_block,
                                    vectorized::Block* output_block) {
     RETURN_IF_ERROR(_executor.pre_agg(input_block, output_block));

@@ -30,7 +30,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "runtime/buffered_block_mgr2.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
@@ -219,14 +218,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
             MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
     _scanner_mem_tracker =
             std::make_shared<MemTracker>(fmt::format("TestScanner#QueryId={}", print_id(query_id)));
-    return Status::OK();
-}
-
-Status RuntimeState::create_block_mgr() {
-    DCHECK(_block_mgr2.get() == nullptr);
-    RETURN_IF_ERROR(BufferedBlockMgr2::create(this, runtime_profile(), _exec_env->tmp_file_mgr(),
-                                              _exec_env->disk_io_mgr()->max_read_buffer_size(),
-                                              &_block_mgr2));
     return Status::OK();
 }
 

@@ -448,10 +448,6 @@ Status HashJoinNode::close(RuntimeState* state) {
     return VJoinNodeBase::close(state);
 }
 
-Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented HashJoin Node::get_next scalar");
-}
-
 bool HashJoinNode::need_more_input_data() {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
            !_short_circuit_for_null_in_probe_side;
