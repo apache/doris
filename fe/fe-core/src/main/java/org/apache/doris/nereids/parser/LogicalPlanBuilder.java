@@ -26,6 +26,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
+import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketStyleHintContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
@@ -576,6 +577,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 default:
                     throw new ParseException("Unsupported arithmetic unary type: " + ctx.operator.getText(), ctx);
             }
+        });
+    }
+
+    @Override
+    public Expression visitBitOperation(BitOperationContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression left = getExpression(ctx.left);
+            Expression right = getExpression(ctx.right);
+            if (ctx.operator.getType() == DorisParser.BITAND) {
+                return new BitAnd(left, right);
+            } else if (ctx.operator.getType() == DorisParser.BITOR) {
+                return new BitOr(left, right);
+            } else if (ctx.operator.getType() == DorisParser.BITXOR) {
+                return new BitXor(left, right);
+            }
+            throw new ParseException(" not supported", ctx);
         });
     }
 
