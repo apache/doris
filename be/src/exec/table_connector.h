@@ -60,6 +60,10 @@ public:
 
     std::u16string utf8_to_u16string(const char* first, const char* last);
 
+    Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
+                               const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
+                               int row, bool need_extra_convert);
+
     virtual Status close() { return Status::OK(); }
 
 protected:

@@ -517,12 +517,13 @@ Status JdbcConnector::_insert_column_data(JNIEnv* env, jobject jobj, const TypeD
                                                             _executor_get_arr_list_id, jobj);
         jint arr_type = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_get_arr_type_id);
-        //here type check is maybe no needed
+        //here type check is maybe no needed，more checks affect performance
         if (_arr_jdbc_map[arr_type] != type.children[0].type) {
             const std::string& error_msg = fmt::format(
                     "Fail to convert jdbc value to array type of {} on column: {}, could check "
-                    "this column type between external table and doris table. {}. ",
-                    type.children[0].debug_string(), column_name, _arr_jdbc_map[arr_type]);
+                    "this column type between external table and doris table. {}.{} ",
+                    type.children[0].debug_string(), column_name, _arr_jdbc_map[arr_type],
+                    arr_type);
             return Status::InternalError(std::string(error_msg));
         }
         jint num_rows = env->CallIntMethod(arr_lists, _executor_get_list_size_id);

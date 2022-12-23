@@ -80,9 +80,9 @@ private:
     const JdbcConnectorParam& _conn_param;
     //java.sql.Types: https://docs.oracle.com/javase/7/docs/api/constant-values.html#java.sql.Types.INTEGER
     std::map<int, PrimitiveType> _arr_jdbc_map {
-            {16, TYPE_BOOLEAN}, {-6, TYPE_TINYINT},    {5, TYPE_SMALLINT}, {4, TYPE_INT},
-            {-5, TYPE_BIGINT},  {12, TYPE_STRING},     {6, TYPE_FLOAT},    {8, TYPE_DOUBLE},
-            {91, TYPE_DATE},    {93, TYPE_DATETIMEV2}, {3, TYPE_DECIMALV2}};
+            {-7, TYPE_BOOLEAN}, {-6, TYPE_TINYINT},  {5, TYPE_SMALLINT}, {4, TYPE_INT},
+            {-5, TYPE_BIGINT},  {12, TYPE_STRING},   {7, TYPE_FLOAT},    {8, TYPE_DOUBLE},
+            {91, TYPE_DATE},    {93, TYPE_DATETIME}, {2, TYPE_DECIMALV2}};
     bool _closed;
     jclass _executor_clazz;
     jclass _executor_list_clazz;

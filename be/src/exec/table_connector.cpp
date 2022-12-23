@@ -20,9 +20,13 @@
 #include <codecvt>
 
 #include "exprs/expr.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -55,19 +59,6 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
         SCOPED_TIMER(_convert_tuple_timer);
         fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
 
-        auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-            if (!need_extra_convert) {
-                fmt::format_to(_insert_stmt_buffer, "'{}'", str);
-            } else {
-                if (is_date) {
-                    fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd')", str);
-                } else {
-                    fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd hh24:mi:ss')",
-                                   str);
-                }
-            }
-        };
-
         int num_rows = block->rows();
         int num_columns = block->columns();
         for (int i = start_send_row; i < num_rows; ++i) {
@@ -80,117 +71,9 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
                 }
                 auto& column_ptr = block->get_by_position(j).column;
                 auto& type_ptr = block->get_by_position(j).type;
-                vectorized::ColumnPtr column;
-                if (type_ptr->is_nullable()) {
-                    column = assert_cast<const vectorized::ColumnNullable&>(*column_ptr)
-                                     .get_nested_column_ptr();
-                    if (column_ptr->is_null_at(i)) {
-                        fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
-                        continue;
-                    }
-                } else {
-                    column = column_ptr;
-                }
-                auto [item, size] = column->get_data_at(i);
-                switch (output_vexpr_ctxs[j]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int8_t*>(item));
-                    break;
-                case TYPE_SMALLINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int16_t*>(item));
-                    break;
-                case TYPE_INT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int32_t*>(item));
-                    break;
-                case TYPE_BIGINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int64_t*>(item));
-                    break;
-                case TYPE_FLOAT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const float*>(item));
-                    break;
-                case TYPE_DOUBLE:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const double*>(item));
-                    break;
-                case TYPE_DATE: {
-                    vectorized::VecDateTimeValue value =
-                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(
-                                    *(int64_t*)item);
-
-                    char buf[64];
-                    char* pos = value.to_string(buf);
-                    std::string_view str(buf, pos - buf - 1);
-                    extra_convert_func(str, true);
-                    break;
-                }
-                case TYPE_DATETIME: {
-                    vectorized::VecDateTimeValue value =
-                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(
-                                    *(int64_t*)item);
-
-                    char buf[64];
-                    char* pos = value.to_string(buf);
-                    std::string_view str(buf, pos - buf - 1);
-                    extra_convert_func(str, false);
-                    break;
-                }
-                case TYPE_DATEV2: {
-                    vectorized::DateV2Value<vectorized::DateV2ValueType> value = binary_cast<
-                            uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                            *(int32_t*)item);
-
-                    char buf[64];
-                    char* pos = value.to_string(buf);
-                    std::string str(buf, pos - buf - 1);
-                    extra_convert_func(str, true);
-                    break;
-                }
-                case TYPE_DATETIMEV2: {
-                    vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value = binary_cast<
-                            uint64_t,
-                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-                            *(int64_t*)item);
-
-                    char buf[64];
-                    char* pos = value.to_string(buf, output_vexpr_ctxs[i]->root()->type().scale);
-                    std::string str(buf, pos - buf - 1);
-                    extra_convert_func(str, false);
-                    break;
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_STRING: {
-                    fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    DecimalV2Value value = *(DecimalV2Value*)(item);
-                    fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
-                    break;
-                }
-                case TYPE_DECIMAL32:
-                case TYPE_DECIMAL64:
-                case TYPE_DECIMAL128I: {
-                    auto val = type_ptr->to_string(*column, i);
-                    fmt::format_to(_insert_stmt_buffer, "{}", val);
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const __int128*>(item));
-                    break;
-                }
-                default: {
-                    return Status::InternalError("can't convert this type to mysql type. type = {}",
-                                                 output_vexpr_ctxs[j]->root()->type().type);
-                }
-                }
+                RETURN_IF_ERROR(convert_column_data(column_ptr, type_ptr,
+                                                    output_vexpr_ctxs[j]->root()->type(), i,
+                                                    need_extra_convert));
             }
 
             if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
@@ -210,4 +93,148 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
     return Status::OK();
 }
 
+Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
+                                           const vectorized::DataTypePtr& type_ptr,
+                                           const TypeDescriptor& type, int row,
+                                           bool need_extra_convert) {
+    auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
+        if (!need_extra_convert) {
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+        } else {
+            if (is_date) {
+                fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd')", str);
+            } else {
+                fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd hh24:mi:ss')", str);
+            }
+        }
+    };
+    const vectorized::IColumn* column = column_ptr;
+    if (type_ptr->is_nullable()) {
+        if (column_ptr->is_null_at(row)) {
+            fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+            return Status::OK();
+        }
+        column = assert_cast<const vectorized::ColumnNullable*>(column_ptr.get())
+                         ->get_nested_column_ptr()
+                         .get();
+    } else {
+        column = column_ptr;
+    }
+    auto [item, size] = column->get_data_at(row);
+    switch (type.type) {
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
+        break;
+    case TYPE_SMALLINT:
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int16_t*>(item));
+        break;
+    case TYPE_INT:
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int32_t*>(item));
+        break;
+    case TYPE_BIGINT:
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int64_t*>(item));
+        break;
+    case TYPE_FLOAT:
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const float*>(item));
+        break;
+    case TYPE_DOUBLE:
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const double*>(item));
+        break;
+    case TYPE_DATE: {
+        vectorized::VecDateTimeValue value =
+                binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(*(int64_t*)item);
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        std::string_view str(buf, pos - buf - 1);
+        extra_convert_func(str, true);
+        break;
+    }
+    case TYPE_DATETIME: {
+        vectorized::VecDateTimeValue value =
+                binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(*(int64_t*)item);
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        std::string_view str(buf, pos - buf - 1);
+        extra_convert_func(str, false);
+        break;
+    }
+    case TYPE_DATEV2: {
+        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
+                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
+                        *(int32_t*)item);
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        std::string str(buf, pos - buf - 1);
+        extra_convert_func(str, true);
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
+                binary_cast<uint64_t,
+                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
+                        *(int64_t*)item);
+
+        char buf[64];
+        char* pos = value.to_string(buf, type.scale);
+        std::string str(buf, pos - buf - 1);
+        extra_convert_func(str, false);
+        break;
+    }
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
+    case TYPE_STRING: {
+        // here need check the ' is used, now for pg array string must be "
+        fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));
+        break;
+    }
+    case TYPE_ARRAY: {
+        auto& arr_nested = reinterpret_cast<const vectorized::ColumnArray*>(column)->get_data_ptr();
+        auto& arr_offset = reinterpret_cast<const vectorized::ColumnArray*>(column)->get_offsets();
+        auto array_type = remove_nullable(type_ptr);
+        auto nested_type =
+                reinterpret_cast<const vectorized::DataTypeArray&>(*array_type).get_nested_type();
+        //insert into doris_test.test_int values(2,'{22,33}');
+        fmt::format_to(_insert_stmt_buffer, "{}", "'{");
+        bool first_value = true;
+        for (auto idx = arr_offset[row - 1]; idx < arr_offset[row]; ++idx) {
+            if (first_value == false) {
+                fmt::format_to(_insert_stmt_buffer, "{}", ", ");
+            }
+            if (arr_nested->is_null_at(idx)) {
+                fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+            } else {
+                RETURN_IF_ERROR(convert_column_data(arr_nested, nested_type, type.children[0], idx,
+                                                    need_extra_convert));
+            }
+            first_value = false;
+        }
+        fmt::format_to(_insert_stmt_buffer, "{}", "}'");
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        DecimalV2Value value = *(DecimalV2Value*)(item);
+        fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
+        break;
+    }
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I: {
+        auto val = type_ptr->to_string(*column, row);
+        fmt::format_to(_insert_stmt_buffer, "{}", val);
+        break;
+    }
+    case TYPE_LARGEINT: {
+        fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const __int128*>(item));
+        break;
+    }
+    default: {
+        return Status::InternalError("can't convert this type to mysql type. type = {}", type.type);
+    }
+    }
+    return Status::OK();
+}
 } // namespace doris
