@@ -43,8 +43,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String ex_tb17 = "ex_tb17";
         String ex_tb18 = "ex_tb18";
         String ex_tb19 = "ex_tb19";
+        String ex_tb20 = "ex_tb20";
 
-
+        sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
 
         // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
@@ -94,5 +95,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+
+        sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists jdbc_resource_catalog_mysql"""
     }
 }
