@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dpow;
@@ -523,6 +524,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDaysSub(DaysSub daysSub, C context) {
         return visitScalarFunction(daysSub, context);
+    }
+
+    default R visitDigitalMasking(DigitalMasking digitalMasking, C context) {
+        return visitScalarFunction(digitalMasking, context);
     }
 
     default R visitYearsSub(YearsSub yearsSub, C context) {

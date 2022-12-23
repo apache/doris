@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dpow;
@@ -267,9 +268,9 @@ import java.util.List;
 
 /**
  * Builtin scalar functions.
- *
+ * <p>
  * Note: Please ensure that this class only has some lists and no procedural code.
- *       It helps to be clear and concise.
+ * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
     public final List<ScalarFunc> scalarFunctions = ImmutableList.of(
@@ -337,6 +338,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),
+            scalar(DigitalMasking.class, "digital_masking"),
             scalar(Dlog1.class, "dlog1"),
             scalar(Dlog10.class, "dlog10"),
             scalar(Dpow.class, "dpow"),
@@ -521,5 +523,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinScalarFunctions() {}
+    private BuiltinScalarFunctions() {
+    }
 }
