@@ -285,6 +285,9 @@ public abstract class SetOperationNode extends PlanNode {
 
         for (int i = 0; i < setOpResultExprs.size(); ++i) {
             if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized()) {
+                if (VectorizedUtil.isVectorized() && childTupleDescriptor.getSlots().get(i).isMaterialized()) {
+                    return false;
+                }
                 continue;
             }
             SlotRef setOpSlotRef = setOpResultExprs.get(i).unwrapSlotRef(false);
