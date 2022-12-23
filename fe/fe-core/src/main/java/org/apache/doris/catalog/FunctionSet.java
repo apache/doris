@@ -2778,7 +2778,7 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createAnalyticBuiltin("ntile",
                 Collections.singletonList(Type.BIGINT), Type.BIGINT, Type.BIGINT, null, null, null, null, null, true));
 
-        for (Type t : Type.getSupportedTypes()) {
+        for (Type t : Type.getTrivialTypes()) {
             if (t.isNull()) {
                 continue; // NULL is handled through type promotion.
             }
