@@ -36,9 +36,14 @@ import java.nio.ByteBuffer;
 public class PlaceHolderExpr extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
     private LiteralExpr lExpr;
+    int mysqlTypeCode = -1;
 
     public PlaceHolderExpr() {
 
+    }
+
+    public void setTypeCode(int mysqlTypeCode) {
+        this.mysqlTypeCode = mysqlTypeCode;
     }
 
     protected PlaceHolderExpr(LiteralExpr literal) {
@@ -52,6 +57,11 @@ public class PlaceHolderExpr extends LiteralExpr {
     public void setLiteral(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
+    }
+
+    public LiteralExpr createLiteralFromType() throws AnalysisException {
+        Preconditions.checkState(mysqlTypeCode > 0);
+        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode);
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -162,5 +172,9 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public String getStringValueForArray() {
         return "\"" + getStringValue() + "\"";
+    }
+
+    public void setupParamFromBinary(ByteBuffer data) {
+        lExpr.setupParamFromBinary(data);
     }
 }

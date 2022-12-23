@@ -64,7 +64,6 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
@@ -81,6 +80,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -186,6 +186,7 @@ public class ConnectProcessor {
             }
             printB.append(" ");
         }
+        LOG.debug("debug packet {}", printB.toString().substring(0, 200));
     }
 
     private static boolean isNull(byte[] bitmap, int position) {
@@ -212,33 +213,32 @@ public class ConnectProcessor {
         try {
             // new_params_bind_flag
             if ((int) packetBuf.get() != 0) {
-                List<LiteralExpr> placeHolderExprs = Lists.newArrayList();
                 // parse params's types
                 for (int i = 0; i < paramCount; ++i) {
-                    if (isNull(nullbitmapData, i)) {
-                        placeHolderExprs.add(new NullLiteral());
-                        continue;
-                    }
                     int typeCode = packetBuf.getChar();
                     LOG.debug("code {}", typeCode);
-                    placeHolderExprs.add(LiteralExpr.getLiteralByMysqlType(typeCode));
+                    prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
                 }
-                // parse param data
-                for (int i = 0; i < paramCount; ++i) {
-                    if (isNull(nullbitmapData, i)) {
-                        continue;
-                    }
-                    placeHolderExprs.get(i).setupParamFromBinary(packetBuf);
-                }
-                ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), placeHolderExprs);
-                // TODO set real origin statement
-                executeStmt.setOrigStmt(new OriginStatement("null", 0));
-                executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                LOG.debug("executeStmt {}", executeStmt);
-                executor = new StmtExecutor(ctx, executeStmt);
-                ctx.setExecutor(executor);
-                executor.execute();
             }
+            List<LiteralExpr> realValueExprs = new ArrayList<>();
+            // parse param data
+            for (int i = 0; i < paramCount; ++i) {
+                if (isNull(nullbitmapData, i)) {
+                    realValueExprs.add(new NullLiteral());
+                    continue;
+                }
+                LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
+                l.setupParamFromBinary(packetBuf);
+                realValueExprs.add(l);
+            }
+            ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
+            // TODO set real origin statement
+            executeStmt.setOrigStmt(new OriginStatement("null", 0));
+            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            LOG.debug("executeStmt {}", executeStmt);
+            executor = new StmtExecutor(ctx, executeStmt);
+            ctx.setExecutor(executor);
+            executor.execute();
         } catch (Throwable e)  {
             // Catch all throwable.
             // If reach here, maybe palo bug.

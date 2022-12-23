@@ -1744,6 +1744,7 @@ public class StmtExecutor implements ProfileWriter {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
+        LOG.debug("sendFields {}", colNames.size());
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {

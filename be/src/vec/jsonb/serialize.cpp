@@ -85,16 +85,14 @@ static void deserialize_column(PrimitiveType type, JsonbValue* slot_value, Mutab
         }
         case TYPE_DATE: {
             assert(slot_value->isInt32());
-            auto date = VecDateTimeValue::create_from_olap_date(
-                    static_cast<JsonbInt32Val*>(slot_value)->val());
-            dst->insert(date.to_int64());
+            int32_t val = static_cast<JsonbInt32Val*>(slot_value)->val();
+            dst->insert_many_fix_len_data(reinterpret_cast<const char*>(&val), 1);
             break;
         }
         case TYPE_DATETIME: {
-            assert(slot_value->isInt32());
-            auto date = VecDateTimeValue::create_from_olap_datetime(
-                    static_cast<JsonbInt64Val*>(slot_value)->val());
-            dst->insert(date.to_int64());
+            assert(slot_value->isInt64());
+            int64_t val = static_cast<JsonbInt64Val*>(slot_value)->val();
+            dst->insert_many_fix_len_data(reinterpret_cast<const char*>(&val), 1);
             break;
         }
         case TYPE_DATEV2: {

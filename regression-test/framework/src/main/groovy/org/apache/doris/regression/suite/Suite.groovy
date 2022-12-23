@@ -44,8 +44,12 @@ import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
-
+import java.math.BigDecimal;
 import static org.apache.doris.regression.util.DataUtils.sortByToString
+
+import java.io.File
+import java.sql.PreparedStatement
+import java.sql.ResultSetMetaData
 
 @Slf4j
 class Suite implements GroovyInterceptable {
@@ -396,11 +400,39 @@ class Suite implements GroovyInterceptable {
         action.run()
     }
 
-    void quickTest(String tag, String sql, boolean isOrder = false) {
-        logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
+    PreparedStatement prepareStatement(String sql) {
+        return JdbcUtils.prepareStatement(context.getConnection(), sql)
+    } 
 
+    void set1(Object stmt, Object arg0) {
+        setArg(1, stmt, arg0);
+    }
+
+    void set2(Object stmt, Object arg1) {
+        setArg(2, stmt, arg0);
+    }
+
+    void setArg(int index, Object stmt, Object arg) {
+        if (arg0 instanceof Integer) {
+            (PreparedStatement) stmt.setInt(index, (Integer) arg0);
+        } 
+        if (arg0 instanceof String) {
+            (PreparedStatement) stmt.setString(index, (String) arg0);
+        } 
+        if (arg0 instanceof BigDecimal) {
+            (PreparedStatement) stmt.setBigDecimal(index, (BigDecimal) arg0);
+        }
+    }
+
+    void quickRunTest(String tag, Object arg, boolean isOrder = false) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
-            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+            Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+            if (arg instanceof PreparedStatement) {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+            } else {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+            }
+            def (result, meta) = tupleResult
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -418,8 +450,13 @@ class Suite implements GroovyInterceptable {
             }
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
-
-            def (realResults, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+            Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+            if (arg instanceof PreparedStatement) {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+            } else {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+            }
+            def (realResults, meta) = tupleResult
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -444,6 +481,16 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void quickTest(String tag, String sql, boolean isOrder = false) {
+        logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
+        quickRunTest(tag, sql, isOrder) 
+    }
+
+    void quickExecute(String tag, PreparedStatement stmt) {
+        logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
+        quickRunTest(tag, stmt) 
+    }
+    
     @Override
     Object invokeMethod(String name, Object args) {
         // qt: quick test
@@ -451,6 +498,8 @@ class Suite implements GroovyInterceptable {
             return quickTest(name.substring("qt_".length()), (args as Object[])[0] as String)
         } else if (name.startsWith("order_qt_")) {
             return quickTest(name.substring("order_qt_".length()), (args as Object[])[0] as String, true)
+        } else if (name.startsWith("qe_")) {
+            return quickExecute(name.substring("qe_".length()), (args as Object[])[0] as PreparedStatement)
         } else if (name.startsWith("assert") && name.length() > "assert".length()) {
             // delegate to junit Assertions dynamically
             return Assertions."$name"(*args) // *args: spread-dot

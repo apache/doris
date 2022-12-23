@@ -381,6 +381,5 @@ public class DecimalLiteral extends LiteralExpr {
             // throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         init(v);
-        analysisDone();
     }
 }

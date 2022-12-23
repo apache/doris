@@ -68,6 +68,14 @@ public class PrepareStmt extends StatementBase {
         return id;
     }
 
+    public void setPlaceHolders(List<PlaceHolderExpr> exprs) {
+        this.placeholders = exprs;
+    }
+
+    public List<PlaceHolderExpr> placeholders() {
+        return this.placeholders;
+    }
+
     public boolean isBinaryProtocol() {
         return binaryRowFormat;
     }
