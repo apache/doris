@@ -42,11 +42,12 @@ public class TimeDiff extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TimeType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, DateTimeV2Type.INSTANCE),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, DateTimeType.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateTimeType.INSTANCE)
     );
 
