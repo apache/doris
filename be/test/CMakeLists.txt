@@ -252,7 +252,6 @@ set(UTIL_TEST_FILES
     util/sort_heap_test.cpp
     util/counts_test.cpp
     util/date_func_test.cpp
-    util/tuple_row_zorder_compare_test.cpp
     util/array_parser_test.cpp
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp

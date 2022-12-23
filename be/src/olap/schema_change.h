@@ -28,14 +28,6 @@
 #include "vec/core/block.h"
 
 namespace doris {
-
-bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
-               int field_idx, int ref_field_idx, MemPool* mem_pool);
-bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
-              int field_idx, int ref_field_idx, MemPool* mem_pool);
-bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
-                 int field_idx, int ref_field_idx, MemPool* mem_pool);
-
 class RowBlockChanger {
 public:
     RowBlockChanger(TabletSchemaSPtr tablet_schema, const DeleteHandler* delete_handler,
@@ -44,9 +36,6 @@ public:
     ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
-
-    Status change_row_block(const RowBlock* ref_block, int32_t data_version,
-                            RowBlock* mutable_block, const uint64_t* filtered_rows) const;
 
     Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
 
@@ -63,22 +52,6 @@ private:
     DescriptorTbl _desc_tbl;
 
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
-};
-
-class RowBlockAllocator {
-public:
-    RowBlockAllocator(TabletSchemaSPtr tablet_schema, size_t memory_limitation);
-    virtual ~RowBlockAllocator();
-
-    Status allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
-    void release(RowBlock* row_block);
-    bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
-
-private:
-    TabletSchemaSPtr _tablet_schema;
-    std::unique_ptr<MemTracker> _tracker;
-    size_t _row_len;
-    size_t _memory_limitation;
 };
 
 class SchemaChange {
@@ -262,6 +235,4 @@ private:
     static std::unordered_set<int64_t> _tablet_ids_in_converting;
     static std::set<std::string> _supported_functions;
 };
-
-using RowBlockDeleter = std::function<void(RowBlock*)>;
 } // namespace doris
