@@ -217,7 +217,6 @@ Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>
         }
 
         {
-            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
             SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
             _mutable_block->add_rows(block, begin, begin + row_add);
         }
