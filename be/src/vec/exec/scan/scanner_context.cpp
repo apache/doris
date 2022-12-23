@@ -177,7 +177,7 @@ bool ScannerContext::set_status_on_error(const Status& status) {
 Status ScannerContext::_close_and_clear_scanners() {
     std::unique_lock<std::mutex> l(_scanners_lock);
     std::stringstream scanner_statistics;
-    ss << "[";
+    scanner_statistics << "[";
     for (auto scanner : _scanners) {
         scanner->close(_state);
         // Scanners are in ObjPool in ScanNode,
