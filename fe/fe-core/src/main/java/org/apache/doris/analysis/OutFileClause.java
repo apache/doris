@@ -648,6 +648,10 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
+            if (properties.containsKey(S3Resource.USE_PATH_STYLE)) {
+                brokerProps.put(S3Resource.USE_PATH_STYLE, properties.get(S3Resource.USE_PATH_STYLE));
+                processedPropKeys.add(S3Resource.USE_PATH_STYLE);
+            }
             S3Storage.checkS3(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
