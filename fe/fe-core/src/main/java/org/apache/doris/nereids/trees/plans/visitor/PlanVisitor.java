@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
@@ -196,7 +198,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(assertNumRows, context);
     }
 
-    public R visitLogicalHaving(LogicalHaving<Plan> having, C context) {
+    public R visitLogicalHaving(LogicalHaving<? extends Plan> having, C context) {
         return visit(having, context);
     }
 
@@ -215,6 +217,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalIntersect(LogicalIntersect intersect, C context) {
         return visitLogicalSetOperation(intersect, context);
+    }
+
+    public R visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, C context) {
+        return visit(generate, context);
     }
 
     // *******************************
@@ -304,6 +310,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalIntersect(PhysicalIntersect intersect, C context) {
         return visitPhysicalSetOperation(intersect, context);
+    }
+
+    public R visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, C context) {
+        return visit(generate, context);
     }
 
     // *******************************

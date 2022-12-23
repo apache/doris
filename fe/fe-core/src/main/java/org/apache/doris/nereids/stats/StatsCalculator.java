@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
@@ -212,6 +215,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, Void context) {
+        return computeGenerate(generate);
+    }
+
+    @Override
     public StatsDeriveResult visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
         return computeEmptyRelation(emptyRelation);
     }
@@ -312,6 +320,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalIntersect(PhysicalIntersect intersect, Void context) {
         return computeIntersect(intersect);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, Void context) {
+        return computeGenerate(generate);
     }
 
     private StatsDeriveResult computeAssertNumRows(long desiredNumOfRows) {
@@ -539,5 +552,27 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         }
         return new StatsDeriveResult(
                 rowCount, leftStatsResult.getSlotIdToColumnStats());
+    }
+
+    private StatsDeriveResult computeGenerate(Generate generate) {
+        StatsDeriveResult stats = groupExpression.childStatistics(0);
+        double count = stats.getRowCount() * generate.getGeneratorOutput().size() * 5;
+        Map<Id, ColumnStatistic> columnStatsMap = Maps.newHashMap();
+        for (Map.Entry<Id, ColumnStatistic> entry : stats.getSlotIdToColumnStats().entrySet()) {
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).setCount(count).build();
+            columnStatsMap.put(entry.getKey(), columnStatistic);
+        }
+        for (Slot output : generate.getGeneratorOutput()) {
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder()
+                    .setCount(count)
+                    .setMinValue(Double.MAX_VALUE)
+                    .setMaxValue(Double.MIN_VALUE)
+                    .setNdv(count)
+                    .setNumNulls(0)
+                    .setAvgSizeByte(output.getDataType().width())
+                    .build();
+            columnStatsMap.put(output.getExprId(), columnStatistic);
+        }
+        return new StatsDeriveResult(count, columnStatsMap);
     }
 }
