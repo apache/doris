@@ -240,7 +240,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         }
     } else {
         // List all thread groups and the number of threads running in each.
-        std::vector<pair<string, uint64_t>> thread_categories_info;
+        std::vector<std::pair<string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
             std::unique_lock<std::mutex> l(_lock);

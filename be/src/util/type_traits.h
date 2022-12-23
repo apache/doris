@@ -15,31 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
-#include <vector>
+#pragma once
 
-#include "udf/udf.h"
-#include "udf/udf_internal.h"
+#include <complex>
+#include <type_traits>
 
 namespace doris {
 
-class MemPool;
-class RuntimeState;
+template <class T, template <class...> class Primary>
+struct is_specialization_of : std::false_type {};
 
-class FunctionUtils {
-public:
-    FunctionUtils();
-    FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
-                  const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
-                  int varargs_buffer_size);
-    ~FunctionUtils();
+template <template <class...> class Primary, class... Args>
+struct is_specialization_of<Primary<Args...>, Primary> : std::true_type {};
 
-    doris_udf::FunctionContext* get_fn_ctx() { return _fn_ctx; }
+template <class T, template <class...> class Primary>
+inline constexpr bool is_specialization_of_v = is_specialization_of<T, Primary>::value;
 
-private:
-    RuntimeState* _state = nullptr;
-    MemPool* _memory_pool = nullptr;
-    doris_udf::FunctionContext* _fn_ctx = nullptr;
-};
+template <class T>
+using is_complex = is_specialization_of<T, std::complex>;
+
+template <class T>
+inline constexpr bool is_complex_v = is_specialization_of_v<T, std::complex>;
 
 } // namespace doris
