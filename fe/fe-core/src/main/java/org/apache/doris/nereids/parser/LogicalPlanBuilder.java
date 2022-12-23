@@ -65,6 +65,7 @@ import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
+import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
@@ -776,7 +777,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
         return ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.expression()), DataType.convertFromString(ctx.identifier().getText())));
+                new Cast(getExpression(ctx.expression()), typedVisit(ctx.dataType())));
     }
 
     @Override
@@ -1472,5 +1473,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return ExplainLevel.PARSED_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
+    }
+
+    @Override
+    public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
+        String dataType = ctx.identifier().getText().toLowerCase(Locale.ROOT);
+        List<String> l = Lists.newArrayList(dataType);
+        ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
+        return DataType.convertPrimitiveFromStrings(l);
     }
 }

@@ -28,11 +28,11 @@ import org.joda.time.LocalDateTime;
 public class DateTimeV2Literal extends DateTimeLiteral {
 
     public DateTimeV2Literal(String s) {
-        super(DateTimeV2Type.INSTANCE, s);
+        super(DateTimeV2Type.SYSTEM_DEFAULT, s);
     }
 
     public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second) {
-        super(DateTimeV2Type.INSTANCE, year, month, day, hour, minute, second);
+        super(DateTimeV2Type.SYSTEM_DEFAULT, year, month, day, hour, minute, second);
     }
 
     public DateTimeV2Literal(DateTimeV2Type dataType,

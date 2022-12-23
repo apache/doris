@@ -21,19 +21,6 @@ parser grammar DorisParser;
 
 options { tokenVocab = DorisLexer; }
 
-@members {
-  /**
-   * When false, a literal with an exponent would be converted into
-   * double type rather than decimal type.
-   */
-  public boolean legacy_exponent_literal_as_decimal_enabled = false;
-
-  /**
-   * When true, the behavior of keywords follows ANSI SQL standard.
-   */
-  public boolean SQL_standard_keyword_behavior = true;
-}
-
 multiStatements
     : (statement SEMICOLON*)+ EOF
     ;
@@ -299,7 +286,7 @@ primaryExpression
             RIGHT_PAREN                                                                        #date_sub
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
-    | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
+    | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
@@ -346,6 +333,11 @@ unitIdentifier
     : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
+dataType
+    : identifier (LEFT_PAREN INTEGER_VALUE
+      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                      #primitiveDataType
+    ;
+
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise
 // valid expressions such as "a-b" can be recognized as an identifier
@@ -361,14 +353,12 @@ errorCapturingIdentifierExtra
 
 identifier
     : strictIdentifier
-    | {!SQL_standard_keyword_behavior}? strictNonReserved
     ;
 
 strictIdentifier
     : IDENTIFIER              #unquotedIdentifier
     | quotedIdentifier        #quotedIdentifierAlternative
-    | {SQL_standard_keyword_behavior}? ansiNonReserved #unquotedIdentifier
-    | {!SQL_standard_keyword_behavior}? nonReserved    #unquotedIdentifier
+    | nonReserved             #unquotedIdentifier
     ;
 
 quotedIdentifier
@@ -380,272 +370,11 @@ number
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
-// When `SQL_standard_keyword_behavior=true`, there are 2 kinds of keywords in Spark SQL.
-// - Reserved keywords:
-//     Keywords that are reserved and can't be used as identifiers for table, view, column,
-//     function, alias, etc.
+// there are 1 kinds of keywords in Doris.
 // - Non-reserved keywords:
-//     Keywords that have a special meaning only in particular contexts and can be used as
-//     identifiers in other contexts. For example, `EXPLAIN SELECT ...` is a command, but EXPLAIN
-//     can be used as identifiers in other places.
-// You can find the full keywords list by searching "Start of the keywords list" in this file.
-// The non-reserved keywords are listed below. Keywords not in this list are reserved keywords.
-ansiNonReserved
-//--ANSI-NON-RESERVED-START
-    : ADD
-    | ADDDATE
-    | AFTER
-    | ALTER
-    | ANALYZE
-    | ANALYZED
-    | ANTI
-    | ARCHIVE
-    | ARRAY
-    | ASC
-    | AT
-    | AVG
-    | BETWEEN
-    | BUCKET
-    | BUCKETS
-    | BY
-    | CACHE
-    | CASCADE
-    | CATALOG
-    | CATALOGS
-    | CHANGE
-    | CLEAR
-    | CLUSTER
-    | CLUSTERED
-    | CODEGEN
-    | COLLECTION
-    | COLUMNS
-    | COMMENT
-    | COMMIT
-    | COMPACT
-    | COMPACTIONS
-    | COMPUTE
-    | CONCATENATE
-    | COST
-    | CUBE
-    | CURRENT
-    | DATA
-    | DATABASE
-    | DATABASES
-    | DATE
-    | DATE_ADD
-    | DATEDIFF
-    | DATE_DIFF
-    | DAY
-    | DAYS_ADD
-    | DAYS_SUB
-    | DATE_ADD
-    | DATE_SUB
-    | DBPROPERTIES
-    | DEFINED
-    | DELETE
-    | DELIMITED
-    | DESC
-    | DESCRIBE
-    | DFS
-    | DIRECTORIES
-    | DIRECTORY
-    | DISTRIBUTE
-    | DROP
-    | ESCAPED
-    | EXCHANGE
-    | EXISTS
-    | EXPLAIN
-    | EXPORT
-    | EXTENDED
-    | EXTERNAL
-    | EXTRACT
-    | FIELDS
-    | FILEFORMAT
-    | FIRST
-    | FOLLOWING
-    | FORMAT
-    | FORMATTED
-    | FUNCTION
-    | FUNCTIONS
-    | GLOBAL
-    | GROUPING
-    | GRAPH
-    | HOUR
-    | IF
-    | IGNORE
-    | IMPORT
-    | INDEX
-    | INDEXES
-    | INPATH
-    | INPUTFORMAT
-    | INSERT
-    | INTERVAL
-    | ISNULL
-    | ITEMS
-    | KEYS
-    | LAST
-    | LAZY
-    | LIKE
-    | ILIKE
-    | IS_NOT_NULL_PRED
-    | IS_NULL_PRED
-    | LIMIT
-    | OFFSET
-    | LINES
-    | LIST
-    | LOAD
-    | LOCAL
-    | LOCATION
-    | LOCK
-    | LOCKS
-    | LOGICAL
-    | MACRO
-    | MAP
-    | MATCHED
-    | MERGE
-    | MINUTE
-    | MONTH
-    | MSCK
-    | NAMESPACE
-    | NAMESPACES
-    | NO
-    | NULLS
-    | OF
-    | OPTIMIZED
-    | OPTION
-    | OPTIONS
-    | OUT
-    | OUTPUTFORMAT
-    | OVER
-    | OVERLAY
-    | OVERWRITE
-    | PARSED
-    | PARTITION
-    | PARTITIONED
-    | PARTITIONS
-    | PERCENTLIT
-    | PHYSICAL
-    | PIVOT
-    | PLACING
-    | PLAN
-    | POLICY
-    | POSITION
-    | PRECEDING
-    | PRINCIPALS
-    | PROPERTIES
-    | PURGE
-    | QUERY
-    | RANGE
-    | RECORDREADER
-    | RECORDWRITER
-    | RECOVER
-    | REDUCE
-    | REFRESH
-    | RENAME
-    | REPAIR
-    | REPEATABLE
-    | REPLACE
-    | RESET
-    | RESPECT
-    | RESTRICT
-    | REVOKE
-    | REWRITTEN
-    | RLIKE
-    | ROLE
-    | ROLES
-    | ROLLBACK
-    | ROLLUP
-    | ROW
-    | ROWS
-    | SCHEMA
-    | SCHEMAS
-    | SECOND
-    | SEMI
-    | SEPARATED
-    | SERDE
-    | SERDEPROPERTIES
-    | SET
-    | SETMINUS
-    | SETS
-    | SHOW
-    | SKEWED
-    | SORT
-    | SORTED
-    | START
-    | STATISTICS
-    | STORED
-    | STRATIFY
-    | STRUCT
-    | SUBDATE
-    | SUBSTR
-    | SUBSTRING
-    | SUM
-    | SYNC
-    | SYSTEM_TIME
-    | SYSTEM_VERSION
-    | TABLES
-    | TABLESAMPLE
-    | TBLPROPERTIES
-    | TEMPORARY
-    | TERMINATED
-    | TIMESTAMP
-    | TIMESTAMPADD
-    | TIMESTAMPDIFF
-    | TOUCH
-    | TRANSACTION
-    | TRANSACTIONS
-    | TRANSFORM
-    | TRIM
-    | TRUE
-    | TRUNCATE
-    | TRY_CAST
-    | TYPE
-    | UNARCHIVE
-    | UNBOUNDED
-    | UNCACHE
-    | UNLOCK
-    | UNSET
-    | UPDATE
-    | USE
-    | VALUES
-    | VERBOSE
-    | VERSION
-    | VIEW
-    | VIEWS
-    | WINDOW
-    | YEAR
-    | ZONE
-//--ANSI-NON-RESERVED-END
-    ;
-
-// When `SQL_standard_keyword_behavior=false`, there are 2 kinds of keywords in Spark SQL.
-// - Non-reserved keywords:
-//     Same definition as the one when `SQL_standard_keyword_behavior=true`.
-// - Strict-non-reserved keywords:
-//     A strict version of non-reserved keywords, which can not be used as table alias.
-// You can find the full keywords list by searching "Start of the keywords list" in this file.
-// The strict-non-reserved keywords are listed in `strictNonReserved`.
+//     normal version of non-reserved keywords.
 // The non-reserved keywords are listed in `nonReserved`.
-// These 2 together contain all the keywords.
-strictNonReserved
-    : ANTI
-    | CROSS
-    | EXCEPT
-    | FULL
-    | INNER
-    | INTERSECT
-    | JOIN
-    | LATERAL
-    | LEFT
-    | NATURAL
-    | ON
-    | RIGHT
-    | SEMI
-    | SETMINUS
-    | UNION
-    | USING
-    ;
-
+// TODO: need to stay consistent with the legacy
 nonReserved
 //--DEFAULT-NON-RESERVED-START
     : ADD
