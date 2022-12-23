@@ -67,6 +67,7 @@ import org.apache.doris.planner.PlannerContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -117,9 +118,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
-                    Expression boundPredicates = bind(filter.getPredicates(), filter.children(),
-                            filter, ctx.cascadesContext);
-                    return new LogicalFilter<>(boundPredicates, filter.child());
+                    Set<Expression> boundConjuncts
+                            = bind(filter.getConjuncts(), filter.children(), filter, ctx.cascadesContext);
+                    return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
@@ -275,10 +276,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Set<Slot> boundSlots = Stream.concat(Stream.of(childPlan), childPlan.children().stream())
                             .flatMap(plan -> plan.getOutput().stream())
                             .collect(Collectors.toSet());
-                    Expression boundPredicates = new SlotBinder(
-                            toScope(new ArrayList<>(boundSlots)), having, ctx.cascadesContext
-                    ).bind(having.getPredicates());
-                    return new LogicalHaving<>(boundPredicates, having.child());
+                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), having,
+                            ctx.cascadesContext);
+                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(binder::bind)
+                            .collect(Collectors.toSet());
+                    return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
@@ -358,6 +360,13 @@ public class BindSlotReference implements AnalysisRuleFactory {
         return exprList.stream()
             .map(expr -> bind(expr, inputs, plan, cascadesContext))
             .collect(Collectors.toList());
+    }
+
+    private <E extends Expression> Set<E> bind(Set<E> exprList, List<Plan> inputs, Plan plan,
+            CascadesContext cascadesContext) {
+        return exprList.stream()
+                .map(expr -> bind(expr, inputs, plan, cascadesContext))
+                .collect(Collectors.toSet());
     }
 
     private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan, CascadesContext cascadesContext) {

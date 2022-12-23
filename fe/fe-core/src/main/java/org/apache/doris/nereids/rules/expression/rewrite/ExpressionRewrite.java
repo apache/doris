@@ -28,12 +28,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -100,11 +103,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalFilter().then(filter -> {
-                Expression newExpr = rewriter.rewrite(filter.getPredicates());
-                if (newExpr.equals(filter.getPredicates())) {
+                Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
+                        rewriter.rewrite(filter.getPredicate())));
+                if (newConjuncts.equals(filter.getConjuncts())) {
                     return filter;
                 }
-                return new LogicalFilter<>(newExpr, filter.child());
+                return new LogicalFilter<>(newConjuncts, filter.child());
             }).toRule(RuleType.REWRITE_FILTER_EXPRESSION);
         }
     }

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -48,7 +49,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                     if (!filter.isPresent()) {
                         return relation;
                     }
-                    return new LogicalFilter(filter.get(), relation);
+                    return new LogicalFilter(ExpressionUtils.extractConjunctionToSet(filter.get()), relation);
                 })
             )
         );

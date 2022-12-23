@@ -261,7 +261,7 @@ public class CascadesContext {
     }
 
     private Set<UnboundRelation> extractUnboundRelationFromFilter(LogicalFilter filter) {
-        Set<SubqueryExpr> subqueryExprs = filter.getPredicates()
+        Set<SubqueryExpr> subqueryExprs = filter.getPredicate()
                 .collect(SubqueryExpr.class::isInstance);
         Set<UnboundRelation> relations = new HashSet<>();
         for (SubqueryExpr expr : subqueryExprs) {
