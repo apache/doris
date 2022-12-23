@@ -39,6 +39,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProjec
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
+import org.apache.doris.nereids.rules.rewrite.logical.InnerToCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
@@ -92,6 +93,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(topDownBatch(ImmutableList.of(PushFilterInsideJoin.INSTANCE)))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
+                .add(topDownBatch(ImmutableList.of(new InnerToCrossJoin())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))

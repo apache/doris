@@ -160,6 +160,7 @@ public enum RuleType {
     MERGE_SET_OPERATION(RuleTypeClass.REWRITE),
     BUILD_AGG_FOR_UNION(RuleTypeClass.REWRITE),
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
+    INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // limit push down
