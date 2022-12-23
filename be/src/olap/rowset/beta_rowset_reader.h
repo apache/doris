@@ -85,9 +85,6 @@ private:
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
-    std::shared_ptr<RowBlockV2> _input_block;
-    std::unique_ptr<RowCursor> _row;
-
     // make sure this handle is initialized and valid before
     // reading data.
     SegmentCacheHandle _segment_cache_handle;

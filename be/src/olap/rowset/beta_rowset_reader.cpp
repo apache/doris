@@ -215,7 +215,6 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         return Status::Error<ROWSET_READER_INIT>();
     }
     _iterator.reset(final_iterator);
-
     return Status::OK();
 }
 

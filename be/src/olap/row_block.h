@@ -49,10 +49,6 @@ struct RowBlockInfo {
 // 3. 给定查询的key，在RowBlock内做二分查找，返回起点的行偏移；
 // 4. 向量化的条件过滤下推到RowBlock级别进行，因此增加完成过滤的数据读取接口
 class RowBlock {
-    // Please keep these classes as 'friend'.  They have to use lots of private fields for
-    // faster operation.
-    friend class RowBlockChanger;
-
 public:
     RowBlock(TabletSchemaSPtr schema);
 

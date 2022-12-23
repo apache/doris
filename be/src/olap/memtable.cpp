@@ -86,8 +86,7 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
             _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
         }
         if (tablet_schema->sort_type() == SortType::ZORDER) {
-            _row_comparator = std::make_shared<TupleRowZOrderComparator>(
-                    _schema, tablet_schema->sort_col_num());
+            LOG(FATAL) << "ZOrder not supported";
         } else {
             _row_comparator = std::make_shared<RowCursorComparator>(_schema);
         }
