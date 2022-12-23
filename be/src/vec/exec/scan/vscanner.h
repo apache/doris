@@ -64,6 +64,8 @@ protected:
 public:
     VScanNode* get_parent() { return _parent; }
 
+    int64_t get_time_cost_ns() { return _per_scanner_timer; }
+
     Status try_append_late_arrival_runtime_filter();
 
     // Call start_wait_worker_timer() when submit the scanner to the thread pool.
@@ -185,6 +187,7 @@ protected:
     bool _is_counted_down = false;
 
     ScannerCounter _counter;
+    int64_t _per_scanner_timer = 0;
 };
 
 } // namespace doris::vectorized

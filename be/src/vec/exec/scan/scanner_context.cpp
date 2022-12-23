@@ -74,6 +74,8 @@ Status ScannerContext::init() {
 
     COUNTER_SET(_parent->_pre_alloc_free_blocks_num, (int64_t)pre_alloc_block_count);
     COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
+    _parent->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                               thread_token == nullptr ? "False" : "True");
 
     return Status::OK();
 }
@@ -174,11 +176,17 @@ bool ScannerContext::set_status_on_error(const Status& status) {
 
 Status ScannerContext::_close_and_clear_scanners() {
     std::unique_lock<std::mutex> l(_scanners_lock);
+    std::stringstream scanner_statistics;
+    ss << "[";
     for (auto scanner : _scanners) {
         scanner->close(_state);
         // Scanners are in ObjPool in ScanNode,
         // so no need to delete them here.
+        // Add per scanner running time before close them
+        scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS) << ", ";
     }
+    scanner_statistics << "]";
+    _parent->_scanner_profile->add_info_string("Pe", scanner_statistics.str());
     _scanners.clear();
     return Status::OK();
 }
@@ -194,7 +202,6 @@ void ScannerContext::clear_and_join() {
             break;
         }
     } while (false);
-
     // Must wait all running scanners stop running.
     // So that we can make sure to close all scanners.
     _close_and_clear_scanners();

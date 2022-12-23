@@ -259,7 +259,6 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-
     // Num of pre allocated free blocks
     RuntimeProfile::Counter* _pre_alloc_free_blocks_num = nullptr;
     // Num of newly created free blocks when running query
