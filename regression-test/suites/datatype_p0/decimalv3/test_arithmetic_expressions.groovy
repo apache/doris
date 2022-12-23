@@ -45,5 +45,8 @@ suite("test_arithmetic_expressions") {
     qt_select "select k1 * k2 from ${table1} order by k1"
     qt_select "select * from (select k1 * k2 from ${table1} union all select k3 from ${table1}) a order by 1"
 
+    qt_select "select k1 * k2 * k3 from ${table1} order by k1"
+    qt_select "select k1 * k2 * k3 * k1 * k2 * k3 from ${table1} order by k1"
+    qt_select "select k1 * k2 / k3 * k1 * k2 * k3 from ${table1} order by k1"
     sql "drop table if exists ${table1}"
 }
