@@ -234,8 +234,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_INT;
-    } else if constexpr (std::is_same_v < ReturnType,
-                         DataTypeFloat64 || std::is_same_v<ReturnType, DataTypeTime>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
+                         std::is_same_v<ReturnType, DataTypeTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
