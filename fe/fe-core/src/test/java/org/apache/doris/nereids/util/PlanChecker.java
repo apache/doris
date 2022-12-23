@@ -365,7 +365,7 @@ public class PlanChecker {
     private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
         Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
-                        + memo.getRoot().getLogicalExpression().getPlan().treeString()
+                        + memo.copyOut().treeString()
                         + "\n"
         );
         return this;

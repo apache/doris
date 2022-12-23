@@ -88,7 +88,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     SelectResult result = select(
                             scan,
                             agg.getInputSlots(),
-                            ImmutableList.of(),
+                            ImmutableSet.of(),
                             extractAggFunctionAndReplaceSlot(agg, Optional.empty()),
                             agg.getGroupByExpressions());
                     if (result.exprRewriteMap.isEmpty()) {
@@ -153,7 +153,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             SelectResult result = select(
                                     scan,
                                     project.getInputSlots(),
-                                    ImmutableList.of(),
+                                    ImmutableSet.of(),
                                     extractAggFunctionAndReplaceSlot(agg,
                                             Optional.of(project)),
                                     agg.getGroupByExpressions()
@@ -233,7 +233,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             SelectResult result = select(
                                     scan,
                                     project.getInputSlots(),
-                                    ImmutableList.of(),
+                                    ImmutableSet.of(),
                                     extractAggFunctionAndReplaceSlot(agg, Optional.of(project)),
                                     ExpressionUtils.replace(agg.getGroupByExpressions(),
                                             project.getAliasToProducer())
@@ -277,7 +277,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private SelectResult select(
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
-            List<Expression> predicates,
+            Set<Expression> predicates,
             List<AggregateFunction> aggregateFunctions,
             List<Expression> groupingExprs) {
         Preconditions.checkArgument(scan.getOutputSet().containsAll(requiredScanOutput),
@@ -411,13 +411,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private PreAggStatus checkPreAggStatus(
             LogicalOlapScan olapScan,
             long indexId,
-            List<Expression> predicates,
+            Set<Expression> predicates,
             List<AggregateFunction> aggregateFuncs,
             List<Expression> groupingExprs) {
         CheckContext checkContext = new CheckContext(olapScan, indexId);
         return checkAggregateFunctions(aggregateFuncs, checkContext)
                 .offOrElse(() -> checkGroupingExprs(groupingExprs, checkContext))
-                .offOrElse(() -> checkPredicates(predicates, checkContext));
+                .offOrElse(() -> checkPredicates(ImmutableList.copyOf(predicates), checkContext));
     }
 
     /**
@@ -615,7 +615,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private AggRewriteResult rewriteAgg(MaterializedIndex index,
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
-            List<Expression> predicates,
+            Set<Expression> predicates,
             List<AggregateFunction> aggregateFunctions,
             List<Expression> groupingExprs) {
         ExprRewriteMap exprRewriteMap = new ExprRewriteMap();
@@ -631,7 +631,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             // The query `select c1, count(distinct c2) from t where c2 > 0 group by c1` can't use the materialized
             // index because we have a filter `c2 > 0` for the aggregated column c2.
             Set<Slot> slotsToReplace = slotMap.keySet();
-            if (!isInputSlotsContainsAny(predicates, slotsToReplace)
+            if (!isInputSlotsContainsAny(ImmutableList.copyOf(predicates), slotsToReplace)
                     && !isInputSlotsContainsAny(groupingExprs, slotsToReplace)) {
                 ImmutableSet<Slot> newRequiredSlots = requiredScanOutput.stream()
                         .map(slot -> (Slot) ExpressionUtils.replace(slot, slotMap))

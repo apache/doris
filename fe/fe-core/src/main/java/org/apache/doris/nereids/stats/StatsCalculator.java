@@ -324,7 +324,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         StatsDeriveResult stats = groupExpression.childStatistics(0);
         FilterEstimation filterEstimation =
                 new FilterEstimation(stats);
-        return filterEstimation.estimate(filter.getPredicates());
+        return filterEstimation.estimate(filter.getPredicate());
     }
 
     // TODO: 1. Subtract the pruned partition

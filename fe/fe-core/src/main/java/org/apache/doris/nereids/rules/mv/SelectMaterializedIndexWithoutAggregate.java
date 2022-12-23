@@ -71,7 +71,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
                             return filter.withChildren(project.withChildren(
-                                    select(scan, project::getInputSlots, ImmutableList::of)
+                                    select(scan, project::getInputSlots, ImmutableSet::of)
                             ));
                         }).toRule(RuleType.MATERIALIZED_INDEX_FILTER_PROJECT_SCAN),
 
@@ -90,14 +90,14 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                         .then(project -> {
                             LogicalOlapScan scan = project.child();
                             return project.withChildren(
-                                    select(scan, project::getInputSlots, ImmutableList::of));
+                                    select(scan, project::getInputSlots, ImmutableSet::of));
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_PROJECT_SCAN),
 
                 // only scan.
                 logicalOlapScan()
                         .when(this::shouldSelectIndex)
-                        .then(scan -> select(scan, scan::getOutputSet, ImmutableList::of))
+                        .then(scan -> select(scan, scan::getOutputSet, ImmutableSet::of))
                         .toRule(RuleType.MATERIALIZED_INDEX_SCAN)
         );
     }
@@ -113,7 +113,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
     private LogicalOlapScan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
-            Supplier<List<Expression>> predicatesSupplier) {
+            Supplier<Set<Expression>> predicatesSupplier) {
         switch (scan.getTable().getKeysType()) {
             case AGG_KEYS:
             case UNIQUE_KEYS:

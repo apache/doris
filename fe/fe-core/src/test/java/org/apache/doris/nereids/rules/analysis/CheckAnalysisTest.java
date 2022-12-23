@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,7 @@ public class CheckAnalysisTest {
 
     @Test
     public void testCheckExpressionInputTypes() {
-        Plan plan = new LogicalFilter<>(new And(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
+        Plan plan = new LogicalFilter<>(ImmutableSet.of(new And(new IntegerLiteral(1), BooleanLiteral.TRUE)), groupPlan);
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(RuntimeException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));

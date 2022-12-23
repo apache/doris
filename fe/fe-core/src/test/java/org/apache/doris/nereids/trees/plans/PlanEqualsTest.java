@@ -48,6 +48,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -92,12 +93,12 @@ public class PlanEqualsTest {
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
-        LogicalFilter<Plan> actual = new LogicalFilter<>(new EqualTo(Literal.of(1), Literal.of(1)), child);
+        LogicalFilter<Plan> actual = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
-        LogicalFilter<Plan> expected = new LogicalFilter<>(new EqualTo(Literal.of(1), Literal.of(1)), child);
+        LogicalFilter<Plan> expected = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
         Assertions.assertEquals(expected, actual);
 
-        LogicalFilter<Plan> unexpected = new LogicalFilter<>(new EqualTo(Literal.of(1), Literal.of(2)), child);
+        LogicalFilter<Plan> unexpected = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -209,14 +210,14 @@ public class PlanEqualsTest {
 
     @Test
     public void testPhysicalFilter(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
-        PhysicalFilter<Plan> actual = new PhysicalFilter<>(new EqualTo(Literal.of(1), Literal.of(2)),
+        PhysicalFilter<Plan> actual = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))),
                 logicalProperties, child);
 
-        PhysicalFilter<Plan> expected = new PhysicalFilter<>(new EqualTo(Literal.of(1), Literal.of(2)),
+        PhysicalFilter<Plan> expected = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))),
                 logicalProperties, child);
         Assertions.assertEquals(expected, actual);
 
-        PhysicalFilter<Plan> unexpected = new PhysicalFilter<>(new EqualTo(Literal.of(1), Literal.of(1)),
+        PhysicalFilter<Plan> unexpected = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))),
                 logicalProperties, child);
         Assertions.assertNotEquals(unexpected, actual);
     }

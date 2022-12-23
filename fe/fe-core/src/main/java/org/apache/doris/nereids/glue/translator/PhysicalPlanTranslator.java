@@ -1081,7 +1081,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanTranslatorContext context) {
         if (filter.child(0) instanceof PhysicalHashJoin) {
             PhysicalHashJoin join = (PhysicalHashJoin<?, ?>) filter.child(0);
-            join.getFilterConjuncts().addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
+            join.getFilterConjuncts().addAll(filter.getConjuncts());
         }
         PlanFragment inputFragment = filter.child(0).accept(this, context);
 
@@ -1107,9 +1107,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void addConjunctsToPlanNode(PhysicalFilter<? extends Plan> filter,
             PlanNode planNode,
             PlanTranslatorContext context) {
-        Expression expression = filter.getPredicates();
-        List<Expression> expressionList = ExpressionUtils.extractConjunction(expression);
-        expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
+        filter.getConjuncts().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .forEach(planNode::addConjunct);
     }
 
     @Override

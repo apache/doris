@@ -63,6 +63,12 @@ public class ExpressionUtils {
         return extract(And.class, expr);
     }
 
+    public static Set<Expression> extractConjunctionToSet(Expression expr) {
+        Set<Expression> exprSet = Sets.newHashSet();
+        extract(And.class, expr, exprSet);
+        return exprSet;
+    }
+
     public static List<Expression> extractDisjunction(Expression expr) {
         return extract(Or.class, expr);
     }
@@ -89,7 +95,7 @@ public class ExpressionUtils {
         return result;
     }
 
-    private static void extract(Class<? extends Expression> type, Expression expr, List<Expression> result) {
+    private static void extract(Class<? extends Expression> type, Expression expr, Collection<Expression> result) {
         if (type.isInstance(expr)) {
             CompoundPredicate predicate = (CompoundPredicate) expr;
             extract(type, predicate.left(), result);
@@ -97,6 +103,12 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
+    }
+
+    public static Set<Expression> extractToSet(Expression predicate) {
+        Set<Expression> result = Sets.newHashSet();
+        extract(predicate.getClass(), predicate, result);
+        return result;
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
@@ -124,6 +136,10 @@ public class ExpressionUtils {
 
     public static Optional<Expression> optionalAnd(Expression... expressions) {
         return optionalAnd(Lists.newArrayList(expressions));
+    }
+
+    public static Optional<Expression> optionalAnd(Collection<Expression> collection) {
+        return optionalAnd(ImmutableList.copyOf(collection));
     }
 
     public static Expression and(List<Expression> expressions) {
@@ -277,6 +293,13 @@ public class ExpressionUtils {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public static Set<Expression> replace(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
             List<E> exprs, Function<Expression, Expression> rewriteFunction) {
         return exprs.stream()
@@ -340,8 +363,8 @@ public class ExpressionUtils {
     /**
      * extract the predicate that is covered by `slots`
      */
-    public static List<Expression> extractCoveredConjunction(List<Expression> predicates, Set<Slot> slots) {
-        List<Expression> coveredPredicates = Lists.newArrayList();
+    public static Set<Expression> extractCoveredConjunction(Set<Expression> predicates, Set<Slot> slots) {
+        Set<Expression> coveredPredicates = Sets.newHashSet();
         for (Expression predicate : predicates) {
             if (slots.containsAll(predicate.getInputSlots())) {
                 coveredPredicates.add(predicate);

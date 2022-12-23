@@ -1166,7 +1166,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
                     project = new LogicalProject<>(projects, Collections.emptyList(), aggregate, isDistinct);
                 }
-                return new LogicalHaving<>(getExpression((havingClause.get().booleanExpression())), project);
+                return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
+                        getExpression((havingClause.get().booleanExpression()))), project);
             } else {
                 LogicalPlan having = withHaving(aggregate, havingClause);
                 return withProjection(having, selectColumnCtx, aggClause, isDistinct);
@@ -1308,8 +1309,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-            new LogicalFilter<>(getExpression((whereCtx.get().booleanExpression())), input)
-        );
+            new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(
+                    getExpression(whereCtx.get().booleanExpression())), input));
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
@@ -1343,7 +1344,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (!(input instanceof Aggregate)) {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
-            return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);
+            return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
+                    getExpression((havingCtx.get().booleanExpression()))), input);
         });
     }
 
