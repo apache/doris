@@ -3141,6 +3141,16 @@ public class Catalog {
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
+                if (i == 0) {
+                    // If this is the first column, because olap table does not support the first column to be
+                    // string, float, double or array, we should check and modify its type
+                    // For string type, change it to varchar.
+                    // For other unsupported types, just remain unchanged, the analysis phash of create table stmt
+                    // will handle it.
+                    if (typeDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        typeDef = TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
+                    }
+                }
                 ColumnDef columnDef;
                 if (resultExpr.getSrcSlotRef() == null) {
                     columnDef = new ColumnDef(name, typeDef, false, null, true, new DefaultValue(false, null), "");
