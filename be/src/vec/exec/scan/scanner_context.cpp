@@ -178,6 +178,10 @@ Status ScannerContext::_close_and_clear_scanners() {
     std::unique_lock<std::mutex> l(_scanners_lock);
     std::stringstream scanner_statistics;
     scanner_statistics << "[";
+    for (auto finished_scanner_time : _finished_scanner_runtime) {
+        scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS) << ", ";
+    }
+    // Only unfinished scanners here
     for (auto scanner : _scanners) {
         scanner->close(_state);
         // Scanners are in ObjPool in ScanNode,
@@ -296,6 +300,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             auto scanner = _scanners.front();
             _scanners.pop_front();
             if (scanner->need_to_close()) {
+                _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);

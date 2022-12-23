@@ -221,6 +221,7 @@ protected:
     // Not need to protect by lock, because only one scheduler thread will access to it.
     std::mutex _scanners_lock;
     std::list<VScanner*> _scanners;
+    std::vector<int64_t> _finished_scanner_runtime;
 
     int64_t _num_ctx_scheduling = 0;
     int64_t _num_scanner_scheduling = 0;
