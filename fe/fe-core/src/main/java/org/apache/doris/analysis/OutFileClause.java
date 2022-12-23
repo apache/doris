@@ -429,6 +429,10 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
+            if (properties.containsKey(S3Storage.USE_PATH_STYLE)) {
+                brokerProps.put(S3Storage.USE_PATH_STYLE, properties.get(S3Storage.USE_PATH_STYLE));
+                processedPropKeys.add(S3Storage.USE_PATH_STYLE);
+            }
             S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
         } else if (storageType == StorageBackend.StorageType.HDFS) {
             HDFSStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
