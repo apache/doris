@@ -183,10 +183,11 @@ Status ScannerContext::_close_and_clear_scanners() {
         // Scanners are in ObjPool in ScanNode,
         // so no need to delete them here.
         // Add per scanner running time before close them
-        scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS) << ", ";
+        scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS)
+                           << ", ";
     }
     scanner_statistics << "]";
-    _parent->_scanner_profile->add_info_string("Pe", scanner_statistics.str());
+    _parent->_scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
     _scanners.clear();
     return Status::OK();
 }
