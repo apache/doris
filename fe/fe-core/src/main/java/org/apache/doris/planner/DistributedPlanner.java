@@ -656,7 +656,7 @@ public class DistributedPlanner {
                     continue;
                 }
 
-                SlotRef leftSlot = lhsJoinExpr.unwrapSlotRef();
+                SlotRef leftSlot = node.getChild(0).findSrcSlotRef(lhsJoinExpr.getSrcSlotRef());
                 if (leftSlot.getTable() instanceof OlapTable
                         && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`
