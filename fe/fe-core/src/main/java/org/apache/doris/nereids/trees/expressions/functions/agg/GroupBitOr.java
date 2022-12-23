@@ -20,11 +20,19 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -32,15 +40,24 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** min agg function. */
-public class GroupBitOr extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
+public class GroupBitOr extends AggregateFunction
+        implements UnaryExpression, PropagateNullable, ExplicitlyCastableSignature {
 
     public GroupBitOr(Expression child) {
         super("group_bit_or", child);
     }
 
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+    );
+
     @Override
-    public FunctionSignature customSignature() {
-        return FunctionSignature.of(IntegerType.INSTANCE, (List) getArgumentsTypes());
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 
     @Override
