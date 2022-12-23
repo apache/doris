@@ -25,9 +25,6 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -41,11 +38,6 @@ import java.util.List;
 /** min agg function. */
 public class GroupBitAnd extends AggregateFunction
         implements UnaryExpression, PropagateNullable, ExplicitlyCastableSignature {
-
-    public GroupBitAnd(Expression child) {
-        super("group_bit_and", child);
-    }
-
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
@@ -53,6 +45,10 @@ public class GroupBitAnd extends AggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
     );
+
+    public GroupBitAnd(Expression child) {
+        super("group_bit_and", child);
+    }
 
     @Override
     public List<FunctionSignature> getSignatures() {

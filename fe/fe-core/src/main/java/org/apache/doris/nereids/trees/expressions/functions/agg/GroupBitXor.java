@@ -19,16 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -51,12 +47,13 @@ public class GroupBitXor extends AggregateFunction
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
     );
 
+    public GroupBitXor(Expression child) {
+        super("group_bit_xor", child);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
-    }
-    public GroupBitXor(Expression child) {
-        super("group_bit_xor", child);
     }
 
     @Override
