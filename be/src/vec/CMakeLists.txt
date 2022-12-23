@@ -285,6 +285,13 @@ set(VEC_FILES
   exec/format/file_reader/new_plain_text_line_reader.cpp
   )
 
+if (WITH_MYSQL)
+    set(VEC_FILES
+            ${VEC_FILES}
+            exec/scan/mysql_scanner.cpp
+            )
+endif ()
+
 add_library(Vec STATIC
         ${VEC_FILES}
         )
