@@ -38,6 +38,7 @@ import com.google.common.collect.Maps;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -131,11 +132,15 @@ public class BrokerMgr {
     public FsBroker getAnyAliveBroker() {
         lock.lock();
         try {
+            List<FsBroker> allBrokers = new ArrayList<>();
             for (List<FsBroker> list : brokerListMap.values()) {
-                for (FsBroker fsBroker : list) {
-                    if (fsBroker.isAlive) {
-                        return fsBroker;
-                    }
+                allBrokers.addAll(list);
+            }
+
+            Collections.shuffle(allBrokers);
+            for (FsBroker fsBroker : allBrokers) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
                 }
             }
         } finally {
