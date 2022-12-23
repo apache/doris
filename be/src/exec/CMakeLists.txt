@@ -65,13 +65,6 @@ set(EXEC_FILES
     schema_scanner.cpp
     parquet_scanner.cpp
 )
-if (WITH_MYSQL)
-    set(EXEC_FILES
-        ${EXEC_FILES}
-        mysql_scan_node.cpp
-        mysql_scanner.cpp
-        )
-endif()
 
 if (WITH_LZO)
     set(EXEC_FILES ${EXEC_FILES}
