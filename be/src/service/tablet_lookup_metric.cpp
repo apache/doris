@@ -166,7 +166,7 @@ Status TabletLookupMetric::_init_keys(const PTabletKeyLookupRequest* request) {
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
         encode_key_with_padding<RowCursor, true, true>(
-                &_primary_keys[i], cursor, _tablet->tablet_schema()->num_short_key_columns(), true);
+                &_primary_keys[i], cursor, _tablet->tablet_schema()->num_key_columns(), true);
     }
     return Status::OK();
 }

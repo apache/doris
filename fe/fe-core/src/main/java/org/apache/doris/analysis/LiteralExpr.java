@@ -280,36 +280,36 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         switch (mysqlType) {
             // MYSQL_TYPE_TINY
             case 1:
-                return LiteralExpr.create("", Type.TINYINT);
+                return LiteralExpr.create("0", Type.TINYINT);
             // MYSQL_TYPE_SHORT
             case 2:
-                return LiteralExpr.create("", Type.SMALLINT);
+                return LiteralExpr.create("0", Type.SMALLINT);
             // MYSQL_TYPE_LONG
             case 3:
-                return LiteralExpr.create("", Type.INT);
+                return LiteralExpr.create("0", Type.INT);
             // MYSQL_TYPE_LONGLONG
             case 8:
-                return LiteralExpr.create("", Type.BIGINT);
+                return LiteralExpr.create("0", Type.BIGINT);
             // MYSQL_TYPE_FLOAT
             case 4:
-                return LiteralExpr.create("", Type.FLOAT);
+                return LiteralExpr.create("0", Type.FLOAT);
             // MYSQL_TYPE_DOUBLE
             case 5:
-                return LiteralExpr.create("", Type.DOUBLE);
+                return LiteralExpr.create("0", Type.DOUBLE);
             // MYSQL_TYPE_DECIMAL
             case 0:
             // MYSQL_TYPE_NEWDECIMAL
             case 246:
-                return LiteralExpr.create("", Type.DECIMAL32);
+                return LiteralExpr.create("0", Type.DECIMAL32);
             // MYSQL_TYPE_TIME
             case 11:
                 return LiteralExpr.create("", Type.TIME);
             // MYSQL_TYPE_DATE
             case 10:
-                return LiteralExpr.create("", Type.DATE);
+                return LiteralExpr.create("0000-00-00", Type.DATE);
             // MYSQL_TYPE_DATETIME
             case 12:
-                return LiteralExpr.create("", Type.DATETIME);
+                return LiteralExpr.create("0000-00-00 00:00:00", Type.DATETIME);
             // MYSQL_TYPE_STRING
             case 254:
             case 253:
