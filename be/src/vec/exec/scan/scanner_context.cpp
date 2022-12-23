@@ -177,9 +177,14 @@ bool ScannerContext::set_status_on_error(const Status& status) {
 Status ScannerContext::_close_and_clear_scanners() {
     std::unique_lock<std::mutex> l(_scanners_lock);
     std::stringstream scanner_statistics;
+    std::stringstream scanner_rows_read;
     scanner_statistics << "[";
+    scanner_rows_read << "[";
     for (auto finished_scanner_time : _finished_scanner_runtime) {
         scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS) << ", ";
+    }
+    for (auto finished_scanner_rows : _finished_scanner_rows_read) {
+        scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
     }
     // Only unfinished scanners here
     for (auto scanner : _scanners) {
@@ -189,9 +194,12 @@ Status ScannerContext::_close_and_clear_scanners() {
         // Add per scanner running time before close them
         scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS)
                            << ", ";
+        scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT) << ", ";
     }
     scanner_statistics << "]";
+    scanner_rows_read << "]";
     _parent->_scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
+    _parent->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
     _scanners.clear();
     return Status::OK();
 }
@@ -301,6 +309,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             _scanners.pop_front();
             if (scanner->need_to_close()) {
                 _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
+                _finished_scanner_rows_read.push_back(scanner->get_rows_read());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);

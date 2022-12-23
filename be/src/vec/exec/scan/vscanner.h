@@ -66,6 +66,8 @@ public:
 
     int64_t get_time_cost_ns() { return _per_scanner_timer; }
 
+    int64_t get_rows_read() { return _num_rows_read; }
+
     Status try_append_late_arrival_runtime_filter();
 
     // Call start_wait_worker_timer() when submit the scanner to the thread pool.
