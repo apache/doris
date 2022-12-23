@@ -943,7 +943,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     bufferToResultParam, aggregateFunction.child(0));
                         } else {
                             Alias alias = nonDistinctAggFunctionToAliasPhase2.get(expr);
-                            return new AggregateExpression(aggregateFunction, bufferToResultParam, alias.toSlot());
+                            return new AggregateExpression(aggregateFunction,
+                                    new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.BUFFER_TO_RESULT),
+                                    alias.toSlot());
                         }
                     }
                     return expr;

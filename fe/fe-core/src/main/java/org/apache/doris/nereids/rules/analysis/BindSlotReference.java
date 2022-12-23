@@ -279,6 +279,22 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalHaving(logicalProject())).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalSort<LogicalHaving<LogicalProject<GroupPlan>>> sort = ctx.root;
+                    List<OrderKey> sortItemList = sort.getOrderKeys()
+                            .stream()
+                            .map(orderKey -> {
+                                Expression item = bind(orderKey.getExpr(), sort.children(), sort, ctx.cascadesContext);
+                                if (item.containsType(UnboundSlot.class)) {
+                                    item = bind(item, sort.child().children(), sort, ctx.cascadesContext);
+                                }
+                                return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
+                            }).collect(Collectors.toList());
+
+                    return new LogicalSort<>(sortItemList, sort.child());
+                })
+            ),
+            RuleType.BINDING_SORT_SLOT.build(
                 logicalSort(logicalProject()).when(Plan::canBind).thenApply(ctx -> {
                     LogicalSort<LogicalProject<GroupPlan>> sort = ctx.root;
                     List<OrderKey> sortItemList = sort.getOrderKeys()

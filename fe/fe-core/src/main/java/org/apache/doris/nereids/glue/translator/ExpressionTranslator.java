@@ -444,8 +444,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 true, true, nullableMode
         );
 
-        boolean isMergeFn = aggregateParam.aggPhase.isGlobal();
-
+        boolean isMergeFn = aggregateParam.aggMode.consumeAggregateBuffer;
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, fnParams, aggFnParams, isMergeFn, catalogArguments);
     }
