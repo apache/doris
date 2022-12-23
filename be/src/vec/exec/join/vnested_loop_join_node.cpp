@@ -611,8 +611,9 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
 void VNestedLoopJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << std::string(indentation_level * 2, ' ');
     *out << "VNestedLoopJoinNode";
-    *out << "(eos=" << (_matched_rows_done ? "true" : "false")
+    *out << "(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
          << " left_block_pos=" << _left_block_pos;
+    *out << ")\n children=";
     VJoinNodeBase::debug_string(indentation_level, out);
     *out << ")";
 }

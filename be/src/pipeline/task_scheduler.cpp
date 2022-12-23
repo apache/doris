@@ -249,6 +249,7 @@ void TaskScheduler::_do_work(size_t index) {
                                         status.to_string());
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
+            fragment_ctx->send_report(true);
             _try_close_task(task, CANCELED);
             continue;
         }

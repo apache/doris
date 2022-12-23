@@ -223,7 +223,7 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     return Status::OK();
 }
 
-bool VRepeatNode::need_more_input_data() {
+bool VRepeatNode::need_more_input_data() const {
     return !_child_block.rows() && !_child_eos;
 }
 
