@@ -263,16 +263,15 @@ public:
     void ch_roll_pb_block();
 
     bool can_write() {
-        if (!_enable_local_exchange || !is_local()) {
+        if (!is_local()) {
             return true;
         }
-        std::shared_ptr<VDataStreamRecvr> recvr =
-                _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
-                                                                        _dest_node_id);
-        return recvr == nullptr || !recvr->exceeds_limit(0);
+        return !_local_recvr || _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0);
     }
 
 protected:
+    bool _recvr_is_valid() { return _local_recvr && !_local_recvr->is_closed(); }
+
     Status _wait_last_brpc() {
         SCOPED_TIMER(_parent->_brpc_wait_timer);
         if (_closure == nullptr) {
@@ -331,7 +330,7 @@ protected:
 
     size_t _capacity;
     bool _is_local;
-
+    std::shared_ptr<VDataStreamRecvr> _local_recvr;
     // serialized blocks for broadcasting; we need two so we can write
     // one while the other one is still being sent.
     // Which is for same reason as `_cur_pb_block`, `_pb_block1` and `_pb_block2`
@@ -339,8 +338,6 @@ protected:
     PBlock* _ch_cur_pb_block = nullptr;
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
-
-    bool _enable_local_exchange = true;
 };
 
 template <typename Channels>
@@ -392,7 +389,7 @@ public:
 
     // send _mutable_block
     Status send_current_block(bool eos) override {
-        if (_enable_local_exchange && is_local()) {
+        if (is_local()) {
             return send_local_block(eos);
         }
 
