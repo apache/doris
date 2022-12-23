@@ -281,6 +281,13 @@ set(VEC_FILES
   exec/format/table/table_format_reader.cpp
   exec/format/table/iceberg_reader.cpp)
 
+if (WITH_MYSQL)
+    set(VEC_FILES
+            ${VEC_FILES}
+            exec/scan/mysql_scanner.cpp
+            )
+endif ()
+
 add_library(Vec STATIC
         ${VEC_FILES}
         )
