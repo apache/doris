@@ -480,10 +480,6 @@ Status VDataStreamSender::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VOlapScanNode Node::get_next scalar");
-}
-
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
     SCOPED_TIMER(_profile->total_time_counter());

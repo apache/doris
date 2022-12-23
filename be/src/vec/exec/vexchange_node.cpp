@@ -88,9 +88,6 @@ Status VExchangeNode::open(RuntimeState* state) {
 
     return Status::OK();
 }
-Status VExchangeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VExchange Node::get_next scalar");
-}
 
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExchangeNode::get_next");

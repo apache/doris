@@ -45,11 +45,6 @@ public:
     // Start broker scan using ParquetScanner or BrokerScanner.
     Status open(RuntimeState* state) override;
 
-    // Fill the next row batch by calling next() on the scanner,
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VBrokerScanNode::get_next.");
-    }
-
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Close the scanner, and report errors.

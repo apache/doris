@@ -39,8 +39,6 @@ public:
 
     virtual Status init(RuntimeState* state) override;
 
-    virtual Status append_row_batch(const RowBatch* batch) override;
-
     virtual Status append_block(Block& block) override;
 
     virtual bool can_sink() override;

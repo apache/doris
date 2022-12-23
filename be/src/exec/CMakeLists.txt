@@ -34,7 +34,6 @@ set(EXEC_FILES
     text_converter.cpp
     olap_common.cpp
     tablet_info.cpp
-    tablet_sink.cpp
     plain_binary_line_reader.cpp
     plain_text_line_reader.cpp
     es/es_predicate.cpp
@@ -64,6 +63,7 @@ set(EXEC_FILES
     odbc_connector.cpp
     table_connector.cpp
     schema_scanner.cpp
+    parquet_scanner.cpp
 )
 if (WITH_MYSQL)
     set(EXEC_FILES

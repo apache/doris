@@ -38,10 +38,6 @@ Status VSelectNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VSelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VSelectNode::get_next.");
-}
-
 Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());

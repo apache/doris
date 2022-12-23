@@ -57,10 +57,6 @@ public:
     // Setup. Call before send() or close().
     virtual Status open(RuntimeState* state) = 0;
 
-    // Send a row batch into this sink.
-    // eos should be true when the last batch is passed to send()
-    virtual Status send(RuntimeState* state, RowBatch* batch) = 0;
-
     // Send a Block into this sink.
     virtual Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return Status::NotSupported("Not support send block");

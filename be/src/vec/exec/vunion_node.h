@@ -29,9 +29,6 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
-    }
     Status close(RuntimeState* state) override;
 
     Status alloc_resource(RuntimeState* state) override;

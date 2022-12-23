@@ -108,13 +108,6 @@ public:
     // time when open() returns, and the status-reporting thread will have been stopped.
     Status open();
 
-    // Return results through 'batch'. Sets '*batch' to nullptr if no more results.
-    // '*batch' is owned by PlanFragmentExecutor and must not be deleted.
-    // When *batch == nullptr, get_next() should not be called anymore. Also, report_status_cb
-    // will have been called for the final time and the status-reporting thread
-    // will have been stopped.
-    Status get_next(RowBatch** batch);
-
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
     void close();
@@ -187,7 +180,6 @@ private:
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
     std::unique_ptr<DataSink> _sink;
-    std::unique_ptr<RowBatch> _row_batch;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
@@ -230,11 +222,9 @@ private:
     // error condition, all rows will have been sent to the sink, the sink will
     // have been closed, a final report will have been sent and the report thread will
     // have been stopped. _sink will be set to nullptr after successful execution.
-    Status open_internal();
     Status open_vectorized_internal();
 
     // Executes get_next() logic and returns resulting status.
-    Status get_next_internal(RowBatch** batch);
     Status get_vectorized_internal(::doris::vectorized::Block* block, bool* eos);
 
     // Stops report thread, if one is running. Blocks until report thread terminates.

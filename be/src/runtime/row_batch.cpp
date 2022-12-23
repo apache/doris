@@ -26,7 +26,6 @@
 #include "common/utils.h"
 #include "gen_cpp/Data_types.h"
 #include "gen_cpp/data.pb.h"
-#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -200,10 +199,6 @@ void RowBatch::clear() {
         ExecEnv::GetInstance()->buffer_pool()->FreeBuffer(buffer_info.client, &buffer_info.buffer);
     }
 
-    close_tuple_streams();
-    for (int i = 0; i < _blocks.size(); ++i) {
-        _blocks[i]->del();
-    }
     DCHECK(_tuple_ptrs != nullptr);
     free(_tuple_ptrs);
     _tuple_ptrs = nullptr;
@@ -348,18 +343,6 @@ Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* 
     return Status::OK();
 }
 
-void RowBatch::add_tuple_stream(BufferedTupleStream2* stream) {
-    DCHECK(stream != nullptr);
-    _tuple_streams.push_back(stream);
-    _auxiliary_mem_usage += stream->byte_size();
-}
-
-void RowBatch::add_block(BufferedBlockMgr2::Block* block) {
-    DCHECK(block != nullptr);
-    _blocks.push_back(block);
-    _auxiliary_mem_usage += block->buffer_len();
-}
-
 void RowBatch::reset() {
     _num_rows = 0;
     _capacity = _tuple_ptrs_size / (_num_tuples_per_row * sizeof(Tuple*));
@@ -378,23 +361,10 @@ void RowBatch::reset() {
     }
     _buffers.clear();
 
-    close_tuple_streams();
-    for (int i = 0; i < _blocks.size(); ++i) {
-        _blocks[i]->del();
-    }
-    _blocks.clear();
     _auxiliary_mem_usage = 0;
     _need_to_return = false;
     _flush = FlushMode::NO_FLUSH_RESOURCES;
     _needs_deep_copy = false;
-}
-
-void RowBatch::close_tuple_streams() {
-    for (int i = 0; i < _tuple_streams.size(); ++i) {
-        _tuple_streams[i]->close();
-        delete _tuple_streams[i];
-    }
-    _tuple_streams.clear();
 }
 
 void RowBatch::transfer_resource_ownership(RowBatch* dest) {
@@ -413,21 +383,6 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
                          FlushMode::NO_FLUSH_RESOURCES);
     }
     _buffers.clear();
-
-    for (int i = 0; i < _tuple_streams.size(); ++i) {
-        dest->_tuple_streams.push_back(_tuple_streams[i]);
-        dest->_auxiliary_mem_usage += _tuple_streams[i]->byte_size();
-    }
-    // Resource release should be done by dest RowBatch. if we don't clear the corresponding resources.
-    // This Rowbatch calls the reset() method, dest Rowbatch will also call the reset() method again,
-    // which will cause the core problem of double delete
-    _tuple_streams.clear();
-
-    for (int i = 0; i < _blocks.size(); ++i) {
-        dest->_blocks.push_back(_blocks[i]);
-        dest->_auxiliary_mem_usage += _blocks[i]->buffer_len();
-    }
-    _blocks.clear();
 
     dest->_need_to_return |= _need_to_return;
 
@@ -516,9 +471,6 @@ void RowBatch::acquire_state(RowBatch* src) {
     }
     src->_io_buffers.clear();
     src->_auxiliary_mem_usage = 0;
-
-    DCHECK(src->_tuple_streams.empty());
-    DCHECK(src->_blocks.empty());
 
     _has_in_flight_row = src->_has_in_flight_row;
     _num_rows = src->_num_rows;

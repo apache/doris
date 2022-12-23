@@ -135,11 +135,6 @@ Status VSortNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    *eos = true;
-    return Status::NotSupported("Not Implemented VSortNode::get_next scalar");
-}
-
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
