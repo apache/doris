@@ -129,7 +129,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
                 _fn.name.function_name, argument_types, {}, _data_type->is_nullable());
     }
     if (_function == nullptr) {
-        return Status::InternalError("Agg Function {} is not implemented", _fn.name.function_name);
+        return Status::InternalError("Agg Function {} is not implemented", _fn.signature);
     }
 
     if (!_sort_description.empty()) {
