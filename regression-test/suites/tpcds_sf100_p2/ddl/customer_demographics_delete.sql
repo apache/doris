@@ -1,1 +1,0 @@
-truncate table customer_demographics;

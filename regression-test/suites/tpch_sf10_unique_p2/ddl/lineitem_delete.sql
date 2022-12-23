@@ -1,1 +1,0 @@
-DELETE FROM lineitem where l_linenumber >= 0;

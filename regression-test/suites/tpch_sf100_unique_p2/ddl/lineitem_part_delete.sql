@@ -1,1 +1,0 @@
-DELETE FROM lineitem where l_orderkey >= 240000001 and l_orderkey <= 360000000;

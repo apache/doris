@@ -203,30 +203,5 @@ suite("join") {
     sql """
         insert into outerjoin_D values( 1 );
     """
-
-    explain {
-        sql("select count(*) from outerjoin_A A left join outerjoin_B B on A.a = B.a where B.a in (select a from outerjoin_C);")
-        contains "INNER JOIN"
-    }
-
-    explain {
-        sql("""SELECT count(1)
-                FROM 
-                    (SELECT sub1.wtid,
-                        count(*)
-                    FROM 
-                        (SELECT a.wtid ,
-                        a.wfid
-                        FROM test_table_b a ) sub1
-                        INNER JOIN [shuffle] 
-                            (SELECT a.wtid,
-                        a.wfid
-                            FROM test_table_a a ) sub2
-                                ON sub1.wtid = sub2.wtid
-                                    AND sub1.wfid = sub2.wfid
-                            GROUP BY  sub1.wtid ) qqqq;""")
-        contains "4:VAGGREGATE (update serialize)"
-        contains "6:VAGGREGATE (merge finalize)"
-    }
 }
 

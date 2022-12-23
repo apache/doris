@@ -1,1 +1,0 @@
-DELETE FROM nation where n_nationkey < 10;

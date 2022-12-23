@@ -1,5 +1,0 @@
-SELECT *
-FROM nation
-UNION DISTINCT
-SELECT *
-FROM nation

@@ -1,1 +1,0 @@
-DELETE FROM orders where o_orderkey >= 0;
