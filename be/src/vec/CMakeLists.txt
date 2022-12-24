@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 set(VEC_FILES
+  aggregate_functions/aggregate_function_group_uniq_array.cpp
   aggregate_functions/aggregate_function_sequence_match.cpp
   aggregate_functions/aggregate_function_retention.cpp
   aggregate_functions/aggregate_function_window_funnel.cpp

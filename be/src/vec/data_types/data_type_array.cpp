@@ -107,9 +107,8 @@ void get_decimal_value(const IColumn& nested_column, DecimalV2Value& decimal_val
         nested_col =
                 reinterpret_cast<const ColumnNullable*>(&nested_column)->get_nested_column_ptr();
     }
-    decimal_value = (DecimalV2Value)(reinterpret_cast<const PackedInt128*>(
-                                             nested_col->get_data_at(pos).data)
-                                             ->value);
+    decimal_value = (DecimalV2Value)(
+            reinterpret_cast<const PackedInt128*>(nested_col->get_data_at(pos).data)->value);
     return;
 }
 

@@ -52,9 +52,10 @@ struct MultiplyImpl {
                                      ((DecimalV2Value(a[i]).value() < 0) &&
                                       (DecimalV2Value(b[i]).value() < 0))
                              ? 1
-                     : ((DecimalV2Value(a[i]).value() == 0) || (DecimalV2Value(b[i]).value() == 0))
-                             ? 0
-                             : -1;
+                             : ((DecimalV2Value(a[i]).value() == 0) ||
+                                (DecimalV2Value(b[i]).value() == 0))
+                                       ? 0
+                                       : -1;
         }
 
         for (int i = 0; i < size; i++) {

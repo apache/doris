@@ -420,9 +420,7 @@ struct TimeRound {
         int64_t count = period;
         int64_t delta_inside_period = (diff % count + count) % count;
         int64_t step = diff - delta_inside_period +
-                       (Impl::Type == FLOOR        ? 0
-                        : delta_inside_period == 0 ? 0
-                                                   : count);
+                       (Impl::Type == FLOOR ? 0 : delta_inside_period == 0 ? 0 : count);
         bool is_neg = step < 0;
         TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
         is_null = !ts1.template date_add_interval<Impl::Unit>(interval);
