@@ -32,7 +32,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.backup.BlobStorage;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -210,7 +209,8 @@ public class HiveMetaStoreClientHelper {
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
             List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
-        boolean onS3 = storage instanceof S3Storage;
+        boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
+                || storage.getStorageType() == StorageBackend.StorageType.OFS;
         String hdfsUrl = "";
         Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
         while (queue.peek() != null) {
@@ -231,7 +231,7 @@ public class HiveMetaStoreClientHelper {
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
                     //     + /dae.db/customer/state=CA/city=SanJose/000000_0
                     String path = fileStatus.getPath().toUri().getPath();
-                    if (onS3) {
+                    if (needFullPath) {
                         // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
                         // path = "s3://bucket/path/to/partition/file_name"
                         // eg: s3://hive-s3-test/region/region.tbl
@@ -761,7 +761,8 @@ public class HiveMetaStoreClientHelper {
             if (remoteTable.getPartitionKeys().size() > 0) {
                 output.append("PARTITIONED BY (\n")
                         .append(remoteTable.getPartitionKeys().stream().map(
-                                partition -> String.format("  `%s` `%s`", partition.getName(), partition.getType()))
+                                        partition ->
+                                                String.format(" `%s` `%s`", partition.getName(), partition.getType()))
                                 .collect(Collectors.joining(",\n")))
                         .append(")\n");
             }
