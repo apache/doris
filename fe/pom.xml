@@ -220,6 +220,9 @@ under the License.
         <spark.version>2.4.6</spark.version>
         <hive.version>2.3.7</hive.version>
         <hadoop.version>2.8.0</hadoop.version>
+        <netty.version>4.1.65.Final</netty.version>
+        <calcite.version>1.32.0</calcite.version>
+        <avatica.version>1.22.0</avatica.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
@@ -239,7 +242,7 @@ under the License.
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
         <dlf-metastore-client-hive2.version>0.2.14</dlf-metastore-client-hive2.version>
-
+        <hadoop.version>2.10.2</hadoop.version>
         <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
     </properties>
@@ -308,7 +311,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client</artifactId>
-                <version>2.8.0</version>
+                <version>${hadoop.version}</version>
                 <scope>compile</scope>
             </dependency>
             <dependency>
