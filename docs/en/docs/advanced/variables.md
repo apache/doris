@@ -553,3 +553,6 @@ Translated with www.DeepL.com/Translator (free version)
 * `validate_password_policy`
 
 	Password strength verification policy. Defaults to `NONE` or `0`, i.e. no verification. Can be set to `STRONG` or `2`. When set to `STRONG` or `2`, when setting a password via the `ALTER USER` or `SET PASSWORD` commands, the password must contain any of "uppercase letters", "lowercase letters", "numbers" and "special characters". 3 items, and the length must be greater than or equal to 8. Special characters include: `~!@#$%^&*()_+|<>,.?/:;'[]{}"`.
+
+* `group_concat_max_len`
+    For compatible purpose. This variable has no effect, just enable some BI tools can query or set this session variable sucessfully.
