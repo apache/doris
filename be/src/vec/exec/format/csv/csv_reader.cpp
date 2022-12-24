@@ -202,8 +202,8 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
-Status CsvReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                      std::vector<TypeDescriptor>* col_types) {
+Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                    std::vector<TypeDescriptor>* col_types) {
     size_t read_line = 0;
     bool is_parse_name = false;
     RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));

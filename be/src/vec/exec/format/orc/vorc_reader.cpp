@@ -176,8 +176,8 @@ Status OrcReader::init_reader(
     return Status::OK();
 }
 
-Status OrcReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                      std::vector<TypeDescriptor>* col_types) {
+Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                    std::vector<TypeDescriptor>* col_types) {
     if (_file_reader == nullptr) {
         std::unique_ptr<FileReader> inner_reader;
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
