@@ -49,8 +49,8 @@ public:
     // 1. header_type is empty, get schema from first line.
     // 2. header_type is CSV_WITH_NAMES, get schema from first line.
     // 3. header_type is CSV_WITH_NAMES_AND_TYPES, get schema from first two line.
-    Status get_parsered_schema(std::vector<std::string>* col_names,
-                               std::vector<TypeDescriptor>* col_types) override;
+    Status get_parsed_schema(std::vector<std::string>* col_names,
+                             std::vector<TypeDescriptor>* col_types) override;
 
 private:
     // used for stream/broker load of csv file.

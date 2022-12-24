@@ -99,8 +99,8 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    Status get_parsered_schema(std::vector<std::string>* col_names,
-                               std::vector<TypeDescriptor>* col_types) override;
+    Status get_parsed_schema(std::vector<std::string>* col_names,
+                             std::vector<TypeDescriptor>* col_types) override;
 
 private:
     struct OrcProfile {
