@@ -434,7 +434,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     }
     std::vector<std::string> col_names;
     std::vector<TypeDescriptor> col_types;
-    st = reader->get_parsered_schema(&col_names, &col_types);
+    st = reader->get_parsed_schema(&col_names, &col_types);
     if (!st.ok()) {
         LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
         st.to_protobuf(result->mutable_status());
