@@ -67,6 +67,7 @@ public class S3Resource extends Resource {
     public static final String S3_BUCKET = "AWS_BUCKET";
 
     // optional
+    public static final String S3_TOKEN = "AWS_TOKEN";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String S3_MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
     public static final String S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
@@ -190,6 +191,13 @@ public class S3Resource extends Resource {
             s3Properties.put("fs.s3a.path.style.access", "true");
         } else {
             s3Properties.put("fs.s3a.path.style.access", "false");
+        }
+        if (properties.containsKey(S3Resource.S3_TOKEN)) {
+            s3Properties.put("fs.s3a.session.token", properties.get(S3_TOKEN));
+            s3Properties.put("fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider");
+            s3Properties.put("fs.s3a.impl.disable.cache", "true");
+            s3Properties.put("fs.s3.impl.disable.cache", "true");
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(S3Resource.S3_FS_PREFIX)) {
