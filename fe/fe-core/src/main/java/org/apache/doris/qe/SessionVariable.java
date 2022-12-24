@@ -252,6 +252,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String REPEAT_MAX_NUM = "repeat_max_num";
 
+    public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -647,6 +649,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM)
     public int repeatMaxNum = 10000;
+
+    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    public int groupConcatMaxLen = 2147483646;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
