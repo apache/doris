@@ -17,22 +17,32 @@
 
 #pragma once
 
-#include <filesystem>
+// This file is used to fixed macro conflict between butil and gutil
+// and this file must put the first include in source file
 
-namespace doris {
-namespace io {
+#include "gutil/macros.h"
+// Macros in the guti/macros.h, use butil's define
+#ifdef DISALLOW_IMPLICIT_CONSTRUCTORS
+#undef DISALLOW_IMPLICIT_CONSTRUCTORS
+#endif
 
-using Path = std::filesystem::path;
+#ifdef arraysize
+#undef arraysize
+#endif
 
-inline Path operator/(Path&& lhs, const Path& rhs) {
-    return std::move(lhs /= rhs);
-}
+#ifdef ARRAY_SIZE
+#undef ARRAY_SIZE
+#endif
 
-struct PathHasher {
-    std::size_t operator()(const doris::io::Path& k) const {
-        return std::hash<std::string>()(k.filename().native());
-    }
-};
+#undef OVERRIDE
+#undef FINAL
 
-} // namespace io
-} // namespace doris
+// use be/src/gutil/integral_types.h override butil/basictypes.h
+#include "gutil/integral_types.h"
+#ifdef BASE_INTEGRAL_TYPES_H_
+#define BUTIL_BASICTYPES_H_
+#endif
+
+#ifdef DEBUG_MODE
+#undef DEBUG_MODE
+#endif

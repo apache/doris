@@ -64,6 +64,7 @@ set(VEC_FILES
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
+  common/hex.cpp
   core/block.cpp
   core/block_spill_reader.cpp
   core/block_spill_writer.cpp
