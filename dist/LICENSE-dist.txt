@@ -1451,7 +1451,7 @@ The 3-Clause BSD License
     * MinLog -- licenses/LICENSE-minlog.txt
         - com.esotericsoftware:minlog:1.3.0 (https://github.com/EsotericSoftware/minlog)
     * Protocol Buffers [Core] -- licenses/LICENSE-protobuf.txt
-        - com.google.protobuf:protobuf-java:3.14.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
+        - com.google.protobuf:protobuf-java:3.15.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
     * Py4J -- licenses/LICENSE-py4j.txt
         - net.sf.py4j:py4j:0.10.7 (http://nexus.sonatype.org/oss-repository-hosting.html/py4j)
     * asm -- licenses/LICENSE-asm.txt
