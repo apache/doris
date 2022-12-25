@@ -424,9 +424,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 
-                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PRFIX + column.getName())) {
+                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
                             Column newColumn = indexColumnMap
-                                    .get(SchemaChangeHandler.SHADOW_NAME_PRFIX + column.getName());
+                                    .get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
                             if (newColumn.getType() != column.getType()) {
                                 try {
                                     SlotRef slot = new SlotRef(destSlotDesc);
@@ -860,7 +860,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
             info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
             // only show the origin index name
-            info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
+            info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
             info.add(shadowIndexId);
             info.add(entry.getValue());
             info.add(indexSchemaVersionAndHashMap.get(shadowIndexId).toString());

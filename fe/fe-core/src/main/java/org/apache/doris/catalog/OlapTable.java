@@ -355,6 +355,7 @@ public class OlapTable extends Table {
         if (indexId != baseIndexId) {
             rebuildFullSchema();
         }
+        LOG.info("delete index info {} in table {}-{}", indexName, id, name);
         return true;
     }
 
