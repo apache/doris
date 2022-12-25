@@ -370,7 +370,7 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
 }
 
 std::string UserFunctionCache::_get_real_url(const std::string& url) {
-    if(url.find(":/") == std::string::npos) {
+    if (url.find(":/") == std::string::npos) {
         return "file://" + config::jdbc_drivers_dir + "/" + url;
     }
     return url;

@@ -192,11 +192,11 @@ public class JdbcResource extends Resource {
             String checkSum = Hex.encodeHexString(digest.digest());
             configs.put(CHECK_SUM, checkSum);
         } catch (IOException e) {
-            throw new DdlException(
-                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " meet an IOException: " + e.getMessage());
+            throw new DdlException("compute driver checksum from url: " + getProperty(DRIVER_URL)
+                    + " meet an IOException: " + e.getMessage());
         } catch (NoSuchAlgorithmException e) {
-            throw new DdlException(
-                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " could not find algorithm: " + e.getMessage());
+            throw new DdlException("compute driver checksum from url: " + getProperty(DRIVER_URL)
+                    + " could not find algorithm: " + e.getMessage());
         }
     }
 
