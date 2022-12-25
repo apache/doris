@@ -175,10 +175,10 @@ public class JdbcResource extends Resource {
             // skip checking checksum when running ut
             return;
         }
-        String absDriverPath = getAbsoluteDriverPath();
+        String realDriverPath = getRealDriverPath();
         InputStream inputStream = null;
         try {
-            inputStream = Util.getInputStreamFromUrl(absDriverPath, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+            inputStream = Util.getInputStreamFromUrl(realDriverPath, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] buf = new byte[4096];
             int bytesRead = 0;
@@ -193,20 +193,20 @@ public class JdbcResource extends Resource {
             configs.put(CHECK_SUM, checkSum);
         } catch (IOException e) {
             throw new DdlException(
-                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " meet an IOException: ", e);
+                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " meet an IOException: " + e.getMessage());
         } catch (NoSuchAlgorithmException e) {
             throw new DdlException(
-                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " could not find algorithm.", e);
+                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " could not find algorithm: " + e.getMessage());
         }
     }
 
-    private String getAbsoluteDriverPath() {
+    private String getRealDriverPath() {
         String path = getProperty(DRIVER_URL);
         try {
             URI uri = new URI(path);
             String schema = uri.getScheme();
             if (schema == null && !path.startsWith("/")) {
-                return Config.jdbc_drivers_dir + "/" + path;
+                return "file://" + Config.jdbc_drivers_dir + "/" + path;
             }
             return path;
         } catch (URISyntaxException e) {
