@@ -151,7 +151,6 @@ set(OLAP_TEST_FILES
 set(RUNTIME_TEST_FILES
     # runtime/buffer_control_block_test.cpp
     # runtime/result_buffer_mgr_test.cpp
-    # runtime/data_stream_test.cpp
     # runtime/parallel_executor_test.cpp
     # runtime/datetime_value_test.cpp
     # runtime/dpp_sink_internal_test.cpp
