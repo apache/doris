@@ -86,7 +86,7 @@ PROPERTIES (
 >
 > 如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
 
-<version="1.2.1">
+<version since="1.2.1">
 
 > 在1.2.1及之后的版本中，可以将 driver 放到 FE/BE 的 `jdbc_drivers` 目录下，并直接指定文件名，如：`"driver_url" = "mysql-connector-java-5.1.47.jar"`。系统会自动在 `jdbc_drivers` 目录寻找文件。
 
