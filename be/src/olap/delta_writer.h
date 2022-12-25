@@ -27,7 +27,6 @@ namespace doris {
 class FlushToken;
 class MemTable;
 class MemTracker;
-class RowBatch;
 class Schema;
 class StorageEngine;
 class Tuple;

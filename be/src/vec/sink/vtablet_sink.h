@@ -303,12 +303,6 @@ protected:
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
 
-    std::unique_ptr<RowBatch> _cur_batch;
-    PTabletWriterAddBatchRequest _cur_add_batch_request;
-    using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
-    std::queue<AddBatchReq> _pending_batches;
-    ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
-
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
     PTabletWriterAddBlockRequest _cur_add_block_request;
 
@@ -543,7 +537,6 @@ private:
 
     OlapTablePartitionParam* _partition = nullptr;
     std::vector<ExprContext*> _output_expr_ctxs;
-    std::unique_ptr<RowBatch> _output_batch;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;

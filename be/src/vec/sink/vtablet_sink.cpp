@@ -1247,7 +1247,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     }
 
     Expr::close(_output_expr_ctxs, state);
-    _output_batch.reset();
 
     _close_status = status;
     DataSink::close(state, exec_status);
