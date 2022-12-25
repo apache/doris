@@ -63,11 +63,11 @@ public:
     // called when producer/consumer failed
     void cancel(const std::string& reason) override;
 
-    int64_t get_total_length() const { return _total_length; }
+    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
 private:
     // read the next buffer from _buf_queue
-    Status _read_next_buffer(char* data, size_t* bytes_read);
+    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
     Status _append(const ByteBufferPtr& buf, size_t proto_byte_size = 0);
 

@@ -19,6 +19,7 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include "olap/iterators.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
@@ -46,12 +47,6 @@ Status StreamLoadPipe::read_at(size_t /*offset*/, Slice result, const IOContext&
     *bytes_read = 0;
     size_t bytes_req = result.size;
     char* to = result.data;
-    // If _total_length == -1, this should be a Kafka routine load task,
-    // just get the next buffer directly from the buffer queue, because one buffer contains a comple
-    // Otherwise, this should be a stream load task that needs to read the specified amount of data.
-    if (_total_length == -1) {
-        return _read_next_buffer(to, bytes_read);
-    }
     if (UNLIKELY(bytes_req == 0)) {
         return Status::OK();
     }
@@ -84,6 +79,30 @@ Status StreamLoadPipe::read_at(size_t /*offset*/, Slice result, const IOContext&
     DCHECK(*bytes_read == bytes_req)
             << "*bytes_read=" << *bytes_read << ", bytes_req=" << bytes_req;
     return Status::OK();
+}
+
+// If _total_length == -1, this should be a Kafka routine load task,
+// just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
+// Otherwise, this should be a stream load task that needs to read the specified amount of data.
+Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) {
+    if (_total_length < -1) {
+        return Status::InternalError("invalid, _total_length is: {}", _total_length);
+    } else if (_total_length == 0) {
+        // no data
+        *length = 0;
+        return Status::OK();
+    }
+
+    if (_total_length == -1) {
+        return _read_next_buffer(data, length);
+    }
+
+    // _total_length > 0, read the entire data
+    data->reset(new uint8_t[_total_length]);
+    Slice result(data->get(), _total_length);
+    IOContext io_ctx;
+    Status st = read_at(0, result, io_ctx, length);
+    return st;
 }
 
 Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t proto_byte_size) {
@@ -126,7 +145,7 @@ Status StreamLoadPipe::append(const ByteBufferPtr& buf) {
 }
 
 // read the next buffer from _buf_queue
-Status StreamLoadPipe::_read_next_buffer(char* data, size_t* bytes_read) {
+Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length) {
     std::unique_lock<std::mutex> l(_lock);
     while (!_cancelled && !_finished && _buf_queue.empty()) {
         _get_cond.wait(l);
@@ -138,19 +157,18 @@ Status StreamLoadPipe::_read_next_buffer(char* data, size_t* bytes_read) {
     // finished
     if (_buf_queue.empty()) {
         DCHECK(_finished);
-        // data->reset();
-        data = nullptr;
-        *bytes_read = 0;
+        data->reset();
+        *length = 0;
         return Status::OK();
     }
     auto buf = _buf_queue.front();
-    *bytes_read = buf->remaining();
-    data = new char[*bytes_read];
-    buf->get_bytes(data, *bytes_read);
+    *length = buf->remaining();
+    data->reset(new uint8_t[*length]);
+    buf->get_bytes((char*)(data->get()), *length);
     _buf_queue.pop_front();
     _buffered_bytes -= buf->limit;
     if (_use_proto) {
-        PDataRow** ptr = reinterpret_cast<PDataRow**>(data);
+        PDataRow** ptr = reinterpret_cast<PDataRow**>(data->get());
         _proto_buffered_bytes -= (sizeof(PDataRow*) + (*ptr)->GetCachedSize());
     }
     _put_cond.notify_one();

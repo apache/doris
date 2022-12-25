@@ -896,26 +896,12 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         size_t file_size = _file_reader->size();
         file_buf->reset(new uint8_t[file_size]);
         Slice result(file_buf->get(), file_size);
-        _file_reader->read_at(_current_offset, result, io_ctx, read_size);
+        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, io_ctx, read_size));
         break;
     }
     case TFileType::FILE_STREAM: {
-        // can not use `size_t` type, because we will judge -1.
-        int64_t bytes_req =
-                (dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))->get_total_length();
-        if (bytes_req == -1) {
-            // If bytes_req == -1, this should be a Kafka routine load task
-            // and the bytes requied is no used, so we set required bytes = 0.
-            // Memory allocation of file_buf will take place in `_read_next_buffer` function.
-            Slice result(file_buf->get(), 0);
-            _file_reader->read_at(_current_offset, result, io_ctx, read_size);
-        } else if (bytes_req >= 0) {
-            file_buf->reset(new uint8_t[bytes_req]);
-            Slice result(file_buf->get(), static_cast<size_t>(bytes_req));
-            _file_reader->read_at(_current_offset, result, io_ctx, read_size);
-        } else {
-            return Status::InternalError("invalid, bytes_req is: {}", bytes_req);
-        }
+        RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
+                                ->read_one_message(file_buf, read_size));
         break;
     }
     default: {

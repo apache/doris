@@ -412,7 +412,7 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    _current_group_reader.reset(new RowGroupReader(_file_reader.get(), _read_columns,
+    _current_group_reader.reset(new RowGroupReader(_file_reader, _read_columns,
                                                    row_group_index.row_group_id, row_group, _ctz,
                                                    position_delete_ctx, _lazy_read_ctx));
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges,
