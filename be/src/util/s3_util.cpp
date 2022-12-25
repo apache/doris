@@ -117,6 +117,9 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
     Aws::Auth::AWSCredentials aws_cred(properties.find(S3_AK)->second,
                                        properties.find(S3_SK)->second);
     DCHECK(!aws_cred.IsExpiredOrEmpty());
+    if (properties.find(S3_TOKEN) != properties.end()) {
+        aws_cred.SetSessionToken(properties.find(S3_TOKEN)->second);
+    }
 
     Aws::Client::ClientConfiguration aws_config;
     aws_config.endpointOverride = properties.find(S3_ENDPOINT)->second;

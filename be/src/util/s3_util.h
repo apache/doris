@@ -35,6 +35,7 @@ const static std::string S3_AK = "AWS_ACCESS_KEY";
 const static std::string S3_SK = "AWS_SECRET_KEY";
 const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
 const static std::string S3_REGION = "AWS_REGION";
+const static std::string S3_TOKEN = "AWS_TOKEN";
 const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
 const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
 const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
