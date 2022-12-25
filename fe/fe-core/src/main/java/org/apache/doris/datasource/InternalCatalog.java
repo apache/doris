@@ -1927,10 +1927,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setIsAutoBucket(isAutoBucket);
 
         // set estimate partition size
-        LOG.info("begin to analyze estimate partition size, auto_bucket: {}", isAutoBucket);
         if (isAutoBucket) {
             String estimatePartitionSize = PropertyAnalyzer.analyzeEstimatePartitionSize(properties);
-            LOG.info("estimate partition size: {}", estimatePartitionSize);
             olapTable.setEstimatePartitionSize(estimatePartitionSize);
         }
 

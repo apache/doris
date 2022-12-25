@@ -86,12 +86,12 @@ public class AutoBucketUtils {
         int bucketsNumByBE = getBucketsNumByBEDisks();
         int bucketsNum = Math.min(128, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
         int beNum = getBENum();
-        logger.info("AutoBucketsUtil: bucketsNumByPartitionSize {}, bucketsNumByBE {}, bucketsNum {}, beNum {}",
+        logger.debug("AutoBucketsUtil: bucketsNumByPartitionSize {}, bucketsNumByBE {}, bucketsNum {}, beNum {}",
                 bucketsNumByPartitionSize, bucketsNumByBE, bucketsNum, beNum);
         if (bucketsNum < bucketsNumByPartitionSize && bucketsNum < beNum) {
             bucketsNum = beNum;
         }
-        logger.info("AutoBucketsUtil: final bucketsNum {}", bucketsNum);
+        logger.debug("AutoBucketsUtil: final bucketsNum {}", bucketsNum);
         return bucketsNum;
     }
 }

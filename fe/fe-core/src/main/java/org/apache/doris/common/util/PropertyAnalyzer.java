@@ -92,7 +92,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
-    public static final String PROPERTIES_AUTO_BUCKET = "auto_bucket";
+    // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
+    public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";

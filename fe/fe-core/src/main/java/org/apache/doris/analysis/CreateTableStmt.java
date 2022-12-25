@@ -96,8 +96,8 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("jdbc");
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num && set
-    // properties["auto_bucket"] = "true"
+    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
         if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
