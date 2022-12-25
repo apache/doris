@@ -23,6 +23,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +37,7 @@ import javax.annotation.Nullable;
  * The interface of Catalog
  */
 public interface CatalogIf<T extends DatabaseIf> {
+    Logger LOG = LogManager.getLogger(CatalogIf.class);
 
     // Type of this catalog
     String getType();
@@ -43,6 +48,15 @@ public interface CatalogIf<T extends DatabaseIf> {
     String getName();
 
     List<String> getDbNames();
+
+    default List<String> getDbNamesOrEmpty() {
+        try {
+            return getDbNames();
+        } catch (Exception e) {
+            LOG.warn("failed to get db names in catalog {}", getName(), e);
+            return Lists.newArrayList();
+        }
+    }
 
     List<Long> getDbIds();
 
