@@ -78,6 +78,7 @@ under the License.
 > 1. hive 支持 2.3.7 以上版本。
 > 2. Iceberg 目前仅支持 V1 版本，V2 版本即将支持。
 > 3. Hudi 目前仅支持 Copy On Write 表的 Snapshot Query，以及 Merge On Read 表的 Read Optimized Query。后续将支持 Incremental Query 和 Merge On Read 表的 Snapshot Query。
+> 4. 支持数据存储在腾讯 CHDFS 上的 hive 表，用法和普通 hive 一样。
 
 以下示例，用于创建一个名为 hive 的 Catalog 连接指定的 Hive MetaStore，并提供了 HDFS HA 连接属性，用于访问对应的 HDFS 中的文件。
 

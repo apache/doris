@@ -317,14 +317,19 @@ public class BrokerScanNode extends LoadScanNode {
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
-        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
-                || brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
                 broker = Env.getCurrentEnv().getBrokerMgr()
                         .getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
+            }
+            brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+            if (broker == null) {
+                throw new UserException("No alive broker.");
             }
             brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
         } else {
