@@ -26,7 +26,6 @@
 #include "env/env_posix.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/beta_rowset_writer.h"

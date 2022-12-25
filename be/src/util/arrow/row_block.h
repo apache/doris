@@ -49,9 +49,4 @@ Status convert_to_doris_schema(const arrow::Schema& schema, std::shared_ptr<Sche
 Status convert_to_arrow_batch(const RowBlockV2& block, const std::shared_ptr<arrow::Schema>& schema,
                               arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result);
 
-// Convert an Arrow RecordBatch to a Doris RowBlockV2. Schema should match
-// with RecordBatch's schema.
-Status convert_to_row_block(const arrow::RecordBatch& batch, const Schema& schema,
-                            std::shared_ptr<RowBlockV2>* result);
-
 } // namespace doris
