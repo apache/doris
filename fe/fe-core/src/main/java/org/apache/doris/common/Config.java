@@ -118,13 +118,21 @@ public class Config extends ConfigBase {
 
     /**
      * plugin_dir:
-     *      plugin install directory
+     * plugin install directory
      */
     @ConfField
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean plugin_enable = true;
+
+    /**
+     * The default path to save jdbc drivers.
+     * You can put all jdbc drivers in this path, and when creating jdbc resource with only jdbc driver file name,
+     * Doris will find jars from this path.
+     */
+    @ConfField
+    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
     /**
      * The default parallelism of the load execution plan
