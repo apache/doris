@@ -93,7 +93,6 @@ set(OLAP_TEST_FILES
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
-    olap/row_block_test.cpp
     olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
@@ -291,7 +290,6 @@ set(VEC_TEST_FILES
     vec/function/function_array_size_test.cpp
     vec/function/function_arrays_overlap_test.cpp
     vec/function/function_bitmap_test.cpp
-    vec/function/function_comparison_test.cpp
     vec/function/function_hash_test.cpp
     vec/function/function_math_test.cpp
     vec/function/function_string_test.cpp

@@ -352,8 +352,6 @@ public:
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const PRowBatch& batch);
 
-    vectorized::Block convert_to_vec_block() const;
-
     int num_rows() const { return _num_rows; }
     int capacity() const { return _capacity; }
 

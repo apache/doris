@@ -45,16 +45,6 @@ LikeColumnPredicate<false>::LikeColumnPredicate(bool opposite, uint32_t column_i
 }
 
 template <bool is_vectorized>
-void LikeColumnPredicate<is_vectorized>::evaluate(ColumnBlock* block, uint16_t* sel,
-                                                  uint16_t* size) const {
-    if (block->is_nullable()) {
-        _base_evaluate<true>(block, sel, size);
-    } else {
-        _base_evaluate<false>(block, sel, size);
-    }
-}
-
-template <bool is_vectorized>
 void LikeColumnPredicate<is_vectorized>::evaluate_vec(const vectorized::IColumn& column,
                                                       uint16_t size, bool* flags) const {
     _evaluate_vec<false>(column, size, flags);
