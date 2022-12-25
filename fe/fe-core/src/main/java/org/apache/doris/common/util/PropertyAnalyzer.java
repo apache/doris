@@ -549,6 +549,15 @@ public class PropertyAnalyzer {
         return defaultVal;
     }
 
+    public static String analyzeEstimatePartitionSize(Map<String, String> properties) {
+        String  estimatePartitionSize = "";
+        if (properties != null && properties.containsKey(PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            estimatePartitionSize = properties.get(PROPERTIES_ESTIMATE_PARTITION_SIZE);
+            properties.remove(PROPERTIES_ESTIMATE_PARTITION_SIZE);
+        }
+        return estimatePartitionSize;
+    }
+
     public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
         String storagePolicy = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {

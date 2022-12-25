@@ -1638,7 +1638,21 @@ public class OlapTable extends Table {
         }
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET,
                 Boolean.valueOf(isAutoBucket).toString());
-        tableProperty.buildAutoBucket();
+    }
+
+    public void setEstimatePartitionSize(String estimatePartitionSize) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE,
+                estimatePartitionSize);
+    }
+
+    public String getEstimatePartitionSize() {
+        if (tableProperty != null) {
+            return tableProperty.getEstimatePartitionSize();
+        }
+        return "";
     }
 
     public boolean getEnableLightSchemaChange() {

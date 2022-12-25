@@ -40,12 +40,28 @@ public abstract class DistributionInfo implements Writable {
     @SerializedName(value = "type")
     protected DistributionInfoType type;
 
+    @SerializedName(value = "bucketNum")
+    protected int bucketNum;
+
+    @SerializedName(value = "autoBucket")
+    protected boolean autoBucket;
+
     public DistributionInfo() {
         // for persist
     }
 
     public DistributionInfo(DistributionInfoType type) {
+        this(type, 0, false);
+    }
+
+    public DistributionInfo(DistributionInfoType type, int bucketNum) {
+        this(type, bucketNum, false);
+    }
+
+    public DistributionInfo(DistributionInfoType type, int bucketNum, boolean autoBucket) {
         this.type = type;
+        this.bucketNum = bucketNum;
+        this.autoBucket = autoBucket;
     }
 
     public DistributionInfoType getType() {

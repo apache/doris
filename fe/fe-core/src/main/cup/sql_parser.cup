@@ -2915,12 +2915,16 @@ opt_distribution ::=
     /* Hash distributed */
     | KW_DISTRIBUTED KW_BY KW_HASH LPAREN ident_list:columns RPAREN opt_distribution_number:numDistribution
     {:
-        RESULT = new HashDistributionDesc(numDistribution, columns);
+        int bucketNum = (numDistribution == null ? -1 : numDistribution);
+        boolean is_auto_bucket = (numDistribution == null);
+        RESULT = new HashDistributionDesc(bucketNum, is_auto_bucket, columns);
     :}
     /* Random distributed */
     | KW_DISTRIBUTED KW_BY KW_RANDOM opt_distribution_number:numDistribution
     {:
-        RESULT = new RandomDistributionDesc(numDistribution);
+        int bucketNum = (numDistribution == null ? -1 : numDistribution);
+        boolean is_auto_bucket = (numDistribution == null);
+        RESULT = new RandomDistributionDesc(bucketNum, is_auto_bucket);
     :}
     ;
 
@@ -2947,7 +2951,7 @@ opt_distribution_number ::=
     :}
     | KW_BUCKETS KW_AUTO
     {:
-        RESULT = 0;
+        RESULT = null;
     :}
     ;
 

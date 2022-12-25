@@ -100,9 +100,7 @@ public class CreateTableStmt extends DdlStmt {
     // properties["auto_bucket"] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
-        // after parse sql, distributionDesc.getBucketNum() == 0 that auto bucket is
-        // enable
-        if (distributionDesc == null || distributionDesc.getBuckets() != 0) {
+        if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
             return properties;
         }
 

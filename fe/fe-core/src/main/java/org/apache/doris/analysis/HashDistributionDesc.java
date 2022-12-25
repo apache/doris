@@ -30,7 +30,6 @@ import org.apache.doris.common.io.Text;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -39,13 +38,14 @@ import java.util.Set;
 public class HashDistributionDesc extends DistributionDesc {
     private List<String> distributionColumnNames;
 
-    public HashDistributionDesc() {
-        type = DistributionInfoType.HASH;
-        distributionColumnNames = Lists.newArrayList();
-    }
-
     public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
         super(numBucket);
+        type = DistributionInfoType.HASH;
+        this.distributionColumnNames = distributionColumnNames;
+    }
+
+    public HashDistributionDesc(int numBucket, boolean autoBucket, List<String> distributionColumnNames) {
+        super(numBucket, autoBucket);
         type = DistributionInfoType.HASH;
         this.distributionColumnNames = distributionColumnNames;
     }
@@ -95,7 +95,11 @@ public class HashDistributionDesc extends DistributionDesc {
             i++;
         }
         stringBuilder.append(")\n");
-        stringBuilder.append("BUCKETS ").append(numBucket);
+        if (autoBucket) {
+            stringBuilder.append("BUCKETS AUTO");
+        } else {
+            stringBuilder.append("BUCKETS ").append(numBucket);
+        }
         return stringBuilder.toString();
     }
 
@@ -134,7 +138,8 @@ public class HashDistributionDesc extends DistributionDesc {
             }
         }
 
-        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(numBucket, distributionColumns);
+        HashDistributionInfo hashDistributionInfo =
+                                new HashDistributionInfo(numBucket, autoBucket, distributionColumns);
         return hashDistributionInfo;
     }
 
@@ -142,19 +147,10 @@ public class HashDistributionDesc extends DistributionDesc {
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
-        out.writeInt(numBucket);
         int count = distributionColumnNames.size();
         out.writeInt(count);
         for (String colName : distributionColumnNames) {
             Text.writeString(out, colName);
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        numBucket = in.readInt();
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            distributionColumnNames.add(Text.readString(in));
         }
     }
 }

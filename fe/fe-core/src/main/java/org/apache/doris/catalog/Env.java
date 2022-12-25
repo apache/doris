@@ -2955,6 +2955,14 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // estimate_partition_size
+            LOG.info("estimate partition size: {}, auto bucket: {}", olapTable.getEstimatePartitionSize(),
+                    olapTable.isAutoBucket());
+            if (!olapTable.getEstimatePartitionSize().equals("")) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
+                sb.append(olapTable.getEstimatePartitionSize()).append("\"");
+            }
+
             // unique key table with merge on write
             if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");

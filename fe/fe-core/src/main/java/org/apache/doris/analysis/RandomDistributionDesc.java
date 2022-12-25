@@ -23,19 +23,17 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.common.AnalysisException;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
 public class RandomDistributionDesc extends DistributionDesc {
-    public RandomDistributionDesc() {
+    public RandomDistributionDesc(int numBucket) {
+        super(numBucket);
         type = DistributionInfoType.RANDOM;
     }
 
-    public RandomDistributionDesc(int numBucket) {
-        super(numBucket);
+    public RandomDistributionDesc(int numBucket, boolean autoBucket) {
+        super(numBucket, autoBucket);
         type = DistributionInfoType.RANDOM;
     }
 
@@ -50,23 +48,18 @@ public class RandomDistributionDesc extends DistributionDesc {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DISTRIBUTED BY RANDOM\n")
-                .append("BUCKETS ").append(numBucket);
+                .append("BUCKETS ");
+        if (autoBucket) {
+            stringBuilder.append("AUTO");
+        } else {
+            stringBuilder.append(numBucket);
+        }
         return stringBuilder.toString();
     }
 
     @Override
     public DistributionInfo toDistributionInfo(List<Column> columns) {
-        RandomDistributionInfo randomDistributionInfo = new RandomDistributionInfo(numBucket);
+        RandomDistributionInfo randomDistributionInfo = new RandomDistributionInfo(numBucket, autoBucket);
         return randomDistributionInfo;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(numBucket);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        numBucket = in.readInt();
     }
 }

@@ -1921,15 +1921,23 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         olapTable.setReplicationAllocation(replicaAlloc);
 
-        // set in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
-                false);
-        olapTable.setIsInMemory(isInMemory);
-
         // set auto bucket
         boolean isAutoBucket = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_AUTO_BUCKET,
                 false);
         olapTable.setIsAutoBucket(isAutoBucket);
+
+        // set estimate partition size
+        LOG.info("begin to analyze estimate partition size, auto_bucket: {}", isAutoBucket);
+        if (isAutoBucket) {
+            String estimatePartitionSize = PropertyAnalyzer.analyzeEstimatePartitionSize(properties);
+            LOG.info("estimate partition size: {}", estimatePartitionSize);
+            olapTable.setEstimatePartitionSize(estimatePartitionSize);
+        }
+
+        // set in memory
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
+                false);
+        olapTable.setIsInMemory(isInMemory);
 
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);

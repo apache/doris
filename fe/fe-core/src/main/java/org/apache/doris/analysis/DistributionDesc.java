@@ -27,7 +27,6 @@ import org.apache.doris.common.io.Writable;
 
 import org.apache.commons.lang.NotImplementedException;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -36,12 +35,15 @@ import java.util.Set;
 public class DistributionDesc implements Writable {
     protected DistributionInfoType type;
     protected int numBucket;
-
-    public DistributionDesc() {
-    }
+    protected boolean autoBucket;
 
     public DistributionDesc(int numBucket) {
+        this(numBucket, false);
+    }
+
+    public DistributionDesc(int numBucket, boolean autoBucket) {
         this.numBucket = numBucket;
+        this.autoBucket = autoBucket;
     }
 
     public int getBuckets() {
@@ -50,6 +52,10 @@ public class DistributionDesc implements Writable {
 
     public int setBuckets(int numBucket) {
         return this.numBucket = numBucket;
+    }
+
+    public boolean isAutoBucket() {
+        return autoBucket;
     }
 
     public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
@@ -64,27 +70,10 @@ public class DistributionDesc implements Writable {
         throw new NotImplementedException();
     }
 
-    public static DistributionDesc read(DataInput in) throws IOException {
-        DistributionInfoType type = DistributionInfoType.valueOf(Text.readString(in));
-        if (type == DistributionInfoType.HASH) {
-            DistributionDesc desc = new HashDistributionDesc();
-            desc.readFields(in);
-            return desc;
-        } else if (type == DistributionInfoType.RANDOM) {
-            DistributionDesc desc = new RandomDistributionDesc();
-            desc.readFields(in);
-            return desc;
-        } else {
-            throw new IOException("Unknown distribution type: " + type);
-        }
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, type.name());
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        throw new NotImplementedException();
+        out.writeInt(numBucket);
+        out.writeBoolean(autoBucket);
     }
 }
