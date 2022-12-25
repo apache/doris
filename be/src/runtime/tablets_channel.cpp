@@ -189,7 +189,7 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
-                // to make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
+                // To make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
                 // `close_wait` might create the rowset and commit txn directly, and the subsequent
                 // publish version task will success, which can cause the replica inconsistency.
                 if (_broken_tablets.find(it.second->tablet_id()) != _broken_tablets.end()) {
