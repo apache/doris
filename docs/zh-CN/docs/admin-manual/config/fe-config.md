@@ -991,7 +991,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 #### `enable_new_load_scan_node`
 
-默认值：false
+默认值：true
 
 是否开启新的 file scan node
 

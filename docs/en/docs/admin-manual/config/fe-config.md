@@ -991,7 +991,7 @@ Whether to enable vectorized load
 
 #### `enable_new_load_scan_node`
 
-Default: false
+Default: true
 
 Whether to enable file scan node
 
