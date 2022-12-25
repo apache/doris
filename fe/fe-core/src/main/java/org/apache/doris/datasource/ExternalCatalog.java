@@ -176,7 +176,12 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
+            return null;
+        }
         String realDbName = ClusterNamespace.getNameFromFullName(dbName);
         if (!dbNameToId.containsKey(realDbName)) {
             return null;
@@ -187,7 +192,12 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            return null;
+        }
         return idToDb.get(dbId);
     }
 

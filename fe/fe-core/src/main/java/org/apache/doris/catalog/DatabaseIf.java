@@ -22,6 +22,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -35,6 +40,7 @@ import java.util.function.Function;
  * Maybe changed later.
  */
 public interface DatabaseIf<T extends TableIf> {
+    Logger LOG = LogManager.getLogger(DatabaseIf.class);
 
     void readLock();
 
@@ -64,9 +70,27 @@ public interface DatabaseIf<T extends TableIf> {
 
     List<T> getTables();
 
+    default List<T> getTablesOrEmpty() {
+        try {
+            return getTables();
+        } catch (Exception e) {
+            LOG.warn("failed to get tables for db {}", getFullName(), e);
+            return Lists.newArrayList();
+        }
+    }
+
     List<T> getTablesOnIdOrder();
 
     List<T> getViews();
+
+    default List<T> getViewsOrEmpty() {
+        try {
+            return getViews();
+        } catch (Exception e) {
+            LOG.warn("failed to get views for db {}", getFullName(), e);
+            return Lists.newArrayList();
+        }
+    }
 
     List<T> getTablesOnIdOrderIfExist(List<Long> tableIdList);
 
@@ -74,7 +98,25 @@ public interface DatabaseIf<T extends TableIf> {
 
     Set<String> getTableNamesWithLock();
 
+    default Set<String> getTableNamesOrEmptyWithLock() {
+        try {
+            return getTableNamesWithLock();
+        } catch (Exception e) {
+            LOG.warn("failed to get table names for db {}", getFullName(), e);
+            return Sets.newHashSet();
+        }
+    }
+
     T getTableNullable(String tableName);
+
+    default T getTableNullableIfException(String tableName) {
+        try {
+            return getTableNullable(tableName);
+        } catch (Exception e) {
+            LOG.warn("failed to get table {} in database {}", tableName, getFullName(), e);
+            return null;
+        }
+    }
 
     T getTableNullable(long tableId);
 

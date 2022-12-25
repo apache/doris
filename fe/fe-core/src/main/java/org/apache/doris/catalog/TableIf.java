@@ -25,12 +25,17 @@ import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public interface TableIf {
+    Logger LOG = LogManager.getLogger(TableIf.class);
 
     void readLock();
 
@@ -71,6 +76,15 @@ public interface TableIf {
     List<Column> getFullSchema();
 
     List<Column> getBaseSchema();
+
+    default List<Column> getBaseSchemaOrEmpty() {
+        try {
+            return getBaseSchema();
+        } catch (Exception e) {
+            LOG.warn("failed to get base schema for table {}", getName(), e);
+            return Lists.newArrayList();
+        }
+    }
 
     List<Column> getBaseSchema(boolean full);
 
