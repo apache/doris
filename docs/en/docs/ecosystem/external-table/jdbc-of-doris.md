@@ -85,6 +85,12 @@ Parameter Description：
 >
 >If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
 
+<version="1.2.1">
+
+> After 1.2.1, you can put the driver in the `jdbc_drivers` directory of FE/BE, and directly specify the file name, such as: `"driver_url" = "mysql-connector-java-5.1.47.jar "`. The system will automatically look for files in the `jdbc_drivers` directory.
+
+</version>
+
 ### Query usage
 
 ```

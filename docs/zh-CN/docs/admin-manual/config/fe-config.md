@@ -2582,3 +2582,15 @@ SmallFileMgr 中存储的最大文件数
 是否为 Master FE 节点独有的配置项：false
 
 在ODBC、JDBC的MYSQL外部表查询时，是否将带函数的过滤条件下推到MYSQL中执行
+
+#### `jdbc_drivers_dir`
+
+默认值：`${DORIS_HOME}/jdbc_drivers`;
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+用于存放默认的 jdbc drivers
+
+
