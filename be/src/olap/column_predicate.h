@@ -120,13 +120,6 @@ public:
 
     virtual PredicateType type() const = 0;
 
-    // evaluate predicate on ColumnBlock
-    virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
-    virtual void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                             bool* flags) const = 0;
-    virtual void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                              bool* flags) const = 0;
-
     //evaluate predicate on Bitmap
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const = 0;
