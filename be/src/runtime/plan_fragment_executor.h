@@ -36,7 +36,6 @@ namespace doris {
 class QueryFragmentsCtx;
 class ExecNode;
 class RowDescriptor;
-class RowBatch;
 class DataSink;
 class DataStreamMgr;
 class RuntimeProfile;

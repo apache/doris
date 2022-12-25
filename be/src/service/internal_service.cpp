@@ -231,66 +231,6 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
     });
 }
 
-void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcController* cntl_base,
-                                                   const PTabletWriterAddBatchRequest* request,
-                                                   PTabletWriterAddBatchResult* response,
-                                                   google::protobuf::Closure* done) {
-    google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-    _tablet_writer_add_batch(cntl_base, request, response, new_done);
-}
-
-void PInternalServiceImpl::tablet_writer_add_batch_by_http(
-        google::protobuf::RpcController* cntl_base, const ::doris::PEmptyRequest* request,
-        PTabletWriterAddBatchResult* response, google::protobuf::Closure* done) {
-    PTabletWriterAddBatchRequest* new_request = new PTabletWriterAddBatchRequest();
-    google::protobuf::Closure* new_done =
-            new NewHttpClosure<PTabletWriterAddBatchRequest>(new_request, done);
-    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    Status st = attachment_extract_request_contain_tuple<PTabletWriterAddBatchRequest>(new_request,
-                                                                                       cntl);
-    if (st.ok()) {
-        _tablet_writer_add_batch(cntl_base, new_request, response, new_done);
-    } else {
-        st.to_protobuf(response->mutable_status());
-    }
-}
-
-void PInternalServiceImpl::_tablet_writer_add_batch(google::protobuf::RpcController* cntl_base,
-                                                    const PTabletWriterAddBatchRequest* request,
-                                                    PTabletWriterAddBatchResult* response,
-                                                    google::protobuf::Closure* done) {
-    VLOG_RPC << "tablet writer add batch, id=" << request->id()
-             << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id()
-             << ", current_queued_size=" << _tablet_worker_pool.get_queue_size();
-    // add batch maybe cost a lot of time, and this callback thread will be held.
-    // this will influence query execution, because the pthreads under bthread may be
-    // exhausted, so we put this to a local thread pool to process
-    int64_t submit_task_time_ns = MonotonicNanos();
-    _tablet_worker_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
-        int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
-        brpc::ClosureGuard closure_guard(done);
-        int64_t execution_time_ns = 0;
-        {
-            SCOPED_RAW_TIMER(&execution_time_ns);
-
-            // TODO(zxy) delete in 1.2 version
-            brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-            attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
-
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
-            if (!st.ok()) {
-                LOG(WARNING) << "tablet writer add batch failed, message=" << st
-                             << ", id=" << request->id() << ", index_id=" << request->index_id()
-                             << ", sender_id=" << request->sender_id()
-                             << ", backend id=" << request->backend_id();
-            }
-            st.to_protobuf(response->mutable_status());
-        }
-        response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
-        response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
-    });
-}
-
 void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,

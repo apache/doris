@@ -32,7 +32,6 @@
 namespace doris {
 
 class ObjectPool;
-class RowBatch;
 class RuntimeProfile;
 class RuntimeState;
 class TPlanFragmentExecParams;
