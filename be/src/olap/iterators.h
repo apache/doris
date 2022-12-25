@@ -29,7 +29,6 @@
 namespace doris {
 
 class RowCursor;
-class RowBlockV2;
 class Schema;
 class ColumnPredicate;
 
@@ -101,7 +100,6 @@ public:
     IOContext io_ctx;
 };
 
-// Used to read data in RowBlockV2 one by one
 class RowwiseIterator {
 public:
     RowwiseIterator() = default;

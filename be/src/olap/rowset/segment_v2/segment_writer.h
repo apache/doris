@@ -37,7 +37,6 @@ const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_
                                                         OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 class DataDir;
 class MemTracker;
-class RowBlock;
 class RowCursor;
 class TabletSchema;
 class TabletColumn;

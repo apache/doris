@@ -30,7 +30,6 @@ using namespace doris::segment_v2;
 namespace doris {
 
 class Schema;
-class RowBlockV2;
 
 enum class PredicateType {
     UNKNOWN = 0,

@@ -394,57 +394,6 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
     reset();
 }
 
-vectorized::Block RowBatch::convert_to_vec_block() const {
-    std::vector<vectorized::MutableColumnPtr> columns;
-    for (const auto tuple_desc : _row_desc.tuple_descriptors()) {
-        for (const auto slot_desc : tuple_desc->slots()) {
-            columns.emplace_back(slot_desc->get_empty_mutable_column());
-        }
-    }
-
-    std::vector<SlotDescriptor*> slot_descs;
-    std::vector<int> tuple_idx;
-    int column_numbers = 0;
-    for (int i = 0; i < _row_desc.tuple_descriptors().size(); ++i) {
-        auto tuple_desc = _row_desc.tuple_descriptors()[i];
-        for (int j = 0; j < tuple_desc->slots().size(); ++j) {
-            slot_descs.push_back(tuple_desc->slots()[j]);
-            tuple_idx.push_back(i);
-        }
-        column_numbers += tuple_desc->slots().size();
-    }
-    for (int i = 0; i < column_numbers; ++i) {
-        auto slot_desc = slot_descs[i];
-        for (int j = 0; j < _num_rows; ++j) {
-            TupleRow* src_row = get_row(j);
-            auto tuple = src_row->get_tuple(tuple_idx[i]);
-            if (slot_desc->is_nullable() && tuple->is_null(slot_desc->null_indicator_offset())) {
-                columns[i]->insert_data(nullptr, 0);
-            } else if (slot_desc->type().is_string_type()) {
-                auto string_value =
-                        static_cast<const StringValue*>(tuple->get_slot(slot_desc->tuple_offset()));
-                columns[i]->insert_data(string_value->ptr, string_value->len);
-            } else {
-                columns[i]->insert_data(
-                        static_cast<const char*>(tuple->get_slot(slot_desc->tuple_offset())),
-                        slot_desc->slot_size());
-            }
-        }
-    }
-
-    doris::vectorized::ColumnsWithTypeAndName columns_with_type_and_name;
-    auto n_columns = 0;
-    for (const auto tuple_desc : _row_desc.tuple_descriptors()) {
-        for (const auto slot_desc : tuple_desc->slots()) {
-            columns_with_type_and_name.emplace_back(columns[n_columns++]->get_ptr(),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name());
-        }
-    }
-
-    return {columns_with_type_and_name};
-}
-
 size_t RowBatch::get_batch_size(const PRowBatch& batch) {
     size_t result = batch.tuple_data().size();
     result += batch.row_tuples().size() * sizeof(int32_t);
