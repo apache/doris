@@ -1010,7 +1010,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     per_node_scan_ranges.insert(std::make_pair((::doris::TPlanNodeId)0, scan_ranges));
     fragment_exec_params.per_node_scan_ranges = per_node_scan_ranges;
     exec_fragment_params.__set_params(fragment_exec_params);
-    // batch_size for one RowBatch
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
     query_options.query_timeout = params.query_timeout;

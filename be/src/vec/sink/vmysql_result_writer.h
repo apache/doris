@@ -24,7 +24,6 @@
 
 namespace doris {
 class BufferControlBlock;
-class RowBatch;
 class MysqlRowBuffer;
 class TFetchDataResult;
 

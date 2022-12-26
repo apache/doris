@@ -88,7 +88,6 @@ private:
     std::mutex _batch_queue_lock;
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
-    std::deque<std::shared_ptr<RowBatch>> _batch_queue;
 
     int _num_running_scanners;
 

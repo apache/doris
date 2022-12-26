@@ -466,13 +466,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         }
     }
 
-    auto get_send_data = [&]() {
-        if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
-            return RowBatch(*_row_desc, request.row_batch());
-        } else {
-            return vectorized::Block(request.block());
-        }
-    };
+    auto get_send_data = [&]() { return vectorized::Block(request.block()); };
 
     auto send_data = get_send_data();
     google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
@@ -507,9 +501,6 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     return Status::OK();
 }
 
-template Status
-TabletsChannel::add_batch<PTabletWriterAddBatchRequest, PTabletWriterAddBatchResult>(
-        PTabletWriterAddBatchRequest const&, PTabletWriterAddBatchResult*);
 template Status
 TabletsChannel::add_batch<PTabletWriterAddBlockRequest, PTabletWriterAddBlockResult>(
         PTabletWriterAddBlockRequest const&, PTabletWriterAddBlockResult*);

@@ -40,7 +40,6 @@
 namespace doris {
 
 class MemPool;
-class RowBatch;
 class RowDescriptor;
 class Status;
 class Tuple;
@@ -280,9 +279,6 @@ public:
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
-    // serialize block to PRowbatch
-    void serialize(RowBatch*, const RowDescriptor&);
-
     std::unique_ptr<Block> create_same_struct_block(size_t size) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
@@ -345,9 +341,6 @@ public:
                 n, m, *(rhs.get_by_position(col_idx).column), nan_direction_hint);
         return res;
     }
-
-    doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int,
-                                  bool padding_char = false);
 
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);

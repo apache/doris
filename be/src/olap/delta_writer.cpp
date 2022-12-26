@@ -183,32 +183,6 @@ Status DeltaWriter::write(Tuple* tuple) {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
-    }
-
-    if (_is_cancelled) {
-        return _cancel_status;
-    }
-
-    _total_received_rows += row_idxs.size();
-    for (const auto& row_idx : row_idxs) {
-        _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
-    }
-
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        auto s = _flush_memtable_async();
-        _reset_mem_table();
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
-
-    return Status::OK();
-}
-
 Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
