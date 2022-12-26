@@ -28,13 +28,13 @@ namespace io {
 
 const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 
-class StreamLoadPipeReader : public MessageBodySink, public FileReader {
+class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
-    StreamLoadPipeReader(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
-                         size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
-                         bool use_proto = false);
+    StreamLoadPipe(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
+                   size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
+                   bool use_proto = false);
 
-    ~StreamLoadPipeReader() override;
+    ~StreamLoadPipe() override;
 
     Status append_and_flush(const char* data, size_t size, size_t proto_byte_size = 0);
 
@@ -63,9 +63,11 @@ public:
     // called when producer/consumer failed
     void cancel(const std::string& reason) override;
 
+    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
+
 private:
     // read the next buffer from _buf_queue
-    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, int64_t* length);
+    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
     Status _append(const ByteBufferPtr& buf, size_t proto_byte_size = 0);
 
@@ -82,7 +84,7 @@ private:
     // The default is -1, which means that the data arrives in a stream
     // and the length is unknown.
     // size_t is unsigned, so use int64_t
-    // int64_t _total_length = -1;
+    int64_t _total_length = -1;
     bool _use_proto = false;
     std::deque<ByteBufferPtr> _buf_queue;
     std::condition_variable _put_cond;

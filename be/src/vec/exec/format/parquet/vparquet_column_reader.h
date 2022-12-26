@@ -107,8 +107,8 @@ public:
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     ColumnSelectVector& select_vector, size_t batch_size,
                                     size_t* read_rows, bool* eof) = 0;
-    static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
-                         const tparquet::RowGroup& row_group,
+    static Status create(io::FileReaderSPtr file, FieldSchema* field,
+                         const ParquetReadColumn& column, const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size);
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
@@ -139,7 +139,7 @@ public:
     ScalarColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
             : ParquetColumnReader(row_ranges, ctz) {};
     ~ScalarColumnReader() override { close(); };
-    Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
+    Status init(io::FileReaderSPtr file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                 size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
@@ -155,7 +155,7 @@ public:
     ArrayColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
             : ParquetColumnReader(row_ranges, ctz) {};
     ~ArrayColumnReader() override { close(); };
-    Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
+    Status init(io::FileReaderSPtr file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                 size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,

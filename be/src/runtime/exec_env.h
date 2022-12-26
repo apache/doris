@@ -182,6 +182,15 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
+    // only for unit test
+    void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
+    void set_new_load_stream_mgr(NewLoadStreamMgr* new_load_stream_mgr) {
+        this->_new_load_stream_mgr = new_load_stream_mgr;
+    }
+    void set_stream_load_executor(StreamLoadExecutor* stream_load_executor) {
+        this->_stream_load_executor = stream_load_executor;
+    }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
