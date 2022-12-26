@@ -490,6 +490,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression expression = getExpression(ctx.expression());
             if (ctx.name != null) {
                 return new UnboundAlias(expression, ctx.name.getText());
+            } else if (ctx.strName != null) {
+                return new UnboundAlias(expression, ctx.strName.getText()
+                        .substring(1, ctx.strName.getText().length() - 1));
             } else {
                 return expression;
             }
