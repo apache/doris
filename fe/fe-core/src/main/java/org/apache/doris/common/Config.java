@@ -1460,7 +1460,7 @@ public class Config extends ConfigBase {
      * When the result set is large, you may need to increase this value.
      */
     @ConfField
-    public static int grpc_max_message_size_bytes = 2 * 1024 * 1024 * 1024; // 2GB
+    public static int grpc_max_message_size_bytes = 2147483647; // 2GB
 
     /**
      * Used to set minimal number of replication per tablet.
