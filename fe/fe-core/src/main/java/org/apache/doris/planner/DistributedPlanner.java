@@ -236,7 +236,8 @@ public class DistributedPlanner {
         // move 'result' to end, it depends on all of its children
         fragments.remove(result);
         fragments.add(result);
-        if (!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1) {
+        if ((!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1)
+                || (!(root instanceof SortNode) && root.hasOffset())) {
             result = createMergeFragment(result);
             fragments.add(result);
         }
@@ -251,7 +252,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createMergeFragment(PlanFragment inputFragment)
             throws UserException {
-        Preconditions.checkState(inputFragment.isPartitioned());
+        Preconditions.checkState(inputFragment.isPartitioned() || inputFragment.getPlanRoot().hasOffset());
 
         // exchange node clones the behavior of its input, aside from the conjuncts
         ExchangeNode mergePlan =
