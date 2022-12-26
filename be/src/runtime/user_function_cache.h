@@ -83,6 +83,8 @@ private:
     std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type);
     void _destroy_cache_entry(UserFunctionCacheEntry* entry);
 
+    std::string _get_real_url(const std::string& url);
+
 private:
     std::string _lib_dir;
     void* _current_process_handle = nullptr;
