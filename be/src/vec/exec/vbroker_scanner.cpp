@@ -56,6 +56,9 @@ VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
         _line_delimiter.push_back(static_cast<char>(params.line_delimiter));
         _line_delimiter_length = 1;
     }
+    if (params.__isset.trim_double_quotes) {
+        _trim_double_quotes = params.trim_double_quotes;
+    }
     _split_values.reserve(sizeof(Slice) * params.src_slot_ids.size());
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
     _src_block_mem_reuse = true;
@@ -288,6 +291,11 @@ void VBrokerScanner::split_line(const Slice& line) {
                             non_space--;
                         }
                     }
+                    if (_trim_double_quotes && (non_space - 1) > start &&
+                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
+                        start++;
+                        non_space--;
+                    }
                     _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
                     curpos = start;
@@ -303,6 +311,11 @@ void VBrokerScanner::split_line(const Slice& line) {
             while (non_space > start && *(value + non_space - 1) == ' ') {
                 non_space--;
             }
+        }
+        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
+            *(value + non_space - 1) == '\"') {
+            start++;
+            non_space--;
         }
         _split_values.emplace_back(value + start, non_space - start);
     }

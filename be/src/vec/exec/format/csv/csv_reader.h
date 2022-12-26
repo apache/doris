@@ -105,6 +105,7 @@ private:
     std::string _line_delimiter;
     int _value_separator_length;
     int _line_delimiter_length;
+    bool _trim_double_quotes = false;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
