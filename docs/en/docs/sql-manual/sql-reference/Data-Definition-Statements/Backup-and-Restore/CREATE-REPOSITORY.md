@@ -139,7 +139,8 @@ PROPERTIES
 );
 ```
 
-<version since="1.2"></version>
+<version since="1.2">
+
 7. Create a repository named minio_repo via temporary security credentials.
 
 ```
@@ -155,6 +156,8 @@ PROPERTIES
     "AWS_REGION" = "AWS_REGION"
 )
 ```
+
+</version>
 
 ### Keywords
 
