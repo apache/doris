@@ -97,11 +97,12 @@ suite("test_external_catalog_hive", "p2") {
 
         sql """switch internal;"""
 
+        sql """drop catalog if exists hms"""
         sql """alter catalog ${catalog_name} rename hms;"""
 
         sql """switch hms;"""
 
-        def res3 = sql """select count(*) from hive_test limit 10;"""
+        def res3 = sql """select count(*) from test.hive_test limit 10;"""
         logger.info("recoding select: " + res3.toString())
 
         sql """alter catalog hms rename ${catalog_name};"""
