@@ -211,6 +211,8 @@ struct TBrokerScanRangeParams {
     12: optional i32 line_delimiter_length = 1;
     13: optional string column_separator_str;
     14: optional string line_delimiter_str;
+    // trim double quotes for csv
+    15: optional bool trim_double_quotes;
 
 }
 
@@ -255,6 +257,8 @@ struct TFileAttributes {
     8: optional bool read_by_column_def;
     // csv with header type
     9: optional string header_type;
+    // trim double quotes for csv
+    10: optional bool trim_double_quotes;
 }
 
 struct TIcebergDeleteFileDesc {

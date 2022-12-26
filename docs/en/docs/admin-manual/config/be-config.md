@@ -1363,3 +1363,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 * Default value: 512
 
+#### `jdbc_drivers_dir
+
+* Description: Default dirs to put jdbc drivers.
+* Default value: `${DORIS_HOME}/jdbc_drivers`

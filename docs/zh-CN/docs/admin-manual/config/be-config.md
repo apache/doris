@@ -1380,3 +1380,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: BlockingPriorityQueue中剩余任务的优先级频率增加
 * 默认值:512
+
+#### `jdbc_drivers_dir
+
+* 描述: 存放 jdbc driver 的默认目录。
+* 默认值: `${DORIS_HOME}/jdbc_drivers`

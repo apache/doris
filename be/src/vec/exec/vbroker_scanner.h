@@ -89,5 +89,6 @@ private:
     int _skip_lines;
 
     std::vector<Slice> _split_values;
+    bool _trim_double_quotes = false;
 };
 } // namespace doris::vectorized
