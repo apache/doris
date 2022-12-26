@@ -136,7 +136,8 @@ PROPERTIES
     "use_path_style" = "true"
 );
 ```
-<version since="1.2"></version>
+<version since="1.2">
+
 7. 使用临时秘钥创建名为 minio_repo 的仓库
 
 ```
@@ -153,6 +154,7 @@ PROPERTIES
 )
 ```
 
+</version>
 
 ### Keywords
 

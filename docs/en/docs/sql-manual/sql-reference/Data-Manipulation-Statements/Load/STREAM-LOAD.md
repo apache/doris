@@ -177,9 +177,11 @@ ERRORS:
 
     where url is the url given by ErrorURL.
 
-23: compress_type
+24. compress_type
 
     Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
+
+25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
 ### Example
 

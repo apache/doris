@@ -97,6 +97,10 @@ public interface LoadTaskInfo {
 
     List<String> getHiddenColumns();
 
+    default boolean getTrimDoubleQuotes() {
+        return false;
+    }
+
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;

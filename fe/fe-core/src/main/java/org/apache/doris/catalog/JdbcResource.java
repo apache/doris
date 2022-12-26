@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -29,9 +30,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Map;
@@ -53,8 +58,10 @@ import java.util.Map;
  * DROP RESOURCE "jdbc_mysql";
  */
 public class JdbcResource extends Resource {
+    private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
+
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
-    public static final String URL = "jdbc_url";
+    public static final String JDBC_URL = "jdbc_url";
     public static final String USER = "user";
     public static final String PASSWORD = "password";
     public static final String DRIVER_CLASS = "driver_class";
@@ -97,7 +104,7 @@ public class JdbcResource extends Resource {
         // modify properties
         replaceIfEffectiveValue(this.configs, DRIVER_URL, properties.get(DRIVER_URL));
         replaceIfEffectiveValue(this.configs, DRIVER_CLASS, properties.get(DRIVER_CLASS));
-        replaceIfEffectiveValue(this.configs, URL, properties.get(URL));
+        replaceIfEffectiveValue(this.configs, JDBC_URL, properties.get(JDBC_URL));
         replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
@@ -110,7 +117,7 @@ public class JdbcResource extends Resource {
         // check properties
         copiedProperties.remove(DRIVER_URL);
         copiedProperties.remove(DRIVER_CLASS);
-        copiedProperties.remove(URL);
+        copiedProperties.remove(JDBC_URL);
         copiedProperties.remove(USER);
         copiedProperties.remove(PASSWORD);
         copiedProperties.remove(TYPE);
@@ -123,19 +130,19 @@ public class JdbcResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
         for (String key : properties.keySet()) {
-            if (!DRIVER_URL.equals(key) && !URL.equals(key) && !USER.equals(key) && !PASSWORD.equals(key)
+            if (!DRIVER_URL.equals(key) && !JDBC_URL.equals(key) && !USER.equals(key) && !PASSWORD.equals(key)
                     && !TYPE.equals(key) && !DRIVER_CLASS.equals(key)) {
                 throw new DdlException("JDBC resource Property of " + key + " is unknown");
             }
         }
         configs = properties;
-        computeObjectChecksum();
         checkProperties(DRIVER_URL);
         checkProperties(DRIVER_CLASS);
-        checkProperties(URL);
+        checkProperties(JDBC_URL);
         checkProperties(USER);
         checkProperties(PASSWORD);
         checkProperties(TYPE);
+        computeObjectChecksum();
     }
 
     @Override
@@ -168,10 +175,10 @@ public class JdbcResource extends Resource {
             // skip checking checksum when running ut
             return;
         }
-
+        String realDriverPath = getRealDriverPath();
         InputStream inputStream = null;
         try {
-            inputStream = Util.getInputStreamFromUrl(getProperty(DRIVER_URL), null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+            inputStream = Util.getInputStreamFromUrl(realDriverPath, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] buf = new byte[4096];
             int bytesRead = 0;
@@ -185,11 +192,26 @@ public class JdbcResource extends Resource {
             String checkSum = Hex.encodeHexString(digest.digest());
             configs.put(CHECK_SUM, checkSum);
         } catch (IOException e) {
-            throw new DdlException(
-                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " meet an IOException.");
+            throw new DdlException("compute driver checksum from url: " + getProperty(DRIVER_URL)
+                    + " meet an IOException: " + e.getMessage());
         } catch (NoSuchAlgorithmException e) {
-            throw new DdlException(
-                    "compute driver checksum from url: " + getProperty(DRIVER_URL) + " could not find algorithm.");
+            throw new DdlException("compute driver checksum from url: " + getProperty(DRIVER_URL)
+                    + " could not find algorithm: " + e.getMessage());
+        }
+    }
+
+    private String getRealDriverPath() {
+        String path = getProperty(DRIVER_URL);
+        try {
+            URI uri = new URI(path);
+            String schema = uri.getScheme();
+            if (schema == null && !path.startsWith("/")) {
+                return "file://" + Config.jdbc_drivers_dir + "/" + path;
+            }
+            return path;
+        } catch (URISyntaxException e) {
+            LOG.warn("invalid jdbc driver url: " + path);
+            return path;
         }
     }
 }

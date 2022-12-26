@@ -566,6 +566,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
         request.__set_hidden_columns(http_req->header(HTTP_HIDDEN_COLUMNS));
     }
+    if (!http_req->header(HTTP_TRIM_DOUBLE_QUOTES).empty()) {
+        if (iequal(http_req->header(HTTP_TRIM_DOUBLE_QUOTES), "true")) {
+            request.__set_trim_double_quotes(true);
+        } else {
+            request.__set_trim_double_quotes(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load
