@@ -183,7 +183,7 @@ public class JoinUtils {
     }
 
     public static boolean shouldNestedLoopJoin(JoinType joinType, List<Expression> hashConjuncts) {
-        return (joinType.isInnerJoin() && hashConjuncts.isEmpty()) || joinType.isCrossJoin();
+        return hashConjuncts.isEmpty();
     }
 
     /**
@@ -286,9 +286,12 @@ public class JoinUtils {
         boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
                 && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        return noNeedCheckColocateGroup
+        if (noNeedCheckColocateGroup
                 || (colocateIndex.isSameGroup(leftTableId, rightTableId)
-                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)));
+                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -341,9 +344,9 @@ public class JoinUtils {
      */
     public static List<Slot> getJoinOutput(JoinType joinType, Plan left, Plan right) {
         List<Slot> newLeftOutput = left.getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         List<Slot> newRightOutput = right.getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
 
         switch (joinType) {
             case LEFT_SEMI_JOIN:

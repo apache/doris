@@ -75,7 +75,6 @@ public class Group {
         this.groupId = groupId;
         addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
-        groupExpression.setOwnerGroup(this);
     }
 
     /**
@@ -86,13 +85,6 @@ public class Group {
     public Group(GroupId groupId, LogicalProperties logicalProperties) {
         this.groupId = groupId;
         this.logicalProperties = logicalProperties;
-    }
-
-    /**
-     * For unit test only.
-     */
-    public Group() {
-        groupId = null;
     }
 
     public GroupId getGroupId() {

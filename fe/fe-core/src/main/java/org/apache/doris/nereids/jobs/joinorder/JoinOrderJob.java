@@ -82,7 +82,8 @@ public class JoinOrderJob extends Job {
         buildGraph(group, hyperGraph);
         // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
         int limit = 10000;
-        PlanReceiver planReceiver = new PlanReceiver(this.context, limit);
+        PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
+                group.getLogicalProperties().getOutputSet());
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
         if (!subgraphEnumerator.enumerate()) {
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
@@ -91,8 +92,7 @@ public class JoinOrderJob extends Job {
                 throw new RuntimeException("DPHyp can not enumerate all sub graphs with limit=" + limit);
             }
         }
-        Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap(),
-                group.getLogicalProperties().getOutputSet());
+        Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap());
 
         // For other projects, such as project constant or project nullable, we construct a new project above root
         if (otherProject.size() != 0) {

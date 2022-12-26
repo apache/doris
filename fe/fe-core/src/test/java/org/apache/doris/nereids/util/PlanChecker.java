@@ -28,6 +28,7 @@ import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -185,13 +186,11 @@ public class PlanChecker {
         boolean changeRoot = false;
         if (root.isJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
-            // To keep the root group is not changed, we add a project operator above join
+            // To keep the root group is not changed, we add a dummy project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
-                    Lists.newArrayList(root));
-            root = new Group();
-            root.addGroupExpression(newExpr);
+            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
+            root = copyInResult.correspondingExpression.getOwnerGroup();
             changeRoot = true;
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -500,14 +499,18 @@ public class PlanChecker {
         return physicalPlan;
     }
 
-    public PlanChecker printlnTree() {
-        System.out.println(cascadesContext.getMemo().copyOut().treeString());
-        System.out.println("-----------------------------");
-        return this;
+    public PhysicalPlan getBestPlanTree() {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
     }
 
     public PlanChecker printlnBestPlanTree() {
         System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
+        System.out.println("-----------------------------");
+        return this;
+    }
+
+    public PlanChecker printlnTree() {
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
         System.out.println("-----------------------------");
         return this;
     }

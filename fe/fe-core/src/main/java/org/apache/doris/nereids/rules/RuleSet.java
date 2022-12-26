@@ -165,8 +165,8 @@ public class RuleSet {
 
     public List<Rule> getExplorationRules() {
         List<Rule> rules = new ArrayList<>();
-        rules.addAll(EXPLORATION_RULES);
         rules.addAll(JOINORDER_RULE);
+        rules.addAll(EXPLORATION_RULES);
         return rules;
     }
 

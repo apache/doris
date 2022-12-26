@@ -30,6 +30,7 @@ import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -223,10 +224,9 @@ public class NereidsPlanner extends Planner {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()), Lists.newArrayList(root));
-            // FIXME: use wrong constructor.
-            root = new Group(null, newExpr, null);
+            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
+            root = copyInResult.correspondingExpression.getOwnerGroup();
             changeRoot = true;
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
