@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -160,7 +162,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     ImmutableSet.of(),
                                     extractAggFunctionAndReplaceSlot(agg,
                                             Optional.of(project)),
-                                    agg.getGroupByExpressions()
+                                    ExpressionUtils.replace(agg.getGroupByExpressions(),
+                                            project.getAliasToProducer())
                             );
 
                             if (result.exprRewriteMap.isEmpty()) {
@@ -262,7 +265,200 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         filter.withChildren(newProject)
                                 );
                             }
-                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_FILTER_PROJECT_SCAN)
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_FILTER_PROJECT_SCAN),
+
+                // only agg above scan
+                // Aggregate(Repeat(Scan))
+                logicalAggregate(logicalRepeat(logicalOlapScan().when(this::shouldSelectIndex))).then(agg -> {
+                    LogicalRepeat<LogicalOlapScan> repeat = agg.child();
+                    LogicalOlapScan scan = repeat.child();
+                    SelectResult result = select(
+                            scan,
+                            agg.getInputSlots(),
+                            ImmutableSet.of(),
+                            extractAggFunctionAndReplaceSlot(agg, Optional.empty()),
+                            nonVirtualGroupByExprs(agg));
+                    if (result.exprRewriteMap.isEmpty()) {
+                        return agg.withChildren(
+                                repeat.withChildren(
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId))
+                        );
+                    } else {
+                        return new LogicalAggregate<>(
+                                agg.getGroupByExpressions(),
+                                replaceAggOutput(agg, Optional.empty(), Optional.empty(), result.exprRewriteMap),
+                                agg.isNormalized(),
+                                agg.getSourceRepeat(),
+                                repeat.withChildren(
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId))
+                        );
+                    }
+                }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_SCAN),
+
+                // filter could push down scan.
+                // Aggregate(Repeat(Filter(Scan)))
+                logicalAggregate(logicalRepeat(logicalFilter(logicalOlapScan().when(this::shouldSelectIndex))))
+                        .then(agg -> {
+                            LogicalRepeat<LogicalFilter<LogicalOlapScan>> repeat = agg.child();
+                            LogicalFilter<LogicalOlapScan> filter = repeat.child();
+                            LogicalOlapScan scan = filter.child();
+                            ImmutableSet<Slot> requiredSlots = ImmutableSet.<Slot>builder()
+                                    .addAll(agg.getInputSlots())
+                                    .addAll(filter.getInputSlots())
+                                    .build();
+
+                            SelectResult result = select(
+                                    scan,
+                                    requiredSlots,
+                                    filter.getConjuncts(),
+                                    extractAggFunctionAndReplaceSlot(agg, Optional.empty()),
+                                    nonVirtualGroupByExprs(agg)
+                            );
+
+                            if (result.exprRewriteMap.isEmpty()) {
+                                return agg.withChildren(
+                                        repeat.withChildren(
+                                                filter.withChildren(
+                                                        scan.withMaterializedIndexSelected(result.preAggStatus,
+                                                                result.indexId))
+                                        ));
+                            } else {
+                                return new LogicalAggregate<>(
+                                        agg.getGroupByExpressions(),
+                                        replaceAggOutput(agg, Optional.empty(), Optional.empty(),
+                                                result.exprRewriteMap),
+                                        agg.isNormalized(),
+                                        agg.getSourceRepeat(),
+                                        // Not that no need to replace slots in the filter, because the slots to replace
+                                        // are value columns, which shouldn't appear in filters.
+                                        repeat.withChildren(filter.withChildren(
+                                                scan.withMaterializedIndexSelected(result.preAggStatus,
+                                                        result.indexId)))
+                                );
+                            }
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_FILTER_SCAN),
+
+                // column pruning or other projections such as alias, etc.
+                // Aggregate(Repeat(Project(Scan)))
+                logicalAggregate(logicalRepeat(logicalProject(logicalOlapScan().when(this::shouldSelectIndex))))
+                        .then(agg -> {
+                            LogicalRepeat<LogicalProject<LogicalOlapScan>> repeat = agg.child();
+                            LogicalProject<LogicalOlapScan> project = repeat.child();
+                            LogicalOlapScan scan = project.child();
+                            SelectResult result = select(
+                                    scan,
+                                    project.getInputSlots(),
+                                    ImmutableSet.of(),
+                                    extractAggFunctionAndReplaceSlot(agg,
+                                            Optional.of(project)),
+                                    ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
+                                            project.getAliasToProducer())
+                            );
+
+                            if (result.exprRewriteMap.isEmpty()) {
+                                return agg.withChildren(
+                                        repeat.withChildren(
+                                                project.withChildren(
+                                                        scan.withMaterializedIndexSelected(result.preAggStatus,
+                                                                result.indexId)
+                                                ))
+                                );
+                            } else {
+                                List<NamedExpression> newProjectList = replaceProjectList(project,
+                                        result.exprRewriteMap.projectExprMap);
+                                LogicalProject<LogicalOlapScan> newProject = new LogicalProject<>(
+                                        newProjectList,
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId));
+                                return new LogicalAggregate<>(
+                                        agg.getGroupByExpressions(),
+                                        replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
+                                                result.exprRewriteMap),
+                                        agg.isNormalized(),
+                                        agg.getSourceRepeat(),
+                                        repeat.withChildren(newProject)
+                                );
+                            }
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_PROJECT_SCAN),
+
+                // filter could push down and project.
+                // Aggregate(Repeat(Project(Filter(Scan))))
+                logicalAggregate(logicalRepeat(logicalProject(logicalFilter(logicalOlapScan()
+                        .when(this::shouldSelectIndex))))).then(agg -> {
+                            LogicalRepeat<LogicalProject<LogicalFilter<LogicalOlapScan>>> repeat = agg.child();
+                            LogicalProject<LogicalFilter<LogicalOlapScan>> project = repeat.child();
+                            LogicalFilter<LogicalOlapScan> filter = project.child();
+                            LogicalOlapScan scan = filter.child();
+                            Set<Slot> requiredSlots = Stream.concat(
+                                    project.getInputSlots().stream(), filter.getInputSlots().stream())
+                                    .collect(Collectors.toSet());
+                            SelectResult result = select(
+                                    scan,
+                                    requiredSlots,
+                                    filter.getConjuncts(),
+                                    extractAggFunctionAndReplaceSlot(agg, Optional.of(project)),
+                                    ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
+                                            project.getAliasToProducer())
+                            );
+
+                            if (result.exprRewriteMap.isEmpty()) {
+                                return agg.withChildren(project.withChildren(filter.withChildren(
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId)
+                                )));
+                            } else {
+                                List<NamedExpression> newProjectList = replaceProjectList(project,
+                                        result.exprRewriteMap.projectExprMap);
+                                LogicalProject<Plan> newProject = new LogicalProject<>(newProjectList,
+                                        filter.withChildren(scan.withMaterializedIndexSelected(result.preAggStatus,
+                                                result.indexId)));
+
+                                return new LogicalAggregate<>(
+                                        agg.getGroupByExpressions(),
+                                        replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
+                                                result.exprRewriteMap),
+                                        agg.isNormalized(),
+                                        agg.getSourceRepeat(),
+                                        newProject
+                                );
+                            }
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_PROJECT_FILTER_SCAN),
+
+                // filter can't push down
+                // Aggregate(Repeat(Filter(Project(Scan))))
+                logicalAggregate(logicalRepeat(logicalFilter(logicalProject(logicalOlapScan()
+                        .when(this::shouldSelectIndex))))).then(agg -> {
+                            LogicalRepeat<LogicalFilter<LogicalProject<LogicalOlapScan>>> repeat = agg.child();
+                            LogicalFilter<LogicalProject<LogicalOlapScan>> filter = repeat.child();
+                            LogicalProject<LogicalOlapScan> project = filter.child();
+                            LogicalOlapScan scan = project.child();
+                            SelectResult result = select(
+                                    scan,
+                                    project.getInputSlots(),
+                                    ImmutableSet.of(),
+                                    extractAggFunctionAndReplaceSlot(agg, Optional.of(project)),
+                                    ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
+                                            project.getAliasToProducer())
+                            );
+
+                            if (result.exprRewriteMap.isEmpty()) {
+                                return agg.withChildren(repeat.withChildren(filter.withChildren(project.withChildren(
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId))
+                                )));
+                            } else {
+                                List<NamedExpression> newProjectList = replaceProjectList(project,
+                                        result.exprRewriteMap.projectExprMap);
+                                LogicalProject<Plan> newProject = new LogicalProject<>(newProjectList,
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId));
+
+                                return new LogicalAggregate<>(
+                                        agg.getGroupByExpressions(),
+                                        replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
+                                                result.exprRewriteMap),
+                                        agg.isNormalized(),
+                                        agg.getSourceRepeat(),
+                                        repeat.withChildren(filter.withChildren(newProject))
+                                );
+                            }
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_FILTER_PROJECT_SCAN)
         );
     }
 
@@ -993,6 +1189,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             Map<Expression, Expression> projectMap) {
         return project.getProjects().stream()
                 .map(expr -> (NamedExpression) ExpressionUtils.replace(expr, projectMap))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    private List<Expression> nonVirtualGroupByExprs(LogicalAggregate<? extends Plan> agg) {
+        return agg.getGroupByExpressions().stream()
+                .filter(expr -> !(expr instanceof VirtualSlotReference))
                 .collect(ImmutableList.toImmutableList());
     }
 }
