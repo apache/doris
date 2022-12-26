@@ -31,8 +31,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,15 +44,21 @@ import java.util.Optional;
  */
 public class UnboundRelation extends LogicalRelation implements Unbound {
     private final List<String> nameParts;
+    private final List<String> partNames;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(id, nameParts, Optional.empty(), Optional.empty());
+        this(id, nameParts, Optional.empty(), Optional.empty(), Collections.emptyList());
+    }
+
+    public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
+            Optional<LogicalProperties> logicalProperties, List<String> partNames) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
+        this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
     }
 
     @Override
@@ -74,12 +82,12 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()));
+        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()), partNames);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties);
+        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames);
     }
 
     @Override
@@ -127,5 +135,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     @Override
     public int hashCode() {
         return Objects.hash(id);
+    }
+
+    public List<String> getPartNames() {
+        return partNames;
     }
 }
