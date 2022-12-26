@@ -27,7 +27,6 @@
 namespace doris::vectorized {
 
 Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
-                                   const ParquetReadColumn& column,
                                    const tparquet::RowGroup& row_group,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    std::unique_ptr<ParquetColumnReader>& reader,

@@ -57,7 +57,7 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
     for (auto& read_col : _read_columns) {
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, reader, max_buf_size));
         auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
@@ -233,6 +233,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         DCHECK_EQ(pre_read_rows + _cached_filtered_rows, 0);
         *read_rows = 0;
         *batch_eof = true;
+        return Status::OK();
     }
 
     ColumnSelectVector& select_vector = *select_vector_ptr;
