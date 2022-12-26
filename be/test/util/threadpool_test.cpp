@@ -40,14 +40,13 @@
 #include "gutil/port.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/substitute.h"
-#include "gutil/sysinfo.h"
-#include "gutil/walltime.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
 #include "util/metrics.h"
 #include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/spinlock.h"
+#include "util/time.h"
 
 using std::atomic;
 using std::shared_ptr;
@@ -183,7 +182,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMaxThreads) {
     // By default a threadpool's max_threads is set to the number of CPUs, so
     // this test submits more tasks than that to ensure that the number of CPUs
     // isn't some kind of upper bound.
-    const int kNumCPUs = base::NumCPUs();
+    const int kNumCPUs = std::thread::hardware_concurrency();
 
     // Build a threadpool with no limit on the maximum number of threads.
     EXPECT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
@@ -237,7 +236,7 @@ TEST_F(ThreadPoolTest, TestRace) {
         // so an cast is needed to use std::bind
         EXPECT_TRUE(_pool
                             ->submit_func(std::bind(
-                                    (void(CountDownLatch::*)())(&CountDownLatch::count_down), &l))
+                                    (void (CountDownLatch::*)())(&CountDownLatch::count_down), &l))
                             .ok());
         l.wait();
         // Sleeping a different amount in each iteration makes it more likely to hit
