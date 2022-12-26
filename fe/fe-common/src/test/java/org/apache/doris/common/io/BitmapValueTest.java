@@ -316,7 +316,7 @@ public class BitmapValueTest {
         BitmapValue deserializeSingleValueBitmapValue = new BitmapValue();
         deserializeSingleValueBitmapValue.deserialize(singleValueInputStream);
 
-        Assert.assertEquals(serializeSingleValueBitmapValue, deserializeSingleValueBitmapValue);
+        Assert.assertTrue(serializeSingleValueBitmapValue.equals(deserializeSingleValueBitmapValue));
 
         // bitmap
         // case 1 : 32-bit bitmap
@@ -332,7 +332,7 @@ public class BitmapValueTest {
         BitmapValue deserializeBitmapBitmapValue = new BitmapValue();
         deserializeBitmapBitmapValue.deserialize(bitmapInputStream);
 
-        Assert.assertEquals(serializeBitmapBitmapValue, deserializeBitmapBitmapValue);
+        Assert.assertTrue(serializeBitmapBitmapValue.equals(deserializeBitmapBitmapValue));
 
 
         // bitmap
@@ -349,7 +349,7 @@ public class BitmapValueTest {
         BitmapValue deserializeBitmapBitmapValue64 = new BitmapValue();
         deserializeBitmapBitmapValue64.deserialize(bitmapInputStream64);
 
-        Assert.assertEquals(serializeBitmapBitmapValue64, deserializeBitmapBitmapValue64);
+        Assert.assertTrue(serializeBitmapBitmapValue64.equals(deserializeBitmapBitmapValue64));
     }
 
     @Test
@@ -431,30 +431,30 @@ public class BitmapValueTest {
         sgv1.add(1);
         BitmapValue sgv2 = new BitmapValue();
         sgv2.add(2);
-        Assert.assertEquals(sgv, sgv1);
-        Assert.assertNotEquals(sgv, sgv2);
+        Assert.assertTrue(sgv.equals(sgv1));
+        Assert.assertFalse(sgv.equals(sgv2));
         // single value = bitmap
         sgv2.add(3);
-        Assert.assertNotEquals(sgv, sgv2);
+        Assert.assertFalse(sgv.equals(sgv2));
 
         // bitmap == empty
         BitmapValue bitmapValue = new BitmapValue();
         bitmapValue.add(1);
         bitmapValue.add(2);
         BitmapValue emp4 = new BitmapValue();
-        Assert.assertNotEquals(bitmapValue, emp4);
+        Assert.assertFalse(bitmapValue.equals(emp4));
         // bitmap == singlevalue
         BitmapValue sgv3 = new BitmapValue();
         sgv3.add(1);
-        Assert.assertNotEquals(bitmapValue, sgv3);
+        Assert.assertFalse(bitmapValue.equals(sgv3));
         // bitmap == bitmap
         BitmapValue bitmapValue1 = new BitmapValue();
         bitmapValue1.add(1);
         BitmapValue bitmapValue2 = new BitmapValue();
         bitmapValue2.add(1);
         bitmapValue2.add(2);
-        Assert.assertEquals(bitmapValue, bitmapValue2);
-        Assert.assertNotEquals(bitmapValue, bitmapValue1);
+        Assert.assertTrue(bitmapValue.equals(bitmapValue2));
+        Assert.assertFalse(bitmapValue.equals(bitmapValue1));
     }
 
 
@@ -500,17 +500,17 @@ public class BitmapValueTest {
     @Test
     public void testToString() {
         BitmapValue empty = new BitmapValue();
-        Assert.assertEquals(empty.toString(), "{}");
+        Assert.assertTrue(empty.toString().equals("{}"));
 
         BitmapValue singleValue = new BitmapValue();
         singleValue.add(1);
-        Assert.assertEquals(singleValue.toString(), "{1}");
+        Assert.assertTrue(singleValue.toString().equals("{1}"));
 
 
         BitmapValue bitmap = new BitmapValue();
         bitmap.add(1);
         bitmap.add(2);
-        Assert.assertEquals(bitmap.toString(), "{1,2}");
+        Assert.assertTrue(bitmap.toString().equals("{1,2}"));
     }
 
 }
