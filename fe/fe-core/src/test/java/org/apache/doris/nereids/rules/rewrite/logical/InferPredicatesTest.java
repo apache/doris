@@ -533,4 +533,29 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     )
                 );
     }
+
+    /**
+     * test for #15310
+     */
+    @Test
+    public void inferPredicatesTest22() {
+        String sql = "select * from student join (select sid as id1, sid as id2, grade from score) s on student.id = s.id1 where s.id1 > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matchesFromRoot(
+                        logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalOlapScan()
+                                    ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                            )
+                        )
+                );
+    }
 }
+
