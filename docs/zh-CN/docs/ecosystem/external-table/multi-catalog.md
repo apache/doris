@@ -496,7 +496,7 @@ MySQL [(none)]> show catalogs;
 2 rows in set (0.02 sec)
 ```
 
-通过 SWITCH 命令切换到 es catalog，并查看其中的数据库：
+通过 SWITCH 命令切换到 jdbc catalog，并查看其中的数据库：
 ```sql
 MySQL [(none)]> switch jdbc;
 Query OK, 0 rows affected (0.02 sec)
