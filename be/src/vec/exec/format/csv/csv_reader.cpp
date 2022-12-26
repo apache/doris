@@ -124,6 +124,10 @@ Status CsvReader::init_reader(bool is_load) {
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
 
+    if (_params.file_attributes.__isset.trim_double_quotes) {
+        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
+    }
+
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
@@ -412,6 +416,11 @@ void CsvReader::_split_line(const Slice& line) {
                             non_space--;
                         }
                     }
+                    if (_trim_double_quotes && (non_space - 1) > start &&
+                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
+                        start++;
+                        non_space--;
+                    }
                     _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
                     curpos = start;
@@ -427,6 +436,11 @@ void CsvReader::_split_line(const Slice& line) {
             while (non_space > start && *(value + non_space - 1) == ' ') {
                 non_space--;
             }
+        }
+        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
+            *(value + non_space - 1) == '\"') {
+            start++;
+            non_space--;
         }
         _split_values.emplace_back(value + start, non_space - start);
     }
