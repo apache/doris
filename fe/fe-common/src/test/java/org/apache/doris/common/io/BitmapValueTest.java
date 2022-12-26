@@ -416,16 +416,16 @@ public class BitmapValueTest {
         Assert.assertTrue(emp1.equals(emp2));
         // empty == single value
         emp2.add(1);
-        Assert.assertNotEquals(emp1, emp2);
+        Assert.assertFalse(emp1.equals(emp2));
         // empty == bitmap
         emp2.add(2);
-        Assert.assertNotEquals(emp1, emp2);
+        Assert.assertFalse(emp1.equals(emp2));
 
         // single value = empty
         BitmapValue sgv = new BitmapValue();
         sgv.add(1);
         BitmapValue emp3 = new BitmapValue();
-        Assert.assertNotEquals(sgv, emp3);
+        Assert.assertFalse(sgv.equals(emp3));
         // single value = single value
         BitmapValue sgv1 = new BitmapValue();
         sgv1.add(1);
