@@ -64,51 +64,6 @@ namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
 
-ExecNode::RowBatchQueue::RowBatchQueue(int max_batches) : BlockingQueue<RowBatch*>(max_batches) {}
-
-ExecNode::RowBatchQueue::~RowBatchQueue() {
-    DCHECK(cleanup_queue_.empty());
-}
-
-void ExecNode::RowBatchQueue::AddBatch(RowBatch* batch) {
-    if (!blocking_put(batch)) {
-        std::lock_guard<std::mutex> lock(lock_);
-        cleanup_queue_.push_back(batch);
-    }
-}
-
-bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros) {
-    // return blocking_put_with_timeout(batch, timeout_micros);
-    return blocking_put(batch);
-}
-
-RowBatch* ExecNode::RowBatchQueue::GetBatch() {
-    RowBatch* result = nullptr;
-    if (blocking_get(&result)) {
-        return result;
-    }
-    return nullptr;
-}
-
-int ExecNode::RowBatchQueue::Cleanup() {
-    int num_io_buffers = 0;
-
-    // RowBatch* batch = nullptr;
-    // while ((batch = GetBatch()) != nullptr) {
-    //   num_io_buffers += batch->num_io_buffers();
-    //   delete batch;
-    // }
-
-    std::lock_guard<std::mutex> l(lock_);
-    for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin(); it != cleanup_queue_.end();
-         ++it) {
-        // num_io_buffers += (*it)->num_io_buffers();
-        delete *it;
-    }
-    cleanup_queue_.clear();
-    return num_io_buffers;
-}
-
 ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : _id(tnode.node_id),
           _type(tnode.node_type),

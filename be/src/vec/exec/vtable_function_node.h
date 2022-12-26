@@ -110,7 +110,6 @@ private:
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
-    std::shared_ptr<RowBatch> _cur_child_batch;
 
     std::vector<ExprContext*> _fn_ctxs;
     std::vector<vectorized::VExprContext*> _vfn_ctxs;

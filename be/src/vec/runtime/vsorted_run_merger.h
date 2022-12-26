@@ -23,7 +23,6 @@
 
 namespace doris {
 
-class RowBatch;
 class RuntimeProfile;
 
 namespace vectorized {
@@ -53,11 +52,6 @@ public:
 
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
-
-    // Do not support now
-    virtual Status get_batch(RowBatch** output_batch) {
-        return Status::InternalError("no support method get_batch(RowBatch** output_batch)");
-    }
 
 protected:
     const std::vector<VExprContext*>& _ordering_expr;

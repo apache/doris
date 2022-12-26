@@ -23,7 +23,6 @@
 namespace doris {
 
 class Status;
-class RowBatch;
 class RuntimeState;
 struct TypeDescriptor;
 
