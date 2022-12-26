@@ -60,8 +60,8 @@ Different import methods support slightly different data formats.
 
 | Import Methods | Supported Formats       |
 | -------------- | ----------------------- |
-| Broker Load    | Parquet, ORC, csv, gzip |
-| Stream Load    | csv, gzip, json         |
+| Broker Load    | parquet, orc, csv, gzip |
+| Stream Load    | csv, json, parquet, orc |
 | Routine Load   | csv, json               |
 
 ## import instructions
