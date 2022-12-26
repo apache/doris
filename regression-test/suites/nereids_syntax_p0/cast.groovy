@@ -19,8 +19,16 @@ suite("cast") {
     def tableName1 ="test"
     def tableName2 ="baseall"
 
-    sql 'set enable_nereids_planner=false'
+    sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+
+    sql """
+    drop table if exists test
+    """
+
+    sql """
+    drop table if exists baseall
+    """
 
     sql """
     CREATE TABLE IF NOT EXISTS `test` (                                                      
