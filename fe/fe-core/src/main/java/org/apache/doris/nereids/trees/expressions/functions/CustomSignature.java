@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -29,19 +27,16 @@ import java.util.List;
 public interface CustomSignature extends ComputeSignature {
 
     // custom generate a function signature.
-    FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments);
+    FunctionSignature customSignature();
 
     @Override
     default List<FunctionSignature> getSignatures() {
-        List<DataType> originArgumentTypes = getOriginArgumentTypes();
-        List<Expression> originArguments = getOriginArguments();
-        return ImmutableList.of(customSignature(originArgumentTypes, originArguments));
+        return ImmutableList.of(customSignature());
     }
 
     // use the first signature as the candidate signature.
     @Override
-    default FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
-            List<FunctionSignature> signatures) {
+    default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
         return signatures.get(0);
     }
 }

@@ -66,8 +66,6 @@ suite("rollup") {
     sql "insert into rollup_t1 values(2, 3, 4, 1)"
     sql "insert into rollup_t1 values(2, 3, 4, 3)"
 
-    sql "set enable_vectorized_engine=true"
-
     sql "set enable_nereids_planner=true"
 
     sql "SET enable_fallback_to_original_planner=false"

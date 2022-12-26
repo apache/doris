@@ -624,7 +624,6 @@ public class OutFileClause {
         } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
             brokerName = StorageBackend.StorageType.HDFS.name();
             storageType = StorageBackend.StorageType.HDFS;
-            filePath = filePath.substring(HDFS_FILE_PREFIX.length() - 1);
         } else {
             return;
         }
@@ -649,9 +648,15 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
+            if (properties.containsKey(S3Resource.USE_PATH_STYLE)) {
+                brokerProps.put(S3Resource.USE_PATH_STYLE, properties.get(S3Resource.USE_PATH_STYLE));
+                processedPropKeys.add(S3Resource.USE_PATH_STYLE);
+            }
             S3Storage.checkS3(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HdfsStorage.checkHDFS(brokerProps);
+            if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
+                brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));
+            }
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);

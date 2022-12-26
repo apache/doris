@@ -331,7 +331,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
-            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([=]() {
+            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([data_dir, this]() {
                 CgroupsMgr::apply_system_cgroup();
                 _tablet_manager->do_tablet_meta_checkpoint(data_dir);
             });
@@ -453,8 +453,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 _wakeup_producer_flag = 0;
                 // It is necessary to wake up the thread on timeout to prevent deadlock
                 // in case of no running compaction task.
-                _compaction_producer_sleep_cv.wait_for(lock, std::chrono::milliseconds(2000),
-                                                       [=] { return _wakeup_producer_flag == 1; });
+                _compaction_producer_sleep_cv.wait_for(
+                        lock, std::chrono::milliseconds(2000),
+                        [this] { return _wakeup_producer_flag == 1; });
                 continue;
             }
 
@@ -623,7 +624,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func([=]() {
+        auto st = thread_pool->submit_func([tablet, compaction_type, permits, this]() {
             CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);
@@ -692,7 +693,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         _tablet_manager->get_cooldown_tablets(&tablets);
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
         for (const auto& tablet : tablets) {
-            Status st = _cooldown_thread_pool->submit_func([=]() {
+            Status st = _cooldown_thread_pool->submit_func([tablet, tablets, this]() {
                 {
                     // Cooldown tasks on the same tablet cannot be executed concurrently
                     std::lock_guard<std::mutex> lock(_running_cooldown_mutex);

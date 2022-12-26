@@ -16,9 +16,7 @@
 // under the License.
 
 suite("test_nereids_grouping_sets") {
-
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
 
     sql "DROP TABLE IF EXISTS groupingSetsTable"
     sql "DROP TABLE IF EXISTS groupingSetsTableNotNullable"

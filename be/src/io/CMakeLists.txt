@@ -28,7 +28,6 @@ set(IO_FILES
     file_factory.cpp
     hdfs_builder.cpp
     hdfs_file_reader.cpp
-    hdfs_reader_writer.cpp
     hdfs_writer.cpp
     local_file_reader.cpp
     local_file_writer.cpp
@@ -43,6 +42,9 @@ set(IO_FILES
     fs/s3_file_writer.cpp
     fs/hdfs_file_system.cpp
     fs/hdfs_file_reader.cpp
+    fs/broker_file_system.cpp
+    fs/broker_file_reader.cpp
+    fs/stream_load_pipe.cpp
     cache/dummy_file_cache.cpp
     cache/file_cache.cpp
     cache/file_cache_manager.cpp

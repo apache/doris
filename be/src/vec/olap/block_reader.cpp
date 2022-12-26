@@ -280,6 +280,12 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
     if (_filter_delete) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
+        if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
+            LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
+                         << delete_sign_idx
+                         << " not invalid, skip filter delete in base compaction";
+            return Status::OK();
+        }
         MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 

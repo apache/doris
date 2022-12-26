@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 
@@ -78,6 +79,7 @@ public class JdbcClient {
         this.dbType = parseDbType(jdbcUrl);
         this.checkSum = computeObjectChecksum();
 
+        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
@@ -94,6 +96,8 @@ public class JdbcClient {
             dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
@@ -338,6 +342,17 @@ public class JdbcClient {
                     return Type.BIGINT;
                 case "BIGINT":
                     return ScalarType.createStringType();
+                case "DECIMAL":
+                    int precision = fieldSchema.getColumnSize() + 1;
+                    int scale = fieldSchema.getDecimalDigits();
+                    if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                        if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                            return ScalarType.createStringType();
+                        }
+                        return ScalarType.createDecimalType(precision, scale);
+                    } else {
+                        return ScalarType.createStringType();
+                    }
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -368,7 +383,14 @@ public class JdbcClient {
             case "DECIMAL":
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                return ScalarType.createDecimalType(precision, scale);
+                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                        return ScalarType.createStringType();
+                    }
+                    return ScalarType.createDecimalType(precision, scale);
+                } else {
+                    return ScalarType.createStringType();
+                }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
@@ -392,6 +414,7 @@ public class JdbcClient {
             case "BIT":
             case "BINARY":
             case "VARBINARY":
+            case "ENUM":
                 return ScalarType.createStringType();
             default:
                 throw new JdbcClientException("Can not convert mysql data type to doris data type for type ["

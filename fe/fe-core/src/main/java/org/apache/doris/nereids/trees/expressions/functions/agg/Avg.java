@@ -44,32 +44,33 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
         super("avg", child);
     }
 
-    public Avg(AggregateParam aggregateParam, Expression child) {
-        super("avg", aggregateParam, child);
+    public Avg(boolean isDistinct, Expression child) {
+        super("avg", isDistinct, child);
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        DataType implicitCastType = implicitCast(argumentTypes.get(0));
+    public FunctionSignature customSignature() {
+        DataType implicitCastType = implicitCast(getArgument(0).getDataType());
         return FunctionSignature.ret(implicitCastType).args(implicitCastType);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        DataType sumType = getFinalType();
+    protected List<DataType> intermediateTypes() {
+        DataType sumType = getDataType();
         BigIntType countType = BigIntType.INSTANCE;
         return ImmutableList.of(sumType, countType);
     }
 
     @Override
-    public Avg withChildren(List<Expression> children) {
+    public AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(getAggregateParam(), children.get(0));
+        return new Avg(isDistinct, children.get(0));
     }
 
     @Override
-    public Avg withAggregateParam(AggregateParam aggregateParam) {
-        return new Avg(aggregateParam, child());
+    public Avg withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Avg(isDistinct, children.get(0));
     }
 
     @Override

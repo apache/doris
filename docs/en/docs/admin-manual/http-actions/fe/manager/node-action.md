@@ -27,7 +27,7 @@ under the License.
 # Node Action
 
 ## Request
-s
+
 `GET /rest/v2/manager/node/frontends`
 
 `GET /rest/v2/manager/node/backends`
@@ -43,6 +43,14 @@ s
 `POST /rest/v2/manager/node/set_config/fe`
 
 `POST /rest/v2/manager/node/set_config/be`
+
+<version since="dev">
+
+`POST /rest/v2/manager/node/{action}/be`
+
+`POST /rest/v2/manager/node/{action}/fe`
+
+</version>
 
 ## Get information about fe, be, broker nodes
 
@@ -432,4 +440,182 @@ failed Indicates a configuration message that failed to be modified.
     }
 
     gent_task_resend_wait_time_ms configuration value modified successfully, alter_table_timeout_second modification failed.
+    ```
+
+## Operate be node
+
+`POST /rest/v2/manager/node/{action}/be`
+
+### Description
+
+Used to add/drop/offline be node
+
+action：ADD/DROP/DECOMMISSION
+
+### Request body
+```
+{
+    "hostPorts": ["127.0.0.1:9050"],
+    "properties": {
+        "tag.location": "test"
+    }
+}
+
+hostPorts A set of be node addresses to be operated, ip:heartbeat_port
+properties The configuration passed in when adding a node is only used to configure the tag. If not, the default tag is used
+```
+
+### Response
+```
+{
+    "msg": "Error",
+    "code": 1,
+    "data": "errCode = 2, detailMessage = Same backend already exists[127.0.0.1:9050]",
+    "count": 0
+}
+
+msg Success/Error
+code 0/1
+data ""/Error message
+```
+
+### Examples
+
+1. add be node
+
+   post /rest/v2/manager/node/ADD/be
+   Request body
+    ```
+    {
+        "hostPorts": ["127.0.0.1:9050"]
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+2. drop be node
+
+   post /rest/v2/manager/node/DROP/be
+   Request body
+    ```
+    {
+        "hostPorts": ["127.0.0.1:9050"]
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+3. offline be node
+
+   post /rest/v2/manager/node/DECOMMISSION/be
+   Request body
+    ```
+    {
+        "hostPorts": ["127.0.0.1:9050"]
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+## Operate fe node
+
+`POST /rest/v2/manager/node/{action}/fe`
+
+### Description
+
+Used to add/drop fe node
+
+action：ADD/DROP
+
+### Request body
+```
+{
+    "role": "FOLLOWER",
+    "hostPort": "127.0.0.1:9030"
+}
+
+role FOLLOWER/OBSERVER
+hostPort The address of the fe node to be operated, ip:edit_log_port
+```
+
+### Response
+```
+{
+    "msg": "Error",
+    "code": 1,
+    "data": "errCode = 2, detailMessage = frontend already exists name: 127.0.0.1:9030_1670495889415, role: FOLLOWER, 127.0.0.1:9030",
+    "count": 0
+}
+
+msg Success/Error
+code 0/1
+data ""/Error message
+```
+
+### Examples
+
+1. add FOLLOWER node
+
+   post /rest/v2/manager/node/ADD/fe
+   Request body
+    ```
+    {
+        "role": "FOLLOWER",
+        "hostPort": "127.0.0.1:9030"
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+2. drop FOLLOWER node
+
+   post /rest/v2/manager/node/DROP/fe
+   Request body
+    ```
+    {
+        "role": "FOLLOWER",
+        "hostPort": "127.0.0.1:9030"
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
     ```

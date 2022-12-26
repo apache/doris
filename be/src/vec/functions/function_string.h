@@ -1000,13 +1000,15 @@ public:
         if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets(), null_map->get_data());
+                              res->get_chars(), res->get_offsets(), null_map->get_data(),
+                              context->impl()->state()->repeat_max_num());
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = col2_const->get_int(0);
+                int repeat = std::min<int>(col2_const->get_int(0),
+                                           context->impl()->state()->repeat_max_num());
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1026,7 +1028,8 @@ public:
 
     void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                        const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map) {
+                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
+                       const int repeat_max_num) {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1036,7 +1039,7 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
-            int repeat = repeats[i];
+            int repeat = std::min<int>(repeats[i], repeat_max_num);
 
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
@@ -1401,6 +1404,179 @@ public:
                 }
             }
         }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+};
+
+class FunctionSubstringIndex : public IFunction {
+public:
+    static constexpr auto name = "substring_index";
+    static FunctionPtr create() { return std::make_shared<FunctionSubstringIndex>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_EQ(arguments.size(), 3);
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        // Create a zero column to simply implement
+        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto res = ColumnString::create();
+
+        auto& res_offsets = res->get_offsets();
+        auto& res_chars = res->get_chars();
+        res_offsets.resize(input_rows_count);
+
+        ColumnPtr content_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
+            // Danger: Here must dispose the null map data first! Because
+            // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
+            // of column nullable mem of null map
+            VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
+            content_column = nullable->get_nested_column_ptr();
+        }
+
+        for (size_t i = 1; i <= 2; i++) {
+            ColumnPtr columnPtr = remove_nullable(block.get_by_position(arguments[i]).column);
+
+            if (!is_column_const(*columnPtr)) {
+                return Status::RuntimeError("Argument at index {} for function {} must be constant",
+                                            i + 1, get_name());
+            }
+        }
+
+        auto str_col = assert_cast<const ColumnString*>(content_column.get());
+
+        const IColumn& delimiter_col = *block.get_by_position(arguments[1]).column;
+        const auto* delimiter_const = typeid_cast<const ColumnConst*>(&delimiter_col);
+        auto delimiter = delimiter_const->get_field().get<String>();
+        int32_t delimiter_size = delimiter.size();
+
+        const IColumn& part_num_col = *block.get_by_position(arguments[2]).column;
+        const auto* part_num_col_const = typeid_cast<const ColumnConst*>(&part_num_col);
+        auto part_number = part_num_col_const->get_field().get<Int32>();
+
+        if (part_number == 0 || delimiter_size == 0) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
+        } else if (part_number > 0) {
+            if (delimiter_size == 1) {
+                // If delimiter is a char, use memchr to split
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    auto str = str_col->get_data_at(i);
+                    int32_t offset = -1;
+                    int32_t num = 0;
+                    while (num < part_number) {
+                        size_t n = str.size - offset - 1;
+                        const char* pos = reinterpret_cast<const char*>(
+                                memchr(str.data + offset + 1, delimiter[0], n));
+                        if (pos != nullptr) {
+                            offset = pos - str.data;
+                            num++;
+                        } else {
+                            offset = str.size;
+                            num = (num == 0) ? 0 : num + 1;
+                            break;
+                        }
+                    }
+
+                    if (num == part_number) {
+                        StringOP::push_value_string(
+                                std::string_view {reinterpret_cast<const char*>(str.data),
+                                                  (size_t)offset},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
+                                                    res_chars, res_offsets);
+                    }
+                }
+            } else {
+                // If delimiter is a string, use memmem to split
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    auto str = str_col->get_data_at(i);
+                    int32_t offset = -delimiter_size;
+                    int32_t num = 0;
+                    while (num < part_number) {
+                        size_t n = str.size - offset - delimiter_size;
+                        char* pos = reinterpret_cast<char*>(
+                                memmem(str.data + offset + delimiter_size, n, delimiter.c_str(),
+                                       delimiter_size));
+                        if (pos != nullptr) {
+                            offset = pos - str.data;
+                            num++;
+                        } else {
+                            offset = str.size;
+                            num = (num == 0) ? 0 : num + 1;
+                            break;
+                        }
+                    }
+
+                    if (num == part_number) {
+                        StringOP::push_value_string(
+                                std::string_view {reinterpret_cast<const char*>(str.data),
+                                                  (size_t)offset},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
+                                                    res_chars, res_offsets);
+                    }
+                }
+            }
+        } else {
+            // if part_number is negative
+            part_number = -part_number;
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto str = str_col->get_data_at(i);
+                auto str_str = str.to_string();
+                int32_t offset = str.size;
+                int32_t pre_offset = offset;
+                int32_t num = 0;
+                auto substr = str_str;
+                while (num <= part_number && offset >= 0) {
+                    offset = (int)substr.rfind(delimiter, offset);
+                    if (offset != -1) {
+                        if (++num == part_number) {
+                            break;
+                        }
+                        pre_offset = offset;
+                        offset = offset - 1;
+                        substr = str_str.substr(0, pre_offset);
+                    } else {
+                        break;
+                    }
+                }
+                num = (offset == -1 && num != 0) ? num + 1 : num;
+
+                if (num == part_number) {
+                    if (offset == -1) {
+                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
+                                                    res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(
+                                std::string_view {str.data + offset + delimiter_size,
+                                                  str.size - offset - delimiter_size},
+                                i, res_chars, res_offsets);
+                    }
+                } else {
+                    StringOP::push_value_string(std::string_view(str.data, str.size), i, res_chars,
+                                                res_offsets);
+                }
+            }
+        }
+
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
         return Status::OK();
@@ -1991,10 +2167,12 @@ struct ReverseImpl {
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1];
-            char dst[src_len];
+            string dst;
+            dst.resize(src_len);
             simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                            StringVal((uint8_t*)dst, src_len));
-            StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
+                                            StringVal((uint8_t*)dst.data(), src_len));
+            StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
+                                        res_offsets);
         }
         return Status::OK();
     }

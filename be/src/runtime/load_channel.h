@@ -153,15 +153,9 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
         return st;
     }
 
-    // 2. add batch to tablets channel
-    if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
-        if (request.has_row_batch()) {
-            RETURN_IF_ERROR(channel->add_batch(request, response));
-        }
-    } else {
-        if (request.has_block()) {
-            RETURN_IF_ERROR(channel->add_batch(request, response));
-        }
+    // 2. add block to tablets channel
+    if (request.has_block()) {
+        RETURN_IF_ERROR(channel->add_batch(request, response));
     }
 
     // 3. handle eos

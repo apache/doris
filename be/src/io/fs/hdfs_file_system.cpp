@@ -63,14 +63,8 @@ private:
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
         : RemoteFileSystem(path, "", FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
-          _path(path),
           _fs_handle(nullptr) {
     _namenode = _hdfs_params.fs_name;
-    // if the format of _path is hdfs://ip:port/path, replace it to /path.
-    // path like hdfs://ip:port/path can't be used by libhdfs3.
-    if (_path.find(_namenode) != std::string::npos) {
-        _path = _path.substr(_namenode.size());
-    }
 }
 
 HdfsFileSystem::~HdfsFileSystem() {
@@ -96,14 +90,17 @@ Status HdfsFileSystem::create_file(const Path& /*path*/, FileWriterPtr* /*writer
     // }
     // hdfsCloseFile(handle->hdfs_fs, hdfs_file);
     // return Status::OK();
-    return Status::NotSupported("Currently not support to upload file to HDFS");
+    return Status::NotSupported("Currently not support to create file to HDFS");
 }
 
 Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
     CHECK_HDFS_HANDLE(_fs_handle);
-    size_t file_len = -1;
+    size_t file_len = 0;
     RETURN_IF_ERROR(file_size(path, &file_len));
-    auto hdfs_file = hdfsOpenFile(_fs_handle->hdfs_fs, path.string().c_str(), O_RDONLY, 0, 0, 0);
+
+    Path real_path = _covert_path(path);
+    auto hdfs_file =
+            hdfsOpenFile(_fs_handle->hdfs_fs, real_path.string().c_str(), O_RDONLY, 0, 0, 0);
     if (hdfs_file == nullptr) {
         if (_fs_handle->from_cache) {
             // hdfsFS may be disconnected if not used for a long time
@@ -130,9 +127,10 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
 
 Status HdfsFileSystem::delete_file(const Path& path) {
     CHECK_HDFS_HANDLE(_fs_handle);
+    Path real_path = _covert_path(path);
     // The recursive argument `is_recursive` is irrelevant if path is a file.
     int is_recursive = 0;
-    int res = hdfsDelete(_fs_handle->hdfs_fs, path.string().c_str(), is_recursive);
+    int res = hdfsDelete(_fs_handle->hdfs_fs, real_path.string().c_str(), is_recursive);
     if (res == -1) {
         return Status::InternalError("Failed to delete file {}", path.string());
     }
@@ -141,7 +139,8 @@ Status HdfsFileSystem::delete_file(const Path& path) {
 
 Status HdfsFileSystem::create_directory(const Path& path) {
     CHECK_HDFS_HANDLE(_fs_handle);
-    int res = hdfsCreateDirectory(_fs_handle->hdfs_fs, path.string().c_str());
+    Path real_path = _covert_path(path);
+    int res = hdfsCreateDirectory(_fs_handle->hdfs_fs, real_path.string().c_str());
     if (res == -1) {
         return Status::InternalError("Failed to create directory {}", path.string());
     }
@@ -150,9 +149,10 @@ Status HdfsFileSystem::create_directory(const Path& path) {
 
 Status HdfsFileSystem::delete_directory(const Path& path) {
     CHECK_HDFS_HANDLE(_fs_handle);
+    Path real_path = _covert_path(path);
     // delete in recursive mode
     int is_recursive = 1;
-    int res = hdfsDelete(_fs_handle->hdfs_fs, path.string().c_str(), is_recursive);
+    int res = hdfsDelete(_fs_handle->hdfs_fs, real_path.string().c_str(), is_recursive);
     if (res == -1) {
         return Status::InternalError("Failed to delete directory {}", path.string());
     }
@@ -161,13 +161,20 @@ Status HdfsFileSystem::delete_directory(const Path& path) {
 
 Status HdfsFileSystem::exists(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLE(_fs_handle);
-    *res = hdfsExists(_fs_handle->hdfs_fs, path.string().c_str());
+    Path real_path = _covert_path(path);
+    int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
+    if (is_exists == 0) {
+        *res = true;
+    } else {
+        *res = false;
+    }
     return Status::OK();
 }
 
 Status HdfsFileSystem::file_size(const Path& path, size_t* file_size) const {
     CHECK_HDFS_HANDLE(_fs_handle);
-    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handle->hdfs_fs, path.string().c_str());
+    Path real_path = _covert_path(path);
+    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handle->hdfs_fs, real_path.string().c_str());
     if (file_info == nullptr) {
         return Status::InternalError("Failed to get file size of {}", path.string());
     }
@@ -178,9 +185,10 @@ Status HdfsFileSystem::file_size(const Path& path, size_t* file_size) const {
 
 Status HdfsFileSystem::list(const Path& path, std::vector<Path>* files) {
     CHECK_HDFS_HANDLE(_fs_handle);
+    Path real_path = _covert_path(path);
     int numEntries = 0;
     hdfsFileInfo* file_info =
-            hdfsListDirectory(_fs_handle->hdfs_fs, path.string().c_str(), &numEntries);
+            hdfsListDirectory(_fs_handle->hdfs_fs, real_path.string().c_str(), &numEntries);
     if (file_info == nullptr) {
         return Status::InternalError("Failed to list files/directors of {}", path.string());
     }
@@ -193,6 +201,17 @@ Status HdfsFileSystem::list(const Path& path, std::vector<Path>* files) {
 
 HdfsFileSystemHandle* HdfsFileSystem::get_handle() {
     return _fs_handle;
+}
+
+Path HdfsFileSystem::_covert_path(const Path& path) const {
+    // if the format of path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
+    Path real_path(path);
+    if (path.string().find(_namenode) != std::string::npos) {
+        std::string real_path_str = path.string().substr(_namenode.size());
+        real_path = real_path_str;
+    }
+    return real_path;
 }
 
 // ************* HdfsFileSystemCache ******************

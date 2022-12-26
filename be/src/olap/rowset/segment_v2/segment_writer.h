@@ -37,13 +37,13 @@ const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_
                                                         OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 class DataDir;
 class MemTracker;
-class RowBlock;
 class RowCursor;
 class TabletSchema;
 class TabletColumn;
 class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
+struct RowsetWriterContext;
 
 namespace io {
 class FileWriter;
@@ -59,6 +59,8 @@ extern const uint32_t k_segment_magic_length;
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
+
+    RowsetWriterContext* rowset_ctx = nullptr;
 };
 
 class SegmentWriter {
@@ -106,6 +108,7 @@ private:
     Status _write_ordinal_index();
     Status _write_zone_map();
     Status _write_bitmap_index();
+    Status _write_inverted_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();

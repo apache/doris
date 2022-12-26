@@ -198,6 +198,23 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
+        def (tmp, rsmd) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        int count = rsmd.getColumnCount();
+        List<List<String>> result = new ArrayList<>()
+        for (int i = 0; i < count; i++) {
+            List<String> item = new ArrayList<>()
+            String columnName = rsmd.getColumnName(i + 1);
+            int columnType = rsmd.getColumnType(i+1);
+            String columnTypeName = rsmd.getColumnTypeName(i+1);
+            item.add(columnName);
+            item.add(columnTypeName);
+            result.add(item);
+        }
+        return result;
+    }
+
     List<List<Object>> order_sql(String sqlStr) {
         return sql(sqlStr,  true)
     }

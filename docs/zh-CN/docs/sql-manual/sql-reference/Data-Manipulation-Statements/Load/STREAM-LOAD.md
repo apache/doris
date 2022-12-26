@@ -174,9 +174,11 @@ ERRORS:
 
     其中 url 为 ErrorURL 给出的 url。
 
-23: compress_type
+24. compress_type
 
     指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
+
+25. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
 
 ### Example
 

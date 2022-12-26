@@ -48,7 +48,6 @@ public class MTMVTaskExecutorPool {
             task.setState(TaskState.RUNNING);
             int retryTimes = task.getRetryTimes();
             boolean isSuccess = false;
-            String lastExceptionString = "";
             do {
                 try {
                     isSuccess = taskExecutor.executeTask();
@@ -59,7 +58,6 @@ public class MTMVTaskExecutorPool {
                     }
                 } catch (Exception ex) {
                     LOG.warn("failed to execute task.", ex);
-                    lastExceptionString = ex.toString();
                 } finally {
                     task.setFinishTime(MTMVUtils.getNowTimeStamp());
                 }
@@ -68,7 +66,6 @@ public class MTMVTaskExecutorPool {
             if (!isSuccess) {
                 task.setState(TaskState.FAILED);
                 task.setErrorCode(-1);
-                task.setMessage(lastExceptionString);
             }
         });
         taskExecutor.setFuture(future);

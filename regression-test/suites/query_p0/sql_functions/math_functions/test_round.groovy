@@ -16,15 +16,25 @@
 // under the License.
 
 suite("test_round") {
-    // non vectorized
-    sql """ set enable_vectorized_engine = false """
-
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"
+    qt_select "SELECT round_bankers(10.12345)"
+    qt_select "SELECT round_bankers(10.12345, 2)"
 
-    // vectorized
-    sql """ set enable_vectorized_engine = true """
+    def tableName = "test_round"
+    sql """DROP TABLE IF EXISTS `${tableName}`"""
+    sql """ CREATE TABLE `${tableName}` (
+        `col1` DECIMALV3(6,3) COMMENT "",
+        `col2` DECIMALV3(16,5) COMMENT "",
+        `col3` DECIMALV3(32,5) COMMENT "")
+        DUPLICATE KEY(`col1`) DISTRIBUTED BY HASH(`col1`)
+        PROPERTIES ( "replication_num" = "1" ); """
 
-    qt_select "SELECT round(10.12345)"
-    qt_select "SELECT round(10.12345, 2)"
+    sql """ insert into `${tableName}` values(16.025, 16.025, 16.025); """
+    qt_select """ SELECT round(col1, 2), round(col2, 2), round(col3, 2) FROM `${tableName}`; """
+    qt_select """ SELECT floor(col1, 2), floor(col2, 2), floor(col3, 2) FROM `${tableName}`; """
+    qt_select """ SELECT ceil(col1, 2), ceil(col2, 2), ceil(col3, 2) FROM `${tableName}`; """
+    qt_select """ SELECT truncate(col1, 2), truncate(col2, 2), truncate(col3, 2) FROM `${tableName}`; """
+    qt_select """ SELECT round_bankers(col1, 2), round_bankers(col2, 2), round_bankers(col3, 2) FROM `${tableName}`; """
+    sql """ DROP TABLE IF EXISTS `${tableName}` """
 }

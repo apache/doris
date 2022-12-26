@@ -20,7 +20,6 @@ import java.text.SimpleDateFormat
 suite("test_date_function") {
     def tableName = "test_date_function"
 
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -53,7 +52,6 @@ suite("test_date_function") {
     sql """ truncate table ${tableName} """
 
     def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
-    sql """ SET enable_vectorized_engine = false """
     sql """ DROP TABLE IF EXISTS ${timezoneCachedTableName} """
     sql """
         CREATE TABLE ${timezoneCachedTableName} (
@@ -134,7 +132,6 @@ suite("test_date_function") {
             id = 8;
     """
 
-    sql """ SET enable_vectorized_engine = true """
     qt_sql_vec1 """
         SELECT
             `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
@@ -552,7 +549,6 @@ suite("test_date_function") {
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
 
     // test last_day for vec
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -577,8 +573,6 @@ suite("test_date_function") {
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
-    // test last_day for not vec
-    sql """ SET enable_vectorized_engine = FALSE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -600,7 +594,6 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     // test to_monday
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

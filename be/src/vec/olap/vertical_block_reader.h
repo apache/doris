@@ -46,11 +46,6 @@ public:
         return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
     }
 
-    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) override {
-        return Status::OK();
-    }
-
     uint64_t merged_rows() const override {
         DCHECK(_vcollect_iter);
         return _vcollect_iter->merged_rows();

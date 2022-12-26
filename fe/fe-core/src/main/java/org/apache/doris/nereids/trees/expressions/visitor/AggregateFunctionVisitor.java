@@ -19,9 +19,15 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 /** AggregateFunctionVisitor. */
@@ -44,7 +50,31 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(min, context);
     }
 
+    default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
+        return visitAggregateFunction(multiDistinctCount, context);
+    }
+
+    default R visitMultiDistinctSum(MultiDistinctSum multiDistinctSum, C context) {
+        return visitAggregateFunction(multiDistinctSum, context);
+    }
+
+    default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
+        return visitAggregateFunction(groupBitAnd, context);
+    }
+
+    default R visitGroupBitOr(GroupBitOr groupBitOr, C context) {
+        return visitAggregateFunction(groupBitOr, context);
+    }
+
+    default R visitGroupBitXor(GroupBitXor groupBitXor, C context) {
+        return visitAggregateFunction(groupBitXor, context);
+    }
+
     default R visitSum(Sum sum, C context) {
         return visitAggregateFunction(sum, context);
+    }
+
+    default R visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, C context) {
+        return visitAggregateFunction(bitmapUnionCount, context);
     }
 }

@@ -27,10 +27,6 @@
 
 namespace doris::vectorized {
 
-struct CaseState {
-    DataTypePtr result_type = nullptr;
-};
-
 template <bool has_case, bool has_else>
 struct FunctionCaseName;
 
@@ -375,10 +371,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto* case_state = reinterpret_cast<CaseState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-
-        return execute_get_type(case_state->result_type, block, arguments, result,
+        return execute_get_type(block.get_by_position(result).type, block, arguments, result,
                                 input_rows_count);
     }
 };

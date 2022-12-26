@@ -58,12 +58,12 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     private static final String ANALYZE_PARTITION_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', '${partId}', "
-            + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
+            + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', NULL, ${dataSize}, '${update_time}')";
 
     private static final String ANALYZE_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', 'NULL', '${colId}', NULL, "
-            + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', NULL, '${colId}', NULL, "
+            + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', NULL, ${dataSize}, '${update_time}')";
 
     @Override
     protected void getColumnStatsByMeta() throws Exception {

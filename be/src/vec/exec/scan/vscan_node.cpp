@@ -84,15 +84,27 @@ Status VScanNode::prepare(RuntimeState* state) {
 
 Status VScanNode::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(ExecNode::open(state));
+    return ExecNode::open(state);
+}
 
+Status VScanNode::alloc_resource(RuntimeState* state) {
+    if (_opened) {
+        return Status::OK();
+    }
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
+    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::alloc_resource");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
+    if (_eos) {
+        return Status::OK();
+    }
 
     std::list<VScanner*> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
@@ -102,6 +114,8 @@ Status VScanNode::open(RuntimeState* state) {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
     }
+    RETURN_IF_CANCELLED(state);
+    _opened = true;
     return Status::OK();
 }
 
@@ -198,8 +212,8 @@ Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
 
 Status VScanNode::_register_runtime_filter() {
     int filter_size = _runtime_filter_descs.size();
-    _runtime_filter_ctxs.resize(filter_size);
-    _runtime_filter_ready_flag.resize(filter_size);
+    _runtime_filter_ctxs.reserve(filter_size);
+    _runtime_filter_ready_flag.reserve(filter_size);
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
@@ -207,10 +221,24 @@ Status VScanNode::_register_runtime_filter() {
                 RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id()));
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
                                                                          &runtime_filter));
-        _runtime_filter_ctxs[i].runtime_filter = runtime_filter;
-        _runtime_filter_ready_flag[i] = false;
+        _runtime_filter_ctxs.emplace_back(runtime_filter);
+        _runtime_filter_ready_flag.emplace_back(false);
     }
     return Status::OK();
+}
+
+bool VScanNode::runtime_filters_are_ready_or_timeout() {
+    if (!_blocked_by_rf) {
+        return true;
+    }
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        if (!runtime_filter->is_ready_or_timeout()) {
+            return false;
+        }
+    }
+    _blocked_by_rf = false;
+    return true;
 }
 
 Status VScanNode::_acquire_runtime_filter(bool wait) {
@@ -229,14 +257,22 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
         if (!ready && wait) {
             ready = runtime_filter->await();
         }
-        if (ready) {
+        if (ready && !_runtime_filter_ctxs[i].apply_mark) {
             RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&vexprs));
             _runtime_filter_ctxs[i].apply_mark = true;
-        } else {
+        } else if ((wait || !runtime_filter->is_ready_or_timeout()) &&
+                   runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
+                   !_runtime_filter_ctxs[i].apply_mark) {
+            _blocked_by_rf = true;
+        } else if (!_runtime_filter_ctxs[i].apply_mark) {
+            DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
             _is_all_rf_applied = false;
         }
     }
     RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
+    if (_blocked_by_rf) {
+        return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
+    }
 
     return Status::OK();
 }
@@ -304,6 +340,12 @@ Status VScanNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::close");
+    RETURN_IF_ERROR(ExecNode::close(state));
+    return Status::OK();
+}
+
+void VScanNode::release_resource(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
     if (_scanner_ctx.get()) {
         // stop and wait the scanner scheduler to be done
         // _scanner_ctx may not be created for some short circuit case.
@@ -321,8 +363,7 @@ Status VScanNode::close(RuntimeState* state) {
     }
     _scanner_pool.clear();
 
-    RETURN_IF_ERROR(ExecNode::close(state));
-    return Status::OK();
+    ExecNode::release_resource(state);
 }
 
 Status VScanNode::_normalize_conjuncts() {
@@ -513,7 +554,7 @@ Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, S
 
 Status VScanNode::_normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx,
                                            SlotDescriptor* slot, PushDownType* pdt) {
-    if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
+    if (TExprNodeType::BITMAP_PRED == expr->node_type() && expr->type().is_integer_type()) {
         DCHECK(expr->children().size() == 1);
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {

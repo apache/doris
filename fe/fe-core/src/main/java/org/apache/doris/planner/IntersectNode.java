@@ -25,7 +25,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import java.util.List;
 
 public class IntersectNode extends SetOperationNode {
-    protected IntersectNode(PlanNodeId id, TupleId tupleId) {
+    public IntersectNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "INTERSECT");
     }
 

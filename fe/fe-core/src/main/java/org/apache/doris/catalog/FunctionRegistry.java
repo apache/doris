@@ -70,7 +70,7 @@ public class FunctionRegistry {
                 .filter(functionBuilder -> functionBuilder.canApply(arguments))
                 .collect(Collectors.toList());
         if (candidateBuilders.isEmpty()) {
-            String candidateHints = getCandidateHint(name, candidateBuilders);
+            String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + name
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
@@ -88,11 +88,12 @@ public class FunctionRegistry {
         FunctionHelper.addFunctions(name2Builders, BuiltinScalarFunctions.INSTANCE.scalarFunctions);
         FunctionHelper.addFunctions(name2Builders, BuiltinAggregateFunctions.INSTANCE.aggregateFunctions);
         FunctionHelper.addFunctions(name2Builders, BuiltinTableValuedFunctions.INSTANCE.tableValuedFunctions);
+        FunctionHelper.addFunctions(name2Builders, BuiltinTableGeneratingFunctions.INSTANCE.tableGeneratingFunctions);
     }
 
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
                 .map(builder -> name + builder.toString())
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 }

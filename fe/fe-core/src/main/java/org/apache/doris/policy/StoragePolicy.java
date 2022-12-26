@@ -20,6 +20,7 @@ package org.apache.doris.policy;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
@@ -196,9 +197,8 @@ public class StoragePolicy extends Policy {
             this.cooldownTtl = "-1";
         }
 
-        Resource r = checkIsS3ResourceAndExist(this.storageResource);
-        if (!((S3Resource) r).addReference(super.getPolicyName(), S3Resource.ReferenceType.POLICY)
-                && !ifNotExists) {
+        checkIsS3ResourceAndExist(this.storageResource);
+        if (!addResourceReference() && !ifNotExists) {
             throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
         }
         this.md5Checksum = calcPropertiesMd5();
@@ -212,6 +212,15 @@ public class StoragePolicy extends Policy {
 
         if (resource.getType() != Resource.ResourceType.S3) {
             throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
+        }
+        Map<String, String> properties = resource.getCopiedProperties();
+        if (!properties.containsKey(S3Resource.S3_ROOT_PATH)) {
+            throw new AnalysisException(String.format(
+                    "Missing [%s] in '%s' resource", S3Resource.S3_ROOT_PATH, storageResource));
+        }
+        if (!properties.containsKey(S3Resource.S3_BUCKET)) {
+            throw new AnalysisException(String.format(
+                    "Missing [%s] in '%s' resource", S3Resource.S3_BUCKET, storageResource));
         }
         return resource;
     }
@@ -400,5 +409,25 @@ public class StoragePolicy extends Policy {
     public static StoragePolicy read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, StoragePolicy.class);
+    }
+
+    public boolean addResourceReference() {
+        if (storageResource != null) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(storageResource);
+            if (resource != null) {
+                return resource.addReference(policyName, ReferenceType.POLICY);
+            }
+        }
+        return false;
+    }
+
+    public boolean removeResourceReference() {
+        if (storageResource != null) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(storageResource);
+            if (resource != null) {
+                return resource.removeReference(policyName, ReferenceType.POLICY);
+            }
+        }
+        return false;
     }
 }

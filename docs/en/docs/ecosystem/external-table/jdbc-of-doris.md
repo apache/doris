@@ -23,9 +23,10 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 # JDBC External Table Of Doris
+
+<version since="1.2.0">
 
 JDBC External Table Of Doris provides Doris to access external tables through the standard interface (JDBC) of database access. External tables save the tedious data import work, allowing Doris to have the ability to access various databases, and with the help of Doris's capabilities to solve data analysis problems with external tables:
 
@@ -34,6 +35,7 @@ JDBC External Table Of Doris provides Doris to access external tables through th
 
 This document mainly introduces how to use this function.
 
+</version>
 
 ## Instructions
 
@@ -84,6 +86,12 @@ Parameter Description：
 >**Notice:**
 >
 >If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
+
+<version since="1.2.1">
+
+> After 1.2.1, you can put the driver in the `jdbc_drivers` directory of FE/BE, and directly specify the file name, such as: `"driver_url" = "mysql-connector-java-5.1.47.jar "`. The system will automatically look for files in the `jdbc_drivers` directory.
+
+</version>
 
 ### Query usage
 
@@ -167,6 +175,7 @@ There are different data types among different databases. Here is a list of the 
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
+| BIT(1)   | BOOLEAN  |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
@@ -203,7 +212,7 @@ There are different data types among different databases. Here is a list of the 
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
-|   REAL   |   FLOAT  |
+|   REAL   |   DOUBLE |
 |   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 
@@ -287,4 +296,4 @@ ALTER TABLE table_name CHARSET=utf8mb4;
 SET NAMES utf8mb4
 
 ```
-</version>
+

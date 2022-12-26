@@ -219,6 +219,92 @@ public:
         }
     }
 
+    void add_not_nullable(AggregateDataPtr __restrict place, const IColumn** columns,
+                          size_t row_num, Arena* arena) const {
+        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        this->set_flag(place);
+        const IColumn* nested_column = &column->get_nested_column();
+        this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
+    }
+
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+        int processed_records_num = 0;
+
+        // we can use column->has_null() to judge whether whole batch of data is null and skip batch,
+        // but it's maybe too coarse-grained.
+#ifdef __AVX2__
+        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        // The overhead introduced is negligible here, just an extra memory read from NullMap
+        const NullMap& null_map_data = column->get_null_map_data();
+
+        // NullMap use uint8_t type to indicate values is null or not, 1 indicates null, 0 versus.
+        // It's important to keep consistent with element type size in NullMap
+        constexpr int simd_batch_size = 256 / (8 * sizeof(uint8_t));
+        __m256i all0 = _mm256_setzero_si256();
+        auto null_map_start_position = reinterpret_cast<const int8_t*>(null_map_data.data());
+
+        while (processed_records_num + simd_batch_size <= batch_size) {
+            // load unaligned data from null_map, 1 means value is null, 0 versus
+            __m256i f = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
+                    null_map_start_position + processed_records_num));
+            int mask = _mm256_movemask_epi8(_mm256_cmpgt_epi8(f, all0));
+            // all data is null
+            if (mask == 0xffffffff) {
+            } else if (mask == 0) { // all data is not null
+                for (size_t i = processed_records_num; i < processed_records_num + simd_batch_size;
+                     i++) {
+                    AggregateFunctionNullUnary::add_not_nullable(places[i] + place_offset, columns,
+                                                                 i, arena);
+                }
+            } else {
+                // data is partly null
+                for (size_t i = processed_records_num; i < processed_records_num + simd_batch_size;
+                     i++) {
+                    add(places[i] + place_offset, columns, i, arena);
+                }
+            }
+            processed_records_num += simd_batch_size;
+        }
+
+#elif __SSE2__
+        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        // The overhead introduced is negligible here, just an extra memory read from NullMap
+        const NullMap& null_map_data = column->get_null_map_data();
+        // NullMap use uint8_t type to indicate values is null or not, 1 indicates null, 0 versus.
+        // It's important to keep consistent with element type size in NullMap
+        constexpr int simd_batch_size = 128 / (8 * sizeof(uint8_t));
+        __m128i all0 = _mm_setzero_si128();
+        auto null_map_start_position = reinterpret_cast<const int8_t*>(null_map_data.data());
+        while (processed_records_num + simd_batch_size <= batch_size) {
+            // load unaligned data from null_map, 1 means value is null, 0 versus
+            __m128i f = _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map_start_position +
+                                                                         processed_records_num));
+            int mask = _mm_movemask_epi8(_mm_cmpgt_epi8(f, all0));
+            // all data is null
+            if (mask == 0xffff) {
+            } else if (mask == 0) { // all data is not null
+                for (size_t i = processed_records_num; i < processed_records_num + simd_batch_size;
+                     i++) {
+                    add_not_nullable(places[i] + place_offset, columns, i, arena);
+                }
+            } else {
+                // data is partly null
+                for (size_t i = processed_records_num; i < processed_records_num + simd_batch_size;
+                     i++) {
+                    add(places[i] + place_offset, columns, i, arena);
+                }
+            }
+            processed_records_num += simd_batch_size;
+        }
+#endif
+
+        for (; processed_records_num < batch_size; ++processed_records_num) {
+            add(places[processed_records_num] + place_offset, columns, processed_records_num,
+                arena);
+        }
+    }
+
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
