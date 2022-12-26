@@ -135,6 +135,10 @@ protected:
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
     RuntimeProfile::Counter* _local_sent_rows;
+    RuntimeProfile::Counter* _local_send_timer;
+    RuntimeProfile::Counter* _split_block_hash_compute_timer;
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
+    RuntimeProfile::Counter* _blocks_sent_counter;
 
     std::unique_ptr<MemTracker> _mem_tracker;
 
@@ -211,7 +215,7 @@ public:
 
     Status add_rows(Block* block, const std::vector<int>& row);
 
-    Status send_current_block(bool eos = false);
+    virtual Status send_current_block(bool eos);
 
     Status send_local_block(bool eos = false);
 
