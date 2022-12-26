@@ -35,7 +35,7 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit)
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-
+    SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _output_tuple_desc->slots()) {
