@@ -93,6 +93,8 @@ public:
         return _num_buffered_bytes + batch_size > _total_buffer_limit;
     }
 
+    bool is_closed() const { return _is_closed; }
+
 private:
     class SenderQueue;
     class PipSenderQueue;
@@ -247,10 +249,13 @@ public:
         materialize_block_inplace(*nblock);
 
         size_t block_size = nblock->bytes();
+        auto block_mem_size = nblock->allocated_bytes();
         {
             std::unique_lock<std::mutex> l(_lock);
             _block_queue.emplace_back(block_size, nblock);
         }
+        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
+        _recvr->_blocks_memory_usage->add(block_mem_size);
         _update_block_queue_empty();
         _data_arrival_cv.notify_one();
 
