@@ -1061,6 +1061,17 @@ public class Load {
                     throw new AnalysisException("Don't support aggregation function in load expression");
                 }
             }
+
+            // Array type do not support cast now
+            Type exprReturnType = expr.getType();
+            if (exprReturnType.isArrayType()) {
+                Type schemaType = tbl.getColumn(entry.getKey()).getType();
+                if (exprReturnType != schemaType) {
+                    throw new AnalysisException("Don't support load from type:" + exprReturnType + " to type:"
+                            + schemaType + " for column:" + entry.getKey());
+                }
+            }
+
             exprsByName.put(entry.getKey(), expr);
         }
 
