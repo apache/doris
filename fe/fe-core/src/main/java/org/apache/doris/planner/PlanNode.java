@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
@@ -859,6 +860,22 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             }
         }
         return null;
+    }
+
+    public SlotRef findSrcSlotRef(SlotRef slotRef) {
+        if (slotRef.getTable() instanceof OlapTable) {
+            return slotRef;
+        }
+        if (this instanceof HashJoinNode) {
+            HashJoinNode hashJoinNode = (HashJoinNode) this;
+            SlotRef inputSlotRef = hashJoinNode.getMappedInputSlotRef(slotRef);
+            if (inputSlotRef != null) {
+                return hashJoinNode.getChild(0).findSrcSlotRef(inputSlotRef);
+            } else {
+                return slotRef;
+            }
+        }
+        return slotRef;
     }
 
     protected void addRuntimeFilter(RuntimeFilter filter) { runtimeFilters.add(filter); }
