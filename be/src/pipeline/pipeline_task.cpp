@@ -100,6 +100,29 @@ Status PipelineTask::open() {
     return Status::OK();
 }
 
+void PipelineTask::_close_operators_if_need() {
+    if (!_sink->need_data_from_source() && !_operators_closed) {
+        for (auto& op : _operators) {
+            op->close(_state);
+        }
+        _operators_closed = true;
+    }
+}
+
+bool PipelineTask::source_can_read() {
+    if (_sink->need_data_from_source()) {
+        return _source->can_read();
+    }
+
+    _close_operators_if_need();
+    return true;
+}
+
+bool PipelineTask::sink_can_write() {
+    _close_operators_if_need();
+    return _sink->can_write();
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(runtime_state());
     SCOPED_TIMER(_task_profile->total_time_counter());
@@ -131,34 +154,52 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     while (!_fragment_context->is_canceled()) {
-        if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
-            set_state(BLOCKED_FOR_SOURCE);
-            break;
+        if (_sink->need_data_from_source()) {
+            if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
+                set_state(BLOCKED_FOR_SOURCE);
+                break;
+            }
+        } else if (!_operators_closed) {
+            for (auto& op : _operators) {
+                op->close(_state);
+            }
+            _operators_closed = true;
         }
+
         if (!_sink->can_write()) {
             set_state(BLOCKED_FOR_SINK);
             break;
         }
+
         if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
         SCOPED_RAW_TIMER(&time_spent);
-        _block->clear_column_data(_root->row_desc().num_materialized_slots());
-        auto* block = _block.get();
 
-        // Pull block from operator chain
-        {
-            SCOPED_TIMER(_get_block_timer);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
-        }
-        *eos = _data_state == SourceState::FINISHED;
-        if (_block->rows() != 0 || *eos) {
-            SCOPED_TIMER(_sink_timer);
-            RETURN_IF_ERROR(_sink->sink(_state, block, _data_state));
-            if (*eos) { // just return, the scheduler will do finish work
-                break;
+        if (_sink->need_data_from_source()) {
+            _block->clear_column_data(_root->row_desc().num_materialized_slots());
+            auto* block = _block.get();
+
+            // Pull block from operator chain
+            {
+                SCOPED_TIMER(_get_block_timer);
+                RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
             }
+            *eos = _data_state == SourceState::FINISHED;
+            if (_block->rows() != 0 || *eos) {
+                SCOPED_TIMER(_sink_timer);
+                RETURN_IF_ERROR(_sink->sink(_state, block, _data_state));
+                if (*eos) { // just return, the scheduler will do finish work
+                    break;
+                }
+            }
+        } else {
+            _data_state = SourceState::FINISHED;
+            SCOPED_TIMER(_sink_timer);
+            RETURN_IF_ERROR(_sink->sink(_state, nullptr, _data_state));
+            *eos = true;
+            break;
         }
     }
 
@@ -171,11 +212,14 @@ Status PipelineTask::finalize() {
 
 Status PipelineTask::close() {
     auto s = _sink->close(_state);
-    for (auto& op : _operators) {
-        auto tem = op->close(_state);
-        if (!tem.ok() && s.ok()) {
-            s = tem;
+    if (!_operators_closed) {
+        for (auto& op : _operators) {
+            auto tem = op->close(_state);
+            if (!tem.ok() && s.ok()) {
+                s = tem;
+            }
         }
+        _operators_closed = true;
     }
     if (_opened) {
         COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());

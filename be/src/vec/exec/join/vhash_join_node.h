@@ -211,8 +211,9 @@ public:
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     void prepare_for_next() override;
-
     void debug_string(int indentation_level, std::stringstream* out) const override;
+    bool can_sink_write() const;
+    bool should_build_hash_table() const { return _should_build_hash_table; }
 
 private:
     using VExprContexts = std::vector<VExprContext*>;

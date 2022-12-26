@@ -128,13 +128,13 @@ public:
 
     bool is_pending_finish() { return _source->is_pending_finish() || _sink->is_pending_finish(); }
 
-    bool source_can_read() { return _source->can_read(); }
+    bool source_can_read();
 
     bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() { return _sink->can_write(); }
+    bool sink_can_write();
 
     Status finalize();
 
@@ -170,6 +170,8 @@ private:
     Status open();
     void _init_profile();
 
+    void _close_operators_if_need();
+
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _dependency_finish = false;
@@ -180,6 +182,7 @@ private:
 
     bool _prepared;
     bool _opened;
+    bool _operators_closed = false;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;

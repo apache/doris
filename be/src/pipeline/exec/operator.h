@@ -206,6 +206,11 @@ public:
         return Status::NotSupported(error_msg.str());
     }
 
+    virtual bool need_data_from_source() const {
+        DCHECK(is_sink());
+        return true;
+    }
+
     /**
      * pending_finish means we have called `close` and there are still some work to do before finishing.
      * Now it is a pull-based pipeline and operators pull data from its child by this method.

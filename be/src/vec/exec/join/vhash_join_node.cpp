@@ -723,6 +723,13 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     return Status::OK();
 }
 
+bool HashJoinNode::can_sink_write() const {
+    if (_should_build_hash_table) {
+        return true;
+    }
+    return _shared_hash_table_context && _shared_hash_table_context->signaled;
+}
+
 Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
     SCOPED_TIMER(_build_timer);
 
