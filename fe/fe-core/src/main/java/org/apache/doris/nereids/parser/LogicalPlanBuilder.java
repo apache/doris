@@ -220,6 +220,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -430,7 +431,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        LogicalPlan checkedRelation = withCheckPolicy(new UnboundRelation(RelationUtil.newRelationId(), tableId));
+        List<String> partitionNames = new ArrayList<>();
+        if (ctx.specifiedPartition() != null) {
+            if (ctx.specifiedPartition().identifier() != null) {
+                partitionNames.add(ctx.specifiedPartition().identifier().getText());
+            } else {
+                partitionNames.addAll(visitIdentifierList(ctx.specifiedPartition().identifierList()));
+            }
+        }
+        LogicalPlan checkedRelation = withCheckPolicy(
+                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
