@@ -108,15 +108,6 @@ suite("cast") {
     qt_orderBy3 "select k4, k10 from (select k4, k10 from ${tableName1} order by 1, 2 limit 1000000) as i \
 		    order by 1, 2 limit 1000"
     qt_orderBy4 "select * from ${tableName1} where k1<-1000 order by k1"
-    for (i in range(1, 12)){
-        for (j in range(1, 12)) {
-            if (i != j & j != 7 & i != 7 & i != 6 & j != 6) {
-                qt_orderBy5 "select k${i}, k${j} from ${tableName1} order by k${i}, k${j}"
-                qt_orderBy6 "select k${i}, k${j} from ${tableName1} order by k${i}, k${j} asc"
-                qt_orderBy7 "select k${i}, k${j} from ${tableName1} order by k${i}, k${j} desc"
-            }
-        }
-    }
 
     // group
     qt_group1 "select min(k5) from ${tableName1}"
