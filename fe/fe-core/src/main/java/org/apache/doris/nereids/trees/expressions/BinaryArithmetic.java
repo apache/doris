@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
@@ -41,7 +42,8 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return left().getDataType();
+        return TypeCoercionUtils.findTightestCommonType(left().getDataType(), right().getDataType())
+                .orElseGet(() -> left().getDataType());
     }
 
     @Override
