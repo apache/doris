@@ -317,6 +317,7 @@ public:
 
     void increase_size_degree(doris::vectorized::UInt8 delta) {
         size_degree_ += delta;
+        DCHECK(size_degree_ <= 64);
         precalculated_mask = (1ULL << size_degree_) - 1;
         precalculated_max_fill = 1ULL << (size_degree_ - 1);
     }

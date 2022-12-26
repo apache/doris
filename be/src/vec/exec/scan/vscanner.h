@@ -64,6 +64,10 @@ protected:
 public:
     VScanNode* get_parent() { return _parent; }
 
+    int64_t get_time_cost_ns() const { return _per_scanner_timer; }
+
+    int64_t get_rows_read() const { return _num_rows_read; }
+
     Status try_append_late_arrival_runtime_filter();
 
     // Call start_wait_worker_timer() when submit the scanner to the thread pool.
@@ -73,7 +77,14 @@ public:
         _watch.start();
     }
 
+    void start_scan_cpu_timer() {
+        _cpu_watch.reset();
+        _cpu_watch.start();
+    }
+
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+
+    void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -157,12 +168,18 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
+    // num of rows return from scanner, after filter block
+    int64_t _num_rows_return = 0;
+
     // Set true after counter is updated finally
     bool _has_updated_counter = false;
 
     // watch to count the time wait for scanner thread
     MonotonicStopWatch _watch;
+    // Do not use ScopedTimer. There is no guarantee that, the counter
+    ThreadCpuStopWatch _cpu_watch;
     int64_t _scanner_wait_worker_timer = 0;
+    int64_t _scan_cpu_timer = 0;
 
     // File formats based push down predicate
     std::vector<ExprContext*> _conjunct_ctxs;
@@ -172,6 +189,7 @@ protected:
     bool _is_counted_down = false;
 
     ScannerCounter _counter;
+    int64_t _per_scanner_timer = 0;
 };
 
 } // namespace doris::vectorized

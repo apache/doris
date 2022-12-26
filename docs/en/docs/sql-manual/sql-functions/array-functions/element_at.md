@@ -23,9 +23,13 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+## element_at
+
 <version since="1.2.0">
 
-## element_at
+element_at
+
+</version>
 
 ### description
 
@@ -81,4 +85,3 @@ mysql> SELECT id,c_array,c_array[-2] FROM `array_test`;
 
 ELEMENT_AT, SUBSCRIPT
 
-</version>

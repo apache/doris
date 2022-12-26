@@ -16,8 +16,10 @@
 // under the License.
 #pragma once
 
-#include "agg_context.h"
+#include <atomic>
+
 #include "operator.h"
+#include "pipeline/exec/data_queue.h"
 
 namespace doris {
 namespace vectorized {
@@ -25,31 +27,28 @@ class AggregationNode;
 }
 namespace pipeline {
 
-class StreamingAggSourceOperator : public Operator {
+class StreamingAggSourceOperatorBuilder final
+        : public OperatorBuilder<vectorized::AggregationNode> {
 public:
-    StreamingAggSourceOperator(OperatorBuilder*, vectorized::AggregationNode*,
-                               std::shared_ptr<AggContext>);
-    Status prepare(RuntimeState* state) override;
-    bool can_read() override;
-    Status close(RuntimeState* state) override;
-    Status get_block(RuntimeState*, vectorized::Block*, SourceState& source_state) override;
-
-private:
-    vectorized::AggregationNode* _agg_node;
-    std::shared_ptr<AggContext> _agg_context;
-};
-
-class StreamingAggSourceOperatorBuilder : public OperatorBuilder {
-public:
-    StreamingAggSourceOperatorBuilder(int32_t, const std::string&, vectorized::AggregationNode*,
-                                      std::shared_ptr<AggContext>);
+    StreamingAggSourceOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<DataQueue>);
 
     bool is_source() const override { return true; }
 
     OperatorPtr build_operator() override;
 
 private:
-    std::shared_ptr<AggContext> _agg_context;
+    std::shared_ptr<DataQueue> _data_queue;
+};
+
+class StreamingAggSourceOperator final : public SourceOperator<StreamingAggSourceOperatorBuilder> {
+public:
+    StreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<DataQueue>);
+    bool can_read() override;
+    Status get_block(RuntimeState*, vectorized::Block*, SourceState& source_state) override;
+    Status open(RuntimeState*) override { return Status::OK(); }
+
+private:
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 } // namespace pipeline

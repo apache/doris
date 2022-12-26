@@ -66,15 +66,16 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME
             + " WHERE `id` IN (${idList})";
 
-    private static final String PERSIST_ANALYSIS_JOB_SQL_TEMPLATE = "INSERT INTO "
+    private static final String PERSIST_ANALYSIS_TASK_SQL_TEMPLATE = "INSERT INTO "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}',"
-            + "'${tblName}','${colName}', ,'${indexId}','${jobType}', '${analysisType}', "
+            + "'${tblName}','${colName}', '${indexId}','${jobType}', '${analysisType}', "
             + "'${message}', '${lastExecTimeInMs}',"
             + "'${state}', '${scheduleType}')";
 
     private static final String INSERT_INTO_COLUMN_STATISTICS = "INSERT INTO "
-            + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${colId}',"
-            + "${partId}, ${count}, ${ndv}, ${nullCount}, '${min}', '${max}', ${dataSize}, NOW())";
+            + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
+            + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, '${min}', '${max}', "
+            + "'${histogram}', ${dataSize}, NOW())";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -102,7 +103,7 @@ public class StatisticsRepository {
 
     public static ResultRow queryColumnStatisticById(long tblId, String colName) {
         Map<String, String> map = new HashMap<>();
-        String id = constructId(tblId, colName);
+        String id = constructId(tblId, -1, colName);
         map.put("id", id);
         List<ResultRow> rows = StatisticsUtil.executeQuery(FETCH_COLUMN_STATISTIC_TEMPLATE, map);
         int size = rows.size();
@@ -115,7 +116,7 @@ public class StatisticsRepository {
     public static List<ResultRow> queryPartitionStatistics(long tblId, String colName, Set<Long> partIds) {
         StringJoiner sj = new StringJoiner(",");
         for (Long partId : partIds) {
-            sj.add("'" + constructId(tblId, colName, partId) + "'");
+            sj.add("'" + constructId(tblId, -1, colName, partId) + "'");
         }
         Map<String, String> params = new HashMap<>();
         params.put("idList", sj.toString());
@@ -139,7 +140,7 @@ public class StatisticsRepository {
         params.put("dbName", analysisTaskInfo.dbName);
         params.put("tblName", analysisTaskInfo.tblName);
         params.put("colName", analysisTaskInfo.colName);
-        params.put("indexId", String.valueOf(analysisTaskInfo.indexId));
+        params.put("indexId", analysisTaskInfo.indexId == null ? "-1" : String.valueOf(analysisTaskInfo.indexId));
         params.put("jobType", analysisTaskInfo.jobType.toString());
         params.put("analysisType", analysisTaskInfo.analysisMethod.toString());
         params.put("message", "");
@@ -147,7 +148,7 @@ public class StatisticsRepository {
         params.put("state", AnalysisState.PENDING.toString());
         params.put("scheduleType", analysisTaskInfo.scheduleType.toString());
         StatisticsUtil.execUpdate(
-                new StringSubstitutor(params).replace(PERSIST_ANALYSIS_JOB_SQL_TEMPLATE));
+                new StringSubstitutor(params).replace(PERSIST_ANALYSIS_TASK_SQL_TEMPLATE));
     }
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
@@ -158,6 +159,7 @@ public class StatisticsRepository {
         String nullCount = alterColumnStatsStmt.getValue(StatsType.NUM_NULLS);
         String min = alterColumnStatsStmt.getValue(StatsType.MIN_VALUE);
         String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
+        String histogram = alterColumnStatsStmt.getValue(StatsType.HISTOGRAM);
         String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
         String colName = alterColumnStatsStmt.getColumnName();
@@ -179,14 +181,18 @@ public class StatisticsRepository {
             builder.setMaxExpr(StatisticsUtil.readableValue(column.getType(), max));
             builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
+        if (histogram != null) {
+            builder.setHistogram(Histogram.deserializeFromJson(column.getType(), histogram));
+        }
         if (dataSize != null) {
             builder.setDataSize(Double.parseDouble(dataSize));
         }
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
-        params.put("id", constructId(objects.table.getId(), colName));
+        params.put("id", constructId(objects.table.getId(), -1, colName));
         params.put("catalogId", String.valueOf(objects.catalog.getId()));
         params.put("dbId", String.valueOf(objects.db.getId()));
+        params.put("idxId", "-1");
         params.put("tblId", String.valueOf(objects.table.getId()));
         params.put("colId", String.valueOf(colName));
         params.put("partId", "NULL");
@@ -195,8 +201,9 @@ public class StatisticsRepository {
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
         params.put("min", min == null ? "NULL" : min);
         params.put("max", max == null ? "NULL" : max);
+        params.put("histogram", (columnStatistic.histogram == null) ? "NULL" : histogram);
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
         StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-        Env.getCurrentEnv().getStatisticsCache().updateCache(objects.table.getId(), colName, builder.build());
+        Env.getCurrentEnv().getStatisticsCache().updateCache(objects.table.getId(), -1, colName, builder.build());
     }
 }

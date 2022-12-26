@@ -145,6 +145,7 @@ public class DataDescription {
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
+    private boolean trimDoubleQuotes = false;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -222,9 +223,14 @@ public class DataDescription {
     public DataDescription(String tableName, LoadTaskInfo taskInfo) {
         this.tableName = tableName;
         this.partitionNames = taskInfo.getPartitions();
-        // Add a dummy path to just make analyze() happy.
-        // Stream load does not need this field.
-        this.filePaths = Lists.newArrayList("dummy");
+
+        if (!Strings.isNullOrEmpty(taskInfo.getPath())) {
+            this.filePaths = Lists.newArrayList(taskInfo.getPath());
+        } else {
+            // Add a dummy path to just make analyze() happy.
+            this.filePaths = Lists.newArrayList("dummy");
+        }
+
         this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
         this.columnSeparator = taskInfo.getColumnSeparator();
         this.lineDelimiter = taskInfo.getLineDelimiter();
@@ -245,6 +251,7 @@ public class DataDescription {
         this.readJsonByLine = taskInfo.isReadJsonByLine();
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
+        this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -259,7 +266,20 @@ public class DataDescription {
                 // the compress type is saved in "compressType"
                 this.fileFormat = "csv";
             } else {
-                this.fileFormat = "json";
+                switch (type) {
+                    case FORMAT_ORC:
+                        this.fileFormat = "orc";
+                        break;
+                    case FORMAT_PARQUET:
+                        this.fileFormat = "parquet";
+                        break;
+                    case FORMAT_JSON:
+                        this.fileFormat = "json";
+                        break;
+                    default:
+                        this.fileFormat = "unknown";
+                        break;
+                }
             }
         }
         // get compress type
@@ -621,6 +641,10 @@ public class DataDescription {
 
     public boolean isReadJsonByLine() {
         return readJsonByLine;
+    }
+
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
     }
 
     /*
@@ -1019,3 +1043,4 @@ public class DataDescription {
         return toSql();
     }
 }
+

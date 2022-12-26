@@ -73,10 +73,10 @@ THRIFT_SOURCE=thrift-0.13.0
 THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
 
 # protobuf
-PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.14.0.tar.gz"
-PROTOBUF_NAME=protobuf-3.14.0.tar.gz
-PROTOBUF_SOURCE=protobuf-3.14.0
-PROTOBUF_MD5SUM="0c9d2a96f3656ba7ef3b23b533fb6170"
+PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
+PROTOBUF_NAME=protobuf-3.15.0.tar.gz
+PROTOBUF_SOURCE=protobuf-3.15.0
+PROTOBUF_MD5SUM="3fb6c41f7b3c621424543f43d54baa42"
 
 # gflags
 GFLAGS_DOWNLOAD="https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"
@@ -245,11 +245,17 @@ ARROW_NAME="apache-arrow-7.0.0.tar.gz"
 ARROW_SOURCE="apache-arrow-7.0.0"
 ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
 
+# Abseil
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20220623.1.tar.gz"
+ABSEIL_NAME=abseil-cpp-20220623.1.tar.gz
+ABSEIL_SOURCE=abseil-cpp-20220623.1
+ABSEIL_MD5SUM="2aea7c1171c4c280f755de170295afd6"
+
 # S2
-S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
-S2_NAME=s2geometry-0.9.0.tar.gz
-S2_SOURCE=s2geometry-0.9.0
-S2_MD5SUM="293552c7646193b8b4a01556808fe155"
+S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
+S2_NAME=s2geometry-0.10.0.tar.gz
+S2_SOURCE=s2geometry-0.10.0
+S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
 BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
@@ -270,10 +276,10 @@ FMT_SOURCE="fmt-7.1.3"
 FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
 
 # parallel-hashmap
-PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/1.33.tar.gz"
-PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
-PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
-PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
+PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/refs/tags/v1.3.8.tar.gz"
+PARALLEL_HASHMAP_NAME="parallel-hashmap-1.3.8.tar.gz"
+PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.3.8"
+PARALLEL_HASHMAP_MD5SUM="1b8130d0b4f656257ef654699bfbf941"
 
 # orc
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.7.2/orc-1.7.2.tar.gz"
@@ -467,6 +473,7 @@ export TP_ARCHIVES=(
     'ARROW'
     'BROTLI'
     'ZSTD'
+    'ABSEIL'
     'S2'
     'BITSHUFFLE'
     'CROARINGBITMAP'

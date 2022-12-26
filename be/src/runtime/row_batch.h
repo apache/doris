@@ -24,12 +24,10 @@
 #include <vector>
 
 #include "common/logging.h"
-#include "runtime/buffered_block_mgr2.h" // for BufferedBlockMgr2::Block
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/descriptors.h"
 #include "runtime/disk_io_mgr.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch_interface.hpp"
 
 namespace doris::vectorized {
 class Block;
@@ -73,7 +71,7 @@ class PRowBatch;
 // A row batch is considered at capacity if all the rows are full or it has accumulated
 // auxiliary memory up to a soft cap. (See _at_capacity_mem_usage comment).
 // TODO: stick _tuple_ptrs into a pool?
-class RowBatch : public RowBatchInterface {
+class RowBatch {
 public:
     /// Flag indicating whether the resources attached to a RowBatch need to be flushed.
     /// Defined here as a convenience for other modules that need to communicate flushing
@@ -143,7 +141,7 @@ public:
     // enough memory.
     bool at_capacity() const {
         return _num_rows == _capacity || _auxiliary_mem_usage >= AT_CAPACITY_MEM_USAGE ||
-               num_tuple_streams() > 0 || _need_to_return;
+               _need_to_return;
     }
 
     // Returns true if the row batch has filled all the rows or has accumulated
@@ -239,7 +237,6 @@ public:
     MemPool* tuple_data_pool() { return &_tuple_data_pool; }
     ObjectPool* agg_object_pool() { return &_agg_object_pool; }
     int num_io_buffers() const { return _io_buffers.size(); }
-    int num_tuple_streams() const { return _tuple_streams.size(); }
 
     // increase # of uncommitted rows
     void increase_uncommitted_rows();
@@ -263,10 +260,6 @@ public:
     /// make it consistent between buffers and I/O buffers.
     void add_buffer(BufferPool::ClientHandle* client, BufferPool::BufferHandle&& buffer,
                     FlushMode flush);
-
-    // Adds a block to this row batch. The block must be pinned. The blocks must be
-    // deleted when freeing resources.
-    void add_block(BufferedBlockMgr2::Block* block);
 
     // Called to indicate this row batch must be returned up the operator tree.
     // This is used to control memory management for streaming rows.
@@ -359,8 +352,6 @@ public:
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const PRowBatch& batch);
 
-    vectorized::Block convert_to_vec_block() const;
-
     int num_rows() const { return _num_rows; }
     int capacity() const { return _capacity; }
 
@@ -394,9 +385,6 @@ public:
     std::string to_string();
 
 private:
-    // Close owned tuple streams and delete if needed.
-    void close_tuple_streams();
-
     // All members need to be handled in RowBatch::swap()
 
     bool _has_in_flight_row;   // if true, last row hasn't been committed yet
@@ -461,12 +449,6 @@ private:
     };
     /// Pages attached to this row batch. See AddBuffer() for ownership semantics.
     std::vector<BufferInfo> _buffers;
-    // Tuple streams currently owned by this row batch.
-    std::vector<BufferedTupleStream2*> _tuple_streams;
-
-    // Blocks attached to this row batch. The underlying memory and block manager client
-    // are owned by the BufferedBlockMgr2.
-    std::vector<BufferedBlockMgr2::Block*> _blocks;
 
     // String to write compressed tuple data to in serialize().
     // This is a string so we can swap() with the string in the PRowBatch we're serializing

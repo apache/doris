@@ -14,7 +14,6 @@
 #include "gutil/bits.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/row_block.h"
 #include "olap/utils.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
@@ -521,6 +520,10 @@ int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
         num_prune += _shards[s]->prune_if(pred);
     }
     return num_prune;
+}
+
+int64_t ShardedLRUCache::mem_consumption() {
+    return _mem_tracker->consumption();
 }
 
 void ShardedLRUCache::update_cache_metrics() const {

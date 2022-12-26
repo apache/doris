@@ -20,6 +20,7 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
@@ -80,10 +81,10 @@ public class EsTestCase {
 
     protected EsTable fakeEsTable(String table, String index, String type, List<Column> columns) throws DdlException {
         Map<String, String> props = new HashMap<>();
-        props.put(EsTable.HOSTS, "127.0.0.1:8200");
-        props.put(EsTable.INDEX, index);
-        props.put(EsTable.TYPE, type);
-        props.put(EsTable.VERSION, "6.5.3");
+        props.put(EsResource.HOSTS, "127.0.0.1:8200");
+        props.put(EsResource.INDEX, index);
+        props.put(EsResource.TYPE, type);
+        props.put(EsResource.VERSION, "6.5.3");
         return new EsTable(new Random().nextLong(), table, columns, props, null);
 
     }

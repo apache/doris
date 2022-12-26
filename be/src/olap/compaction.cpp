@@ -30,6 +30,7 @@
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
         : _tablet(tablet),
@@ -101,8 +102,9 @@ int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
-    // in disk is config::writer_buffer_size
-    return config::write_buffer_size / (_input_rowsets_size / (_input_row_num + 1) + 1);
+    // in disk is config::max_segment_size_in_vertical_compaction
+    return config::max_segment_size_in_vertical_compaction /
+           (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
 
 bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
@@ -286,8 +288,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                          _input_rs_readers, _output_rs_writer.get(), &stats);
         }
     } else {
-        res = Merger::merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                    _input_rs_readers, _output_rs_writer.get(), &stats);
+        LOG(FATAL) << "Only support vectorized compaction";
     }
 
     if (!res.ok()) {
@@ -304,7 +305,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
+        return Status::Error<ROWSET_BUILDER_INIT>();
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
@@ -443,7 +444,7 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
                          << prev_rowset->end_version()
                          << ", rowset version=" << rowset->start_version() << "-"
                          << rowset->end_version();
-            return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_MISS_VERSION);
+            return Status::Error<CUMULATIVE_MISS_VERSION>();
         }
         prev_rowset = rowset;
     }
@@ -459,7 +460,7 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
                      << ", merged_row_num=" << stats.merged_rows
                      << ", filtered_row_num=" << stats.filtered_rows
                      << ", output_row_num=" << _output_rowset->num_rows();
-        return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
+        return Status::Error<CHECK_LINES_ERROR>();
     }
     return Status::OK();
 }

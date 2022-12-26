@@ -30,7 +30,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "runtime/buffered_block_mgr2.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
@@ -42,6 +41,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 // for ut only
 RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
@@ -221,14 +221,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     return Status::OK();
 }
 
-Status RuntimeState::create_block_mgr() {
-    DCHECK(_block_mgr2.get() == nullptr);
-    RETURN_IF_ERROR(BufferedBlockMgr2::create(this, runtime_profile(), _exec_env->tmp_file_mgr(),
-                                              _exec_env->disk_io_mgr()->max_read_buffer_size(),
-                                              &_block_mgr2));
-    return Status::OK();
-}
-
 bool RuntimeState::error_log_is_empty() {
     std::lock_guard<std::mutex> l(_error_log_lock);
     return (_error_log.size() > 0);
@@ -250,14 +242,6 @@ bool RuntimeState::log_error(const std::string& error) {
     return false;
 }
 
-void RuntimeState::log_error(const Status& status) {
-    if (status.ok()) {
-        return;
-    }
-
-    log_error(status.get_error_msg());
-}
-
 void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 
@@ -274,7 +258,7 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
             _process_status = Status::MemoryLimitExceeded(msg);
         }
     }
-    DCHECK(_process_status.is_mem_limit_exceeded());
+    DCHECK(_process_status.is<MEM_LIMIT_EXCEEDED>());
     return _process_status;
 }
 
@@ -335,7 +319,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
         if (!status.ok()) {
-            LOG(WARNING) << "Create error file log failed. because: " << status.get_error_msg();
+            LOG(WARNING) << "Create error file log failed. because: " << status;
             if (_error_log_file != nullptr) {
                 _error_log_file->close();
                 delete _error_log_file;
@@ -388,7 +372,7 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
             Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
                                                  _error_log_file_path, &_error_hub);
             if (!st.ok()) {
-                LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
+                LOG(WARNING) << "failed to create load error hub: " << st;
                 return;
             }
         }

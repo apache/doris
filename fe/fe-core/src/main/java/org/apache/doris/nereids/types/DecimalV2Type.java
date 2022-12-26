@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -37,6 +38,7 @@ public class DecimalV2Type extends FractionalType {
     public static int MAX_PRECISION = 27;
     public static int MAX_SCALE = 9;
     public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(MAX_PRECISION, MAX_SCALE);
+    public static final DecimalV2Type CATALOG_DEFAULT = new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE);
 
     private static final DecimalV2Type BOOLEAN_DECIMAL = new DecimalV2Type(1, 0);
     private static final DecimalV2Type TINYINT_DECIMAL = new DecimalV2Type(3, 0);
@@ -75,6 +77,9 @@ public class DecimalV2Type extends FractionalType {
         if (precision == SYSTEM_DEFAULT.precision && scale == SYSTEM_DEFAULT.scale) {
             return SYSTEM_DEFAULT;
         }
+        if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
+            return CATALOG_DEFAULT;
+        }
         return new DecimalV2Type(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE));
     }
 
@@ -105,7 +110,7 @@ public class DecimalV2Type extends FractionalType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.MAX_DECIMALV2_TYPE;
+        return ScalarType.createDecimalType(precision, scale);
     }
 
     public int getPrecision() {

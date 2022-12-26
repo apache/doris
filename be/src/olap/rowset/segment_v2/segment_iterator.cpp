@@ -34,6 +34,7 @@
 #include "util/simd/bits.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
@@ -519,7 +520,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
         *rowid = num_rows();
-        if (status.is_not_found()) {
+        if (status.is<NOT_FOUND>()) {
             return Status::OK();
         }
         return status;
@@ -621,109 +622,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, R
         size_t rows_read = nrows;
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, &dst));
         DCHECK_EQ(nrows, rows_read);
-    }
-    return Status::OK();
-}
-
-Status SegmentIterator::next_batch(RowBlockV2* block) {
-    SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
-    if (UNLIKELY(!_inited)) {
-        RETURN_IF_ERROR(_init());
-        _inited = true;
-    }
-
-    uint32_t nrows_read = 0;
-    uint32_t nrows_read_limit = block->capacity();
-    const auto& read_columns =
-            _lazy_materialization_read ? _predicate_columns : block->schema()->column_ids();
-
-    // phase 1: read rows selected by various index (indicated by _row_bitmap) into block
-    // when using lazy-materialization-read, only columns with predicates are read
-    {
-        SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
-        do {
-            uint32_t range_from;
-            uint32_t range_to;
-            bool has_next_range =
-                    _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
-            if (!has_next_range) {
-                break;
-            }
-            if (_cur_rowid == 0 || _cur_rowid != range_from) {
-                _cur_rowid = range_from;
-                _opts.stats->block_first_read_seek_num += 1;
-                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
-                RETURN_IF_ERROR(_seek_columns(read_columns, _cur_rowid));
-            }
-            size_t rows_to_read = range_to - range_from;
-            RETURN_IF_ERROR(_read_columns(read_columns, block, nrows_read, rows_to_read));
-            _cur_rowid += rows_to_read;
-            if (_lazy_materialization_read) {
-                for (uint32_t rid = range_from; rid < range_to; rid++) {
-                    _block_rowids[nrows_read++] = rid;
-                }
-            } else {
-                nrows_read += rows_to_read;
-            }
-        } while (nrows_read < nrows_read_limit);
-    }
-
-    block->set_num_rows(nrows_read);
-    block->set_selected_size(nrows_read);
-    if (nrows_read == 0) {
-        return Status::EndOfFile("no more data in segment");
-    }
-    _opts.stats->raw_rows_read += nrows_read;
-    _opts.stats->blocks_load += 1;
-
-    // phase 2: run vectorized evaluation on remaining predicates to prune rows.
-    // block's selection vector will be set to indicate which rows have passed predicates.
-    // TODO(hkp): optimize column predicate to check column block once for one column
-    if (!_col_predicates.empty() || _opts.delete_condition_predicates != nullptr) {
-        // init selection position index
-        uint16_t selected_size = block->selected_size();
-        uint16_t original_size = selected_size;
-
-        SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
-        for (auto column_predicate : _col_predicates) {
-            auto column_id = column_predicate->column_id();
-            auto column_block = block->column_block(column_id);
-            column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
-        }
-        _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
-
-        // set original_size again to check delete condition predicates
-        // filter how many data
-        original_size = selected_size;
-        _opts.delete_condition_predicates->evaluate(block, &selected_size);
-        _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
-
-        block->set_selected_size(selected_size);
-        block->set_num_rows(selected_size);
-    }
-
-    // phase 3: read non-predicate columns of rows that have passed predicates
-    if (_lazy_materialization_read) {
-        SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
-        uint16_t i = 0;
-        const uint16_t* sv = block->selection_vector();
-        const uint16_t sv_size = block->selected_size();
-        while (i < sv_size) {
-            // i: start offset the current range
-            // j: past the last offset of the current range
-            uint16_t j = i + 1;
-            while (j < sv_size && _block_rowids[sv[j]] == _block_rowids[sv[j - 1]] + 1) {
-                ++j;
-            }
-            uint16_t range_size = j - i;
-            {
-                _opts.stats->block_lazy_read_seek_num += 1;
-                SCOPED_RAW_TIMER(&_opts.stats->block_lazy_read_seek_ns);
-                RETURN_IF_ERROR(_seek_columns(_non_predicate_columns, _block_rowids[sv[i]]));
-            }
-            RETURN_IF_ERROR(_read_columns(_non_predicate_columns, block, sv[i], range_size));
-            i += range_size;
-        }
     }
     return Status::OK();
 }

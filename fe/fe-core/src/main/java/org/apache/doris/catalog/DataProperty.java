@@ -22,9 +22,11 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -32,7 +34,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
-public class DataProperty implements Writable {
+public class DataProperty implements Writable, GsonPostProcessable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
             "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD
     );
@@ -126,7 +128,7 @@ public class DataProperty implements Writable {
 
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.storagePolicy.equals(other.storagePolicy);
+                && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy));
     }
 
     @Override
@@ -136,5 +138,11 @@ public class DataProperty implements Writable {
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage policy[").append(this.storagePolicy).append("]. ");
         return sb.toString();
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // storagePolicy is a newly added field, it may be null when replaying from old version.
+        this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
     }
 }

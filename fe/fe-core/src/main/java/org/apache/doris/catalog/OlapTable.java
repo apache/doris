@@ -355,6 +355,7 @@ public class OlapTable extends Table {
         if (indexId != baseIndexId) {
             rebuildFullSchema();
         }
+        LOG.info("delete index info {} in table {}-{}", indexName, id, name);
         return true;
     }
 
@@ -391,6 +392,9 @@ public class OlapTable extends Table {
 
     public List<MaterializedIndex> getVisibleIndex() {
         Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        if (!partition.isPresent()) {
+            partition = tempPartitions.getAllPartitions().stream().findFirst();
+        }
         return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
                 : Collections.emptyList();
     }

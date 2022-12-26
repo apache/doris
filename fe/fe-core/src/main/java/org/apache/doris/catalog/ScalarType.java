@@ -160,6 +160,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case VARCHAR:
                 return createVarcharType();
+            case BINARY:
+                return createStringType();
             case JSONB:
                 return createJsonbType();
             case STRING:
@@ -1020,9 +1022,13 @@ public class ScalarType extends Type {
         }
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {
-            return ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
-                            t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
-                            t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
+            ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
+                    t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
+                    t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
+            if (finalType.getPrecision() > MAX_PRECISION) {
+                finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
+            }
+            return finalType;
         }
 
         PrimitiveType smallerType =

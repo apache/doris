@@ -74,6 +74,8 @@ Status ScannerContext::init() {
 
     COUNTER_SET(_parent->_pre_alloc_free_blocks_num, (int64_t)pre_alloc_block_count);
     COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
+    _parent->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                               thread_token == nullptr ? "False" : "True");
 
     return Status::OK();
 }
@@ -174,6 +176,35 @@ bool ScannerContext::set_status_on_error(const Status& status) {
 
 Status ScannerContext::_close_and_clear_scanners() {
     std::unique_lock<std::mutex> l(_scanners_lock);
+    if (_state->enable_profile()) {
+        std::stringstream scanner_statistics;
+        std::stringstream scanner_rows_read;
+        scanner_statistics << "[";
+        scanner_rows_read << "[";
+        for (auto finished_scanner_time : _finished_scanner_runtime) {
+            scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS)
+                               << ", ";
+        }
+        for (auto finished_scanner_rows : _finished_scanner_rows_read) {
+            scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
+        }
+        // Only unfinished scanners here
+        for (auto scanner : _scanners) {
+            // Scanners are in ObjPool in ScanNode,
+            // so no need to delete them here.
+            // Add per scanner running time before close them
+            scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS)
+                               << ", ";
+            scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT)
+                              << ", ";
+        }
+        scanner_statistics << "]";
+        scanner_rows_read << "]";
+        _parent->_scanner_profile->add_info_string("PerScannerRunningTime",
+                                                   scanner_statistics.str());
+        _parent->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
+    }
+    // Only unfinished scanners here
     for (auto scanner : _scanners) {
         scanner->close(_state);
         // Scanners are in ObjPool in ScanNode,
@@ -194,7 +225,6 @@ void ScannerContext::clear_and_join() {
             break;
         }
     } while (false);
-
     // Must wait all running scanners stop running.
     // So that we can make sure to close all scanners.
     _close_and_clear_scanners();
@@ -288,6 +318,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             auto scanner = _scanners.front();
             _scanners.pop_front();
             if (scanner->need_to_close()) {
+                _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
+                _finished_scanner_rows_read.push_back(scanner->get_rows_read());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);

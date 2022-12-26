@@ -211,10 +211,6 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsCache;
-import org.apache.doris.statistics.StatisticsJobManager;
-import org.apache.doris.statistics.StatisticsJobScheduler;
-import org.apache.doris.statistics.StatisticsManager;
-import org.apache.doris.statistics.StatisticsTaskScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
@@ -396,11 +392,6 @@ public class Env {
     private DeployManager deployManager;
 
     private TabletStatMgr tabletStatMgr;
-    // statistics
-    private StatisticsManager statisticsManager;
-    private StatisticsJobManager statisticsJobManager;
-    private StatisticsJobScheduler statisticsJobScheduler;
-    private StatisticsTaskScheduler statisticsTaskScheduler;
 
     private PaloAuth auth;
 
@@ -594,11 +585,6 @@ public class Env {
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
 
         this.tabletStatMgr = new TabletStatMgr();
-        // statistics
-        this.statisticsManager = new StatisticsManager();
-        this.statisticsJobManager = new StatisticsJobManager();
-        this.statisticsJobScheduler = new StatisticsJobScheduler();
-        this.statisticsTaskScheduler = new StatisticsTaskScheduler();
 
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
@@ -754,23 +740,6 @@ public class Env {
     // For unit test only
     public Checkpoint getCheckpointer() {
         return checkpointer;
-    }
-
-    // statistics
-    public StatisticsManager getStatisticsManager() {
-        return statisticsManager;
-    }
-
-    public StatisticsJobManager getStatisticsJobManager() {
-        return statisticsJobManager;
-    }
-
-    public StatisticsJobScheduler getStatisticsJobScheduler() {
-        return statisticsJobScheduler;
-    }
-
-    public StatisticsTaskScheduler getStatisticsTaskScheduler() {
-        return statisticsTaskScheduler;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1429,8 +1398,6 @@ public class Env {
         partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
-        this.statisticsJobScheduler.start();
-        this.statisticsTaskScheduler.start();
         new InternalSchemaInitializer().start();
         if (Config.enable_fqdn_mode) {
             fqdnManager.start();
@@ -3145,7 +3112,8 @@ public class Env {
             addTableComment(jdbcTable, sb);
             sb.append("\nPROPERTIES (\n");
             sb.append("\"resource\" = \"").append(jdbcTable.getResourceName()).append("\",\n");
-            sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\"");
+            sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
+            sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
             sb.append("\n)");
         }
 
@@ -4443,7 +4411,16 @@ public class Env {
             throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
                     ErrorCode.ERR_UNKNOWN_CATALOG);
         }
+
+        String currentDB = ctx.getDatabase();
+        if (StringUtils.isNotEmpty(currentDB)) {
+            catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+        }
         ctx.changeDefaultCatalog(catalogName);
+        String lastDb = catalogMgr.getLastDB(catalogName);
+        if (StringUtils.isNotEmpty(lastDb)) {
+            ctx.setDatabase(lastDb);
+        }
         if (catalogIf instanceof EsExternalCatalog) {
             ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
                     + EsExternalCatalog.DEFAULT_DB);

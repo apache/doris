@@ -25,23 +25,40 @@ set(PIPELINE_FILES
         pipeline.cpp
         pipeline_fragment_context.cpp
         pipeline_task.cpp
+        task_queue.cpp
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
-        exec/olap_scan_operator.cpp
+        exec/mysql_scan_operator.cpp
+        exec/schema_scan_operator.cpp
+        exec/datagen_operator.cpp
         exec/empty_set_operator.cpp
         exec/exchange_source_operator.cpp
         exec/exchange_sink_operator.cpp
         exec/exchange_sink_buffer.cpp
         exec/result_sink_operator.cpp
+        exec/result_file_sink_operator.cpp
         exec/aggregation_sink_operator.cpp
         exec/aggregation_source_operator.cpp
+        exec/hashjoin_build_sink.cpp
+        exec/hashjoin_probe_operator.cpp
+        exec/analytic_sink_operator.cpp
+        exec/analytic_source_operator.cpp
         exec/streaming_aggregation_source_operator.cpp
         exec/streaming_aggregation_sink_operator.cpp
-        exec/agg_context.cpp
         exec/sort_source_operator.cpp
         exec/sort_sink_operator.cpp
-        exec/repeat_operator.cpp)
+        exec/repeat_operator.cpp
+        exec/table_function_operator.cpp
+        exec/nested_loop_join_build_operator.cpp
+        exec/nested_loop_join_probe_operator.cpp
+        exec/set_sink_operator.cpp
+        exec/set_source_operator.cpp
+        exec/set_probe_sink_operator.cpp
+        exec/union_sink_operator.cpp
+        exec/union_source_operator.cpp
+        exec/data_queue.cpp
+        exec/select_operator.cpp)
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}

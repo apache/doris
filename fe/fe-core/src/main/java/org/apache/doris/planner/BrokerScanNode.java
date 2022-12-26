@@ -31,6 +31,7 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -325,6 +326,12 @@ public class BrokerScanNode extends LoadScanNode {
                 throw new UserException(e.getMessage());
             }
             brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+            if (broker == null) {
+                throw new UserException("No alive broker.");
+            }
+            brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
         } else {
             brokerScanRange.setBrokerAddresses(new ArrayList<>());
         }
@@ -590,7 +597,7 @@ public class BrokerScanNode extends LoadScanNode {
         rangeDesc.setHeaderType(headerType);
         // set hdfs params for hdfs file type.
         if (brokerDesc.getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(brokerDesc.getProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(brokerDesc.getProperties());
             rangeDesc.setHdfsParams(tHdfsParams);
         }
         return rangeDesc;

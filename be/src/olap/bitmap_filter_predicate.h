@@ -49,13 +49,6 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                     bool* flags) const override {};
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {};
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (_specific_filter->is_not_in()) {
             return true;
@@ -93,7 +86,8 @@ private:
 
         uint16_t new_size = 0;
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                (char*)reinterpret_cast<
+                        const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
                         ->get_data()
                         .data(),
                 null_map, sel, size);
@@ -107,9 +101,6 @@ private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
 };
-
-template <PrimitiveType T>
-void BitmapFilterColumnPredicate<T>::evaluate(ColumnBlock*, uint16_t*, uint16_t*) const {}
 
 template <PrimitiveType T>
 uint16_t BitmapFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,

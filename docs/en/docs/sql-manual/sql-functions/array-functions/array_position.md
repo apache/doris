@@ -23,9 +23,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_position
+
+<version since="1.2.0">
+
+array_position
+
+</version>
 
 ### description
 
@@ -73,4 +78,3 @@ mysql> select array_position([1, null], null);
 
 ARRAY,POSITION,ARRAY_POSITION
 
-</version>

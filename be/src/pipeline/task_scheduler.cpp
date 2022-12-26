@@ -23,6 +23,9 @@
 
 namespace doris::pipeline {
 
+BlockedTaskScheduler::BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue)
+        : _task_queue(std::move(task_queue)), _started(false), _shutdown(false) {}
+
 Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
@@ -31,6 +34,7 @@ Status BlockedTaskScheduler::start() {
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
+    LOG(INFO) << "BlockedTaskScheduler started";
     return Status::OK();
 }
 
@@ -45,20 +49,23 @@ void BlockedTaskScheduler::shutdown() {
     }
 }
 
-void BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
+Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
+    if (this->_shutdown) {
+        return Status::InternalError("BlockedTaskScheduler shutdown");
+    }
     std::unique_lock<std::mutex> lock(_task_mutex);
     _blocked_tasks.push_back(task);
     _task_cond.notify_one();
+    return Status::OK();
 }
 
 void BlockedTaskScheduler::_schedule() {
-    LOG(INFO) << "BlockedTaskScheduler schedule thread start";
     _started.store(true);
     std::list<PipelineTask*> local_blocked_tasks;
     int empty_times = 0;
     std::vector<PipelineTask*> ready_tasks;
 
-    while (!_shutdown.load()) {
+    while (!_shutdown) {
         {
             std::unique_lock<std::mutex> lock(this->_task_mutex);
             local_blocked_tasks.splice(local_blocked_tasks.end(), _blocked_tasks);
@@ -117,6 +124,12 @@ void BlockedTaskScheduler::_schedule() {
                 }
             } else if (state == BLOCKED_FOR_SOURCE) {
                 if (task->source_can_read()) {
+                    _make_task_run(local_blocked_tasks, iter, ready_tasks);
+                } else {
+                    iter++;
+                }
+            } else if (state == BLOCKED_FOR_RF) {
+                if (task->runtime_filters_are_ready_or_timeout()) {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks);
                 } else {
                     iter++;
@@ -186,7 +199,6 @@ Status TaskScheduler::start() {
             .build(&_fix_thread_pool);
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
-        LOG(INFO) << "Start TaskScheduler thread " << i;
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
         RETURN_IF_ERROR(
                 _fix_thread_pool->submit_func(std::bind(&TaskScheduler::_do_work, this, i)));
@@ -195,32 +207,18 @@ Status TaskScheduler::start() {
 }
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
-    if (task->is_blocking_state()) {
-        _blocked_task_scheduler->add_blocked_task(task);
-    } else {
-        _task_queue->push_back(task);
-    }
+    return _task_queue->push_back(task);
     // TODO control num of task
-    return Status::OK();
 }
 
 void TaskScheduler::_do_work(size_t index) {
-    LOG(INFO) << "Start TaskScheduler worker " << index;
     auto queue = _task_queue;
     const auto& marker = _markers[index];
     while (*marker) {
         auto task = queue->try_take(index);
         if (!task) {
-            task = queue->steal_take(index);
-            if (!task) {
-                // TODO: The take is a stock method, rethink the logic
-                task = queue->take(index);
-                if (!task) {
-                    continue;
-                }
-            }
+            continue;
         }
-        task->stop_worker_watcher();
         auto* fragment_ctx = task->fragment_context();
         doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
@@ -228,8 +226,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         auto check_state = task->get_state();
         if (check_state == PENDING_FINISH) {
-            bool is_pending = task->is_pending_finish();
-            DCHECK(!is_pending) << "must not pending close " << task->debug_string();
+            DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
             _try_close_task(task, canceled ? CANCELED : FINISHED);
             continue;
         }
@@ -248,9 +245,11 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = task->execute(&eos);
         task->set_previous_core_id(index);
         if (!status.ok()) {
-            LOG(WARNING) << "Pipeline taks execute task fail " << task->debug_string();
+            LOG(WARNING) << fmt::format("Pipeline task [{}] failed: {}", task->debug_string(),
+                                        status.to_string());
             // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "execute fail");
+            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
+            fragment_ctx->send_report(true);
             _try_close_task(task, CANCELED);
             continue;
         }
@@ -275,6 +274,8 @@ void TaskScheduler::_do_work(size_t index) {
         switch (pipeline_state) {
         case BLOCKED_FOR_SOURCE:
         case BLOCKED_FOR_SINK:
+        case BLOCKED_FOR_RF:
+        case BLOCKED_FOR_DEPENDENCY:
             _blocked_task_scheduler->add_blocked_task(task);
             break;
         case RUNNABLE:
@@ -285,7 +286,6 @@ void TaskScheduler::_do_work(size_t index) {
             break;
         }
     }
-    LOG(INFO) << "Stop TaskScheduler worker " << index;
 }
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
@@ -297,6 +297,11 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         auto status = task->close();
         if (!status.ok()) {
             // TODO: LOG warning
+        }
+        if (task->is_pending_finish()) {
+            task->set_state(PENDING_FINISH);
+            _blocked_task_scheduler->add_blocked_task(task);
+            return;
         }
         task->set_state(state);
         // TODO: rethink the logic

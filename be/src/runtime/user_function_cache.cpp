@@ -327,9 +327,11 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
         return Status::InternalError("fail to open file");
     }
 
+    std::string real_url = _get_real_url(url);
+
     Md5Digest digest;
     HttpClient client;
-    RETURN_IF_ERROR(client.init(url));
+    RETURN_IF_ERROR(client.init(real_url));
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest](const void* data, size_t length) {
         digest.update(data, length);
@@ -365,6 +367,13 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
     // check download
     entry->is_downloaded = true;
     return Status::OK();
+}
+
+std::string UserFunctionCache::_get_real_url(const std::string& url) {
+    if (url.find(":/") == std::string::npos) {
+        return "file://" + config::jdbc_drivers_dir + "/" + url;
+    }
+    return url;
 }
 
 // entry's lock must be held
@@ -436,7 +445,7 @@ Status UserFunctionCache::check_jar(int64_t fid, const std::string& url,
         return Status::InternalError(
                 "Java UDAF has error, maybe you should check the path about java impl jar, because "
                 "{}",
-                st.get_error_msg());
+                st.to_string());
     }
     return Status::OK();
 }

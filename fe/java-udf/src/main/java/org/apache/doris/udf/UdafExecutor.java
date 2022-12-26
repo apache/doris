@@ -361,7 +361,8 @@ public class UdafExecutor {
         for (int i = 0; i < argTypes.length; ++i) {
             // skip the input column of current row is null
             if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) != -1
-                    && UdfUtils.UNSAFE.getByte(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i) + row) == 1) {
+                    && (UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
+                    UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) + row) == 1)) {
                 inputObjects[i] = null;
                 continue;
             }

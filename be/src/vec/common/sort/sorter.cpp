@@ -137,7 +137,9 @@ Status FullSorter::append_block(Block* block) {
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
-            DCHECK(data[i].type->equals(*(arrival_data[i].type)));
+            DCHECK(data[i].type->equals(*(arrival_data[i].type)))
+                    << " type1: " << data[i].type->get_name()
+                    << " type2: " << arrival_data[i].type->get_name();
             RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
                     *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz));
         }

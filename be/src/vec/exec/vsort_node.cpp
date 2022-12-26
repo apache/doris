@@ -116,7 +116,12 @@ Status VSortNode::open(RuntimeState* state) {
     std::unique_ptr<Block> upstream_block(new Block());
     do {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(state, upstream_block.get(), &eos),
+                child(0)->get_next_after_projects(
+                        state, upstream_block.get(), &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 child(0)->get_next_span(), eos);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
@@ -128,11 +133,6 @@ Status VSortNode::open(RuntimeState* state) {
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());
 
     return Status::OK();
-}
-
-Status VSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    *eos = true;
-    return Status::NotSupported("Not Implemented VSortNode::get_next scalar");
 }
 
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {

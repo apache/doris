@@ -40,10 +40,10 @@ public class YearWeek extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE)
     );
 

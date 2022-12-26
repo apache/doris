@@ -66,12 +66,15 @@ Status HdfsFileReader::open() {
     }
     // if the format of _path is hdfs://ip:port/path, replace it to /path.
     // path like hdfs://ip:port/path can't be used by libhdfs3.
-    if (_path.find(_namenode) != _path.npos) {
+    if (_path.find(_namenode) != std::string::npos) {
         _path = _path.substr(_namenode.size());
     }
 
     RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
     _hdfs_fs = _fs_handle->hdfs_fs;
+    if (hdfsExists(_hdfs_fs, _path.c_str()) != 0) {
+        return Status::NotFound("{} not exists!", _path);
+    }
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         if (_fs_handle->from_cache) {
@@ -82,7 +85,7 @@ Status HdfsFileReader::open() {
             RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
             _hdfs_fs = _fs_handle->hdfs_fs;
             _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
-            if (_hdfs_fs == nullptr) {
+            if (_hdfs_file == nullptr) {
                 return Status::InternalError(
                         "open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
                         BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());

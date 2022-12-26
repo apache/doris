@@ -114,7 +114,8 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
+        using HybridSetType =
+                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
 
         CHECK(hybrid_set != nullptr);
 
@@ -180,31 +181,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true>(block, sel, size);
-        } else {
-            _base_evaluate<false>(block, sel, size);
-        }
-    }
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true, false>(block, sel, size, flags);
-        } else {
-            _base_evaluate<false, false>(block, sel, size, flags);
-        }
-    }
-
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true, true>(block, sel, size, flags);
-        } else {
-            _base_evaluate<false, true>(block, sel, size, flags);
-        }
-    }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -220,7 +196,7 @@ public:
             bool exact_match;
             Status s = iterator->seek_dictionary(&value, &exact_match);
             rowid_t seeked_ordinal = iterator->current_ordinal();
-            if (!s.is_not_found()) {
+            if (!s.is<ErrorCode::NOT_FOUND>()) {
                 if (!s.ok()) {
                     return s;
                 }
@@ -384,69 +360,6 @@ private:
         return lhs == rhs;
     }
 
-    template <bool is_nullable>
-    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-        uint16_t new_size = 0;
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_uint32_value = 0;
-                memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^
-                                (!block->cell(idx).is_null() &&
-                                 _operator(_values->find(tmp_uint32_value), _values->end()));
-                } else {
-                    new_size +=
-                            _opposite ^ _operator(_values->find(tmp_uint32_value), _values->end());
-                }
-            } else {
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                             _operator(_values->find(*cell_value), _values->end()));
-                } else {
-                    new_size += _opposite ^ _operator(_values->find(*cell_value), _values->end());
-                }
-            }
-        }
-        *size = new_size;
-    }
-
-    template <bool is_nullable, bool is_and>
-    void _base_evaluate(const ColumnBlock* block, const uint16_t* sel, uint16_t size,
-                        bool* flags) const {
-        for (uint16_t i = 0; i < size; ++i) {
-            if (!flags[i]) {
-                continue;
-            }
-
-            uint16_t idx = sel[i];
-            auto result = true;
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_uint32_value = 0;
-                memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                if constexpr (is_nullable) {
-                    result &= !block->cell(idx).is_null();
-                }
-                result &= _operator(_values->find(tmp_uint32_value), _values->end());
-            } else {
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                if constexpr (is_nullable) {
-                    result &= !block->cell(idx).is_null();
-                }
-                result &= _operator(_values->find(*cell_value), _values->end());
-            }
-
-            if constexpr (is_and) {
-                flags[i] &= _opposite ^ result;
-            } else {
-                flags[i] |= _opposite ^ result;
-            }
-        }
-    }
-
     template <bool is_nullable, bool is_opposite>
     uint16_t _base_evaluate(const vectorized::IColumn* column,
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
@@ -496,9 +409,8 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -573,9 +485,8 @@ private:
                 LOG(FATAL) << "column_dictionary must use StringValue predicate.";
             }
         } else {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -630,7 +541,6 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 
     // temp string for char type column
     std::list<std::string> _temp_datas;

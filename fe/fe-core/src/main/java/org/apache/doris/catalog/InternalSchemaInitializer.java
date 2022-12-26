@@ -56,7 +56,7 @@ public class InternalSchemaInitializer extends Thread {
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 1;
 
     public void run() {
-        if (FeConstants.runningUnitTest) {
+        if (FeConstants.disableInternalSchemaDb) {
             return;
         }
         while (!created()) {
@@ -105,6 +105,7 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         columnDefs.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
         ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
         partId.setAllowNull(true);
@@ -114,6 +115,7 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
+        columnDefs.add(new ColumnDef("histogram", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";

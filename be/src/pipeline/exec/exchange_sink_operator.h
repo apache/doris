@@ -26,21 +26,27 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 
-// Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
-class ExchangeSinkOperator : public Operator {
+class ExchangeSinkOperatorBuilder final
+        : public DataSinkOperatorBuilder<vectorized::VDataStreamSender> {
 public:
-    ExchangeSinkOperator(OperatorBuilder* operator_builder, vectorized::VDataStreamSender* sink,
+    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, PipelineFragmentContext* context);
+
+    OperatorPtr build_operator() override;
+
+private:
+    PipelineFragmentContext* _context;
+};
+
+// Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
+class ExchangeSinkOperator final : public DataSinkOperator<ExchangeSinkOperatorBuilder> {
+public:
+    ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
                          PipelineFragmentContext* context);
-    ~ExchangeSinkOperator() override;
-    Status init(ExecNode* exec_node, RuntimeState* state = nullptr) override;
     Status init(const TDataSink& tsink) override;
 
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
     bool can_write() override;
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
     bool is_pending_finish() const override;
-    Status finalize(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
 
@@ -48,26 +54,8 @@ public:
 
 private:
     std::unique_ptr<ExchangeSinkBuffer> _sink_buffer;
-    vectorized::VDataStreamSender* _sink;
+    int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
-    PipelineFragmentContext* _context;
-};
-
-class ExchangeSinkOperatorBuilder : public OperatorBuilder {
-public:
-    ExchangeSinkOperatorBuilder(int32_t id, const std::string& name, ExecNode* exec_node,
-                                vectorized::VDataStreamSender* sink,
-                                PipelineFragmentContext* context)
-            : OperatorBuilder(id, name, exec_node), _sink(sink), _context(context) {}
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override {
-        return std::make_shared<ExchangeSinkOperator>(this, _sink, _context);
-    }
-
-private:
-    vectorized::VDataStreamSender* _sink;
     PipelineFragmentContext* _context;
 };
 

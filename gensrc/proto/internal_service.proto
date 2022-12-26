@@ -65,6 +65,8 @@ message PTabletInfo {
     // Delta Writer will write data to local disk and then check if there are new raw values not in global dict
     // if appears, then it should add the column name to this vector
     repeated string invalid_dict_cols = 3; 
+    // total rows num received by DeltaWriter
+    optional int64 received_rows = 4;
 }
 
 // open a tablet writer
@@ -438,6 +440,7 @@ message PMergeFilterRequest {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
+    optional bool is_pipeline = 8;
 };
 
 message PMergeFilterResponse {
@@ -452,6 +455,7 @@ message PPublishFilterRequest {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
+    optional bool is_pipeline = 8;
 };
 
 message PPublishFilterResponse {
@@ -547,8 +551,6 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
-    rpc tablet_writer_add_batch_by_http(PEmptyRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

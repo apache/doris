@@ -17,7 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -40,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * Repository of a partition's related infos
@@ -290,6 +296,22 @@ public class PartitionInfo implements Writable {
 
     public String toSql(OlapTable table, List<Long> partitionId) {
         return "";
+    }
+
+    public PartitionDesc toPartitionDesc(OlapTable olapTable) throws AnalysisException {
+        throw new RuntimeException("Should implement it in derived classes.");
+    }
+
+    static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
+        return partitionKey.getKeys().stream().map(expr -> {
+            if (expr == MaxLiteral.MAX_VALUE) {
+                return PartitionValue.MAX_VALUE;
+            } else if (expr instanceof DateLiteral) {
+                return new PartitionValue(expr.toSql());
+            } else {
+                return new PartitionValue(expr.getRealValue().toString());
+            }
+        }).collect(Collectors.toList());
     }
 
     public void moveFromTempToFormal(long tempPartitionId) {

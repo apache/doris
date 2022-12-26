@@ -32,6 +32,7 @@
 #include "util/storage_backend.h"
 
 namespace doris {
+using namespace ErrorCode;
 static const std::string AK = "";
 static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
@@ -105,7 +106,7 @@ TEST_F(S3StorageBackendTest, s3_upload) {
     status = _s3->upload(_test_file + "_not_found", _s3_base_path + "/Ode_to_the_West_Wind1.txt");
     EXPECT_FALSE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind1.txt");
-    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == NOT_FOUND);
 }
 
 TEST_F(S3StorageBackendTest, s3_direct_upload) {
@@ -147,7 +148,7 @@ TEST_F(S3StorageBackendTest, s3_rename) {
                          _s3_base_path + "/Ode_to_the_West_Wind.txt.new");
     EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == NOT_FOUND);
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt.new");
     EXPECT_TRUE(status.ok());
 }
@@ -176,14 +177,14 @@ TEST_F(S3StorageBackendTest, s3_rm) {
     status = _s3->rm(_s3_base_path + "/Ode_to_the_West_Wind.txt");
     EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == NOT_FOUND);
 }
 
 TEST_F(S3StorageBackendTest, s3_mkdir) {
     Status status = _s3->mkdir(_s3_base_path + "/dir");
     EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/dir");
-    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == NOT_FOUND);
 }
 
 } // end namespace doris

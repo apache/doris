@@ -18,43 +18,25 @@
 #pragma once
 
 #include "operator.h"
+#include "vec/exec/vempty_set_node.h"
 
 namespace doris {
 
-namespace vectorized {
-class VEmptySetNode;
-}
-
 namespace pipeline {
 
-class EmptySetSourceOperatorBuilder;
-
-class EmptySetSourceOperator : public Operator {
+class EmptySetSourceOperatorBuilder final : public OperatorBuilder<vectorized::VEmptySetNode> {
 public:
-    EmptySetSourceOperator(EmptySetSourceOperatorBuilder* operator_builder,
-                           vectorized::VEmptySetNode* empty_set_node);
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    bool can_read() override;
-
-private:
-    vectorized::VEmptySetNode* _empty_set_node;
-};
-
-class EmptySetSourceOperatorBuilder : public OperatorBuilder {
-public:
-    EmptySetSourceOperatorBuilder(int32_t id, const std::string& name,
-                                  vectorized::VEmptySetNode* empty_set_node);
+    EmptySetSourceOperatorBuilder(int32_t id, ExecNode* empty_set_node);
 
     bool is_source() const override { return true; }
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<EmptySetSourceOperator>(this, _empty_set_node);
-    }
+    OperatorPtr build_operator() override;
+};
 
-private:
-    vectorized::VEmptySetNode* _empty_set_node;
+class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperatorBuilder> {
+public:
+    EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
+    bool can_read() override { return true; };
 };
 
 } // namespace pipeline

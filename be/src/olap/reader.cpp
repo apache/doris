@@ -32,6 +32,7 @@
 #include "runtime/mem_pool.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1)) {
@@ -316,7 +317,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     } else {
         LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
                      << " return_columns_size=" << read_params.return_columns.size() << "]";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
@@ -342,7 +343,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
                 << ", schema.num_columns=" << _tablet_schema->num_columns();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -355,7 +356,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "The start_key.at(" << i
                          << ").size == " << read_params.start_key[i].size() << ", not equals the "
                          << scan_key_size;
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
@@ -378,7 +379,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         if (read_params.end_key[i].size() != scan_key_size) {
             LOG(WARNING) << "The end_key.at(" << i << ").size == " << read_params.end_key[i].size()
                          << ", not equals the " << scan_key_size;
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
@@ -421,7 +422,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
                          << read_params.read_orderby_key_num_prefix_columns << " vs. "
                          << _orderby_key_columns.size();
-            return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>();
         }
     }
 
@@ -519,12 +520,60 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == READER_BASE_COMPACTION) {
+    if (read_params.reader_type == READER_BASE_COMPACTION ||
+        read_params.reader_type == READER_CHECKSUM) {
         _filter_delete = true;
     }
 
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
                                 read_params.version.second);
+}
+
+Status TabletReader::init_reader_params_and_create_block(
+        TabletSharedPtr tablet, ReaderType reader_type,
+        const std::vector<RowsetSharedPtr>& input_rowsets,
+        TabletReader::ReaderParams* reader_params, vectorized::Block* block) {
+    reader_params->tablet = tablet;
+    reader_params->reader_type = reader_type;
+    reader_params->version =
+            Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
+
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        reader_params->rs_readers.push_back(std::move(rs_reader));
+    }
+
+    std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());
+    std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    TabletSchemaSPtr read_tablet_schema =
+            tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
+    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
+    merge_tablet_schema->copy_from(*read_tablet_schema);
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        auto& delete_preds = tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
+                  std::inserter(reader_params->delete_predicates,
+                                reader_params->delete_predicates.begin()));
+    }
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_pb : reader_params->delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_pb->version()));
+    }
+    reader_params->tablet_schema = merge_tablet_schema;
+    if (tablet->enable_unique_key_merge_on_write()) {
+        reader_params->delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
+
+    reader_params->return_columns.resize(read_tablet_schema->num_columns());
+    std::iota(reader_params->return_columns.begin(), reader_params->return_columns.end(), 0);
+    reader_params->origin_return_columns = &reader_params->return_columns;
+
+    *block = read_tablet_schema->create_block();
+
+    return Status::OK();
 }
 
 } // namespace doris

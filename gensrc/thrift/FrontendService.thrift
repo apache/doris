@@ -287,6 +287,7 @@ struct TGetDbsParams {
   2: optional string user   // deprecated
   3: optional string user_ip    // deprecated
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  5: optional string catalog
 }
 
 // getDbNames returns a list of database names and catalog names
@@ -544,6 +545,8 @@ struct TStreamLoadPutRequest {
     38: optional string header_type
     39: optional string hidden_columns
     40: optional PlanNodes.TFileCompressType compress_type
+    41: optional i64 file_size // only for stream load with parquet or orc
+    42: optional bool trim_double_quotes // trim double quotes for csv
 }
 
 struct TStreamLoadPutResult {

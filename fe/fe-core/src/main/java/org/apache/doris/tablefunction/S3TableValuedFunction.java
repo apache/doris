@@ -64,7 +64,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     private String virtualBucket;
     private boolean forceVirtualHosted;
 
-    public S3TableValuedFunction(Map<String, String> params) throws UserException {
+    public S3TableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase()) && !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
@@ -82,7 +82,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
         }
 
-        s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
+        try {
+            s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
+        } catch (UserException e) {
+            throw new AnalysisException("parse s3 uri failed, uri = " + validParams.get(S3_URI), e);
+        }
         if (forceVirtualHosted) {
             // s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:
             //          uri: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt

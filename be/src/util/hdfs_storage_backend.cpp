@@ -18,7 +18,6 @@
 #include "util/hdfs_storage_backend.h"
 
 #include "io/hdfs_file_reader.h"
-#include "io/hdfs_reader_writer.h"
 #include "io/hdfs_writer.h"
 #include "olap/file_helper.h"
 #include "util/hdfs_util.h"
@@ -55,7 +54,7 @@ Status HDFSStorageBackend::close() {
 // if the format of path is hdfs://ip:port/path, replace it to /path.
 // path like hdfs://ip:port/path can't be used by libhdfs3.
 std::string HDFSStorageBackend::parse_path(const std::string& path) {
-    if (path.find(hdfs_file_prefix) != path.npos) {
+    if (path.find(hdfs_file_prefix) != std::string::npos) {
         std::string temp = path.substr(hdfs_file_prefix.size());
         std::size_t pos = temp.find_first_of('/');
         return temp.substr(pos);
@@ -143,7 +142,7 @@ Status HDFSStorageBackend::list(const std::string& remote_path, bool contain_md5
         // get filename
         std::filesystem::path file_path(file_name_with_path);
         std::string file_name = file_path.filename();
-        size_t pos = file_name.find_last_of(".");
+        size_t pos = file_name.find_last_of('.');
         if (pos == std::string::npos || pos == file_name.size() - 1) {
             // Not found checksum separator, ignore this file
             continue;

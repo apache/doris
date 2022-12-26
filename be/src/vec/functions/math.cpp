@@ -24,6 +24,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
+#include "vec/functions/round.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -184,11 +185,6 @@ struct LogImpl {
 };
 using FunctionLog = FunctionBinaryArithmetic<LogImpl, LogName, true>;
 
-struct CeilName {
-    static constexpr auto name = "ceil";
-};
-using FunctionCeil = FunctionMathUnary<UnaryFunctionVectorized<CeilName, std::ceil, DataTypeInt64>>;
-
 template <typename A>
 struct SignImpl {
     using ResultType = Int8;
@@ -276,12 +272,6 @@ struct TanName {
 };
 using FunctionTan = FunctionMathUnary<UnaryFunctionVectorized<TanName, std::tan>>;
 
-struct FloorName {
-    static constexpr auto name = "floor";
-};
-using FunctionFloor =
-        FunctionMathUnary<UnaryFunctionVectorized<FloorName, std::floor, DataTypeInt64>>;
-
 template <typename A>
 struct RadiansImpl {
     using ResultType = A;
@@ -346,30 +336,6 @@ struct BinImpl {
 
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
-struct RoundName {
-    static constexpr auto name = "round";
-};
-
-/// round(double)-->int64
-/// key_str:roundFloat64
-template <typename Name>
-struct RoundOneImpl {
-    using Type = DataTypeInt64;
-    static constexpr auto name = RoundName::name;
-    static constexpr auto rows_per_iteration = 1;
-    static constexpr bool always_returns_float64 = false;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>()};
-    }
-
-    template <typename T, typename U>
-    static void execute(const T* src, U* dst) {
-        dst[0] = static_cast<Int64>(std::round(static_cast<Float64>(src[0])));
-    }
-};
-using FunctionRoundOne = FunctionMathUnary<RoundOneImpl<RoundName>>;
-
 template <typename A, typename B>
 struct PowImpl {
     using ResultType = double;
@@ -386,52 +352,89 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
-template <typename A, typename B>
-struct TruncateImpl {
-    using ResultType = double;
-    static const constexpr bool allow_decimal = false;
-
-    template <typename type>
-    static inline double apply(A a, B b) {
-        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Float64>(
-                my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, true));
-    }
-};
 struct TruncateName {
     static constexpr auto name = "truncate";
 };
-using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName, false>;
+
+struct CeilName {
+    static constexpr auto name = "ceil";
+};
+
+struct FloorName {
+    static constexpr auto name = "floor";
+};
+
+struct RoundName {
+    static constexpr auto name = "round";
+};
+
+struct RoundBankersName {
+    static constexpr auto name = "round_bankers";
+};
 
 /// round(double,int32)-->double
 /// key_str:roundFloat64Int32
-template <typename A, typename B>
-struct RoundTwoImpl {
-    using ResultType = double;
-    static const constexpr bool allow_decimal = false;
+template <typename Name>
+struct DoubleRoundTwoImpl {
+    static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<vectorized::DataTypeFloat64>(),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
+};
 
-    template <typename type>
-    static inline double apply(A a, B b) {
-        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Float64>(
-                my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, false));
+template <typename Name>
+struct DoubleRoundOneImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeFloat64>()};
     }
 };
-using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName, false>;
+
+template <typename Name>
+struct DecimalRoundTwoImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
+                std::make_shared<vectorized::DataTypeInt32>()};
+    }
+};
+
+template <typename Name>
+struct DecimalRoundOneImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
+    }
+};
 
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
+#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                           \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>();    \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>();    \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();      \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>(); \
+    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,      \
+                                               TieBreakingMode::Bankers>>();
+
+    REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
+    REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
+    REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
+    REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionCos>();
-    factory.register_function<FunctionCeil>();
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
@@ -451,17 +454,13 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
-    factory.register_function<FunctionFloor>();
     factory.register_alias("floor", "dfloor");
-    factory.register_function<FunctionRoundOne>();
-    factory.register_function<FunctionRoundTwo>();
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");
     factory.register_alias("pow", "fpow");
     factory.register_function<FunctionExp>();
     factory.register_alias("exp", "dexp");
-    factory.register_function<FunctionTruncate>();
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();

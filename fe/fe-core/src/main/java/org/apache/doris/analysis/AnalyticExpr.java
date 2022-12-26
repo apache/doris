@@ -910,9 +910,8 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    protected Expr substituteImpl(ExprSubstitutionMap sMap, Analyzer analyzer)
-            throws AnalysisException {
-        Expr e = super.substituteImpl(sMap, analyzer);
+    protected Expr substituteImpl(ExprSubstitutionMap sMap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer) {
+        Expr e = super.substituteImpl(sMap, disjunctsMap, analyzer);
         if (!(e instanceof AnalyticExpr)) {
             return e;
         }

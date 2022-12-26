@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "olap/column_block.h"
-#include "olap/row_block.h"
 #include "olap/schema.h"
 #include "olap/selection_vector.h"
 #include "olap/types.h"
@@ -68,12 +67,6 @@ public:
         }
         _delete_state = DEL_NOT_SATISFIED;
     }
-
-    // convert RowBlockV2 to RowBlock
-    Status convert_to_row_block(RowCursor* helper, RowBlock* dst);
-
-    // convert RowBlockV2 to vectorized::Block
-    Status convert_to_vec_block(vectorized::Block* block);
 
     // low-level API to access memory for each column block(including data array and nullmap).
     // `cid` must be one of `schema()->column_ids()`.

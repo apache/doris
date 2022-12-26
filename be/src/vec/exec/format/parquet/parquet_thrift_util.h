@@ -23,7 +23,8 @@
 
 #include "common/logging.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/file_reader.h"
+#include "io/fs/file_reader.h"
+#include "olap/iterators.h"
 #include "util/coding.h"
 #include "util/thrift_util.h"
 #include "vparquet_file_metadata.h"
@@ -33,12 +34,14 @@ namespace doris::vectorized {
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 
-static Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file_metadata) {
+static Status parse_thrift_footer(io::FileReaderSPtr file,
+                                  std::shared_ptr<FileMetaData>& file_metadata) {
     uint8_t footer[PARQUET_FOOTER_SIZE];
     int64_t file_size = file->size();
-    int64_t bytes_read = 0;
-    RETURN_IF_ERROR(file->readat(file_size - PARQUET_FOOTER_SIZE, PARQUET_FOOTER_SIZE, &bytes_read,
-                                 footer));
+    size_t bytes_read = 0;
+    Slice result(footer, PARQUET_FOOTER_SIZE);
+    IOContext io_ctx;
+    RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE, result, io_ctx, &bytes_read));
     DCHECK_EQ(bytes_read, PARQUET_FOOTER_SIZE);
 
     // validate magic
@@ -57,8 +60,9 @@ static Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData
     tparquet::FileMetaData t_metadata;
     // deserialize footer
     uint8_t meta_buff[metadata_size];
-    RETURN_IF_ERROR(file->readat(file_size - PARQUET_FOOTER_SIZE - metadata_size, metadata_size,
-                                 &bytes_read, meta_buff));
+    Slice res(meta_buff, metadata_size);
+    RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size, res, io_ctx,
+                                  &bytes_read));
     DCHECK_EQ(bytes_read, metadata_size);
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_buff, &metadata_size, true, &t_metadata));
     file_metadata.reset(new FileMetaData(t_metadata));

@@ -23,6 +23,9 @@
 #include "cctz/time_zone.h"
 #include "gutil/strings/substitute.h"
 #include "io/file_factory.h"
+#include "io/fs/file_reader.h"
+#include "olap/iterators.h"
+#include "util/slice.h"
 #include "vec/columns/column_array.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -47,10 +50,11 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     SCOPED_RAW_TIMER(&_statistics.read_time);
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
+    IOContext io_ctx;
     while (has_read < length) {
-        int64_t loop_read;
-        Status st = _file_reader->readat(offset + has_read, length - has_read, &loop_read,
-                                         out + has_read);
+        size_t loop_read;
+        Slice result(out + has_read, length - has_read);
+        Status st = _file_reader->read_at(offset + has_read, result, io_ctx, &loop_read);
         if (!st.ok()) {
             throw orc::ParseError(
                     strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
@@ -87,7 +91,8 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _scan_params(params),
           _scan_range(range),
           _ctz(ctz),
-          _column_names(column_names) {}
+          _column_names(column_names),
+          _file_system(nullptr) {}
 
 OrcReader::~OrcReader() {
     close();
@@ -96,10 +101,12 @@ OrcReader::~OrcReader() {
 void OrcReader::close() {
     if (!_closed) {
         if (_profile != nullptr) {
-            auto& fst = _file_reader->statistics();
-            COUNTER_UPDATE(_orc_profile.read_time, fst.read_time);
-            COUNTER_UPDATE(_orc_profile.read_calls, fst.read_calls);
-            COUNTER_UPDATE(_orc_profile.read_bytes, fst.read_bytes);
+            if (_file_reader != nullptr) {
+                auto& fst = _file_reader->statistics();
+                COUNTER_UPDATE(_orc_profile.read_time, fst.read_time);
+                COUNTER_UPDATE(_orc_profile.read_calls, fst.read_calls);
+                COUNTER_UPDATE(_orc_profile.read_bytes, fst.read_bytes);
+            }
             COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
             COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
@@ -130,12 +137,22 @@ Status OrcReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     if (_file_reader == nullptr) {
-        std::unique_ptr<FileReader> inner_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
-                                                        _scan_range.start_offset,
-                                                        _scan_range.file_size, 0, inner_reader));
-        RETURN_IF_ERROR(inner_reader->open());
-        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader.release());
+        io::FileReaderSPtr inner_reader;
+
+        FileSystemProperties system_properties;
+        system_properties.system_type = _scan_params.file_type;
+        system_properties.properties = _scan_params.properties;
+        system_properties.hdfs_params = _scan_params.hdfs_params;
+
+        FileDescription file_description;
+        file_description.path = _scan_range.path;
+        file_description.start_offset = _scan_range.start_offset;
+        file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, system_properties, file_description, &_file_system, &inner_reader));
+
+        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
     if (_file_reader->getLength() == 0) {
         return Status::EndOfFile("Empty orc file");
@@ -174,15 +191,25 @@ Status OrcReader::init_reader(
     return Status::OK();
 }
 
-Status OrcReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                      std::vector<TypeDescriptor>* col_types) {
+Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                    std::vector<TypeDescriptor>* col_types) {
     if (_file_reader == nullptr) {
-        std::unique_ptr<FileReader> inner_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
-                                                        _scan_range.start_offset,
-                                                        _scan_range.file_size, 0, inner_reader));
-        RETURN_IF_ERROR(inner_reader->open());
-        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader.release());
+        io::FileReaderSPtr inner_reader;
+
+        FileSystemProperties system_properties;
+        system_properties.system_type = _scan_params.file_type;
+        system_properties.properties = _scan_params.properties;
+        system_properties.hdfs_params = _scan_params.hdfs_params;
+
+        FileDescription file_description;
+        file_description.path = _scan_range.path;
+        file_description.start_offset = _scan_range.start_offset;
+        file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, system_properties, file_description, &_file_system, &inner_reader));
+
+        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
     if (_file_reader->getLength() == 0) {
         return Status::EndOfFile("Empty orc file");
@@ -527,7 +554,7 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return TypeDescriptor(PrimitiveType::TYPE_STRING);
     case orc::TypeKind::BINARY:
-        return TypeDescriptor(PrimitiveType::TYPE_BINARY);
+        return TypeDescriptor(PrimitiveType::TYPE_STRING);
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:

@@ -36,6 +36,7 @@ The new Multi-Catalog function adds a new layer of Catalog to the original metad
 
 1. Hive MetaStore: Connect to a Hive MetaStore, so that you can directly access Hive, Iceberg, Hudi and other data in it.
 2. Elasticsearch: Connect to an ES cluster and directly access the tables and shards in it.
+3. JDBC: Connect to the standard database access interface (JDBC) to access data of various databases. (currently only support `jdbc:mysql`)
 
 This function will be used as a supplement and enhancement to the previous external table connection method (External Table) to help users perform fast multi-catalog federated queries.
 
@@ -77,19 +78,69 @@ This function will be used as a supplement and enhancement to the previous exter
 > 1. hive supports version 2.3.7 and above.
 > 2. Iceberg currently only supports V1 version, V2 version will be supported soon.
 > 3. Hudi currently only supports Snapshot Query for Copy On Write tables and Read Optimized Query for Merge On Read tables. In the future, Incremental Query and Snapshot Query for Merge On Read tables will be supported soon.
+> 4. Support access to hive tables whose data stored on tencent chdfs, usage is same as common hive table.
 
 The following example is used to create a Catalog named hive to connect the specified Hive MetaStore, and provide the HDFS HA connection properties to access the corresponding files in HDFS.
 
-```
-CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+**Create catalog through resource**
+
+In later versions of `1.2.0`, it is recommended to create a catalog through resource.
+```sql
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hadoop.username' = 'hive'
-    'dfs.nameservices'='service1',
-    'dfs.ha.namenodes. service1'='nn1,nn2',
-    'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
-    'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+CREATE CATALOG hive WITH RESOURCE hms_resource;
+```
+
+**Create catalog through properties**
+
+Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+If you want to connect to a Hive MetaStore with kerberos authentication, you can do like this:
+
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.sasl.enabled' = 'true',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
+    'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
+);
+CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.kerberos.xxx' = 'xxx',
+    ...
 );
 ```
 
@@ -240,7 +291,16 @@ Query OK, 1000 rows affected (0.28 sec)
 
 The following example creates a Catalog connection named es to the specified ES and turns off node discovery.
 
-```
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE es_resource PROPERTIES (
+    "type"="es",
+    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.nodes_discovery"="false"
+);
+CREATE CATALOG es WITH RESOURCE es_resource;
+
+-- 1.2.0 Version
 CREATE CATALOG es PROPERTIES (
     "type"="es",
     "elasticsearch.hosts"="http://192.168.120.12:29200",
@@ -307,13 +367,139 @@ Parameter | Description
 **elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected
 **elasticsearch.ssl** | Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
 
+### Connect JDBC
+
+
+The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
+
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="root",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+)
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    ...
+)
+```
+
+Where `jdbc.driver_url` can be a remote jar package
+
+```sql
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="root",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+```
+
+If the `jdbc.driver_url` is a remote jar package in the form of http, the Doris processing method is:
+1. Only query the meta-data, without inquiring the table data (such as the operation `show catalogs/database/tables`): This URL will be used to load the driver class by FE.
+2. When querying the tables in JDBC Catalog (like `select from`): BE will download the jar package to the local directory `be/lib/udf/`, and the jar package will be loaded directly from the local path When queried.
+
+Once created, you can view the catalog with the `SHOW CATALOGS` command:
+
+```sql
+MySQL [(none)]> show catalogs;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     10480 | jdbc        | jdbc     |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
+
+```sql
+MySQL [(none)]> switch jdbc;
+Query OK, 0 rows affected (0.02 sec)
+
+MySQL [(none)]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| __db1              |
+| _db1               |
+| db1                |
+| demo               |
+| information_schema |
+| mysql              |
+| mysql_db_test      |
+| performance_schema |
+| sys                |
++--------------------+
+9 rows in set (0.67 sec)
+```
+
+Show the tables under the `db1` database and query one table:
+
+```sql
+MySQL [demo]> use db1;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+MySQL [db1]> show tables;
++---------------+
+| Tables_in_db1 |
++---------------+
+| tbl1          |
++---------------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> desc tbl1;
++-------+------+------+------+---------+-------+
+| Field | Type | Null | Key  | Default | Extra |
++-------+------+------+------+---------+-------+
+| k1    | INT  | Yes  | true | NULL    |       |
++-------+------+------+------+---------+-------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> select * from tbl1;
++------+
+| k1   |
++------+
+|    1 |
+|    2 |
+|    3 |
+|    4 |
++------+
+4 rows in set (0.19 sec)
+```
+
+#### 参数说明：
+
+参数 | 说明
+---|---
+**jdbc.user** | The username used to connect to the database
+**jdbc.password** | The password used to connect to the database
+**jdbc.jdbc_url** | The identifier used to connect to the specified database
+**jdbc.driver_url** | The url of JDBC driver package
+**jdbc.driver_class** | The class of JDBC driver
+
 ### Connect Aliyun Data Lake Formation
 
 > [What is Data Lake Formation](https://www.alibabacloud.com/product/datalake-formation)
 
 1. Create hive-site.xml
 
-    Create hive-site.xml and put it in `fe/conf` and `be/conf`.
+    Create hive-site.xml and put it in `fe/conf`.
     
     ```
     <?xml version="1.0"?>
@@ -359,16 +545,25 @@ Parameter | Description
 
 2. Restart FE and create a catalog with the `CREATE CATALOG` statement.
 
-    ```
+    HMS resource will read and analyze fe/conf/hive-site.xml
+    ```sql
+    -- 1.2.0+ Version
+    CREATE RESOURCE dlf_resource PROPERTIES (
+        "type"="hms",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    )
+    CREATE CATALOG dlf WITH RESOURCE dlf_resource;
+
+    -- 1.2.0 Version
     CREATE CATALOG dlf PROPERTIES (
         "type"="hms",
         "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-    );
+    )
     ```
     
     where `type` is fixed to `hms`. The value of `hive.metastore.uris` can be filled in at will, but it will not be used in practice. But it needs to be filled in the standard hive metastore thrift uri format.
 
-After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
+    After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
 
 ## Column Type Mapping
 
@@ -418,6 +613,33 @@ For Hive/Iceberge/Hudi
 | array | | Comming soon |
 |other| string ||
 
+### JDBC
+
+#### MYSQL
+ MYSQL Type | Doris Type | Comment |
+|---|---|---|
+| BOOLEAN | BOOLEAN | |
+| TINYINT | TINYINT | |
+| SMALLINT | SMALLINT | |
+| MEDIUMINT | INT | |
+| INT | INT | |
+| BIGINT | BIGINT | |
+| UNSIGNED TINYINT | SMALLINT | DORIS does not have the UNSIGNED data type, so expand the type|
+| UNSIGNED MEDIUMINT | INT | DORIS does not have the UNSIGNED data type, so expand the type|
+| UNSIGNED INT | BIGINT | DORIS does not have the UNSIGNED data type, so expand the type|
+| UNSIGNED BIGINT | STRING | |
+| FLOAT | FLOAT | |
+| DOUBLE | DOUBLE | |
+| DECIMAL | DECIMAL | |
+| DATE | DATE | |
+| TIMESTAMP | DATETIME | |
+| DATETIME | DATETIME | |
+| YEAR | SMALLINT | |
+| TIME | STRING | |
+| CHAR | CHAR | |
+| VARCHAR | STRING | |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
 ## Privilege Management
 
 Using Doris to access the databases and tables in the External Catalog is not controlled by the permissions of the external data source itself, but relies on Doris's own permission access management.
@@ -428,7 +650,7 @@ The privilege management of Doris provides an extension to the Cataloig level. F
 
 Metadata changes of external data sources, such as creating, dropping tables, adding or dropping columns, etc., will not be synchronized to Doris.
 
-Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) command.
+Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
 Automatic synchronization of metadata will be supported soon.
 

@@ -19,7 +19,6 @@
 
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
-#include <vec/columns/columns_number.h>
 
 #include "schema_desc.h"
 #include "vec/data_types/data_type_array.h"
@@ -27,8 +26,10 @@
 
 namespace doris::vectorized {
 
-Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
-                                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
+Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
+                                   const ParquetReadColumn& column,
+                                   const tparquet::RowGroup& row_group,
+                                   const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size) {
     if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
@@ -36,13 +37,13 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
     }
     if (field->type.type == TYPE_ARRAY) {
         tparquet::ColumnChunk chunk = row_group.columns[field->children[0].physical_column_index];
-        ArrayColumnReader* array_reader = new ArrayColumnReader(ctz);
+        ArrayColumnReader* array_reader = new ArrayColumnReader(row_ranges, ctz);
         array_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(array_reader->init(file, field, &chunk, max_buf_size));
         reader.reset(array_reader);
     } else {
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
-        ScalarColumnReader* scalar_reader = new ScalarColumnReader(ctz);
+        ScalarColumnReader* scalar_reader = new ScalarColumnReader(row_ranges, ctz);
         scalar_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, max_buf_size));
         reader.reset(scalar_reader);
@@ -61,13 +62,9 @@ void ParquetColumnReader::init_column_metadata(const tparquet::ColumnChunk& chun
 
 void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end_index,
                                                 std::list<RowRange>& read_ranges) {
-    if (_row_ranges->empty()) {
-        read_ranges.emplace_back(start_index, end_index);
-        return;
-    }
     int index = _row_range_index;
-    while (index < _row_ranges->size()) {
-        const RowRange& read_range = (*_row_ranges)[index];
+    while (index < _row_ranges.size()) {
+        const RowRange& read_range = _row_ranges[index];
         if (read_range.last_row <= start_index) {
             index++;
             _row_range_index++;
@@ -83,8 +80,8 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
     }
 }
 
-Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                                size_t max_buf_size) {
+Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field,
+                                tparquet::ColumnChunk* chunk, size_t max_buf_size) {
     _stream_reader =
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size(),
                                          std::min((size_t)_metadata->size(), max_buf_size));
@@ -216,7 +213,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             // lazy read
             size_t remaining_num_values = 0;
             for (auto& range : read_ranges) {
-                remaining_num_values = range.last_row - range.first_row;
+                remaining_num_values += range.last_row - range.first_row;
             }
             if (batch_size >= remaining_num_values &&
                 select_vector.can_filter_all(remaining_num_values)) {
@@ -276,8 +273,8 @@ void ArrayColumnReader::_reserve_def_levels_buf(size_t size) {
     }
 }
 
-Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                               size_t max_buf_size) {
+Status ArrayColumnReader::init(io::FileReaderSPtr file, FieldSchema* field,
+                               tparquet::ColumnChunk* chunk, size_t max_buf_size) {
     _stream_reader =
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size(),
                                          std::min((size_t)_metadata->size(), max_buf_size));
@@ -330,6 +327,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = doris_column->assume_mutable();
     }
 
+    // generate array offset
     size_t real_batch_size = 0;
     size_t num_values = 0;
     std::vector<size_t> element_offsets;
@@ -339,7 +337,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
     level_t* definitions = _def_levels_buf.get();
     _chunk_reader->get_def_levels(definitions, num_values);
     _def_offset = 0;
-    // read_range   delete_row_range
+
     // generate the row ranges that should be read
     std::list<RowRange> read_ranges;
     _generate_read_ranges(_current_row_index, _current_row_index + real_batch_size, read_ranges);

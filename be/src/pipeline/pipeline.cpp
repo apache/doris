@@ -21,23 +21,17 @@
 
 namespace doris::pipeline {
 
-Status Pipeline::prepare(RuntimeState* state) {
+void Pipeline::_init_profile() {
     std::stringstream ss;
     ss << "Pipeline"
        << " (pipeline id=" << _pipeline_id << ")";
     _pipeline_profile.reset(new RuntimeProfile(ss.str()));
-    for (auto& op : _operator_builders) {
-        RETURN_IF_ERROR(op->prepare(state));
-    }
-    RETURN_IF_ERROR(_sink->prepare(state));
-    return Status::OK();
 }
 
 Status Pipeline::build_operators(Operators& operators) {
     OperatorPtr pre;
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
-        RETURN_IF_ERROR(o->init(operator_t->exec_node(), _context->get_runtime_state()));
         if (pre) {
             o->set_child(pre);
         }
@@ -45,13 +39,6 @@ Status Pipeline::build_operators(Operators& operators) {
         pre = std::move(o);
     }
     return Status::OK();
-}
-
-void Pipeline::close(RuntimeState* state) {
-    for (auto& op : _operator_builders) {
-        op->close(state);
-    }
-    _sink->close(state);
 }
 
 Status Pipeline::add_operator(OperatorBuilderPtr& op) {

@@ -97,7 +97,7 @@ struct decimal12_t {
 
         if (sign != nullptr) {
             if (sign != value_string) {
-                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>();
             } else {
                 ++value_string;
             }

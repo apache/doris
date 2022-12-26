@@ -46,6 +46,9 @@ public class FeConstants {
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
 
+    // set to true to disable internal schema db
+    public static boolean disableInternalSchemaDb = false;
+
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
 
@@ -73,7 +76,9 @@ public class FeConstants {
     public static String FS_PREFIX_BOS = "bos";
     public static String FS_PREFIX_COS = "cos";
     public static String FS_PREFIX_OBS = "obs";
+    public static String FS_PREFIX_OFS = "ofs";
     public static String FS_PREFIX_HDFS = "hdfs";
     public static String FS_PREFIX_FILE = "file";
     public static final String INTERNAL_DB_NAME = "__internal_schema";
+    public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
 }

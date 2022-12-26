@@ -21,9 +21,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_sort
+
+<version since="1.2.0">
+
+array_sort
+
+</version>
 
 ### description
 
@@ -78,4 +83,3 @@ mysql> select k1, k2, array_sort(k2) from array_test01;
 
 ARRAY, SORT, ARRAY_SORT
 
-</version>

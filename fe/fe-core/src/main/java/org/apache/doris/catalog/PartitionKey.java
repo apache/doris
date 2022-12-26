@@ -59,7 +59,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax));
+            partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
         return partitionKey;
@@ -71,15 +71,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         Preconditions.checkArgument(keys.size() <= columns.size());
         int i;
         for (i = 0; i < keys.size(); ++i) {
-            partitionKey.keys.add(keys.get(i).getValue(
-                    Type.fromPrimitiveType(columns.get(i).getDataType())));
+            partitionKey.keys.add(keys.get(i).getValue(columns.get(i).getType()));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
-            Type type = Type.fromPrimitiveType(columns.get(i).getDataType());
-            partitionKey.keys.add(LiteralExpr.createInfinity(type, false));
+            partitionKey.keys.add(LiteralExpr.createInfinity(columns.get(i).getType(), false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -337,7 +335,19 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         throw new IOException("type[" + type.name() + "] not supported: ");
                 }
             }
-            literal.setType(Type.fromPrimitiveType(type));
+            if (type != PrimitiveType.DATETIMEV2) {
+                literal.setType(Type.fromPrimitiveType(type));
+            }
+            if (type.isDateV2Type()) {
+                try {
+                    literal.checkValueValid();
+                } catch (AnalysisException e) {
+                    LOG.warn("Value {} for partition key [type = {}] is invalid! This is a bug exists in Doris "
+                            + "1.2.0 and fixed since Doris 1.2.1. You should create this table again using Doris "
+                            + "1.2.1+ .", literal.getStringValue(), type);
+                    ((DateLiteral) literal).setMinValue();
+                }
+            }
             keys.add(literal);
         }
     }

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -36,7 +37,7 @@ public class ModifyColumnClauseTest {
     }
 
     @Test
-    public void testNormal(@Mocked ColumnDef definition) throws AnalysisException {
+    public void testNormal(@Mocked ColumnDef definition) throws AnalysisException, DdlException {
         Column column = new Column("tsetCol", PrimitiveType.INT);
         new Expectations() {
             {
@@ -76,7 +77,7 @@ public class ModifyColumnClauseTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoColDef() throws AnalysisException {
+    public void testNoColDef() throws AnalysisException, DdlException {
         ModifyColumnClause clause = new ModifyColumnClause(null, null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");

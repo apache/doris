@@ -211,8 +211,6 @@ Status VBrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Close
-    _batch_queue.clear();
     return ExecNode::close(state);
 }
 
@@ -282,8 +280,7 @@ void VBrokerScanNode::scanner_worker(int start_idx, int length) {
                 _scan_ranges[start_idx + i].scan_range.broker_scan_range;
         status = scanner_scan(scan_range, &counter);
         if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i
-                         << "] process failed. status=" << status.get_error_msg();
+            LOG(WARNING) << "Scanner[" << start_idx + i << "] process failed. status=" << status;
         }
     }
 

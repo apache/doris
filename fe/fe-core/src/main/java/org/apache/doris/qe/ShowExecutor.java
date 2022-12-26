@@ -38,6 +38,7 @@ import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
+import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
@@ -85,7 +86,6 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
-import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -179,7 +179,6 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -360,8 +359,6 @@ public class ShowExecutor {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
-        } else if (stmt instanceof ShowTableStatsStmt) {
-            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof ShowTableCreationStmt) {
@@ -378,6 +375,8 @@ public class ShowExecutor {
             handleShowPolicy();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
+        } else if (stmt instanceof ShowCreateCatalogStmt) {
+            handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
         } else if (stmt instanceof AdminCopyTabletStmt) {
@@ -704,7 +703,8 @@ public class ShowExecutor {
                 continue;
             }
 
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName, PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
+                    fullName, PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -722,21 +722,24 @@ public class ShowExecutor {
     private void handleShowTable() throws AnalysisException {
         ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        // TODO(gaoxin): Whether to support "show tables from `ctl.db`" syntax in show statement?
-        String catalogName = ctx.getDefaultCatalog();
-        DatabaseIf<TableIf> db = ctx.getCurrentCatalog().getDbOrAnalysisException(showTableStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(showTableStmt.getCatalog())
+                .getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
                     CaseSensibility.TABLE.getCaseSensibility());
         }
         for (TableIf tbl : db.getTables()) {
+            if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
+                continue;
+            }
             if (matcher != null && !matcher.match(tbl.getName())) {
                 continue;
             }
             // check tbl privs
             if (!Env.getCurrentEnv().getAuth()
-                    .checkTblPriv(ConnectContext.get(), catalogName, db.getFullName(), tbl.getName(),
+                    .checkTblPriv(ConnectContext.get(), showTableStmt.getCatalog(), db.getFullName(), tbl.getName(),
                             PrivPredicate.SHOW)) {
                 continue;
             }
@@ -762,7 +765,9 @@ public class ShowExecutor {
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getCurrentCatalog().getDbNullable(showStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(showStmt.getCatalog())
+                .getDbOrAnalysisException(showStmt.getDb());
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
@@ -866,7 +871,7 @@ public class ShowExecutor {
     // Show create table
     private void handleShowCreateTable() throws AnalysisException {
         ShowCreateTableStmt showStmt = (ShowCreateTableStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalog(showStmt.getCtl())
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
                 .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
@@ -1878,10 +1883,10 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
-    private void handleShowDynamicPartition() {
+    private void handleShowDynamicPartition() throws AnalysisException {
         ShowDynamicPartitionStmt showDynamicPartitionStmt = (ShowDynamicPartitionStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbNullable(showDynamicPartitionStmt.getDb());
+        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showDynamicPartitionStmt.getDb());
         if (db != null && (db instanceof Database)) {
             List<Table> tableList = db.getTables();
             for (Table tbl : tableList) {
@@ -2141,12 +2146,6 @@ public class ShowExecutor {
 
     }
 
-    private void handleShowTableStats() throws AnalysisException {
-        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
-        List<List<String>> results = Env.getCurrentEnv().getStatisticsManager().showTableStatsList(showTableStatsStmt);
-        resultSet = new ShowResultSet(showTableStatsStmt.getMetaData(), results);
-    }
-
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
@@ -2312,11 +2311,16 @@ public class ShowExecutor {
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog().getName());
     }
 
+    // Show create catalog
+    private void handleShowCreateCatalog() throws AnalysisException {
+        ShowCreateCatalogStmt showStmt = (ShowCreateCatalogStmt) stmt;
+
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCreateCatalog(showStmt);
+    }
+
+
     private void handleShowAnalyze() throws AnalysisException {
-        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
-        List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        // TODO: Support later
     }
 
     private void handleCopyTablet() throws AnalysisException {

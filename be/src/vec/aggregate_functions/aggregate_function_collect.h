@@ -141,7 +141,7 @@ struct AggregateFunctionCollectListData<StringRef> {
     using ColVecType = ColumnString;
     MutableColumnPtr data;
 
-    AggregateFunctionCollectListData<ElementType>() { data = ColVecType::create(); }
+    AggregateFunctionCollectListData() { data = ColVecType::create(); }
 
     void add(const IColumn& column, size_t row_num) { data->insert_from(column, row_num); }
 

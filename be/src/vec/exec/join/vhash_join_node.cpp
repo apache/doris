@@ -258,7 +258,10 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
                              tnode.hash_join_node.is_broadcast_join),
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
-                                        : std::vector<SlotId> {}) {
+                                        : std::vector<SlotId> {}),
+          _build_block_idx(0),
+          _build_side_mem_used(0),
+          _build_side_last_mem_used(0) {
     _runtime_filter_descs = tnode.runtime_filters;
     _arena = std::make_shared<Arena>();
     _hash_table_variants = std::make_shared<HashTableVariants>();
@@ -442,78 +445,33 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::close");
-    VExpr::close(_build_expr_ctxs, state);
-    VExpr::close(_probe_expr_ctxs, state);
-
-    if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
-    _release_mem();
     return VJoinNodeBase::close(state);
 }
 
-Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented HashJoin Node::get_next scalar");
+bool HashJoinNode::need_more_input_data() const {
+    return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
+           !_short_circuit_for_null_in_probe_side;
 }
 
-Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(_probe_timer);
+void HashJoinNode::prepare_for_next() {
+    _probe_index = 0;
+    _prepare_probe_block();
+}
 
+Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
+                          bool* eos) {
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
         // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
         *eos = true;
         return Status::OK();
     }
-    size_t probe_rows = _probe_block.rows();
-    if ((probe_rows == 0 || _probe_index == probe_rows) && !_probe_eos) {
-        _probe_index = 0;
-        _prepare_probe_block();
-
-        do {
-            SCOPED_TIMER(_probe_next_timer);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(0)->get_next_after_projects(state, &_probe_block, &_probe_eos),
-                    child(0)->get_next_span(), _probe_eos);
-        } while (_probe_block.rows() == 0 && !_probe_eos);
-
-        probe_rows = _probe_block.rows();
-        if (probe_rows != 0) {
-            COUNTER_UPDATE(_probe_rows_counter, probe_rows);
-            int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
-            _probe_columns.resize(probe_expr_ctxs_sz);
-
-            std::vector<int> res_col_ids(probe_expr_ctxs_sz);
-            RETURN_IF_ERROR(_do_evaluate(_probe_block, _probe_expr_ctxs, *_probe_expr_call_timer,
-                                         res_col_ids));
-            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
-            }
-            // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
-            //  so we have to initialize this flag by the first probe block.
-            if (!_has_set_need_null_map_for_probe) {
-                _has_set_need_null_map_for_probe = true;
-                _need_null_map_for_probe = _need_probe_null_map(_probe_block, res_col_ids);
-            }
-            if (_need_null_map_for_probe) {
-                if (_null_map_column == nullptr) {
-                    _null_map_column = ColumnUInt8::create();
-                }
-                _null_map_column->get_data().assign(probe_rows, (uint8_t)0);
-            }
-
-            RETURN_IF_ERROR(_extract_join_column<false>(_probe_block, _null_map_column,
-                                                        _probe_columns, res_col_ids));
-        }
-    }
-
-    Status st;
     _join_block.clear_column_data();
+
     MutableBlock mutable_join_block(&_join_block);
     Block temp_block;
 
+    Status st;
     if (_probe_index < _probe_block.rows()) {
         DCHECK(_has_set_need_null_map_for_probe);
         std::visit(
@@ -531,14 +489,15 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                                                      need_null_map_for_probe
                                                              ? &_null_map_column->get_data()
                                                              : nullptr,
-                                                     mutable_join_block, &temp_block, probe_rows);
+                                                     mutable_join_block, &temp_block,
+                                                     _probe_block.rows());
                             } else {
                                 st = process_hashtable_ctx.template do_process<
                                         need_null_map_for_probe, ignore_null>(
                                         arg,
                                         need_null_map_for_probe ? &_null_map_column->get_data()
                                                                 : nullptr,
-                                        mutable_join_block, &temp_block, probe_rows);
+                                        mutable_join_block, &temp_block, _probe_block.rows());
                             }
                         } else {
                             LOG(FATAL) << "FATAL: uninited hash table";
@@ -574,7 +533,6 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     } else {
         return Status::OK();
     }
-
     if (_is_outer_join) {
         _add_tuple_is_null_column(&temp_block);
     }
@@ -586,8 +544,71 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
+    return Status::OK();
+}
 
-    return st;
+Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool eos) {
+    _probe_eos = eos;
+    if (input_block->rows() > 0) {
+        COUNTER_UPDATE(_probe_rows_counter, _probe_block.rows());
+        int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
+        _probe_columns.resize(probe_expr_ctxs_sz);
+
+        std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+        RETURN_IF_ERROR(
+                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
+        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+            _probe_column_convert_to_null = _convert_block_to_null(*input_block);
+        }
+        // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
+        //  so we have to initialize this flag by the first probe block.
+        if (!_has_set_need_null_map_for_probe) {
+            _has_set_need_null_map_for_probe = true;
+            _need_null_map_for_probe = _need_probe_null_map(*input_block, res_col_ids);
+        }
+        if (_need_null_map_for_probe) {
+            if (_null_map_column == nullptr) {
+                _null_map_column = ColumnUInt8::create();
+            }
+            _null_map_column->get_data().assign(input_block->rows(), (uint8_t)0);
+        }
+
+        RETURN_IF_ERROR(_extract_join_column<false>(*input_block, _null_map_column, _probe_columns,
+                                                    res_col_ids));
+        if (&_probe_block != input_block) {
+            input_block->swap(_probe_block);
+        }
+    }
+    return Status::OK();
+}
+
+Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_probe_timer);
+
+    if (_short_circuit_for_null_in_probe_side) {
+        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
+        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+        *eos = true;
+        return Status::OK();
+    }
+    while (need_more_input_data()) {
+        prepare_for_next();
+        SCOPED_TIMER(_probe_next_timer);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &_probe_block, &_probe_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), _probe_eos);
+
+        RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
+    }
+
+    return pull(state, output_block, eos);
 }
 
 void HashJoinNode::_add_tuple_is_null_column(Block* block) {
@@ -638,6 +659,14 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
+    RETURN_IF_ERROR(VJoinNodeBase::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    RETURN_IF_CANCELLED(state);
+    return Status::OK();
+}
+
+Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
@@ -649,25 +678,24 @@ Status HashJoinNode::open(RuntimeState* state) {
     if (_vother_join_conjunct_ptr) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
-    RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-    RETURN_IF_CANCELLED(state);
     return Status::OK();
+}
+
+void HashJoinNode::release_resource(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::release_resources");
+    VExpr::close(_build_expr_ctxs, state);
+    VExpr::close(_probe_expr_ctxs, state);
+
+    if (_vother_join_conjunct_ptr) {
+        (*_vother_join_conjunct_ptr)->close(state);
+    }
+    _release_mem();
+    VJoinNodeBase::release_resource(state);
 }
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
-
-    SCOPED_TIMER(_build_timer);
-    MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
-
-    uint8_t index = 0;
-    int64_t mem_used = 0;
-    int64_t last_mem_used = 0;
     bool eos = false;
-
-    // make one block for each 4 gigabytes
-    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (_should_build_hash_table) {
         Block block;
@@ -677,50 +705,82 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
 
-            RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
-                                           child(1)->get_next_span(), eos);
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(1)->get_next_after_projects(
+                            state, &block, &eos,
+                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                           bool*)) &
+                                              ExecNode::get_next,
+                                      _children[1], std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3)),
+                    child(1)->get_next_span(), eos);
 
-            mem_used += block.allocated_bytes();
+            RETURN_IF_ERROR(sink(state, &block, eos));
+        }
+    } else {
+        RETURN_IF_ERROR(sink(state, nullptr, eos));
+    }
+    return Status::OK();
+}
 
-            if (block.rows() != 0) {
-                SCOPED_TIMER(_build_side_merge_block_timer);
-                RETURN_IF_CATCH_BAD_ALLOC(mutable_block.merge(block));
-            }
+Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    SCOPED_TIMER(_build_timer);
 
-            if (UNLIKELY(mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
-                if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
-                    return Status::NotSupported(
-                            strings::Substitute("data size of right table in hash join > $0",
-                                                BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
-                }
-                _build_blocks->emplace_back(mutable_block.to_block());
+    // make one block for each 4 gigabytes
+    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-                COUNTER_UPDATE(_build_blocks_memory_usage, (*_build_blocks)[index].bytes());
+    if (_short_circuit_for_null_in_probe_side) {
+        // TODO: if _short_circuit_for_null_in_probe_side is true we should finish current pipeline task.
+        DCHECK(state->enable_pipeline_exec());
+        return Status::OK();
+    }
+    if (_should_build_hash_table) {
+        // If eos or have already met a null value using short-circuit strategy, we do not need to pull
+        // data from probe side.
+        _build_side_mem_used += in_block->allocated_bytes();
 
-                // TODO:: Rethink may we should do the process after we receive all build blocks ?
-                // which is better.
-                RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[index], index));
-
-                mutable_block = MutableBlock();
-                ++index;
-                last_mem_used = mem_used;
-            }
+        if (in_block->rows() != 0) {
+            SCOPED_TIMER(_build_side_merge_block_timer);
+            RETURN_IF_CATCH_BAD_ALLOC(_build_side_mutable_block.merge(*in_block));
         }
 
-        if (!mutable_block.empty() && !_short_circuit_for_null_in_probe_side) {
+        if (UNLIKELY(_build_side_mem_used - _build_side_last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
             if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                 return Status::NotSupported(
                         strings::Substitute("data size of right table in hash join > $0",
                                             BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
             }
-            _build_blocks->emplace_back(mutable_block.to_block());
-            COUNTER_UPDATE(_build_blocks_memory_usage, (*_build_blocks)[index].bytes());
-            RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[index], index));
+            _build_blocks->emplace_back(_build_side_mutable_block.to_block());
+
+            COUNTER_UPDATE(_build_blocks_memory_usage, (*_build_blocks)[_build_block_idx].bytes());
+
+            // TODO:: Rethink may we should do the process after we receive all build blocks ?
+            // which is better.
+            RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[_build_block_idx],
+                                                 _build_block_idx));
+
+            _build_side_mutable_block = MutableBlock();
+            ++_build_block_idx;
+            _build_side_last_mem_used = _build_side_mem_used;
         }
     }
-    child(1)->close(state);
 
-    if (_should_build_hash_table) {
+    if (_should_build_hash_table && eos) {
+        // For pipeline engine, children should be closed once this pipeline task is finished.
+        if (!state->enable_pipeline_exec()) {
+            child(1)->close(state);
+        }
+        if (!_build_side_mutable_block.empty()) {
+            if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
+                return Status::NotSupported(
+                        strings::Substitute("data size of right table in hash join > $0",
+                                            BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
+            }
+            _build_blocks->emplace_back(_build_side_mutable_block.to_block());
+            COUNTER_UPDATE(_build_blocks_memory_usage, (*_build_blocks)[_build_block_idx].bytes());
+            RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[_build_block_idx],
+                                                 _build_block_idx));
+        }
         auto ret = std::visit(Overload {[&](std::monostate&) -> Status {
                                             LOG(FATAL) << "FATAL: uninited hash table";
                                             __builtin_unreachable();
@@ -752,7 +812,12 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
             }
             _shared_hashtable_controller->signal(id());
         }
-    } else {
+    } else if (!_should_build_hash_table &&
+               ((state->enable_pipeline_exec() && eos) || !state->enable_pipeline_exec())) {
+        // TODO: For pipeline engine, we should finish this pipeline task if _should_build_hash_table is false
+        if (!state->enable_pipeline_exec()) {
+            child(1)->close(state);
+        }
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
@@ -795,8 +860,21 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         }
     }
 
-    _process_hashtable_ctx_variants_init(state);
+    if (eos || (!_should_build_hash_table && !state->enable_pipeline_exec())) {
+        _process_hashtable_ctx_variants_init(state);
+    }
     return Status::OK();
+}
+
+void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
+         << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
+         << " _probe_eos=" << _probe_eos
+         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+    *out << ")\n children=(";
+    ExecNode::debug_string(indentation_level, out);
+    *out << ")";
 }
 
 template <bool BuildSide>

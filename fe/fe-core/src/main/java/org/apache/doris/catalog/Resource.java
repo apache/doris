@@ -25,9 +25,19 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.NotifyUpdateStoragePolicyTask;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -35,17 +45,25 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
-public abstract class Resource implements Writable {
+public abstract class Resource implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
+    public static final String REFERENCE_SPLIT = "@";
 
     public enum ResourceType {
         UNKNOWN,
         SPARK,
         ODBC_CATALOG,
         S3,
-        JDBC;
+        JDBC,
+        HDFS,
+        HMS,
+        ES;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -57,10 +75,23 @@ public abstract class Resource implements Writable {
         }
     }
 
+    public enum ReferenceType {
+        TVF, // table valued function
+        LOAD,
+        EXPORT,
+        REPOSITORY,
+        OUTFILE,
+        TABLE,
+        POLICY,
+        CATALOG
+    }
+
     @SerializedName(value = "name")
     protected String name;
     @SerializedName(value = "type")
     protected ResourceType type;
+    @SerializedName(value = "references")
+    protected Map<String, ReferenceType> references = Maps.newHashMap();
 
     public Resource() {
     }
@@ -74,6 +105,26 @@ public abstract class Resource implements Writable {
         Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
         resource.setProperties(stmt.getProperties());
         return resource;
+    }
+
+    public synchronized boolean removeReference(String referenceName, ReferenceType type) {
+        String fullName = referenceName + REFERENCE_SPLIT + type.name();
+        if (references.remove(fullName) != null) {
+            LOG.info("Reference(type={}, name={}) is removed from resource {}, current set: {}",
+                    type, referenceName, name, references);
+            return true;
+        }
+        return false;
+    }
+
+    public synchronized boolean addReference(String referenceName, ReferenceType type) {
+        String fullName = referenceName + REFERENCE_SPLIT + type.name();
+        if (references.put(fullName, type) == null) {
+            LOG.info("Reference(type={}, name={}) is added to resource {}, current set: {}",
+                    type, referenceName, name, references);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -98,6 +149,15 @@ public abstract class Resource implements Writable {
             case JDBC:
                 resource = new JdbcResource(name);
                 break;
+            case HDFS:
+                resource = new HdfsResource(name);
+                break;
+            case HMS:
+                resource = new HMSResource(name);
+                break;
+            case ES:
+                resource = new EsResource(name);
+                break;
             default:
                 throw new DdlException("Unknown resource type: " + type);
         }
@@ -118,14 +178,16 @@ public abstract class Resource implements Writable {
      * @param properties
      * @throws DdlException
      */
-    public abstract void modifyProperties(Map<String, String> properties) throws DdlException;
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        notifyUpdate();
+    }
 
     /**
      * Check properties in child resources
      * @param properties
      * @throws AnalysisException
      */
-    public abstract void checkProperties(Map<String, String> properties) throws AnalysisException;
+    public void checkProperties(Map<String, String> properties) throws AnalysisException { }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
         if (!Strings.isNullOrEmpty(value)) {
@@ -138,8 +200,14 @@ public abstract class Resource implements Writable {
      */
     protected abstract void setProperties(Map<String, String> properties) throws DdlException;
 
-
     public abstract Map<String, String> getCopiedProperties();
+
+    public void dropResource() throws DdlException {
+        if (!references.isEmpty()) {
+            String msg = String.join(", ", references.keySet());
+            throw new DdlException(String.format("Resource %s is used by: %s", name, msg));
+        }
+    }
 
     /**
      * Fill BaseProcResult with different properties in child resources
@@ -165,6 +233,14 @@ public abstract class Resource implements Writable {
     }
 
     @Override
+    public void gsonPostProcess() throws IOException {
+        // Resource is loaded from meta with older version
+        if (references == null) {
+            references = Maps.newHashMap();
+        }
+    }
+
+    @Override
     public Resource clone() {
         Resource copied = DeepCopy.copy(this, Resource.class, FeConstants.meta_version);
         if (copied == null) {
@@ -172,5 +248,67 @@ public abstract class Resource implements Writable {
             return null;
         }
         return copied;
+    }
+
+    private void notifyUpdate() {
+        references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
+            if (type == ReferenceType.POLICY) {
+                SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                AgentBatchTask batchTask = new AgentBatchTask();
+
+                Map<String, String> copiedProperties = getCopiedProperties();
+
+                for (Long beId : systemInfoService.getBackendIds(true)) {
+                    for (Map.Entry<String, ReferenceType> ref : refs) {
+                        String policyName = ref.getKey().split(REFERENCE_SPLIT)[0];
+                        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
+                                .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
+                        Optional<Policy> findPolicy = policiesByType.stream()
+                                .filter(p -> p.getType() == PolicyTypeEnum.STORAGE
+                                        && policyName.equals(p.getPolicyName()))
+                                .findAny();
+                        LOG.info("find policy in {} ", policiesByType);
+                        if (!findPolicy.isPresent()) {
+                            return;
+                        }
+                        // add policy's coolDown ttl、coolDown data、policy name to map
+                        Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
+                        StoragePolicy used = (StoragePolicy) findPolicy.get();
+                        tmpMap.put(StoragePolicy.COOLDOWN_DATETIME,
+                                String.valueOf(used.getCooldownTimestampMs()));
+
+                        final String[] cooldownTtl = {"-1"};
+                        Optional.ofNullable(used.getCooldownTtl())
+                                .ifPresent(date -> cooldownTtl[0] = used.getCooldownTtl());
+                        tmpMap.put(StoragePolicy.COOLDOWN_TTL, cooldownTtl[0]);
+
+                        tmpMap.put(StoragePolicy.MD5_CHECKSUM, used.getMd5Checksum());
+
+                        NotifyUpdateStoragePolicyTask modifyS3ResourcePropertiesTask =
+                                new NotifyUpdateStoragePolicyTask(beId, used.getPolicyName(), tmpMap);
+                        LOG.info("notify be: {}, policy name: {}, "
+                                        + "properties: {} to modify S3 resource batch task.",
+                                beId, used.getPolicyName(), tmpMap);
+                        batchTask.addTask(modifyS3ResourcePropertiesTask);
+                    }
+                }
+                AgentTaskExecutor.submit(batchTask);
+            } else if (type == ReferenceType.CATALOG) {
+                for (Map.Entry<String, ReferenceType> ref : refs) {
+                    String catalogName = ref.getKey().split(REFERENCE_SPLIT)[0];
+                    CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+                    if (catalog == null) {
+                        LOG.warn("Can't find the reference catalog {} for resource {}", catalogName, name);
+                        continue;
+                    }
+                    if (!name.equals(catalog.getResource())) {
+                        LOG.warn("Failed to update catalog {} for different resource "
+                                + "names(resource={}, catalog.resource={})", catalogName, name, catalog.getResource());
+                        continue;
+                    }
+                    catalog.notifyPropertiesUpdated();
+                }
+            }
+        });
     }
 }

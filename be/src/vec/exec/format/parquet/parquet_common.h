@@ -41,11 +41,19 @@ namespace doris::vectorized {
 using level_t = int16_t;
 
 struct RowRange {
-    RowRange() {}
+    RowRange() = default;
     RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
 
     int64_t first_row;
     int64_t last_row;
+
+    bool operator<(const RowRange& range) const { return first_row < range.first_row; }
+
+    std::string debug_string() const {
+        std::stringstream ss;
+        ss << "[" << first_row << "," << last_row << ")";
+        return ss.str();
+    }
 };
 
 struct ParquetReadColumn {

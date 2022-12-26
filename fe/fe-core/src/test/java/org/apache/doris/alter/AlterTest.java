@@ -118,7 +118,8 @@ public class AlterTest {
                 + "PROPERTIES('replication_num' = '1');");
 
         createTable(
-                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 time(3),\n" + "    v1 int \n,"
+                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
+                        + "    v1 int \n,"
                         + "    v2 datetime(3)\n" + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
@@ -135,20 +136,20 @@ public class AlterTest {
         // s3 resource
         createRemoteStorageResource(
                 "create resource \"remote_s3\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
-                        + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
-                        + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
-                        + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
-                        + "   \"s3_bucket\" = \"test-bucket\"\n"
+                        + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
+                        + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
+                        + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStorageResource(
                 "create resource \"remote_s3_1\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
-                        + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
-                        + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
-                        + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
-                        + "   \"s3_bucket\" = \"test-bucket\"\n"
+                        + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
+                        + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
+                        + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStoragePolicy(
@@ -410,7 +411,7 @@ public class AlterTest {
         alterTable(stmt, true);
 
         // no conflict
-        stmt = "alter table test.tbl6 add column k3 int, add column k4 time(6)";
+        stmt = "alter table test.tbl6 add column k3 int, add column k4 datetime(6)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(false);
 

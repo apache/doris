@@ -83,6 +83,8 @@ public:
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
+    inline const int64_t cumulative_promotion_size() const;
+    inline void set_cumulative_promotion_size(int64_t new_size);
 
     // Disk space occupied by tablet, contain local and remote.
     size_t tablet_footprint();
@@ -390,7 +392,8 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
-    Status _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+    Status _check_pk_in_pre_segments(RowsetId rowset_id,
+                                     const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
                                      const Slice& key, const Version& version,
                                      DeleteBitmapPtr delete_bitmap, RowLocation* loc);
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
@@ -445,6 +448,7 @@ private:
     // timestamp of last base compaction success
     std::atomic<int64_t> _last_base_compaction_success_millis;
     std::atomic<int64_t> _cumulative_point;
+    std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
 
@@ -510,6 +514,14 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
             << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
+}
+
+inline const int64_t Tablet::cumulative_promotion_size() const {
+    return _cumulative_promotion_size;
+}
+
+inline void Tablet::set_cumulative_promotion_size(int64_t new_size) {
+    _cumulative_promotion_size = new_size;
 }
 
 inline bool Tablet::enable_unique_key_merge_on_write() const {

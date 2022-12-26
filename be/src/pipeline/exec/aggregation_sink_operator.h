@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "agg_context.h"
 #include "operator.h"
 
 namespace doris {
@@ -28,37 +27,19 @@ class Block;
 } // namespace vectorized
 
 namespace pipeline {
-class AggSinkOperatorBuilder;
-class AggSinkOperator : public Operator {
+
+class AggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
 public:
-    AggSinkOperator(AggSinkOperatorBuilder* operator_builder, vectorized::AggregationNode*);
-
-    Status prepare(RuntimeState*) override;
-    Status open(RuntimeState* state) override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-
-    bool can_write() override;
-
-    Status close(RuntimeState* state) override;
-
-    Status finalize(doris::RuntimeState* state) override { return Status::OK(); }
-
-private:
-    vectorized::AggregationNode* _agg_node;
-};
-
-class AggSinkOperatorBuilder : public OperatorBuilder {
-public:
-    AggSinkOperatorBuilder(int32_t, const std::string&, vectorized::AggregationNode*);
+    AggSinkOperatorBuilder(int32_t, ExecNode*);
 
     OperatorPtr build_operator() override;
+    bool is_sink() const override { return true; };
+};
 
-    bool is_sink() const override;
-    bool is_source() const override;
-
-private:
-    vectorized::AggregationNode* _agg_node;
+class AggSinkOperator final : public StreamingOperator<AggSinkOperatorBuilder> {
+public:
+    AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
+    bool can_write() override { return true; };
 };
 
 } // namespace pipeline

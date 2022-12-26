@@ -518,7 +518,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * @return estimated row count
      */
     public long estimatedRowCount() {
-        long cardinality = 1;
+        long cardinality = 0;
         if (this instanceof OlapTable) {
             OlapTable table = (OlapTable) this;
             for (long selectedPartitionId : table.getPartitionIds()) {
@@ -527,6 +527,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
                 cardinality += baseIndex.getRowCount();
             }
         }
-        return cardinality;
+        return Math.max(cardinality, 1);
     }
 }

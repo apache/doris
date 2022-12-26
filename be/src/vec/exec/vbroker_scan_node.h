@@ -24,6 +24,7 @@
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/descriptors.h"
+
 namespace doris {
 
 class RuntimeState;
@@ -44,11 +45,6 @@ public:
     // Start broker scan using ParquetScanner or BrokerScanner.
     Status open(RuntimeState* state) override;
 
-    // Fill the next row batch by calling next() on the scanner,
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VBrokerScanNode::get_next.");
-    }
-
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Close the scanner, and report errors.
@@ -56,6 +52,9 @@ public:
 
     // No use
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+
+    bool can_read() { return true; }
+    bool can_finish() const { return _num_running_scanners == 0; }
 
 private:
     // Write debug string of this into out.
@@ -89,7 +88,6 @@ private:
     std::mutex _batch_queue_lock;
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
-    std::deque<std::shared_ptr<RowBatch>> _batch_queue;
 
     int _num_running_scanners;
 

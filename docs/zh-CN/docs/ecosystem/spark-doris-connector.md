@@ -280,7 +280,9 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.write.fields               | --                 | 指定写入Doris表的字段或者字段顺序，多列之间使用逗号分隔。<br />默认写入时要按照Doris表字段顺序写入全部字段。 |
 | sink.batch.size | 10000 | 单次写BE的最大行数 |
 | sink.max-retries | 1 | 写BE失败之后的重试次数 |
-| sink.properties.*                | --                 | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' |
+| sink.properties.*                | --                | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' |
+| doris.sink.task.partition.size   | --                | Doris写入任务对应的 Partition 个数。Spark RDD 经过过滤等操作，最后写入的 Partition 数可能会比较大，但每个 Partition 对应的记录数比较少，导致写入频率增加和计算资源浪费。<br/>此数值设置越小，可以降低 Doris 写入频率，减少 Doris 合并压力。该参数配合 doris.sink.task.use.repartition 使用。 |
+| doris.sink.task.use.repartition  | false             | 是否采用 repartition 方式控制 Doris写入 Partition数。默认值为 false，采用 coalesce 方式控制（注意: 如果在写入之前没有 Spark action 算子，可能会导致整个计算并行度降低）。<br/>如果设置为 true，则采用 repartition 方式（注意: 可设置最后 Partition 数，但会额外增加 shuffle 开销）。 |
 
 ### SQL 和 Dataframe 专有配置
 

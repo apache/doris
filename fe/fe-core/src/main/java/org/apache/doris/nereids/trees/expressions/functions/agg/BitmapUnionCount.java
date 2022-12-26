@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DataType;
@@ -42,28 +43,29 @@ public class BitmapUnionCount extends AggregateFunction
         super("bitmap_union_count", arg0);
     }
 
-    public BitmapUnionCount(AggregateParam aggregateParam, Expression arg0) {
-        super("bitmap_union_count", aggregateParam, arg0);
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(BitmapType.INSTANCE);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return ImmutableList.of(BitmapType.INSTANCE);
+    public BitmapUnionCount withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
     }
 
     @Override
     public BitmapUnionCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnionCount(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public BitmapUnionCount withAggregateParam(AggregateParam aggregateParam) {
-        return new BitmapUnionCount(aggregateParam, child());
+        return new BitmapUnionCount(children.get(0));
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitBitmapUnionCount(this, context);
     }
 }

@@ -114,10 +114,8 @@ suite("test_json_load", "p0") {
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
     
-    def load_json_data = {new_json_reader_flag, label, strip_flag, read_flag, format_flag, exprs, json_paths, 
+    def load_json_data = {label, strip_flag, read_flag, format_flag, exprs, json_paths, 
                         json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false ->
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
         
         // load the json data
         streamLoad {
@@ -150,9 +148,6 @@ suite("test_json_load", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
     }
     
     def load_from_hdfs1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
@@ -212,17 +207,7 @@ suite("test_json_load", "p0") {
         
         create_test_table1.call(testTable)
 
-        load_json_data.call('false', 'test_json_load_case1', 'true', '', 'json', '', '', '', '', '', 'simple_json.json')
-
-        sql "sync"
-        qt_select1 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table1.call(testTable)
-
-        load_json_data.call('true', 'test_json_load_case1_2', 'true', '', 'json', '', '', '', '', '', 'simple_json.json')
+        load_json_data.call('test_json_load_case1_2', 'true', '', 'json', '', '', '', '', '', 'simple_json.json')
 
         sql "sync"
         qt_select1 "select * from ${testTable} order by id"
@@ -237,17 +222,7 @@ suite("test_json_load", "p0") {
 
         create_test_table1.call(testTable)
 
-        load_json_data.call('false', 'test_json_load_case2', 'true', '', 'json', 'id= id * 10', '', '', '', '', 'simple_json.json')
-
-        sql "sync" 
-        qt_select2 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table1.call(testTable)
-
-        load_json_data.call('true', 'test_json_load_case2_2', 'true', '', 'json', 'id= id * 10', '', '', '', '', 'simple_json.json')
+        load_json_data.call('test_json_load_case2_2', 'true', '', 'json', 'id= id * 10', '', '', '', '', 'simple_json.json')
 
         sql "sync" 
         qt_select2 "select * from ${testTable} order by id"
@@ -262,18 +237,7 @@ suite("test_json_load", "p0") {
         
         create_test_table2.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case3', 'true', '', 'json', '', '[\"$.id\", \"$.code\"]',
-                            '', '', '', 'simple_json.json')
-
-        sql "sync"
-        qt_select3 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table2.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case3_2', 'true', '', 'json', '', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case3_2', 'true', '', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'simple_json.json')
 
         sql "sync"
@@ -289,18 +253,7 @@ suite("test_json_load", "p0") {
         
         create_test_table2.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case4', 'true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
-                            '', '', '', 'simple_json.json')
-
-        sql "sync"
-        qt_select4 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table2.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case4_2', 'true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
+        load_json_data.call('test_json_load_case4_2', 'true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
                             '', '', '', 'simple_json.json')
 
         sql "sync"
@@ -316,18 +269,7 @@ suite("test_json_load", "p0") {
         
         create_test_table2.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case5', 'true', 'true', 'json', '', '[\"$.id\", \"$.code\"]',
-                            '', '', '', 'multi_line_json.json')
-        
-        sql "sync"
-        qt_select5 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table2.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case5_2', 'true', 'true', 'json', '', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case5_2', 'true', 'true', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
         
         sql "sync"
@@ -343,19 +285,7 @@ suite("test_json_load", "p0") {
 
         create_test_table2.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case6', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
-                            '', '', '', 'multi_line_json.json')
-
-        sql "sync"
-        qt_select6 "select * from ${testTable} order by id"
-
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table2.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case6_2', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case6_2', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
 
         sql "sync"
@@ -371,18 +301,7 @@ suite("test_json_load", "p0") {
 
         create_test_table2.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case7', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
-                            '', 'id > 50', '', 'multi_line_json.json')
-
-        sql "sync"
-        qt_select7 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table2.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case7_2', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case7_2', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', '', 'multi_line_json.json')
 
         sql "sync"
@@ -398,19 +317,7 @@ suite("test_json_load", "p0") {
 
         create_test_table2.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case8', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
-                            '', 'id > 50', 'true', 'multi_line_json.json')
-
-        sql "sync"
-        qt_select8 "select * from ${testTable} order by id"
-
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table2.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case8_2', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case8_2', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', 'true', 'multi_line_json.json')
 
         sql "sync"
@@ -426,18 +333,7 @@ suite("test_json_load", "p0") {
 
         create_test_table1.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case9', '', 'true', 'json', 'id= id * 10', '',
-                            '$.item', '', 'true', 'nest_json.json')
-
-        sql "sync"
-        qt_select9 "select * from ${testTable} order by id"
-
-        // test new json reader
-         sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table1.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case9_2', '', 'true', 'json', 'id= id * 10', '',
+        load_json_data.call('test_json_load_case9_2', '', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'true', 'nest_json.json')
 
         sql "sync"
@@ -453,19 +349,7 @@ suite("test_json_load", "p0") {
 
         create_test_table1.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case10', '', 'true', 'json', 'id= id * 10', '',
-                            '$.item', '', 'true', 'invalid_json.json', true)
-
-        sql "sync"
-        qt_select10 "select * from ${testTable} order by id"
-
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table1.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case10_2', '', 'true', 'json', 'id= id * 10', '',
+        load_json_data.call('test_json_load_case10_2', '', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'true', 'invalid_json.json', true)
 
         sql "sync"
@@ -481,17 +365,7 @@ suite("test_json_load", "p0") {
         
         create_test_table1.call(testTable)
 
-        load_json_data.call('false', 'test_json_load_case11', 'true', '', 'json', '', '', '', '', '', 'simple_json2.json')
-
-        sql "sync"
-        qt_select11 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table1.call(testTable)
-
-        load_json_data.call('true', 'test_json_load_case11_2', 'true', '', 'json', '', '', '', '', '', 'simple_json2.json')
+        load_json_data.call('test_json_load_case11_2', 'true', '', 'json', '', '', '', '', '', 'simple_json2.json')
 
         sql "sync"
         qt_select11 "select * from ${testTable} order by id"
@@ -506,17 +380,7 @@ suite("test_json_load", "p0") {
         
         create_test_table1.call(testTable)
 
-        load_json_data.call('false', 'test_json_load_case12', 'true', '', 'json', '', '', '', '', '', 'simple_json2_lack_one_column.json')
-
-        sql "sync"
-        qt_select12 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table1.call(testTable)
-
-        load_json_data.call('true', 'test_json_load_case12_2', 'true', '', 'json', '', '', '', '', '', 'simple_json2_lack_one_column.json')
+        load_json_data.call('test_json_load_case12_2', 'true', '', 'json', '', '', '', '', '', 'simple_json2_lack_one_column.json')
 
         sql "sync"
         qt_select12 "select * from ${testTable} order by id"
@@ -529,8 +393,6 @@ suite("test_json_load", "p0") {
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table3.call(testTable)
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
         // load the json data
         streamLoad {
             table "${testTable}"
@@ -557,44 +419,6 @@ suite("test_json_load", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
-        sql "sync"
-        qt_select13 "select * from ${testTable} order by id"
-
-
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        create_test_table3.call(testTable)
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
-        // load the json data
-        streamLoad {
-            table "${testTable}"
-            
-            // set http request header params
-            set 'strip_outer_array', "true"
-            set 'format', "json"
-            set 'max_filter_ratio', '1'
-            file "simple_json2_lack_one_column.json" // import json file
-            time 10000 // limit inflight 10s
-
-            // if declared a check callback, the default check condition will ignore.
-            // So you must check all condition
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows + json.NumberFilteredRows)
-                assertEquals(json.NumberFilteredRows, 4)
-                assertEquals(json.NumberLoadedRows, 6)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
-            }
-        }
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
         sql "sync"
         qt_select13 "select * from ${testTable} order by id"
 
@@ -608,18 +432,7 @@ suite("test_json_load", "p0") {
 
         create_test_table1.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case14', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
-                            '$.item', '', 'true', 'nest_json.json')
-
-        sql "sync"
-        qt_select14 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table1.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case14_2', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case14_2', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '$.item', '', 'true', 'nest_json.json')
 
         sql "sync"
@@ -635,18 +448,7 @@ suite("test_json_load", "p0") {
         
         create_test_table1.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case15', '', 'true', 'json', 'id, code, city, id= id * 10',
-                            '[\"$.id\", \"$.code\", \"$.city\"]', '$.item', '', 'true', 'nest_json.json')
-
-        sql "sync"
-        qt_select15 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table1.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case15_2', '', 'true', 'json', 'id, code, city,id= id * 10',
+        load_json_data.call('test_json_load_case15_2', '', 'true', 'json', 'id, code, city,id= id * 10',
                             '[\"$.id\", \"$.code\", \"$.city\"]', '$.item', '', 'true', 'nest_json.json')
 
         sql "sync"
@@ -662,18 +464,7 @@ suite("test_json_load", "p0") {
         
         create_test_table1.call(testTable)
         
-        load_json_data.call('false', 'test_json_load_case16', 'true', '', 'json', 'id, code, city',
-                            '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'nest_json_array.json')
-
-        sql "sync"
-        qt_select16 "select * from ${testTable} order by id"
-
-        // test new json reader
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table1.call(testTable)
-        
-        load_json_data.call('true', 'test_json_load_case16_2', 'true', '', 'json', 'id, code, city',
+        load_json_data.call('test_json_load_case16_2', 'true', '', 'json', 'id, code, city',
                             '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'nest_json_array.json')
 
         sql "sync"
@@ -727,7 +518,7 @@ suite("test_json_load", "p0") {
             sql "DROP TABLE IF EXISTS ${testTable}"
 
             test_invalid_json_array_table.call(testTable)
-            load_json_data.call('false', 'test_json_load_case19', 'true', '', 'json', '', '',
+            load_json_data.call('test_json_load_case19', 'true', '', 'json', '', '',
                     '', '', '', 'invalid_json_array.json', true)
 
             sql "sync"

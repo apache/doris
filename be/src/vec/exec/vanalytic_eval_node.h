@@ -19,13 +19,12 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <atomic>
+
 #include "exec/exec_node.h"
-#include "exprs/expr.h"
-#include "runtime/tuple.h"
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vectorized_agg_fn.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 namespace doris::vectorized {
 
@@ -39,27 +38,32 @@ struct BlockRowPos {
 class AggFnEvaluator;
 class VAnalyticEvalNode : public ExecNode {
 public:
-    ~VAnalyticEvalNode() {}
+    ~VAnalyticEvalNode() override = default;
     VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status close(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    bool can_read();
+    bool can_write();
 
 protected:
     using ExecNode::debug_string;
     virtual std::string debug_string();
 
 private:
-    Status _get_next_for_rows(RuntimeState* state, Block* block, bool* eos);
-    Status _get_next_for_range(RuntimeState* state, Block* block, bool* eos);
-    Status _get_next_for_partition(RuntimeState* state, Block* block, bool* eos);
+    Status _get_next_for_rows(size_t rows);
+    Status _get_next_for_range(size_t rows);
+    Status _get_next_for_partition(size_t rows);
 
-    void _execute_for_win_func(BlockRowPos partition_start, BlockRowPos partition_end,
-                               BlockRowPos frame_start, BlockRowPos frame_end);
+    void _execute_for_win_func(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                               int64_t frame_end);
 
     Status _reset_agg_status();
     Status _init_result_columns();
@@ -80,10 +84,9 @@ private:
     bool whether_need_next_partition(BlockRowPos found_partition_end);
 
     std::string debug_window_bound_string(TAnalyticWindowBoundary b);
-    using vectorized_execute =
-            std::function<void(BlockRowPos peer_group_start, BlockRowPos peer_group_end,
-                               BlockRowPos frame_start, BlockRowPos frame_end)>;
-    using vectorized_get_next = std::function<Status(RuntimeState* state, Block* block, bool* eos)>;
+    using vectorized_execute = std::function<void(int64_t peer_group_start, int64_t peer_group_end,
+                                                  int64_t frame_start, int64_t frame_end)>;
+    using vectorized_get_next = std::function<Status(size_t rows)>;
     using vectorized_get_result = std::function<void(int64_t current_block_rows)>;
     using vectorized_closer = std::function<void()>;
 
@@ -118,6 +121,9 @@ private:
     std::vector<int64_t> _partition_by_column_idxs;
 
     bool _input_eos = false;
+    bool _next_partition = false;
+    std::atomic_bool _need_more_input = true;
+    BlockRowPos _found_partition_end;
     int64_t _input_total_rows = 0;
     int64_t _output_block_index = 0;
     int64_t _window_end_position = 0;

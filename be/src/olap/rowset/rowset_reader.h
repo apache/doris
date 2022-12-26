@@ -33,7 +33,6 @@ namespace vectorized {
 class Block;
 }
 
-class RowBlock;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
@@ -47,13 +46,6 @@ public:
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIterator*>* out_iters) = 0;
     virtual void reset_read_options() = 0;
-
-    // read next block data into *block.
-    // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *block to null when there is no more block.
-    //      Others when error happens.
-    virtual Status next_block(RowBlock** block) = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;
 

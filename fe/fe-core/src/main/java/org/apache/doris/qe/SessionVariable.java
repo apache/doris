@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,8 +40,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
@@ -100,15 +103,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
-    public static final int MIN_EXEC_INSTANCE_NUM = 1;
-    public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
     public static final String USE_V2_ROLLUP = "use_v2_rollup";
-    public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
     public static final String STORAGE_ENGINE = "storage_engine";
@@ -193,6 +193,7 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
 
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
 
@@ -201,14 +202,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
-    //percentage of EXEC_MEM_LIMIT
+    // percentage of EXEC_MEM_LIMIT
     public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
+
+    public static final String COMPACT_EQUAL_TO_IN_PREDICATE_THRESHOLD = "compact_equal_to_in_predicate_threshold";
+
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
-    public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
-            "enable_nereids_reorder_to_eliminate_cross_join";
 
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
@@ -247,6 +249,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
+
+    public static final String REPEAT_MAX_NUM = "repeat_max_num";
+
+    public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -426,10 +432,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
 
-    // TODO(ml): remove it after test
-    @VariableMgr.VarAttr(name = TEST_MATERIALIZED_VIEW)
-    public boolean testMaterializedView = false;
-
     @VariableMgr.VarAttr(name = REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL)
     public boolean rewriteCountDistinct = true;
 
@@ -549,8 +551,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
     private boolean enableNereidsPlanner = false;
 
+    @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES)
+    private String disableNereidsRules = "";
+
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
+
+    @VariableMgr.VarAttr(name = COMPACT_EQUAL_TO_IN_PREDICATE_THRESHOLD)
+    private int compactEqualToInPredicateThreshold = 2;
 
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
     private double nereidsCboPenaltyFactor = 0.7;
@@ -568,9 +576,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE)
     private double broadcastHashtableMemLimitPercentage = 0.2;
-
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
-    private boolean enableNereidsReorderToEliminateCrossJoin = true;
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE)
     public boolean enableRuntimeFilterPrune = false;
@@ -642,6 +647,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM)
+    public int repeatMaxNum = 10000;
+
+    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    public int groupConcatMaxLen = 2147483646;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -695,6 +706,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
+    }
+
+    public void setCompactEqualToInPredicateThreshold(int threshold) {
+        this.compactEqualToInPredicateThreshold = threshold;
+    }
+
+    public int getCompactEqualToInPredicateThreshold() {
+        return compactEqualToInPredicateThreshold;
     }
 
     public long getMaxExecMemByte() {
@@ -940,14 +959,6 @@ public class SessionVariable implements Serializable, Writable {
     // for unit test
     public void setUseV2Rollup(boolean useV2Rollup) {
         this.useV2Rollup = useV2Rollup;
-    }
-
-    public boolean getTestMaterializedView() {
-        return this.testMaterializedView;
-    }
-
-    public void setTestMaterializedView(boolean testMaterializedView) {
-        this.testMaterializedView = testMaterializedView;
     }
 
     public boolean isRewriteCountDistinct() {
@@ -1253,6 +1264,16 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
+    public Set<String> getDisableNereidsRules() {
+        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
+                .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setDisableNereidsRules(String disableNereidsRules) {
+        this.disableNereidsRules = disableNereidsRules;
+    }
+
     public boolean isNereidsStarSchemaSupport() {
         return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
     }
@@ -1275,14 +1296,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableNereidsRuntimeFilter(boolean enableNereidsRuntimeFilter) {
         this.enableNereidsRuntimeFilter = enableNereidsRuntimeFilter;
-    }
-
-    public boolean isEnableNereidsReorderToEliminateCrossJoin() {
-        return enableNereidsReorderToEliminateCrossJoin;
-    }
-
-    public void setEnableNereidsReorderToEliminateCrossJoin(boolean value) {
-        enableNereidsReorderToEliminateCrossJoin = value;
     }
 
     public boolean isEnableSingleReplicaInsert() {
@@ -1361,6 +1374,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
+
+        tResult.setRepeatMaxNum(repeatMaxNum);
 
         return tResult;
     }

@@ -21,9 +21,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_slice
+
+<version since="1.2.0">
+
+array_slice
+
+</version>
 
 ### description
 
@@ -157,4 +162,3 @@ mysql> select k2, array_slice(k2, -5) from array_type_table;
 
 ARRAY,SLICE,ARRAY_SLICE
 
-</version>

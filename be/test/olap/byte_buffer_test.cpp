@@ -26,6 +26,7 @@
 #include "olap/file_helper.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class TestByteBuffer : public testing::Test {
 public:
@@ -53,7 +54,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     }
 
     // 参数错误的指定写
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND), buf1->put(in, sizeof(in), 5, 10));
+    EXPECT_EQ(Status::Error<OUT_OF_BOUND>(), buf1->put(in, sizeof(in), 5, 10));
 
     for (int i = 0; i < 50; i++) {
         EXPECT_EQ(Status::OK(), buf1->put(i));
@@ -62,8 +63,8 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     }
 
     // 再写就失败了
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW), buf1->put(0));
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW), buf1->put(in, sizeof(in)));
+    EXPECT_EQ(Status::Error<BUFFER_OVERFLOW>(), buf1->put(0));
+    EXPECT_EQ(Status::Error<BUFFER_OVERFLOW>(), buf1->put(in, sizeof(in)));
 
     // 转为读模式
     buf1->flip();
@@ -78,8 +79,8 @@ TEST_F(TestByteBuffer, TestReadWrite) {
         }
     }
     char buf[50];
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND), buf1->get(buf, 100));
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW), buf1->get(buf, 10, 50));
+    EXPECT_EQ(Status::Error<OUT_OF_BOUND>(), buf1->get(buf, 100));
+    EXPECT_EQ(Status::Error<BUFFER_OVERFLOW>(), buf1->get(buf, 10, 50));
     EXPECT_EQ(Status::OK(), buf1->get(buf, sizeof(buf)));
     EXPECT_EQ(0u, buf1->remaining());
     EXPECT_EQ(100u, buf1->position());
@@ -88,8 +89,8 @@ TEST_F(TestByteBuffer, TestReadWrite) {
         EXPECT_EQ(i, buf[i]);
     }
     char byte;
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND), buf1->get(&byte));
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND), buf1->get(&byte, 1));
+    EXPECT_EQ(Status::Error<OUT_OF_BOUND>(), buf1->get(&byte));
+    EXPECT_EQ(Status::Error<OUT_OF_BOUND>(), buf1->get(&byte, 1));
 
     EXPECT_EQ(Status::OK(), buf1->put(10, 'x'));
     EXPECT_EQ(Status::OK(), buf1->get(10, &byte));
@@ -98,11 +99,11 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     EXPECT_EQ(Status::OK(), buf1->set_limit(11));
     EXPECT_EQ(11u, buf1->limit());
     EXPECT_EQ(11u, buf1->position());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), buf1->set_limit(101));
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(), buf1->set_limit(101));
     EXPECT_EQ(Status::OK(), buf1->set_position(10));
     EXPECT_EQ(Status::OK(), buf1->get(&byte));
     EXPECT_EQ('x', byte);
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), buf1->set_position(12));
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(), buf1->set_position(12));
 
     SAFE_DELETE(buf1);
 }

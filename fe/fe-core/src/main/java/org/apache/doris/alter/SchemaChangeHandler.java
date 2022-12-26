@@ -111,7 +111,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
     // all shadow indexes should have this prefix in name
-    public static final String SHADOW_NAME_PRFIX = "__doris_shadow_";
+    public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
 
     public static final int MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE = 10;
 
@@ -492,9 +492,8 @@ public class SchemaChangeHandler extends AlterHandler {
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on key column: " + modColumn.getName());
-            } else if (null == modColumn.getAggregationType()) {
-                // in aggregate key table, no aggregation method indicate key column
-                modColumn.setIsKey(true);
+            } else if (!modColumn.isKey() && null == modColumn.getAggregationType()) {
+                throw new DdlException("Aggregate method must be specified for value column: " + modColumn.getName());
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             if (null != modColumn.getAggregationType()) {
@@ -682,7 +681,7 @@ public class SchemaChangeHandler extends AlterHandler {
              * And if the column type is not changed, the same column name is still to the same column type,
              * so no need to add prefix.
              */
-            modColumn.setName(SHADOW_NAME_PRFIX + modColumn.getName());
+            modColumn.setName(SHADOW_NAME_PREFIX + modColumn.getName());
         }
     }
 
@@ -1471,7 +1470,7 @@ public class SchemaChangeHandler extends AlterHandler {
             while (currentSchemaHash == newSchemaHash) {
                 newSchemaHash = Util.generateSchemaHash();
             }
-            String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
+            String newIndexName = SHADOW_NAME_PREFIX + olapTable.getIndexNameById(originIndexId);
             short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(originIndexId);
             long shadowIndexId = idGeneratorBuffer.getNextId();
 
@@ -2253,7 +2252,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
             long originIndexId = entry.getKey();
-            String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
+            String newIndexName = SHADOW_NAME_PREFIX + olapTable.getIndexNameById(originIndexId);
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
             // 1. get new schema version/schema version hash, short key column count
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
