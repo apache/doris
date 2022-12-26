@@ -510,6 +510,8 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
     if (USE_AVX2)
         set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
     endif()
+    # set -mlzcnt for leading zero count used by simdjson
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2 -mlzcnt")
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
@@ -603,9 +605,7 @@ else()
 endif()
 
 # Add flags that are common across build types
-SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS} -mlzcnt")
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mlzcnt")
+SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 
