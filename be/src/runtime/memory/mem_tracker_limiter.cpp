@@ -285,17 +285,17 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
                                         std::greater<std::pair<int64_t, std::string>>>
                             min_pq_null;
                     std::swap(min_pq, min_pq_null);
-                    min_pq.push(
-                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    min_pq.push(std::pair<int64_t, std::string>(tracker->consumption(),
+                                                                tracker->label()));
                     return cancel_top_query(min_pq);
                 } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
-                    min_pq.push(
-                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    min_pq.push(std::pair<int64_t, std::string>(tracker->consumption(),
+                                                                tracker->label()));
                     prepare_free_mem += tracker->consumption();
                 } else if (tracker->consumption() > min_pq.top().first) {
                     // No need to modify prepare_free_mem, prepare_free_mem will always be greater than min_free_mem.
-                    min_pq.push(
-                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    min_pq.push(std::pair<int64_t, std::string>(tracker->consumption(),
+                                                                tracker->label()));
                     min_pq.pop();
                 }
             }
@@ -320,7 +320,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem) {
                 if (overcommit_ratio == 0) { // Small query does not cancel
                     continue;
                 }
-                min_pq.push(pair<int64_t, std::string>(overcommit_ratio, tracker->label()));
+                min_pq.push(std::pair<int64_t, std::string>(overcommit_ratio, tracker->label()));
                 query_consumption[tracker->label()] = tracker->consumption();
             }
         }
