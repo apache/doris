@@ -17,22 +17,29 @@
 
 #pragma once
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "io/file_reader.h"
-#include "io/file_writer.h"
+#include "io/fs/stream_load_pipe.h"
 
 namespace doris {
-
-// TODO(ftw): This file should be deleted when new_file_factory.h replace file_factory.h
-class HdfsReaderWriter {
+namespace io {
+class KafkaConsumerPipe : public StreamLoadPipe {
 public:
-    static Status create_reader(const THdfsParams& hdfs_params, const std::string& path,
-                                int64_t start_offset, FileReader** reader);
+    KafkaConsumerPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024)
+            : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {}
 
-    static Status create_reader(const std::map<std::string, std::string>& properties,
-                                const std::string& path, int64_t start_offset, FileReader** reader);
+    ~KafkaConsumerPipe() override = default;
 
-    static Status create_writer(const std::map<std::string, std::string>& properties,
-                                const std::string& path, std::unique_ptr<FileWriter>& writer);
+    Status append_with_line_delimiter(const char* data, size_t size) {
+        Status st = append(data, size);
+        if (!st.ok()) {
+            return st;
+        }
+
+        // append the line delimiter
+        st = append("\n", 1);
+        return st;
+    }
+
+    Status append_json(const char* data, size_t size) { return append_and_flush(data, size); }
 };
-} // namespace doris
+} // namespace io
+} // end namespace doris

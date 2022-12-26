@@ -19,6 +19,7 @@
 
 #include "exec/text_converter.h"
 #include "io/file_reader.h"
+#include "io/fs/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vparquet_column_reader.h"
@@ -99,7 +100,7 @@ public:
         PositionDeleteContext(const PositionDeleteContext& filter) = default;
     };
 
-    RowGroupReader(doris::FileReader* file_reader,
+    RowGroupReader(io::FileReaderSPtr file_reader,
                    const std::vector<ParquetReadColumn>& read_columns, const int32_t row_group_id,
                    const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
                    const PositionDeleteContext& position_delete_ctx,
@@ -131,7 +132,7 @@ private:
             Block* block, size_t rows,
             const std::unordered_map<std::string, VExprContext*>& missing_columns);
 
-    doris::FileReader* _file_reader;
+    io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<ParquetReadColumn>& _read_columns;
     const int32_t _row_group_id;

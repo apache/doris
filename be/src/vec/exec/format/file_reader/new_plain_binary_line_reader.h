@@ -17,30 +17,27 @@
 
 #pragma once
 
-#include "io/fs/stream_load_pipe_reader.h"
+#include <gen_cpp/Types_types.h>
+
+#include "exec/line_reader.h"
+#include "io/fs/file_reader.h"
 
 namespace doris {
-namespace io {
-class KafkaConsumerPipeReader : public StreamLoadPipeReader {
+
+class NewPlainBinaryLineReader : public LineReader {
 public:
-    KafkaConsumerPipeReader(size_t max_buffered_bytes = 1024 * 1024,
-                            size_t min_chunk_size = 64 * 1024)
-            : StreamLoadPipeReader(max_buffered_bytes, min_chunk_size) {}
+    NewPlainBinaryLineReader(io::FileReaderSPtr file_reader, TFileType::type file_type);
 
-    ~KafkaConsumerPipeReader() override = default;
+    ~NewPlainBinaryLineReader() override;
 
-    Status append_with_line_delimiter(const char* data, size_t size) {
-        Status st = append(data, size);
-        if (!st.ok()) {
-            return st;
-        }
+    Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
 
-        // append the line delimiter
-        st = append("\n", 1);
-        return st;
-    }
+    void close() override;
 
-    Status append_json(const char* data, size_t size) { return append_and_flush(data, size); }
+private:
+    io::FileReaderSPtr _file_reader;
+
+    TFileType::type _file_type;
 };
-} // namespace io
-} // end namespace doris
+
+} // namespace doris

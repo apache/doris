@@ -26,7 +26,8 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/file_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exprs/vexpr_context.h"
@@ -61,7 +62,7 @@ public:
 
     ~ParquetReader() override;
     // for test
-    void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
+    void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
     Status init_reader(const std::vector<std::string>& column_names, bool filter_groups = true) {
         // without predicate
@@ -151,7 +152,8 @@ private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    std::unique_ptr<FileReader> _file_reader = nullptr;
+    std::unique_ptr<io::FileSystem> _file_system = nullptr;
+    io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
     std::unique_ptr<RowGroupReader> _current_group_reader;

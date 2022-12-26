@@ -61,6 +61,14 @@ Status HdfsFileReader::read_at(size_t offset, Slice result, const IOContext& /*i
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _file_size, _path.native());
     }
+
+    auto handle = _fs->get_handle();
+    int res = hdfsSeek(handle->hdfs_fs, _hdfs_file, offset);
+    if (res != 0) {
+        return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
+                                     BackendOptions::get_localhost(), offset, hdfsGetLastError());
+    }
+
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
@@ -69,8 +77,7 @@ Status HdfsFileReader::read_at(size_t offset, Slice result, const IOContext& /*i
         return Status::OK();
     }
 
-    auto handle = _fs->get_handle();
-    int64_t has_read = 0;
+    size_t has_read = 0;
     while (has_read < bytes_req) {
         int64_t loop_read =
                 hdfsRead(handle->hdfs_fs, _hdfs_file, to + has_read, bytes_req - has_read);

@@ -25,7 +25,7 @@ namespace doris::vectorized {
 
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 
-RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
+RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz,

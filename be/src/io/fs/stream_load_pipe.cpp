@@ -15,32 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "stream_load_pipe_reader.h"
+#include "stream_load_pipe.h"
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include "olap/iterators.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
 namespace io {
-StreamLoadPipeReader::StreamLoadPipeReader(size_t max_buffered_bytes, size_t min_chunk_size,
-                                           int64_t total_length, bool use_proto)
+StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
+                               int64_t total_length, bool use_proto)
         : _buffered_bytes(0),
           _proto_buffered_bytes(0),
           _max_buffered_bytes(max_buffered_bytes),
           _min_chunk_size(min_chunk_size),
+          _total_length(total_length),
           _use_proto(use_proto) {}
 
-StreamLoadPipeReader::~StreamLoadPipeReader() {
+StreamLoadPipe::~StreamLoadPipe() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     while (!_buf_queue.empty()) {
         _buf_queue.pop_front();
     }
 }
 
-Status StreamLoadPipeReader::read_at(size_t /*offset*/, Slice result, const IOContext& /*io_ctx*/,
-                                     size_t* bytes_read) {
+Status StreamLoadPipe::read_at(size_t /*offset*/, Slice result, const IOContext& /*io_ctx*/,
+                               size_t* bytes_read) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     *bytes_read = 0;
     size_t bytes_req = result.size;
@@ -79,15 +81,38 @@ Status StreamLoadPipeReader::read_at(size_t /*offset*/, Slice result, const IOCo
     return Status::OK();
 }
 
-Status StreamLoadPipeReader::append_and_flush(const char* data, size_t size,
-                                              size_t proto_byte_size) {
+// If _total_length == -1, this should be a Kafka routine load task,
+// just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
+// Otherwise, this should be a stream load task that needs to read the specified amount of data.
+Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) {
+    if (_total_length < -1) {
+        return Status::InternalError("invalid, _total_length is: {}", _total_length);
+    } else if (_total_length == 0) {
+        // no data
+        *length = 0;
+        return Status::OK();
+    }
+
+    if (_total_length == -1) {
+        return _read_next_buffer(data, length);
+    }
+
+    // _total_length > 0, read the entire data
+    data->reset(new uint8_t[_total_length]);
+    Slice result(data->get(), _total_length);
+    IOContext io_ctx;
+    Status st = read_at(0, result, io_ctx, length);
+    return st;
+}
+
+Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t proto_byte_size) {
     ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1));
     buf->put_bytes(data, size);
     buf->flip();
     return _append(buf, proto_byte_size);
 }
 
-Status StreamLoadPipeReader::append(const char* data, size_t size) {
+Status StreamLoadPipe::append(const char* data, size_t size) {
     size_t pos = 0;
     if (_write_buf != nullptr) {
         if (size < _write_buf->remaining()) {
@@ -110,7 +135,7 @@ Status StreamLoadPipeReader::append(const char* data, size_t size) {
     return Status::OK();
 }
 
-Status StreamLoadPipeReader::append(const ByteBufferPtr& buf) {
+Status StreamLoadPipe::append(const ByteBufferPtr& buf) {
     if (_write_buf != nullptr) {
         _write_buf->flip();
         RETURN_IF_ERROR(_append(_write_buf));
@@ -120,7 +145,7 @@ Status StreamLoadPipeReader::append(const ByteBufferPtr& buf) {
 }
 
 // read the next buffer from _buf_queue
-Status StreamLoadPipeReader::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, int64_t* length) {
+Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length) {
     std::unique_lock<std::mutex> l(_lock);
     while (!_cancelled && !_finished && _buf_queue.empty()) {
         _get_cond.wait(l);
@@ -150,7 +175,7 @@ Status StreamLoadPipeReader::_read_next_buffer(std::unique_ptr<uint8_t[]>* data,
     return Status::OK();
 }
 
-Status StreamLoadPipeReader::_append(const ByteBufferPtr& buf, size_t proto_byte_size) {
+Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size) {
     {
         std::unique_lock<std::mutex> l(_lock);
         // if _buf_queue is empty, we append this buf without size check
@@ -180,7 +205,7 @@ Status StreamLoadPipeReader::_append(const ByteBufferPtr& buf, size_t proto_byte
 }
 
 // called when producer finished
-Status StreamLoadPipeReader::finish() {
+Status StreamLoadPipe::finish() {
     if (_write_buf != nullptr) {
         _write_buf->flip();
         _append(_write_buf);
@@ -195,7 +220,7 @@ Status StreamLoadPipeReader::finish() {
 }
 
 // called when producer/consumer failed
-void StreamLoadPipeReader::cancel(const std::string& reason) {
+void StreamLoadPipe::cancel(const std::string& reason) {
     {
         std::lock_guard<std::mutex> l(_lock);
         _cancelled = true;
