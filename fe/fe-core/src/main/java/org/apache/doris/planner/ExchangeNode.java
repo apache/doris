@@ -30,6 +30,7 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TSortInfo;
@@ -81,8 +82,9 @@ public class ExchangeNode extends PlanNode {
         }
         // Only apply the limit at the receiver if there are multiple senders.
         if (inputNode.getFragment().isPartitioned()) {
-            limit = inputNode.limit;
+            limit = inputNode.limit - inputNode.offset;
         }
+        offset = inputNode.offset;
         computeTupleIds();
 
     }
@@ -162,8 +164,8 @@ public class ExchangeNode extends PlanNode {
                     Expr.treesToThrift(mergeInfo.getOrderingExprs()),
                     mergeInfo.getIsAscOrder(), mergeInfo.getNullsFirst());
             msg.exchange_node.setSortInfo(sortInfo);
-            msg.exchange_node.setOffset(offset);
         }
+        msg.exchange_node.setOffset(offset);
     }
 
     @Override
@@ -177,6 +179,11 @@ public class ExchangeNode extends PlanNode {
     @Override
     public int getNumInstances() {
         return numInstances;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        return prefix + "offset: " + offset + "\n";
     }
 
 }
