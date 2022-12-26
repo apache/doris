@@ -47,6 +47,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "env/env.h"
+#include "io/cloud/cloud_file_cache_factory.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -387,6 +388,44 @@ int main(int argc, char** argv) {
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
     daemon.start();
+
+    if (doris::config::enable_file_cache) {
+        std::vector<doris::CachePath> cache_paths;
+        olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!olap_res) {
+            LOG(FATAL) << "parse config file cache path failed, path="
+                       << doris::config::file_cache_path;
+            exit(-1);
+        }
+        for (auto& cache_path : cache_paths) {
+            Status st = doris::io::FileCacheFactory::instance().create_file_cache(
+                    cache_path.path, cache_path.init_settings(), doris::io::FileCacheType::NORMAL);
+            if (!st) {
+                LOG(FATAL) << st;
+                exit(-1);
+            }
+        }
+
+        if (!doris::config::disposable_file_cache_path.empty()) {
+            cache_paths.clear();
+            olap_res = doris::parse_conf_cache_paths(doris::config::disposable_file_cache_path,
+                                                     cache_paths);
+            if (!olap_res) {
+                LOG(FATAL) << "parse config disposable file cache path failed, path="
+                           << doris::config::disposable_file_cache_path;
+                exit(-1);
+            }
+            for (auto& cache_path : cache_paths) {
+                Status st = doris::io::FileCacheFactory::instance().create_file_cache(
+                        cache_path.path, cache_path.init_settings(),
+                        doris::io::FileCacheType::DISPOSABLE);
+                if (!st) {
+                    LOG(FATAL) << st;
+                    exit(-1);
+                }
+            }
+        }
+    }
 
     doris::ResourceTls::init();
     if (!doris::BackendOptions::init()) {

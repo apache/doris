@@ -18,6 +18,7 @@
 #include "io/fs/hdfs_file_system.h"
 
 #include "gutil/hash/hash.h"
+#include "io/cloud/cached_remote_file_reader.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/hdfs_builder.h"
 #include "service/backend_options.h"
@@ -122,6 +123,7 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
         }
     }
     *reader = std::make_shared<HdfsFileReader>(path, file_len, _namenode, hdfs_file, this);
+    *reader = std::make_shared<CachedRemoteFileReader>(std::move(*reader), nullptr);
     return Status::OK();
 }
 

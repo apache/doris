@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "io/cloud/cloud_file_cache_settings.h"
 #include "olap/olap_define.h"
 #include "util/uid_util.h"
 
@@ -41,6 +42,22 @@ struct StorePath {
 Status parse_root_path(const std::string& root_path, StorePath* path);
 
 Status parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
+
+struct CachePath {
+    io::FileCacheSettings init_settings() const;
+    CachePath(std::string path, int64_t normal_bytes, int64_t persistent_bytes,
+              int64_t query_limit_bytes)
+            : path(std::move(path)),
+              normal_bytes(normal_bytes),
+              persistent_bytes(persistent_bytes),
+              query_limit_bytes(query_limit_bytes) {}
+    std::string path;
+    int64_t normal_bytes = 0;
+    int64_t persistent_bytes = 0;
+    int64_t query_limit_bytes = 0;
+};
+
+Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& path);
 
 struct EngineOptions {
     // list paths that tablet will be put into.
