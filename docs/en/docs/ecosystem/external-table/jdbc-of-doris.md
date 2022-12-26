@@ -26,6 +26,8 @@ under the License.
 
 # JDBC External Table Of Doris
 
+<version since="1.2.0">
+
 JDBC External Table Of Doris provides Doris to access external tables through the standard interface (JDBC) of database access. External tables save the tedious data import work, allowing Doris to have the ability to access various databases, and with the help of Doris's capabilities to solve data analysis problems with external tables:
 
 1. Support various data sources to access Doris
@@ -33,6 +35,7 @@ JDBC External Table Of Doris provides Doris to access external tables through th
 
 This document mainly introduces how to use this function.
 
+</version>
 
 ## Instructions
 
@@ -80,6 +83,19 @@ Parameter Description：
 | **table**        | The table name mapped to the external database when creating the external table in Doris.|
 | **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql,sqlserver,oracle.|
 
+<<<<<<< HEAD
+=======
+>**Notice:**
+>
+>If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
+
+<version since="1.2.1">
+
+> After 1.2.1, you can put the driver in the `jdbc_drivers` directory of FE/BE, and directly specify the file name, such as: `"driver_url" = "mysql-connector-java-5.1.47.jar "`. The system will automatically look for files in the `jdbc_drivers` directory.
+
+</version>
+
+>>>>>>> 8b6e4e74e7... [improvement](jdbc) add default jdbc driver's dir (#15346)
 ### Query usage
 
 ```
@@ -282,3 +298,4 @@ ALTER TABLE table_name CHARSET=utf8mb4;
 SET NAMES utf8mb4
 
 ```
+

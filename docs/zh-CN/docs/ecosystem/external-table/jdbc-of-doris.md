@@ -67,6 +67,7 @@ PROPERTIES (
 "table_type"="mysql"
 );
 ```
+
 参数说明：
 
 | 参数           | 说明|

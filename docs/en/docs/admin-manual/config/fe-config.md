@@ -2367,3 +2367,15 @@ IsMutable：true
 MasterOnly：false
 
 Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables
+
+#### `jdbc_drivers_dir`
+
+Default: `${DORIS_HOME}/jdbc_drivers`;
+
+IsMutable：false
+
+MasterOnly：false
+
+The default dir to put jdbc drivers.
+
+
