@@ -18,6 +18,7 @@
 #include "parquet_common.h"
 
 #include "util/coding.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -277,6 +278,36 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
     }
 }
 
+Status Decoder::_decode_dict_values(MutableColumnPtr& doris_column,
+                                    ColumnSelectVector& select_vector) {
+    DCHECK(doris_column->is_column_dictionary());
+    size_t dict_index = 0;
+    ColumnSelectVector::DataReadType read_type;
+    auto& column_data = assert_cast<ColumnDictI32&>(*doris_column).get_data();
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            uint32_t* start_index = &_indexes[0];
+            column_data.insert(start_index + dict_index, start_index + dict_index + run_length);
+            dict_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::NULL_DATA: {
+            doris_column->insert_many_defaults(run_length);
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            dict_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            break;
+        }
+        }
+    }
+    return Status::OK();
+}
+
 Status FixLengthDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
                                   size_t num_values) {
     if (num_values * _type_length != length) {
@@ -321,11 +352,26 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                                        ColumnSelectVector& select_vector) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (_has_dict) {
+        if (doris_column->is_column_dictionary() &&
+            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
+            std::vector<StringRef> dict_items;
+            dict_items.reserve(_dict_items.size());
+            for (int i = 0; i < _dict_items.size(); ++i) {
+                dict_items.emplace_back(_dict_items[i], _type_length);
+            }
+            assert_cast<ColumnDictI32&>(*doris_column)
+                    .insert_many_dict_data(&dict_items[0], dict_items.size());
+        }
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
     } else if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
+
+    if (doris_column->is_column_dictionary()) {
+        return _decode_dict_values(doris_column, select_vector);
+    }
+
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE) \
@@ -507,9 +553,19 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                                        ColumnSelectVector& select_vector) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (_has_dict) {
+        if (doris_column->is_column_dictionary() &&
+            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
+            assert_cast<ColumnDictI32&>(*doris_column)
+                    .insert_many_dict_data(&_dict_items[0], _dict_items.size());
+        }
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
     }
+
+    if (doris_column->is_column_dictionary()) {
+        return _decode_dict_values(doris_column, select_vector);
+    }
+
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:
