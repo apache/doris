@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -60,12 +60,6 @@ public class Max extends NullableAggregateFunction implements UnaryExpression, C
     public Max withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Max(isDistinct, isAlwaysNullable, children.get(0));
-    }
-
-    @Override
-    public Max withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Max(children.get(0));
     }
 
     @Override

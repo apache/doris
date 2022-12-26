@@ -38,31 +38,33 @@ import java.util.stream.Collectors;
  */
 public abstract class AggregateFunction extends BoundFunction implements ExpectsInputTypes {
 
-    protected final boolean isDistinct;
+    protected final boolean distinct;
 
     public AggregateFunction(String name, Expression... arguments) {
         this(name, false, arguments);
     }
 
-    public AggregateFunction(String name, boolean isDistinct, Expression... arguments) {
+    public AggregateFunction(String name, boolean distinct, Expression... arguments) {
         super(name, arguments);
-        this.isDistinct = isDistinct;
+        this.distinct = distinct;
     }
 
     public AggregateFunction(String name, List<Expression> children) {
         this(name, false, children);
     }
 
-    public AggregateFunction(String name, boolean isDistinct, List<Expression> children) {
+    public AggregateFunction(String name, boolean distinct, List<Expression> children) {
         super(name, children);
-        this.isDistinct = isDistinct;
+        this.distinct = distinct;
     }
-
-    @Override
-    public abstract AggregateFunction withChildren(List<Expression> children);
 
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(VarcharType.SYSTEM_DEFAULT);
+    }
+
+    @Override
+    public AggregateFunction withChildren(List<Expression> children) {
+        return withDistinctAndChildren(distinct, children);
     }
 
     public abstract AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children);
@@ -83,7 +85,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     }
 
     public boolean isDistinct() {
-        return isDistinct;
+        return distinct;
     }
 
     @Override
@@ -95,14 +97,14 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
             return false;
         }
         AggregateFunction that = (AggregateFunction) o;
-        return Objects.equals(isDistinct, that.isDistinct)
+        return Objects.equals(distinct, that.distinct)
                 && Objects.equals(getName(), that.getName())
                 && Objects.equals(children, that.children);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isDistinct, getName(), children);
+        return Objects.hash(distinct, getName(), children);
     }
 
     @Override
@@ -121,7 +123,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
                 .stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
-        return getName() + "(" + (isDistinct ? "DISTINCT " : "") + args + ")";
+        return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
     }
 
     @Override
@@ -130,6 +132,6 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
                 .stream()
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
-        return getName() + "(" + (isDistinct ? "DISTINCT " : "") + args + ")";
+        return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
     }
 }

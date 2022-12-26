@@ -52,7 +52,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceiling;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CharLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -420,10 +419,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCeiling(Ceiling ceiling, C context) {
         return visitScalarFunction(ceiling, context);
-    }
-
-    default R visitCharLength(CharLength charLength, C context) {
-        return visitScalarFunction(charLength, context);
     }
 
     default R visitCharacterLength(CharacterLength characterLength, C context) {

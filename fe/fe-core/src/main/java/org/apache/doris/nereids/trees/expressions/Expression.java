@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -54,6 +55,11 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public Expression(List<Expression> children) {
         super(Optional.empty(), children);
     }
+
+    // check legality before do type coercion.
+    // maybe we should merge checkInputDataTypes and checkLegality later.
+    @Developing
+    public void checkLegality() {}
 
     /**
      * check input data types

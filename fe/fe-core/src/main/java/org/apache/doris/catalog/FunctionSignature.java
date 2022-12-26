@@ -36,7 +36,8 @@ public class FunctionSignature {
     public final List<AbstractDataType> argumentsTypes;
     public final int arity;
 
-    public FunctionSignature(DataType returnType, boolean hasVarArgs, List<AbstractDataType> argumentsTypes) {
+    public FunctionSignature(DataType returnType, boolean hasVarArgs,
+            List<? extends AbstractDataType> argumentsTypes) {
         this.returnType = Objects.requireNonNull(returnType, "returnType is not null");
         this.argumentsTypes = ImmutableList.copyOf(
                 Objects.requireNonNull(argumentsTypes, "argumentsTypes is not null"));
@@ -59,7 +60,7 @@ public class FunctionSignature {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 
-    public FunctionSignature withArgumentTypes(boolean hasVarArgs, List<AbstractDataType> argumentsTypes) {
+    public FunctionSignature withArgumentTypes(boolean hasVarArgs, List<? extends AbstractDataType> argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 
@@ -78,11 +79,12 @@ public class FunctionSignature {
         return withArgumentTypes(hasVarArgs, newTypes);
     }
 
-    public static FunctionSignature of(DataType returnType, List<AbstractDataType> argumentsTypes) {
+    public static FunctionSignature of(DataType returnType, List<? extends AbstractDataType> argumentsTypes) {
         return of(returnType, false, argumentsTypes);
     }
 
-    public static FunctionSignature of(DataType returnType, boolean hasVarArgs, List<AbstractDataType> argumentsTypes) {
+    public static FunctionSignature of(DataType returnType, boolean hasVarArgs,
+            List<? extends AbstractDataType> argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 

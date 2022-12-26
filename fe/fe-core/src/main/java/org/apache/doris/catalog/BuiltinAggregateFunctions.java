@@ -18,8 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -29,19 +29,39 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitmapXor;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
+import org.apache.doris.nereids.trees.expressions.functions.agg.StddevPop;
+import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarPop;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VariancePop;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
 
 /**
  * Builtin aggregate functions.
@@ -50,34 +70,52 @@ import java.util.Set;
  * It helps to be clear and concise.
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
-    public static Set<String> aggFuncNames = new HashSet<>();
-    public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
-            agg(ApproxCountDistinct.class, "approx_count_distinct"),
-            agg(Avg.class),
+    public final List<AggregateFunc> aggregateFunctions = ImmutableList.of(
+            agg(AnyValue.class, "any", "any_value"),
+            agg(Avg.class, "avg"),
+            agg(AvgWeighted.class, "avg_weighted"),
             agg(BitmapIntersect.class, "bitmap_intersect"),
             agg(BitmapUnion.class, "bitmap_union"),
             agg(BitmapUnionCount.class, "bitmap_union_count"),
             agg(BitmapUnionInt.class, "bitmap_union_int"),
-            agg(Count.class),
-
+            agg(Count.class, "count"),
             agg(GroupBitAnd.class, "group_bit_and"),
-            agg(GroupBitmapXor.class, "group_bitmap_xor"),
             agg(GroupBitOr.class, "group_bit_or"),
             agg(GroupBitXor.class, "group_bit_xor"),
-            agg(HllUnion.class, "hll_union", "hll_raw_agg"),
+            agg(GroupBitmapXor.class, "group_bitmap_xor"),
+            agg(GroupConcat.class, "group_concat"),
+            agg(Histogram.class, "histogram"),
+            agg(HllUnion.class, "hll_raw_agg", "hll_union"),
             agg(HllUnionAgg.class, "hll_union_agg"),
-            agg(Max.class),
-            agg(Min.class),
-            agg(Ndv.class),
-            agg(Sum.class),
-            agg(Variance.class, "variance", "variance_pop", "var_pop"),
-            agg(VarianceSamp.class, "variance_samp", "var_samp"),
-            agg(AnyValue.class, "any_value", "any")
+            agg(IntersectCount.class, "intersect_count"),
+            agg(Max.class, "max"),
+            agg(MaxBy.class, "max_by"),
+            agg(Min.class, "min"),
+            agg(MinBy.class, "min_by"),
+            agg(Ndv.class, "approx_count_distinct", "ndv"),
+            agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
+            agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
+            agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
+            agg(Percentile.class, "percentile"),
+            agg(PercentileApprox.class, "percentile_approx"),
+            agg(QuantileUnion.class, "quantile_union"),
+            agg(SequenceCount.class, "sequence_count"),
+            agg(SequenceMatch.class, "sequence_match"),
+            agg(Stddev.class, "stddev"),
+            agg(StddevPop.class, "stddev_pop"),
+            agg(StddevSamp.class, "stddev_samp"),
+            agg(Sum.class, "sum"),
+            agg(TopN.class, "topn"),
+            agg(VarPop.class, "var_pop"),
+            agg(VarSamp.class, "var_samp"),
+            agg(Variance.class, "variance"),
+            agg(VariancePop.class, "variance_pop"),
+            agg(VarianceSamp.class, "variance_samp"),
+            agg(WindowFunnel.class, "window_funnel")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinAggregateFunctions() {
-    }
+    private BuiltinAggregateFunctions() {}
 }

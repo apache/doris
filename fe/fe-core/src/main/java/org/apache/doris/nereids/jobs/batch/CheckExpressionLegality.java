@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_query_sys_data_type", 'query,p0') {
-    def tbName = "test_data_type"
-    def dbName = "test_query_db"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "USE ${dbName}"
+package org.apache.doris.nereids.jobs.batch;
 
-    sql """ DROP TABLE IF EXISTS ${tbName} """
-    sql """
-        create table if not exists ${tbName} (dt date, id int, name char(10), province char(10), os char(1), set1 hll hll_union, set2 bitmap bitmap_union)
-        distributed by hash(id) buckets 1 properties("replication_num"="1");
-    """
+import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
-    qt_sql "select column_name, data_type from information_schema.columns where table_schema = '${dbName}' and table_name = '${tbName}'"
+/** CheckExpressionLegality */
+public class CheckExpressionLegality extends AbstractExpressionRewriteRule {
+    @Override
+    public Expression visit(Expression expr, ExpressionRewriteContext context) {
+        expr = super.visit(expr, context);
+        expr.checkLegality();
+        return expr;
+    }
 }

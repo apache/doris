@@ -45,12 +45,6 @@ public class MultiDistinctSum extends AggregateFunction
     }
 
     @Override
-    public MultiDistinctSum withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum(children.get(0));
-    }
-
-    @Override
     public MultiDistinctSum withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new MultiDistinctSum(isDistinct, children.get(0));

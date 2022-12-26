@@ -52,6 +52,10 @@ public interface ExpressionTrait extends TreeNode<Expression> {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    default DataType getArgumentType(int index) {
+        return child(index).getDataType();
+    }
+
     default DataType getDataType() throws UnboundException {
         throw new UnboundException("dataType");
     }

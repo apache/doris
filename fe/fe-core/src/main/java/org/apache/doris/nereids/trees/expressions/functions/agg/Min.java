@@ -58,20 +58,14 @@ public class Min extends NullableAggregateFunction implements UnaryExpression, C
     }
 
     @Override
-    public Min withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public Min withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Min(isDistinct, isAlwaysNullable, children.get(0));
-    }
-
-    @Override
-    public Min withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Min(children.get(0));
+        return new Min(distinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new Min(isDistinct, isAlwaysNullable, children.get(0));
+        return new Min(distinct, isAlwaysNullable, children.get(0));
     }
 
     @Override

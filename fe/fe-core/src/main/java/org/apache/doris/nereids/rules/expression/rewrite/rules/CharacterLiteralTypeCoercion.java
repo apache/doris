@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.jobs.batch.CheckExpressionLegality;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -55,6 +57,7 @@ import java.util.Optional;
 /**
  * coercion character literal to another side
  */
+@DependsRules(CheckExpressionLegality.class)
 public class CharacterLiteralTypeCoercion extends AbstractExpressionRewriteRule {
 
     public static final CharacterLiteralTypeCoercion INSTANCE = new CharacterLiteralTypeCoercion();

@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -40,7 +39,6 @@ import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
@@ -84,9 +82,7 @@ public class Ndv extends AggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(JsonType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(HllType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BitmapType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(QuantileStateType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(NullType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(CharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(QuantileStateType.INSTANCE)
     );
 
     /**
@@ -97,26 +93,21 @@ public class Ndv extends AggregateFunction
     }
 
     /**
-     * withChildren.
+     * withDistinctAndChildren.
      */
     @Override
-    public Ndv withChildren(List<Expression> children) {
+    public Ndv withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Ndv(children.get(0));
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
-    }
-
-    @Override
-    public AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
-        return withChildren(children);
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNdv(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }

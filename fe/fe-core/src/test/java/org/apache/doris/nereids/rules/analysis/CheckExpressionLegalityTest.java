@@ -15,17 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_query_sys_data_type", 'query,p0') {
-    def tbName = "test_data_type"
-    def dbName = "test_query_db"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "USE ${dbName}"
+package org.apache.doris.nereids.rules.analysis;
 
-    sql """ DROP TABLE IF EXISTS ${tbName} """
-    sql """
-        create table if not exists ${tbName} (dt date, id int, name char(10), province char(10), os char(1), set1 hll hll_union, set2 bitmap bitmap_union)
-        distributed by hash(id) buckets 1 properties("replication_num"="1");
-    """
-
-    qt_sql "select column_name, data_type from information_schema.columns where table_schema = '${dbName}' and table_name = '${tbName}'"
+public class CheckExpressionLegalityTest {
+    /*@Test
+    public void testAvg() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            try {
+                PlanChecker.from(connectContext)
+                        .analyze("select avg(id) from (select to_bitmap(1) id) tbl");
+            } catch (Throwable t) {
+                t.printStackTrace();
+                throw t;
+            }
+        }, "avg requires a numeric parameter");
+    }*/
 }

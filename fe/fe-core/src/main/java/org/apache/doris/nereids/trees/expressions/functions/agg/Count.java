@@ -62,7 +62,7 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
+        return FunctionSignature.of(BigIntType.INSTANCE, getArgumentsTypes());
     }
 
     @Override
@@ -83,19 +83,6 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
             }
             return new Count();
         } else if (children.size() == 1) {
-            return new Count(isDistinct, children.get(0));
-        } else {
-            return new Count(isDistinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        }
-    }
-
-    @Override
-    public Count withChildren(List<Expression> children) {
-        if (children.size() == 0) {
-            return new Count();
-        }
-        if (children.size() == 1) {
             return new Count(isDistinct, children.get(0));
         } else {
             return new Count(isDistinct, children.get(0),

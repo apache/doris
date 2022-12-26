@@ -55,22 +55,12 @@ public class MultiDistinctCount extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         List<DataType> argumentsTypes = getArgumentsTypes();
-        return ImmutableList.of(FunctionSignature.of(BigIntType.INSTANCE, (List) argumentsTypes));
-    }
-
-    @Override
-    public MultiDistinctCount withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() > 0);
-        if (children.size() > 1) {
-            return new MultiDistinctCount(children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        } else {
-            return new MultiDistinctCount(children.get(0));
-        }
+        return ImmutableList.of(FunctionSignature.of(BigIntType.INSTANCE, argumentsTypes));
     }
 
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() > 0);
         if (children.size() > 1) {
             return new MultiDistinctCount(isDistinct, children.get(0),
                     children.subList(1, children.size()).toArray(new Expression[0]));
