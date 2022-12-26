@@ -131,7 +131,7 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     while (!_fragment_context->is_canceled()) {
-        if (!_source->can_read() && _data_state != SourceState::MORE_DATA) {
+        if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
             set_state(BLOCKED_FOR_SOURCE);
             break;
         }
