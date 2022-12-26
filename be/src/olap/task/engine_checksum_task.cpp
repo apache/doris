@@ -18,12 +18,13 @@
 #include "olap/task/engine_checksum_task.h"
 
 #include "runtime/thread_context.h"
+#include "vec/olap/block_reader.h"
 
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
                                        TVersion version, uint32_t* checksum)
-        : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version) {
+        : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::CONSISTENCY,
             "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
@@ -38,7 +39,52 @@ Status EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
-    return Status::InternalError("Not implemented yet");
+
+    if (_checksum == nullptr) {
+        return Status::InvalidArgument("invalid checksum which is nullptr");
+    }
+
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
+    if (nullptr == tablet) {
+        return Status::InternalError("could not find tablet {}", _tablet_id);
+    }
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version version(0, _version);
+    Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
+    if (acquire_reader_st != Status::OK()) {
+        LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
+                     << "res=" << acquire_reader_st;
+        return acquire_reader_st;
+    }
+    vectorized::BlockReader reader;
+    TabletReader::ReaderParams reader_params;
+    vectorized::Block block;
+    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
+            tablet, READER_CHECKSUM, input_rowsets, &reader_params, &block))
+
+    auto res = reader.init(reader_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "initiate reader fail. res = " << res;
+        return res;
+    }
+
+    bool eof = false;
+    SipHash block_hash;
+    uint64_t rows = 0;
+    while (!eof) {
+        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof));
+        rows += block.rows();
+
+        block.update_hash(block_hash);
+        block.clear_column_data();
+    }
+    uint64_t checksum64 = block_hash.get64();
+    *_checksum = (checksum64 >> 32) ^ (checksum64 & 0xffffffff);
+
+    LOG(INFO) << "success to finish compute checksum. tablet_id = " << _tablet_id
+              << ", rows = " << rows << ", checksum=" << *_checksum;
+    return Status::OK();
 }
 
 } // namespace doris
