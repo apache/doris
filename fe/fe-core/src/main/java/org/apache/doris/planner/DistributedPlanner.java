@@ -257,6 +257,12 @@ public class DistributedPlanner {
         // exchange node clones the behavior of its input, aside from the conjuncts
         ExchangeNode mergePlan =
                 new ExchangeNode(ctx.getNextNodeId(), inputFragment.getPlanRoot(), false);
+        PlanNode inputRoot = inputFragment.getPlanRoot();
+        if (inputRoot.hasOffset()) {
+            long limit = inputRoot.getOffset() + inputRoot.getLimit();
+            inputRoot.unsetLimit();
+            inputRoot.setLimit(limit);
+        }
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         mergePlan.init(ctx.getRootAnalyzer());
         Preconditions.checkState(mergePlan.hasValidStats());

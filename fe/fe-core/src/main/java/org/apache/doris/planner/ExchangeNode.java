@@ -82,7 +82,7 @@ public class ExchangeNode extends PlanNode {
         }
         // Only apply the limit at the receiver if there are multiple senders.
         if (inputNode.getFragment().isPartitioned()) {
-            limit = inputNode.limit - inputNode.offset;
+            limit = inputNode.limit;
         }
         offset = inputNode.offset;
         computeTupleIds();
