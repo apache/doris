@@ -548,11 +548,11 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                             )
                         )
                 );
