@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dpow;
@@ -153,6 +154,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Mask;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
@@ -190,6 +194,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
@@ -263,9 +268,9 @@ import java.util.List;
 
 /**
  * Builtin scalar functions.
- *
+ * <p>
  * Note: Please ensure that this class only has some lists and no procedural code.
- *       It helps to be clear and concise.
+ * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
     public final List<ScalarFunc> scalarFunctions = ImmutableList.of(
@@ -333,6 +338,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),
+            scalar(DigitalMasking.class, "digital_masking"),
             scalar(Dlog1.class, "dlog1"),
             scalar(Dlog10.class, "dlog10"),
             scalar(Dpow.class, "dpow"),
@@ -405,6 +411,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lpad.class, "lpad"),
             scalar(Ltrim.class, "ltrim"),
             scalar(MakeDate.class, "makedate"),
+            scalar(Mask.class, "mask"),
+            scalar(MaskFirstN.class, "mask_first_n"),
+            scalar(MaskLastN.class, "mask_last_n"),
             scalar(Md5.class, "md5"),
             scalar(Md5Sum.class, "md5sum"),
             scalar(Minute.class, "minute"),
@@ -442,6 +451,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Reverse.class, "reverse"),
             scalar(Right.class, "right"),
             scalar(Round.class, "round"),
+            scalar(RoundBankers.class, "round_bankers"),
             scalar(Rpad.class, "rpad"),
             scalar(Rtrim.class, "rtrim"),
             scalar(Second.class, "second"),
@@ -513,5 +523,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinScalarFunctions() {}
+    private BuiltinScalarFunctions() {
+    }
 }

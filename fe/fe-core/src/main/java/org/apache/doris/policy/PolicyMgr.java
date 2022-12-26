@@ -233,6 +233,9 @@ public class PolicyMgr implements Writable {
 
     public void replayCreate(Policy policy) {
         unprotectedAdd(policy);
+        if (policy instanceof StoragePolicy) {
+            ((StoragePolicy) policy).addResourceReference();
+        }
         LOG.info("replay create policy: {}", policy);
     }
 
@@ -261,7 +264,15 @@ public class PolicyMgr implements Writable {
 
     private void unprotectedDrop(DropPolicyLog log) {
         List<Policy> policies = getPoliciesByType(log.getType());
-        policies.removeIf(policy -> policy.matchPolicy(log));
+        policies.removeIf(policy -> {
+            if (policy.matchPolicy(log)) {
+                if (policy instanceof StoragePolicy) {
+                    ((StoragePolicy) policy).removeResourceReference();
+                }
+                return true;
+            }
+            return false;
+        });
         typeToPolicyMap.put(log.getType(), policies);
         updateMergeTablePolicyMap();
     }

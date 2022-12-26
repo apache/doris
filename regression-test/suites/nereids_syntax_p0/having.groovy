@@ -19,7 +19,6 @@ suite("test_nereids_having") {
 
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=true"
-    sql "SET enable_vectorized_engine=true"
 
     sql "DROP TABLE IF EXISTS test_nereids_having_tbl"
 

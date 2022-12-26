@@ -62,7 +62,6 @@ public:
             _stream_map.erase(it);
             VLOG_NOTICE << "remove stream load pipe: " << id;
         }
-        return;
     }
 
 private:

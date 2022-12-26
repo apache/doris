@@ -174,7 +174,7 @@ void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
 //      VAutoIncrementIterator iter(schema, 1000);
 //      StorageReadOptions opts;
 //      RETURN_IF_ERROR(iter.init(opts));
-//      RowBlockV2 block;
+//      Block block;
 //      do {
 //          st = iter.next_batch(&block);
 //      } while (st.ok());

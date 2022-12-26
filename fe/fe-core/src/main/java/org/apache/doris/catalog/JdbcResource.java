@@ -29,8 +29,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -55,14 +53,15 @@ import java.util.Map;
  * DROP RESOURCE "jdbc_mysql";
  */
 public class JdbcResource extends Resource {
-    private static final String URL = "jdbc_url";
-    private static final String USER = "user";
-    private static final String PASSWORD = "password";
-    private static final String DRIVER_CLASS = "driver_class";
-    private static final String DRIVER_URL = "driver_url";
-    private static final String TYPE = "type";
+    public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
+    public static final String URL = "jdbc_url";
+    public static final String USER = "user";
+    public static final String PASSWORD = "password";
+    public static final String DRIVER_CLASS = "driver_class";
+    public static final String DRIVER_URL = "driver_url";
+    public static final String TYPE = "type";
     private static final String CHECK_SUM = "checksum";
-    private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
+
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
     @SerializedName(value = "configs")
@@ -102,6 +101,7 @@ public class JdbcResource extends Resource {
         replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        super.modifyProperties(properties);
     }
 
     @Override
@@ -140,8 +140,7 @@ public class JdbcResource extends Resource {
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        Map<String, String> copiedProperties = Maps.newHashMap(configs);
-        return copiedProperties;
+        return Maps.newHashMap(configs);
     }
 
     @Override

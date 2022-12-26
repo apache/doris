@@ -25,6 +25,7 @@ set(PIPELINE_FILES
         pipeline.cpp
         pipeline_fragment_context.cpp
         pipeline_task.cpp
+        task_queue.cpp
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
@@ -36,6 +37,7 @@ set(PIPELINE_FILES
         exec/exchange_sink_operator.cpp
         exec/exchange_sink_buffer.cpp
         exec/result_sink_operator.cpp
+        exec/result_file_sink_operator.cpp
         exec/aggregation_sink_operator.cpp
         exec/aggregation_source_operator.cpp
         exec/hashjoin_build_sink.cpp
@@ -44,7 +46,6 @@ set(PIPELINE_FILES
         exec/analytic_source_operator.cpp
         exec/streaming_aggregation_source_operator.cpp
         exec/streaming_aggregation_sink_operator.cpp
-        exec/agg_context.cpp
         exec/sort_source_operator.cpp
         exec/sort_sink_operator.cpp
         exec/repeat_operator.cpp
@@ -54,6 +55,9 @@ set(PIPELINE_FILES
         exec/set_sink_operator.cpp
         exec/set_source_operator.cpp
         exec/set_probe_sink_operator.cpp
+        exec/union_sink_operator.cpp
+        exec/union_source_operator.cpp
+        exec/data_queue.cpp
         exec/select_operator.cpp)
 
 add_library(Pipeline STATIC

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.identifier.TableIdentifier;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -53,25 +51,6 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
-    }
-
-    public UnboundRelation(RelationId id, TableIdentifier identifier) {
-        this(id, identifier, Optional.empty(), Optional.empty());
-    }
-
-    /**
-     * Constructor for UnboundRelation.
-     *
-     * @param identifier relation identifier
-     */
-    public UnboundRelation(RelationId id, TableIdentifier identifier, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
-        this.nameParts = Lists.newArrayList();
-        if (identifier.getDatabaseName().isPresent()) {
-            nameParts.add(identifier.getDatabaseName().get());
-        }
-        nameParts.add(identifier.getTableName());
     }
 
     @Override

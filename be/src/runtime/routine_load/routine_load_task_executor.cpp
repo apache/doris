@@ -23,9 +23,10 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/kafka_consumer_pipe.h"
+#include "olap/iterators.h"
 #include "runtime/exec_env.h"
 #include "runtime/routine_load/data_consumer_group.h"
-#include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
@@ -193,9 +194,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     TStatus tstatus;
     tstatus.status_code = TStatusCode::OK;
     put_result.status = tstatus;
-    put_result.params = std::move(task.params);
+    put_result.params = task.params;
     put_result.__isset.params = true;
-    ctx->put_result = std::move(put_result);
+    ctx->put_result = put_result;
     if (task.__isset.format) {
         ctx->format = task.format;
     }
@@ -267,10 +268,10 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
 
     // create and set pipe
-    std::shared_ptr<StreamLoadPipe> pipe;
+    std::shared_ptr<io::StreamLoadPipe> pipe;
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
-        pipe = std::make_shared<KafkaConsumerPipe>();
+        pipe = std::make_shared<io::KafkaConsumerPipe>();
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
                             ->assign_topic_partitions(ctx);
         if (!st.ok()) {
@@ -291,7 +292,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     ctx->body_sink = pipe;
 
     // must put pipe before executing plan fragment
-    HANDLE_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
+    HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
 
 #ifndef BE_TEST
     // execute plan fragment, async
@@ -365,32 +366,31 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
         _exec_env->stream_load_executor()->rollback_txn(ctx);
         ctx->need_rollback = false;
     }
-    if (ctx->body_sink.get() != nullptr) {
+    if (ctx->body_sink != nullptr) {
         ctx->body_sink->cancel(err_msg);
     }
-
-    return;
 }
 
 // for test only
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
     auto mock_consumer = [this, ctx]() {
         ctx->ref();
-        std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);
-        bool eof = false;
+        std::shared_ptr<io::StreamLoadPipe> pipe = _exec_env->new_load_stream_mgr()->get(ctx->id);
         std::stringstream ss;
         while (true) {
             char one;
             int64_t len = 1;
-            int64_t read_bytes = 0;
-            Status st = pipe->read((uint8_t*)&one, len, &read_bytes, &eof);
+            size_t read_bytes = 0;
+            Slice result((uint8_t*)&one, len);
+            IOContext io_ctx;
+            Status st = pipe->read_at(0, result, io_ctx, &read_bytes);
             if (!st.ok()) {
                 LOG(WARNING) << "read failed";
                 ctx->promise.set_value(st);
                 break;
             }
 
-            if (eof) {
+            if (read_bytes == 0) {
                 ctx->promise.set_value(Status::OK());
                 break;
             }

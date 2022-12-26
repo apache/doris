@@ -53,7 +53,6 @@ public:
     ~SegmentIterator() override;
 
     Status init(const StorageReadOptions& opts) override;
-    Status next_batch(RowBlockV2* row_block) override;
     Status next_batch(vectorized::Block* block) override;
 
     // Get current block row locations. This function should be called

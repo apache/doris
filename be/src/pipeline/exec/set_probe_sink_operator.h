@@ -53,9 +53,7 @@ public:
     bool can_write() override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-    Status finalize(RuntimeState* state) override;
     Status open(RuntimeState* /*state*/) override { return Status::OK(); }
-    Status close(RuntimeState* /*state*/) override { return Status::OK(); }
 
 private:
     int _child_id;

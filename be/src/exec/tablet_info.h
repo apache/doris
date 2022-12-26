@@ -36,7 +36,6 @@
 namespace doris {
 
 class MemPool;
-class RowBatch;
 
 struct OlapTableIndexSchema {
     int64_t index_id;

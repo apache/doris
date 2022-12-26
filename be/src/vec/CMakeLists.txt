@@ -46,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
+  aggregate_functions/aggregate_function_histogram.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -280,9 +281,16 @@ set(VEC_FILES
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
   exec/format/table/iceberg_reader.cpp
-  exec/format/file_reader/new_file_factory.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
+  exec/format/file_reader/new_plain_binary_line_reader.cpp
   )
+
+if (WITH_MYSQL)
+    set(VEC_FILES
+            ${VEC_FILES}
+            exec/scan/mysql_scanner.cpp
+            )
+endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}

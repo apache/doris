@@ -65,10 +65,6 @@ public:
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not implement");
-    }
-
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -90,6 +86,10 @@ public:
     TupleId output_tuple_id() const { return _output_tuple_id; }
     const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    bool runtime_filters_are_ready_or_timeout();
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -179,6 +179,7 @@ protected:
     // For runtime filters
     struct RuntimeFilterContext {
         RuntimeFilterContext() : apply_mark(false), runtime_filter(nullptr) {}
+        RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark;
         IRuntimeFilter* runtime_filter;
@@ -202,6 +203,7 @@ protected:
 
     // indicate this scan node has no more data to return
     bool _eos = false;
+    bool _opened = false;
 
     FilterPredicates _filter_predicates {};
 
@@ -223,6 +225,7 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
+    bool _blocked_by_rf = false;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -256,7 +259,6 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-
     // Num of pre allocated free blocks
     RuntimeProfile::Counter* _pre_alloc_free_blocks_num = nullptr;
     // Num of newly created free blocks when running query

@@ -40,19 +40,21 @@ public class HourFloor extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, DateTimeV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(DateTimeType.INSTANCE, IntegerType.INSTANCE, DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE)
-                    .args(DateTimeV2Type.INSTANCE, IntegerType.INSTANCE, DateTimeV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE)
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE)
     );
 

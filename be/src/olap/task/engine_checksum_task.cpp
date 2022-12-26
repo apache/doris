@@ -17,9 +17,8 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/row.h"
-#include "olap/tuple_reader.h"
 #include "runtime/thread_context.h"
+#include "vec/olap/block_reader.h"
 
 namespace doris {
 
@@ -50,59 +49,41 @@ Status EngineChecksumTask::_compute_checksum() {
         return Status::InternalError("could not find tablet {}", _tablet_id);
     }
 
-    TupleReader reader;
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version version(0, _version);
+    Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
+    if (acquire_reader_st != Status::OK()) {
+        LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
+                     << "res=" << acquire_reader_st;
+        return acquire_reader_st;
+    }
+    vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
-    reader_params.tablet = tablet;
-    reader_params.tablet_schema = tablet->tablet_schema();
-    reader_params.reader_type = READER_CHECKSUM;
-    reader_params.version = Version(0, _version);
-    auto& delete_preds = tablet->delete_predicates();
-    std::copy(delete_preds.cbegin(), delete_preds.cend(),
-              std::inserter(reader_params.delete_predicates,
-                            reader_params.delete_predicates.begin()));
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        const RowsetSharedPtr message = tablet->rowset_with_max_version();
-        if (message == nullptr) {
-            LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
-        }
+    vectorized::Block block;
+    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
+            tablet, READER_CHECKSUM, input_rowsets, &reader_params, &block))
 
-        RETURN_IF_ERROR(
-                tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers));
+    auto res = reader.init(reader_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "initiate reader fail. res = " << res;
+        return res;
     }
-
-    for (size_t i = 0; i < tablet->tablet_schema()->num_columns(); ++i) {
-        reader_params.return_columns.push_back(i);
-    }
-
-    RETURN_IF_ERROR(reader.init(reader_params));
-
-    RowCursor row;
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
-    std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
-    RETURN_IF_ERROR(row.init(tablet->tablet_schema(), reader_params.return_columns));
-
-    row.allocate_memory_for_string_type(tablet->tablet_schema());
 
     bool eof = false;
-    uint32_t row_checksum = 0;
-    while (true) {
-        RETURN_IF_ERROR(reader.next_row_with_aggregation(&row, mem_pool.get(),
-                                                         agg_object_pool.get(), &eof));
-        if (eof) {
-            VLOG_NOTICE << "reader reads to the end.";
-            break;
-        }
-        // The value of checksum is independent of the sorting of data rows.
-        row_checksum ^= hash_row(row, 0);
-        // the memory allocate by mem pool has been copied,
-        // so we should release memory immediately
-        mem_pool->clear();
-        agg_object_pool.reset(new ObjectPool());
-    }
+    SipHash block_hash;
+    uint64_t rows = 0;
+    while (!eof) {
+        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof));
+        rows += block.rows();
 
-    LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
-    *_checksum = row_checksum;
+        block.update_hash(block_hash);
+        block.clear_column_data();
+    }
+    uint64_t checksum64 = block_hash.get64();
+    *_checksum = (checksum64 >> 32) ^ (checksum64 & 0xffffffff);
+
+    LOG(INFO) << "success to finish compute checksum. tablet_id = " << _tablet_id
+              << ", rows = " << rows << ", checksum=" << *_checksum;
     return Status::OK();
 }
 

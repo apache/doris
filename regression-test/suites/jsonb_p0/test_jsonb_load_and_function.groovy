@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("test_jsonb_load_and_function", "p0") {
     // define a sql table
     def testTable = "tbl_test_jsonb"
     def dataFile = "test_jsonb.csv"
-
-    sql """ set enable_vectorized_engine = true """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -35,12 +35,12 @@ suite("test_jsonb_load_and_function", "p0") {
         """
 
     // load the jsonb data from csv file
-    // fail by default for invalid data rows
     streamLoad {
         table testTable
         
         file dataFile // import csv file
         time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition
@@ -50,12 +50,23 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
+
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
+            log.info("url: " + json.ErrorURL)
         }
     }
 
@@ -68,6 +79,7 @@ suite("test_jsonb_load_and_function", "p0") {
         set 'max_filter_ratio', '0.3'
         file dataFile // import csv file
         time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition
@@ -77,6 +89,16 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
+
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)

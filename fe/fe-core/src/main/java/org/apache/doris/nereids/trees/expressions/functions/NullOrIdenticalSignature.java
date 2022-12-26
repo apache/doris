@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
@@ -39,9 +37,8 @@ public interface NullOrIdenticalSignature extends ComputeSignature {
     }
 
     @Override
-    default FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
-            List<FunctionSignature> signatures) {
-        return SearchSignature.from(signatures, arguments)
+    default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return SearchSignature.from(signatures, getArguments())
                 // first round, use identical strategy to find signature
                 .orElseSearch(IdenticalSignature::isIdentical)
                 // second round: if not found, use nullOrIdentical strategy

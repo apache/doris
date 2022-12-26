@@ -60,14 +60,21 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
 
     @Test
     public void testExpiredJobCancellation() throws Exception {
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
-        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "jobQueue");
         AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
                 .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
                         AnalysisType.COLUMN)
                 .build();
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisTaskScheduler, analysisJobInfo);
+
+        new Expectations() {
+            {
+                analysisTaskScheduler.getPendingTasks();
+                result = analysisJob;
+            }
+        };
+        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
+        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "jobQueue");
         AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
         b.put(analysisTaskWrapper);
@@ -79,6 +86,11 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         };
         analysisTaskExecutor.start();
         BlockingCounter counter = Deencapsulation.getField(analysisTaskExecutor, "blockingCounter");
+        int sleepTime = 500;
+        while (counter.getVal() != 0 && sleepTime > 0) {
+            sleepTime -= 100;
+            Thread.sleep(100);
+        }
         Assertions.assertEquals(0, counter.getVal());
     }
 

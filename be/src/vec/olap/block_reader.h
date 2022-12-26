@@ -35,11 +35,6 @@ public:
     // Initialize BlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) override {
-        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
-    }
-
     Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                        bool* eof) override {
         return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);

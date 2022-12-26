@@ -168,10 +168,20 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         return listDatabaseNames(null);
     }
 
+    @Override
+    public String getResource() {
+        return catalogProperty.getResource();
+    }
+
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
+            return null;
+        }
         String realDbName = ClusterNamespace.getNameFromFullName(dbName);
         if (!dbNameToId.containsKey(realDbName)) {
             return null;
@@ -182,7 +192,12 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            return null;
+        }
         return idToDb.get(dbId);
     }
 
@@ -204,7 +219,8 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        catalogProperty.getProperties().putAll(props);
+        catalogProperty.modifyCatalogProps(props);
+        notifyPropertiesUpdated();
     }
 
     @Override
@@ -268,6 +284,10 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     @Override
     public void gsonPostProcess() throws IOException {
+        if (idToDb == null) {
+            // ExternalCatalog is loaded from meta with older version
+            idToDb = Maps.newConcurrentMap();
+        }
         dbNameToId = Maps.newConcurrentMap();
         for (ExternalDatabase db : idToDb.values()) {
             dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());

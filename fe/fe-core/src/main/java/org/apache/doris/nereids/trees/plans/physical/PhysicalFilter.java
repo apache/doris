@@ -30,44 +30,50 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Physical filter plan.
  */
 public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Filter {
+    private final Set<Expression> conjuncts;
 
-    private final Expression predicates;
-
-    public PhysicalFilter(Expression predicates, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(predicates, Optional.empty(), logicalProperties, child);
+    public PhysicalFilter(Set<Expression> conjuncts, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(conjuncts, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
+    public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child);
-        this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
-    public PhysicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
+    public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
                 child);
-        this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
-    public Expression getPredicates() {
-        return predicates;
+    @Override
+    public Set<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(getPredicate());
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalFilter",
-                "predicates", predicates,
+                "predicates", getPredicate(),
                 "stats", statsDeriveResult
         );
     }
@@ -81,17 +87,12 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
             return false;
         }
         PhysicalFilter that = (PhysicalFilter) o;
-        return predicates.equals(that.predicates);
+        return conjuncts.equals(that.conjuncts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(predicates);
-    }
-
-    @Override
-    public List<? extends Expression> getExpressions() {
-        return ImmutableList.of(predicates);
+        return Objects.hash(conjuncts);
     }
 
     @Override
@@ -102,23 +103,23 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalFilter<>(predicates, getLogicalProperties(), children.get(0));
+        return new PhysicalFilter<>(conjuncts, getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFilter<>(predicates, groupExpression, getLogicalProperties(), child());
+        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalFilter<>(predicates, Optional.empty(), logicalProperties.get(), child());
+        return new PhysicalFilter<>(conjuncts, Optional.empty(), logicalProperties.get(), child());
     }
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
-        return new PhysicalFilter<>(predicates, Optional.empty(), getLogicalProperties(), physicalProperties,
+        return new PhysicalFilter<>(conjuncts, Optional.empty(), getLogicalProperties(), physicalProperties,
                 statsDeriveResult, child());
     }
 }

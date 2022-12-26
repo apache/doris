@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 
@@ -26,7 +27,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/** TVFProperties */
+/**
+ * TVFProperties
+ */
 public class TVFProperties extends Expression implements LeafExpression {
     private final Map<String, String> keyValues;
 
@@ -61,5 +64,30 @@ public class TVFProperties extends Expression implements LeafExpression {
     @Override
     public String toString() {
         return "TVFProperties(" + toSql() + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        TVFProperties that = (TVFProperties) o;
+        return Objects.equals(keyValues, that.keyValues);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), keyValues);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitTVFProperties(this, context);
     }
 }

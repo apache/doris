@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -98,6 +99,7 @@ public class FileGroupInfo {
         this.filesAdded = filesAdded;
         this.strictMode = strictMode;
         this.loadParallelism = loadParallelism;
+        this.fileType = brokerDesc.getFileType();
     }
 
     // for stream load
@@ -138,6 +140,10 @@ public class FileGroupInfo {
 
     public int getLoadParallelism() {
         return loadParallelism;
+    }
+
+    public TFileType getFileType() {
+        return fileType;
     }
 
     public String getExplainString(String prefix) {
@@ -186,6 +192,7 @@ public class FileGroupInfo {
             long tmpBytes = curInstanceBytes + leftBytes;
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            context.params.setFormatType(formatType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             // Assign scan range locations only for broker load.
@@ -301,12 +308,23 @@ public class FileGroupInfo {
             rangeDesc.setPath(fileStatus.path);
             rangeDesc.setStartOffset(curFileOffset);
             rangeDesc.setSize(rangeBytes);
+            rangeDesc.setFileSize(fileStatus.size);
             rangeDesc.setColumnsFromPath(columnsFromPath);
         } else {
+            // for stream load
+            if (getFileType() == TFileType.FILE_LOCAL) {
+                // when loading parquet via stream, there will be a local file saved on BE
+                // so to read it as a local file.
+                Preconditions.checkState(fileGroup.getFilePaths().size() == 1);
+                rangeDesc.setPath(fileGroup.getFilePaths().get(0));
+                rangeDesc.setStartOffset(0);
+            }
             rangeDesc.setLoadId(loadId);
             rangeDesc.setSize(fileStatus.size);
+            rangeDesc.setFileSize(fileStatus.size);
         }
         return rangeDesc;
     }
 }
+
 

@@ -19,6 +19,11 @@ package org.apache.doris.nereids.rules.mv;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -34,6 +39,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Tests ported from {@link org.apache.doris.planner.MaterializedViewFunctionTest}
@@ -47,6 +54,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
     private static final String DEPTS_MV_NAME = "depts_mv";
     private static final String USER_TAG_TABLE_NAME = "user_tags";
     private static final String TEST_TABLE_NAME = "test_tb";
+    private static final String USER_TAG_MV_NAME = "user_tags_mv";
 
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
@@ -549,22 +557,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         createMv(createEmpsMVsql);
         String query = "select empid, deptno, salary from " + EMPS_TABLE_NAME + " e1 where empid = (select max(empid)"
                 + " from " + EMPS_TABLE_NAME + " where deptno = e1.deptno);";
-        PlanChecker.from(connectContext).checkPlannerResult(query, planner -> {
-            List<ScanNode> scans = planner.getScanNodes();
-            Assertions.assertEquals(2, scans.size());
-
-            ScanNode scanNode0 = scans.get(0);
-            Assertions.assertTrue(scanNode0 instanceof OlapScanNode);
-            OlapScanNode scan0 = (OlapScanNode) scanNode0;
-            Assertions.assertTrue(scan0.isPreAggregation());
-            Assertions.assertEquals("emps_mv", scan0.getSelectedIndexName());
-
-            ScanNode scanNode1 = scans.get(1);
-            Assertions.assertTrue(scanNode1 instanceof OlapScanNode);
-            OlapScanNode scan1 = (OlapScanNode) scanNode1;
-            Assertions.assertTrue(scan1.isPreAggregation());
-            Assertions.assertEquals("emps", scan1.getSelectedIndexName());
-        });
+        testMvWithTwoTable(query, "emps_mv", "emps");
     }
 
     /**
@@ -603,22 +596,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         String query = "select * from (select deptno, empid from " + EMPS_TABLE_NAME + " where deptno>100) A join "
                 + "(select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno >200 group by deptno) B "
                 + "on A.deptno=B.deptno";
-        PlanChecker.from(connectContext).checkPlannerResult(query, planner -> {
-            List<ScanNode> scans = planner.getScanNodes();
-            Assertions.assertEquals(2, scans.size());
-
-            ScanNode scanNode0 = scans.get(0);
-            Assertions.assertTrue(scanNode0 instanceof OlapScanNode);
-            OlapScanNode scan0 = (OlapScanNode) scanNode0;
-            Assertions.assertTrue(scan0.isPreAggregation());
-            Assertions.assertEquals("emp_mv_01", scan0.getSelectedIndexName());
-
-            ScanNode scanNode1 = scans.get(1);
-            Assertions.assertTrue(scanNode1 instanceof OlapScanNode);
-            OlapScanNode scan1 = (OlapScanNode) scanNode1;
-            Assertions.assertTrue(scan1.isPreAggregation());
-            Assertions.assertEquals("emp_mv_02", scan1.getSelectedIndexName());
-        });
+        testMvWithTwoTable(query, "emp_mv_01", "emp_mv_02");
     }
 
     @Test
@@ -703,6 +681,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1')");
         createMv("create materialized view k1_k2 as select k1, k2 from t group by k1, k2");
         singleTableTest("select k1, k2 from t group by k1, k2", "k1_k2", true);
+        dropTable("t", true);
     }
 
     @Test
@@ -768,89 +747,112 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
     }
 
     /**
-     * TODO: enable this when bitmap is supported.
+     * bitmap_union_count(to_bitmap()) -> bitmap_union_count without having
      */
-    @Disabled
+    @Test
+    public void testBitmapUnionRewrite() throws Exception {
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
+                + " as select user_id, bitmap_union(to_bitmap(tag_id)) from "
+                + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from " + USER_TAG_TABLE_NAME
+                + " group by user_id";
+        singleTableTest(query, USER_TAG_MV_NAME, true);
+    }
+
+    /**
+     * bitmap_union_count(to_bitmap()) -> bitmap_union_count with having
+     */
+    @Test
     public void testBitmapUnionInQuery() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
-        //         + " as select user_id, bitmap_union(to_bitmap(tag_id)) from "
-        //         + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from " + USER_TAG_TABLE_NAME
-        //         + " group by user_id having a>1 order by a;";
-        // dorisAssert.query(query).explainContains(QUERY_USE_USER_TAG_MV);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
+                + " as select user_id, bitmap_union(to_bitmap(tag_id)) from "
+                + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from " + USER_TAG_TABLE_NAME
+                + " group by user_id having a>1 order by a;";
+        singleTableTest(query, USER_TAG_MV_NAME, true);
     }
 
-    /**
-     * TODO: enable this when bitmap is supported.
-     */
-    @Disabled
+    @Test
     public void testBitmapUnionInSubquery() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select user_id from " + USER_TAG_TABLE_NAME + " where user_id in (select user_id from "
-        //         + USER_TAG_TABLE_NAME + " group by user_id having bitmap_union_count(to_bitmap(tag_id)) >1 ) ;";
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, USER_TAG_TABLE_NAME);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select user_id from " + USER_TAG_TABLE_NAME + " where user_id in (select user_id from "
+                + USER_TAG_TABLE_NAME + " group by user_id having bitmap_union_count(to_bitmap(tag_id)) >1 ) ;";
+        testMvWithTwoTable(query, "user_tags", "user_tags_mv");
     }
 
-    /**
-     * TODO: enable this when bitmap is supported.
-     */
-    @Disabled
+    @Test
     public void testIncorrectMVRewriteInQuery() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String createEmpMVSql = "create materialized view " + EMPS_MV_NAME + " as select name, deptno from "
-        //         + EMPS_TABLE_NAME + ";";
-        // dorisAssert.withMaterializedView(createEmpMVSql);
-        // String query = "select user_name, bitmap_union_count(to_bitmap(tag_id)) a from " + USER_TAG_TABLE_NAME + ", "
-        //         + "(select name, deptno from " + EMPS_TABLE_NAME + ") a" + " where user_name=a.name group by "
-        //         + "user_name having a>1 order by a;";
-        // testMv(query, EMPS_MV_NAME);
-        // dorisAssert.query(query).explainWithout(QUERY_USE_USER_TAG_MV);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String createEmpMVSql = "create materialized view " + EMPS_MV_NAME + " as select name, deptno from "
+                + EMPS_TABLE_NAME + ";";
+        createMv(createEmpMVSql);
+        String query = "select user_name, bitmap_union_count(to_bitmap(tag_id)) a from " + USER_TAG_TABLE_NAME + ", "
+                + "(select name, deptno from " + EMPS_TABLE_NAME + ") a" + " where user_name=a.name group by "
+                + "user_name having a>1 order by a;";
+        testMv(query, ImmutableMap.of("user_tags", "user_tags", "emps", "emps_mv"));
     }
 
     /**
-     * TODO: enable this when bitmap is supported.
+     * bitmap_union_count(to_bitmap(tag_id)) in subquery
      */
-    @Disabled
+    @Test
     public void testIncorrectMVRewriteInSubquery() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select user_id, bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " where "
-        //         + "user_name in (select user_name from " + USER_TAG_TABLE_NAME + " group by user_name having "
-        //         + "bitmap_union_count(to_bitmap(tag_id)) >1 )" + " group by user_id;";
-        // dorisAssert.query(query).explainContains(QUERY_USE_USER_TAG);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select user_id, bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " where "
+                + "user_name in (select user_name from " + USER_TAG_TABLE_NAME + " group by user_name having "
+                + "bitmap_union_count(to_bitmap(tag_id)) >1 )" + " group by user_id;";
+        // can't use mv index because it has no required column `user_name`
+        testMv(query, ImmutableMap.of("user_tags", "user_tags"));
     }
 
-    /**
-     * TODO: enable this when bitmap is supported.
-     */
-    @Disabled
+    @Test
     public void testTwoTupleInQuery() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select * from (select user_id, bitmap_union_count(to_bitmap(tag_id)) x from "
-        //         + USER_TAG_TABLE_NAME + " group by user_id) a, (select user_name, bitmap_union_count(to_bitmap(tag_id))"
-        //         + "" + " y from " + USER_TAG_TABLE_NAME + " group by user_name) b where a.x=b.y;";
-        // dorisAssert.query(query).explainContains(QUERY_USE_USER_TAG, QUERY_USE_USER_TAG_MV);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select * from (select user_id, bitmap_union_count(to_bitmap(tag_id)) x from "
+                + USER_TAG_TABLE_NAME + " group by user_id) a, (select user_name, bitmap_union_count(to_bitmap(tag_id))"
+                + "" + " y from " + USER_TAG_TABLE_NAME + " group by user_name) b where a.x=b.y;";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalJoin(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan().when(scan -> "user_tags_mv".equals(
+                                                scan.getSelectedMaterializedIndexName().get())))),
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan().when(scan -> "user_tags".equals(
+                                                scan.getSelectedMaterializedIndexName().get()))))));
+
     }
 
     /**
-     * TODO: enable this when bitmap is supported.
+     * count(distinct v) -> bitmap_union_count(v) without mv index.
      */
-    @Disabled
+    @Test
     public void testAggTableCountDistinctInBitmapType() throws Exception {
-        // String aggTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 bitmap bitmap_union) Aggregate KEY (k1) "
-        //         + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
-        // dorisAssert.withTable(aggTable);
-        // String query = "select k1, count(distinct v1) from " + TEST_TABLE_NAME + " group by k1;";
-        // dorisAssert.query(query).explainContains(TEST_TABLE_NAME, "bitmap_union_count");
-        // dorisAssert.dropTable(TEST_TABLE_NAME, true);
+        String aggTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 bitmap bitmap_union) Aggregate KEY (k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+        createTable(aggTable);
+        String query = "select k1, count(distinct v1) from " + TEST_TABLE_NAME + " group by k1;";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, BitmapUnionCount.class);
+                    return true;
+                }));
+        dropTable(TEST_TABLE_NAME, true);
     }
 
     /**
@@ -868,27 +870,38 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
     }
 
     /**
-     * TODO: enable this when bitmap is supported.
+     * count distinct to bitmap_union_count in mv
      */
-    @Disabled
+    @Test
     public void testCountDistinctToBitmap() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select count(distinct tag_id) from " + USER_TAG_TABLE_NAME + ";";
-        // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, "bitmap_union_count");
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select count(distinct tag_id) from " + USER_TAG_TABLE_NAME + ";";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, BitmapUnionCount.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_MV_NAME);
     }
 
-    /**
-     * TODO: enable this when bitmap is supported.
-     */
-    @Disabled
+    @Test
     public void testIncorrectRewriteCountDistinct() throws Exception {
-        // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
-        //         + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
-        // dorisAssert.withMaterializedView(createUserTagMVSql);
-        // String query = "select user_name, count(distinct tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
-        // dorisAssert.query(query).explainContains(USER_TAG_TABLE_NAME, FunctionSet.COUNT);
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
+                + "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select user_name, count(distinct tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
+        PlanChecker.from(connectContext)
+                .analyze(query)
+                .rewrite()
+                .matches(logicalAggregate().when(agg -> {
+                    assertOneAggFuncType(agg, Count.class);
+                    return true;
+                }));
+        testMv(query, USER_TAG_TABLE_NAME);
     }
 
     /**
@@ -982,10 +995,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         // dorisAssert.query(query).explainWithout(USER_TAG_MV_NAME);
     }
 
-    /**
-     * TODO: enable this when bitmap is supported.
-     */
-    @Disabled
+    @Test
     public void testCreateMVBaseBitmapAggTable() throws Exception {
         String createTableSQL = "create table " + HR_DB_NAME + ".agg_table "
                 + "(empid int, name varchar, salary bitmap " + FunctionSet.BITMAP_UNION + ") "
@@ -1016,6 +1026,48 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
     }
 
+    @Test
+    public void selectBitmapMvWithProjectTest1() throws Exception {
+        createTable("create table t(\n"
+                + "  a int, \n"
+                + "  b int, \n"
+                + "  c int\n"
+                + ")ENGINE=OLAP \n"
+                + "DISTRIBUTED BY HASH(a) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\",\n"
+                + "\"disable_auto_compaction\" = \"false\"\n"
+                + ");");
+        createMv("create materialized view mv as"
+                + "  select a, bitmap_union(to_bitmap(b)) from t group by a;");
+
+        testMv("select a, count(distinct v) as cnt from (select a, b as v from t) t group by a", "mv");
+        dropTable("t", true);
+    }
+
+    @Test
+    public void selectBitmapMvWithProjectTest2() throws Exception {
+        createTable("create table t(\n"
+                + "  a int, \n"
+                + "  b int, \n"
+                + "  c int\n"
+                + ")ENGINE=OLAP \n"
+                + "DISTRIBUTED BY HASH(a) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\",\n"
+                + "\"disable_auto_compaction\" = \"false\"\n"
+                + ");");
+        createMv("create materialized view mv as"
+                + "  select a, bitmap_union(to_bitmap(b)) from t group by a;");
+
+        testMv("select a, bitmap_union_count(to_bitmap(v)) as cnt from (select a, b as v from t) t group by a", "mv");
+        dropTable("t", true);
+    }
+
     private void testMv(String sql, Map<String, String> tableToIndex) {
         PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
             List<ScanNode> scans = planner.getScanNodes();
@@ -1031,5 +1083,35 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
 
     private void testMv(String sql, String indexName) {
         singleTableTest(sql, indexName, true);
+    }
+
+    private void assertOneAggFuncType(LogicalAggregate<? extends Plan> agg, Class<?> aggFuncType) {
+        Set<AggregateFunction> aggFuncs = agg.getOutputExpressions()
+                .stream()
+                .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance)
+                        .stream())
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(1, aggFuncs.size());
+        AggregateFunction aggFunc = aggFuncs.iterator().next();
+        Assertions.assertTrue(aggFuncType.isInstance(aggFunc));
+    }
+
+    private void testMvWithTwoTable(String sql, String firstTableIndexName, String secondTableIndexName) {
+        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+            List<ScanNode> scans = planner.getScanNodes();
+            Assertions.assertEquals(2, scans.size());
+
+            ScanNode scanNode0 = scans.get(0);
+            Assertions.assertTrue(scanNode0 instanceof OlapScanNode);
+            OlapScanNode scan0 = (OlapScanNode) scanNode0;
+            Assertions.assertTrue(scan0.isPreAggregation());
+            Assertions.assertEquals(firstTableIndexName, scan0.getSelectedIndexName());
+
+            ScanNode scanNode1 = scans.get(1);
+            Assertions.assertTrue(scanNode1 instanceof OlapScanNode);
+            OlapScanNode scan1 = (OlapScanNode) scanNode1;
+            Assertions.assertTrue(scan1.isPreAggregation());
+            Assertions.assertEquals(secondTableIndexName, scan1.getSelectedIndexName());
+        });
     }
 }

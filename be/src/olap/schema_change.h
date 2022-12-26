@@ -28,14 +28,6 @@
 #include "vec/core/block.h"
 
 namespace doris {
-
-bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
-               int field_idx, int ref_field_idx, MemPool* mem_pool);
-bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
-              int field_idx, int ref_field_idx, MemPool* mem_pool);
-bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
-                 int field_idx, int ref_field_idx, MemPool* mem_pool);
-
 class RowBlockChanger {
 public:
     RowBlockChanger(TabletSchemaSPtr tablet_schema, const DeleteHandler* delete_handler,
@@ -44,9 +36,6 @@ public:
     ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
-
-    Status change_row_block(const RowBlock* ref_block, int32_t data_version,
-                            RowBlock* mutable_block, const uint64_t* filtered_rows) const;
 
     Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
 
@@ -63,22 +52,6 @@ private:
     DescriptorTbl _desc_tbl;
 
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
-};
-
-class RowBlockAllocator {
-public:
-    RowBlockAllocator(TabletSchemaSPtr tablet_schema, size_t memory_limitation);
-    virtual ~RowBlockAllocator();
-
-    Status allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
-    void release(RowBlock* row_block);
-    bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
-
-private:
-    TabletSchemaSPtr _tablet_schema;
-    std::unique_ptr<MemTracker> _tracker;
-    size_t _row_len;
-    size_t _memory_limitation;
 };
 
 class SchemaChange {
@@ -163,27 +136,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
-// @brief schema change without sorting.
-class SchemaChangeDirectly : public SchemaChange {
-public:
-    // @params tablet           the instance of tablet which has new schema.
-    // @params row_block_changer    changer to modify the data of RowBlock
-    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer);
-    ~SchemaChangeDirectly() override;
-
-private:
-    Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
-
-    const RowBlockChanger& _row_block_changer;
-    RowBlockAllocator* _row_block_allocator;
-    RowCursor* _cursor;
-
-    bool _write_row_block(RowsetWriter* rowset_builder, RowBlock* row_block);
-
-    DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
-};
-
 class VSchemaChangeDirectly : public SchemaChange {
 public:
     VSchemaChangeDirectly(const RowBlockChanger& row_block_changer) : _changer(row_block_changer) {}
@@ -196,32 +148,6 @@ private:
 };
 
 // @breif schema change with sorting
-class SchemaChangeWithSorting : public SchemaChange {
-public:
-    explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
-                                     size_t memory_limitation);
-    ~SchemaChangeWithSorting() override;
-
-private:
-    Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
-
-    bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                           const Version& temp_delta_versions, int64_t oldest_write_timestamp,
-                           int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
-                           SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
-
-    bool _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
-                           TabletSharedPtr new_tablet);
-
-    const RowBlockChanger& _row_block_changer;
-    size_t _memory_limitation;
-    Version _temp_delta_versions;
-    RowBlockAllocator* _row_block_allocator;
-
-    DISALLOW_COPY_AND_ASSIGN(SchemaChangeWithSorting);
-};
-
 class VSchemaChangeWithSorting : public SchemaChange {
 public:
     VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer, size_t memory_limitation);
@@ -254,21 +180,12 @@ public:
     static std::unique_ptr<SchemaChange> get_sc_procedure(const RowBlockChanger& rb_changer,
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
-            if (config::enable_vectorized_alter_table) {
-                return std::make_unique<VSchemaChangeWithSorting>(
-                        rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
-            } else {
-                return std::make_unique<SchemaChangeWithSorting>(
-                        rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
-            }
+            return std::make_unique<VSchemaChangeWithSorting>(
+                    rb_changer, config::memory_limitation_per_thread_for_schema_change_bytes);
         }
 
         if (sc_directly) {
-            if (config::enable_vectorized_alter_table) {
-                return std::make_unique<VSchemaChangeDirectly>(rb_changer);
-            } else {
-                return std::make_unique<SchemaChangeDirectly>(rb_changer);
-            }
+            return std::make_unique<VSchemaChangeDirectly>(rb_changer);
         }
 
         return std::make_unique<LinkedSchemaChange>(rb_changer);
@@ -318,6 +235,4 @@ private:
     static std::unordered_set<int64_t> _tablet_ids_in_converting;
     static std::set<std::string> _supported_functions;
 };
-
-using RowBlockDeleter = std::function<void(RowBlock*)>;
 } // namespace doris

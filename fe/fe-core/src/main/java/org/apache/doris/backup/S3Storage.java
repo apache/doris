@@ -34,6 +34,7 @@ import org.apache.http.client.utils.URIBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
@@ -134,27 +135,7 @@ public class S3Storage extends BlobStorage {
             checkS3(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            conf.set("fs.s3a.access.key", caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY));
-            conf.set("fs.s3a.secret.key", caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
-            conf.set("fs.s3a.endpoint", caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
-            conf.set("fs.s3a.endpoint.region", caseInsensitiveProperties.get(S3Resource.S3_REGION));
-            if (caseInsensitiveProperties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
-                conf.set("fs.s3a.connection.maximum",
-                        caseInsensitiveProperties.get(S3Resource.S3_MAX_CONNECTIONS));
-            }
-            if (caseInsensitiveProperties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
-                conf.set("fs.s3a.connection.request.timeout",
-                        caseInsensitiveProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
-            }
-            if (caseInsensitiveProperties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
-                conf.set("fs.s3a.connection.timeout",
-                        caseInsensitiveProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
-            }
-            conf.set("fs.s3.impl.disable.cache", "true");
-            conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-            // introducing in hadoop aws 2.8.0
-            conf.set("fs.s3a.path.style.access", forceHostedStyle ? "false" : "true");
-            conf.set("fs.s3a.attempts.maximum", "2");
+            S3Resource.getS3HadoopProperties(caseInsensitiveProperties).forEach(conf::set);
             try {
                 dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
             } catch (Exception e) {
@@ -168,10 +149,19 @@ public class S3Storage extends BlobStorage {
         if (client == null) {
             checkS3(caseInsensitiveProperties);
             URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
-            AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                    caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
-                    caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
-            StaticCredentialsProvider scp = StaticCredentialsProvider.create(awsBasic);
+            StaticCredentialsProvider scp;
+            if (!caseInsensitiveProperties.containsKey(S3Resource.S3_TOKEN)) {
+                AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
+                        caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
+                        caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
+                scp = StaticCredentialsProvider.create(awsBasic);
+            } else {
+                AwsSessionCredentials awsSession = AwsSessionCredentials.create(
+                        caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
+                        caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY),
+                        caseInsensitiveProperties.get(S3Resource.S3_TOKEN));
+                scp = StaticCredentialsProvider.create(awsSession);
+            }
             EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                     .builder()
                     .baseDelay(Duration.ofSeconds(1))

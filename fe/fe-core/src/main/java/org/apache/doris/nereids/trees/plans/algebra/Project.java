@@ -17,13 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +85,41 @@ public interface Project {
                 .map(e -> ExpressionReplacer.INSTANCE.replace(e, bottomAliasMap))
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * find projects, if not found the slot, then throw AnalysisException
+     */
+    static List<NamedExpression> findProject(
+            Collection<? extends Slot> slotReferences,
+            List<NamedExpression> projects) throws AnalysisException {
+        Map<ExprId, NamedExpression> exprIdToProject = projects.stream()
+                .collect(ImmutableMap.toImmutableMap(p -> p.getExprId(), p -> p));
+
+        return slotReferences.stream()
+                .map(slot -> {
+                    ExprId exprId = slot.getExprId();
+                    NamedExpression project = exprIdToProject.get(exprId);
+                    if (project == null) {
+                        throw new AnalysisException("ExprId " + slot.getExprId() + " no exists in " + projects);
+                    }
+                    return project;
+                })
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * findUsedProject. if not found the slot, then skip it
+     */
+    static <OUTPUT_TYPE extends NamedExpression> List<OUTPUT_TYPE> filterUsedOutputs(
+            Collection<? extends Slot> slotReferences, List<OUTPUT_TYPE> childOutput) {
+        Map<ExprId, OUTPUT_TYPE> exprIdToChildOutput = childOutput.stream()
+                .collect(ImmutableMap.toImmutableMap(p -> p.getExprId(), p -> p));
+
+        return slotReferences.stream()
+                .map(slot -> exprIdToChildOutput.get(slot.getExprId()))
+                .filter(project -> project != null)
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**

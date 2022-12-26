@@ -29,8 +29,11 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Exchange apply and filter.
@@ -53,9 +56,9 @@ public class PushApplyUnderFilter extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalApply(group(), logicalFilter()).when(LogicalApply::isCorrelated).then(apply -> {
             LogicalFilter<GroupPlan> filter = apply.right();
-            List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());
+            Set<Expression> conjuncts = filter.getConjuncts();
             Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(
-                    predicates, apply.getCorrelationSlot());
+                    conjuncts, apply.getCorrelationSlot());
             List<Expression> correlatedPredicate = split.get(true);
             List<Expression> unCorrelatedPredicate = split.get(false);
 
@@ -64,7 +67,7 @@ public class PushApplyUnderFilter extends OneRewriteRuleFactory {
                 return apply;
             }
 
-            Plan child = PlanUtils.filterOrSelf(unCorrelatedPredicate, filter.child());
+            Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
             return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate),
                     apply.left(), child);

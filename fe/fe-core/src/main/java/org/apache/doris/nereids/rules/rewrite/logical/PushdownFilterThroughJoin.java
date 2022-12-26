@@ -27,11 +27,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -47,6 +47,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.LEFT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
             JoinType.CROSS_JOIN
     );
 
@@ -95,7 +96,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
 
             LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
-            List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());
+            Set<Expression> predicates = filter.getConjuncts();
 
             List<Expression> filterPredicates = Lists.newArrayList();
             List<Expression> joinConditions = Lists.newArrayList();
@@ -112,9 +113,9 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                 }
             }
 
-            List<Expression> leftPredicates = Lists.newArrayList();
-            List<Expression> rightPredicates = Lists.newArrayList();
-            List<Expression> remainingPredicates = Lists.newArrayList();
+            Set<Expression> leftPredicates = Sets.newHashSet();
+            Set<Expression> rightPredicates = Sets.newHashSet();
+            Set<Expression> remainingPredicates = Sets.newHashSet();
             for (Expression p : filterPredicates) {
                 Set<Slot> slots = p.collect(SlotReference.class::isInstance);
                 if (slots.isEmpty()) {
@@ -137,6 +138,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                     new LogicalJoin<>(join.getJoinType(),
                             join.getHashJoinConjuncts(),
                             joinConditions,
+                            join.getHint(),
                             PlanUtils.filterOrSelf(leftPredicates, join.left()),
                             PlanUtils.filterOrSelf(rightPredicates, join.right())));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_JOIN);

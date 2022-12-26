@@ -26,7 +26,6 @@ suite("test_hdfs_tvf") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
 
             // test csv foramt
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
@@ -192,8 +191,16 @@ suite("test_hdfs_tvf") {
             sql "sync"
             assertTrue(result2[0][0] == 5, "Insert should update 12 rows")
             qt_insert """ select * from test_hdfs_tvf order by id; """
+
+            // test desc function
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet.snappy.parquet"
+            format = "parquet"
+            qt_desc """ desc function HDFS(
+                            "uri" = "${uri}",
+                            "fs.defaultFS"= "${defaultFS}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}"); """
         } finally {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
         }
     }
 }

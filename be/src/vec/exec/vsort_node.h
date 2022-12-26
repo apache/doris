@@ -37,30 +37,28 @@ public:
 
     ~VSortNode() override = default;
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
-    virtual Status prepare(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
-    virtual Status alloc_resource(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
 
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    Status reset(RuntimeState* state) override;
 
-    virtual Status reset(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
-    virtual Status close(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
 
-    virtual void release_resource(RuntimeState* state) override;
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
 
-    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
-
-    virtual Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
 protected:
-    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     // Number of rows to skip.

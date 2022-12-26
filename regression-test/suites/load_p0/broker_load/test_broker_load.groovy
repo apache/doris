@@ -192,28 +192,8 @@ suite("test_broker_load", "p0") {
         logger.info("Submit load with lable: $uuid, table: $table, path: $path")
     }
 
-    def set_be_config = { flag->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            // No need to set this config anymore, but leave this code sample here
-            // StringBuilder setConfigCommand = new StringBuilder();
-            // setConfigCommand.append("curl -X POST http://")
-            // setConfigCommand.append(backend[2])
-            // setConfigCommand.append(":")
-            // setConfigCommand.append(backend[5])
-            // setConfigCommand.append("/api/update_config?")
-            // String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
-            // logger.info(command1)
-            // def process1 = command1.execute()
-            // int code = process1.waitFor()
-            // assertEquals(code, 0)
-        }
-    }
-
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def uuids = []
-        set_be_config.call('true')
         try {
             def i = 0
             for (String table in tables) {
@@ -258,7 +238,6 @@ suite("test_broker_load", "p0") {
             order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
-            set_be_config.call('false')
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
             }

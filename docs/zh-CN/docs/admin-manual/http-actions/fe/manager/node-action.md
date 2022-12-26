@@ -44,6 +44,14 @@ under the License.
 
 `POST /rest/v2/manager/node/set_config/be`
 
+<version since="dev">
+
+`POST /rest/v2/manager/node/{action}/be`
+
+`POST /rest/v2/manager/node/{action}/fe`
+
+</version>
+
 ## 获取fe, be, broker节点信息
 
 `GET /rest/v2/manager/node/frontends`
@@ -432,4 +440,182 @@ failed 表示修改失败的配置信息。
     }
 
     agent_task_resend_wait_time_ms 配置值修改成功，alter_table_timeout_second 修改失败。
+    ```
+   
+## 操作 be 节点
+
+`POST /rest/v2/manager/node/{action}/be`
+
+### Description
+
+用于添加/删除/下线 be 节点
+
+action：ADD/DROP/DECOMMISSION
+
+### Request body
+```
+{
+    "hostPorts": ["127.0.0.1:9050"],
+    "properties": {
+        "tag.location": "test"
+    }
+}
+
+hostPorts 需要操作的一组 be 节点地址 ip:heartbeat_port
+properties 添加节点时传入的配置，目前只用于配置 tag, 不传使用默认 tag
+```
+
+### Response
+```
+{
+    "msg": "Error",
+    "code": 1,
+    "data": "errCode = 2, detailMessage = Same backend already exists[127.0.0.1:9050]",
+    "count": 0
+}
+
+msg Success/Error
+code 0/1
+data ""/报错信息
+```
+
+### Examples
+
+1. 添加 be 节点
+
+   post /rest/v2/manager/node/ADD/be
+   Request body
+    ```
+    {
+        "hostPorts": ["127.0.0.1:9050"]
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+2. 删除 be 节点
+
+   post /rest/v2/manager/node/DROP/be
+   Request body
+    ```
+    {
+        "hostPorts": ["127.0.0.1:9050"]
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+3. 下线 be 节点
+
+   post /rest/v2/manager/node/DECOMMISSION/be
+   Request body
+    ```
+    {
+        "hostPorts": ["127.0.0.1:9050"]
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+## 操作 fe 节点
+
+`POST /rest/v2/manager/node/{action}/fe`
+
+### Description
+
+用于添加/删除 fe 节点
+
+action：ADD/DROP
+
+### Request body
+```
+{
+    "role": "FOLLOWER",
+    "hostPort": "127.0.0.1:9030"
+}
+
+role FOLLOWER/OBSERVER
+hostPort 需要操作的 fe 节点地址 ip:edit_log_port
+```
+
+### Response
+```
+{
+    "msg": "Error",
+    "code": 1,
+    "data": "errCode = 2, detailMessage = frontend already exists name: 127.0.0.1:9030_1670495889415, role: FOLLOWER, 127.0.0.1:9030",
+    "count": 0
+}
+
+msg Success/Error
+code 0/1
+data ""/报错信息
+```
+
+### Examples
+
+1. 添加 FOLLOWER 节点
+
+    post /rest/v2/manager/node/ADD/fe
+    Request body
+    ```
+    {
+        "role": "FOLLOWER",
+        "hostPort": "127.0.0.1:9030"
+    }
+    ```
+   
+    Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
+    ```
+
+2. 删除 FOLLOWER 节点
+
+   post /rest/v2/manager/node/DROP/fe
+   Request body
+    ```
+    {
+        "role": "FOLLOWER",
+        "hostPort": "127.0.0.1:9030"
+    }
+    ```
+
+   Response
+    ```
+    {
+        "msg": "success",
+        "code": 0,
+        "data": null,
+        "count": 0
+    }
     ```

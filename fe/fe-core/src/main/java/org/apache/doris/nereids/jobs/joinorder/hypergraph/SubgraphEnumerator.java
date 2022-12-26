@@ -120,7 +120,7 @@ public class SubgraphEnumerator {
                 if (edges.isEmpty()) {
                     continue;
                 }
-                if (!receiver.emitCsgCmp(csg, newCmp, edges)) {
+                if (!receiver.emitCsgCmp(csg, newCmp, edges, hyperGraph.getComplexProject())) {
                     return false;
                 }
             }
@@ -144,16 +144,15 @@ public class SubgraphEnumerator {
         forbiddenNodes = LongBitmap.or(forbiddenNodes, csg);
         long neighborhoods = neighborhoodCalculator.calcNeighborhood(csg, LongBitmap.clone(forbiddenNodes),
                 edgeCalculator);
-
         for (int nodeIndex : LongBitmap.getReverseIterator(neighborhoods)) {
             long cmp = LongBitmap.newBitmap(nodeIndex);
             // whether there is an edge between csg and cmp
             List<Edge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
-            if (edges.isEmpty()) {
-                continue;
-            }
-            if (!receiver.emitCsgCmp(csg, cmp, edges)) {
-                return false;
+
+            if (!edges.isEmpty()) {
+                if (!receiver.emitCsgCmp(csg, cmp, edges, hyperGraph.getComplexProject())) {
+                    return false;
+                }
             }
 
             // In order to avoid enumerate repeated cmp, e.g.,
@@ -191,7 +190,6 @@ public class SubgraphEnumerator {
             forbiddenNodes = LongBitmap.or(forbiddenNodes, subgraph);
             neighborhoods = LongBitmap.andNot(neighborhoods, forbiddenNodes);
             forbiddenNodes = LongBitmap.or(forbiddenNodes, neighborhoods);
-
             for (Edge edge : edgeCalculator.foundComplexEdgesContain(subgraph)) {
                 long left = edge.getLeft();
                 long right = edge.getRight();
@@ -268,11 +266,11 @@ public class SubgraphEnumerator {
             simpleContains.or(containSimpleEdges.get(bitmap1));
             simpleContains.or(containSimpleEdges.get(bitmap2));
             BitSet complexContains = new BitSet();
-            simpleContains.or(containComplexEdges.get(bitmap1));
-            simpleContains.or(containComplexEdges.get(bitmap2));
+            complexContains.or(containComplexEdges.get(bitmap1));
+            complexContains.or(containComplexEdges.get(bitmap2));
             BitSet overlaps = new BitSet();
-            simpleContains.or(overlapEdges.get(bitmap1));
-            simpleContains.or(overlapEdges.get(bitmap2));
+            overlaps.or(overlapEdges.get(bitmap1));
+            overlaps.or(overlapEdges.get(bitmap2));
             for (int index : overlaps.stream().toArray()) {
                 Edge edge = edges.get(index);
                 if (isContainEdge(subgraph, edge)) {

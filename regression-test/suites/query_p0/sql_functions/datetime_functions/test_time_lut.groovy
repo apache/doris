@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_time_lut") {
-    sql """ SET enable_vectorized_engine = TRUE; """
     for (def year = 1980; year < 2030; year++) {
         for (def month = 1; month < 13; month++) {
             qt_sql """ select weekofyear('${year}-${month}-1 23:59:59') """

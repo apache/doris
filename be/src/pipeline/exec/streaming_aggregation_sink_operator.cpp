@@ -23,8 +23,8 @@ namespace doris::pipeline {
 
 StreamingAggSinkOperator::StreamingAggSinkOperator(OperatorBuilderBase* operator_builder,
                                                    ExecNode* agg_node,
-                                                   std::shared_ptr<AggContext> agg_context)
-        : StreamingOperator(operator_builder, agg_node), _agg_context(std::move(agg_context)) {}
+                                                   std::shared_ptr<DataQueue> queue)
+        : StreamingOperator(operator_builder, agg_node), _data_queue(std::move(queue)) {}
 
 Status StreamingAggSinkOperator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(StreamingOperator::prepare(state));
@@ -36,7 +36,7 @@ Status StreamingAggSinkOperator::prepare(RuntimeState* state) {
 
 bool StreamingAggSinkOperator::can_write() {
     // sink and source in diff threads
-    return _agg_context->has_enough_space_to_push();
+    return _data_queue->has_enough_space_to_push();
 }
 
 Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -44,39 +44,38 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {
-        auto block_from_ctx = _agg_context->get_free_block();
+        auto block_from_ctx = _data_queue->get_free_block();
         RETURN_IF_ERROR(_node->do_pre_agg(in_block, block_from_ctx.get()));
         if (block_from_ctx->rows() == 0) {
-            _agg_context->return_free_block(std::move(block_from_ctx));
+            _data_queue->push_free_block(std::move(block_from_ctx));
         } else {
-            _agg_context->push_block(std::move(block_from_ctx));
+            _data_queue->push_block(std::move(block_from_ctx));
         }
     }
 
     if (UNLIKELY(source_state == SourceState::FINISHED)) {
-        _agg_context->set_finish();
+        _data_queue->set_finish();
     }
     return Status::OK();
 }
 
 Status StreamingAggSinkOperator::close(RuntimeState* state) {
-    if (_agg_context && !_agg_context->is_finish()) {
+    if (_data_queue && !_data_queue->is_finish()) {
         // finish should be set, if not set here means error.
-        _agg_context->set_canceled();
+        _data_queue->set_canceled();
     }
-    COUNTER_SET(_queue_size_counter, _agg_context->max_size_of_queue());
-    COUNTER_SET(_queue_byte_size_counter, _agg_context->max_bytes_in_queue());
+    COUNTER_SET(_queue_size_counter, _data_queue->max_size_of_queue());
+    COUNTER_SET(_queue_byte_size_counter, _data_queue->max_bytes_in_queue());
     return StreamingOperator::close(state);
-    ;
 }
 
-StreamingAggSinkOperatorBuilder::StreamingAggSinkOperatorBuilder(
-        int32_t id, ExecNode* exec_node, std::shared_ptr<AggContext> agg_context)
+StreamingAggSinkOperatorBuilder::StreamingAggSinkOperatorBuilder(int32_t id, ExecNode* exec_node,
+                                                                 std::shared_ptr<DataQueue> queue)
         : OperatorBuilder(id, "StreamingAggSinkOperator", exec_node),
-          _agg_context(std::move(agg_context)) {}
+          _data_queue(std::move(queue)) {}
 
 OperatorPtr StreamingAggSinkOperatorBuilder::build_operator() {
-    return std::make_shared<StreamingAggSinkOperator>(this, _node, _agg_context);
+    return std::make_shared<StreamingAggSinkOperator>(this, _node, _data_queue);
 }
 
 } // namespace doris::pipeline

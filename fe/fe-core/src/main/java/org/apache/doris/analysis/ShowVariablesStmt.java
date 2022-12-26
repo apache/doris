@@ -106,7 +106,7 @@ public class ShowVariablesStmt extends ShowStmt {
 
         // DB: type
         // table: thread id
-        analyzer.setSchemaInfo(type.toSql(), null, null);
+        analyzer.setSchemaInfo(type.toSql(), null, null, null);
         return selectStmt;
     }
 
