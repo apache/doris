@@ -92,9 +92,6 @@ bool Compaction::should_vertical_compaction() {
     if (!config::enable_vertical_compaction) {
         return false;
     }
-    if (_tablet->enable_unique_key_merge_on_write()) {
-        return false;
-    }
     return true;
 }
 

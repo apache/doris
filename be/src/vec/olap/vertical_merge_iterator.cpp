@@ -276,6 +276,7 @@ Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts) {
         return Status::OK();
     }
     _block_row_max = opts.block_row_max;
+    _record_rowids = opts.record_rowids;
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
         RETURN_IF_ERROR(advance());
@@ -331,6 +332,14 @@ Status VerticalMergeIteratorContext::_load_next_block() {
                 _block->erase(i);
             }
         }
+        if (UNLIKELY(_record_rowids)) {
+            RETURN_IF_ERROR(_iter->current_block_row_locations(&_block_row_locations));
+            for (auto i = 0; i < _block_row_locations.size(); i++) {
+                RowLocation& row_location = _block_row_locations[i];
+                _block_row_locations[i] =
+                        RowLocation(_rowset_id, row_location.segment_id, row_location.row_id);
+            }
+        }
     } while (_block->rows() == 0);
     _index_in_block = -1;
     _valid = true;
@@ -342,6 +351,9 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
     size_t row_idx = 0;
     VerticalMergeIteratorContext* pre_ctx = nullptr;
     std::vector<RowSource> tmp_row_sources;
+    if (UNLIKELY(_record_rowids)) {
+        _block_row_locations.resize(_block_row_max);
+    }
     while (_get_size(block) < _block_row_max) {
         if (_merge_heap.empty()) {
             VLOG_NOTICE << "_merge_heap empty";
@@ -370,6 +382,9 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
                     pre_ctx->copy_rows(block);
                 }
                 pre_ctx = ctx;
+            }
+            if (UNLIKELY(_record_rowids)) {
+                _block_row_locations[row_idx] = ctx->current_row_location();
             }
             row_idx++;
             if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
@@ -408,6 +423,9 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
     if (!_merge_heap.empty()) {
         return Status::OK();
     }
+    if (UNLIKELY(_record_rowids)) {
+        _block_row_locations.resize(row_idx);
+    }
     return Status::EndOfFile("no more data in segment");
 }
 
@@ -417,6 +435,7 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
     }
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     _schema = &(*_origin_iters.begin())->schema();
+    _record_rowids = opts.record_rowids;
 
     auto seg_order = 0;
     // Init contxt depends on _iterator_init_flags
@@ -427,8 +446,8 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
     // so this rowset can work in heap
     bool pre_iter_invalid = false;
     for (auto iter : _origin_iters) {
-        VerticalMergeIteratorContext* ctx =
-                new VerticalMergeIteratorContext(iter, _ori_return_cols, seg_order, _seq_col_idx);
+        VerticalMergeIteratorContext* ctx = new VerticalMergeIteratorContext(
+                iter, _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx);
         _ori_iter_ctx.push_back(ctx);
         if (_iterator_init_flags[seg_order] || pre_iter_invalid) {
             RETURN_IF_ERROR(ctx->init(opts));
@@ -562,8 +581,10 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
     _schema = &(*_origin_iters.begin())->schema();
     _opts = opts;
 
+    RowsetId rs_id;
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VerticalMergeIteratorContext>(iter, _ori_return_cols, -1, -1);
+        auto ctx = std::make_unique<VerticalMergeIteratorContext>(iter, rs_id, _ori_return_cols, -1,
+                                                                  -1);
         _origin_iter_ctx.emplace_back(ctx.release());
     }
     _origin_iters.clear();
@@ -575,11 +596,11 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
 // interfaces to create vertical merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         std::vector<RowwiseIterator*> inputs, const std::vector<bool>& iterator_init_flag,
-        size_t ori_return_cols, KeysType keys_type, uint32_t seq_col_idx,
-        RowSourcesBuffer* row_sources) {
+        const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
+        uint32_t seq_col_idx, RowSourcesBuffer* row_sources) {
     return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), iterator_init_flag,
-                                                       ori_return_cols, keys_type, seq_col_idx,
-                                                       row_sources);
+                                                       rowset_ids, ori_return_cols, keys_type,
+                                                       seq_col_idx, row_sources);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
