@@ -60,7 +60,7 @@ public class TabletLoadInfoTest {
 
         Assert.assertEquals("hdfs://host:port/dir", tabletLoadInfo1.getFilePath());
         Assert.assertEquals(1L, tabletLoadInfo1.getFileSize());
-        
+
         Assert.assertEquals(tabletLoadInfo1, tabletLoadInfo);
         Assert.assertEquals(rTabletLoadInfo0, tabletLoadInfo0);
         Assert.assertNotEquals(rTabletLoadInfo0, tabletLoadInfo1);

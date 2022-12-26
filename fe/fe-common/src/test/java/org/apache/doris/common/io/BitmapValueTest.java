@@ -207,7 +207,7 @@ public class BitmapValueTest {
         bitmapValue9.add(4);
         bitmapValue9.and(bitmapValue9Dot1);
         Assert.assertTrue(bitmapValue9.getBitmapType() == BitmapValue.BITMAP_VALUE);
-        Assert.assertEquals(bitmapValue9, bitmapValue9Dot1);
+        Assert.assertTrue(bitmapValue9.equals(bitmapValue9Dot1));
 
     }
 
@@ -301,7 +301,7 @@ public class BitmapValueTest {
         BitmapValue deserializeBitmapValue = new BitmapValue();
         deserializeBitmapValue.deserialize(emptyInputStream);
 
-        Assert.assertEquals(serializeBitmapValue, deserializeBitmapValue);
+        Assert.assertTrue(serializeBitmapValue.equals(deserializeBitmapValue));
 
         // single value
         BitmapValue serializeSingleValueBitmapValue = new BitmapValue();
@@ -413,7 +413,7 @@ public class BitmapValueTest {
         // empty == empty
         BitmapValue emp1 = new BitmapValue();
         BitmapValue emp2 = new BitmapValue();
-        Assert.assertEquals(emp1, emp2);
+        Assert.assertTrue(emp1.equals(emp2));
         // empty == single value
         emp2.add(1);
         Assert.assertNotEquals(emp1, emp2);
