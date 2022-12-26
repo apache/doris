@@ -101,12 +101,6 @@ public class DropAndRecoverInfoTest {
         Assert.assertEquals("a", rInfo1.getNewDbName());
         Assert.assertEquals("b", rInfo1.getNewTableName());
         Assert.assertEquals("c", rInfo1.getNewPartitionName());
-        Assert.assertEquals(rInfo2, rInfo2);
-        Assert.assertNotEquals(rInfo2, this);
-        Assert.assertNotEquals(info2, new DropInfo(0, 2, -1L, true));
-        Assert.assertNotEquals(info2, new DropInfo(1, 0, -1L, true));
-        Assert.assertNotEquals(info2, new DropInfo(1, 2, -1L, false));
-        Assert.assertEquals(info2, new DropInfo(1, 2, -1L, true));
 
         // 3. delete files
         dis.close();
