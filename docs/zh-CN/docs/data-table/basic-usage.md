@@ -165,7 +165,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris支持[复合分区和单分区](../data-partition)两种建表方式。下面以聚合模型为例，分别演示如何创建两种分区的数据表。
+Doris支持[复合分区和单分区](./data-partition)两种建表方式。下面以聚合模型为例，分别演示如何创建两种分区的数据表。
 
 #### 单分区
 
@@ -701,7 +701,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 当部署多个 FE 节点时，用户可以在多个 FE 之上部署负载均衡层来实现 Doris 的高可用。
 
-具体安装部署及使用方式请参照 [负载均衡](../../admin-manual/cluster-management/load-balancing)
+具体安装部署及使用方式请参照 [负载均衡](../admin-manual/cluster-management/load-balancing)
 
 ## 数据更新和删除
 
