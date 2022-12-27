@@ -52,6 +52,10 @@ public:
 
     virtual bool output_object_data() const { return _output_object_data; }
 
+    void set_output_object_data(bool output_object_data) {
+        _output_object_data = output_object_data;
+    }
+
     static const std::string NULL_IN_CSV;
     virtual void set_header_info(const std::string& header_type, const std::string& header) {
         _header_type = header_type;
