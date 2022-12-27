@@ -91,8 +91,9 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                     resultExpr.setChild(i, rewrittenExpr);
                 }
             }
+            return resultExpr;
         }
-        return resultExpr;
+        return expr;
     }
 
     /**
