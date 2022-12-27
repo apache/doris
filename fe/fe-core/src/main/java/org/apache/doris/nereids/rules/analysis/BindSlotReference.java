@@ -167,18 +167,26 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
                     List<NamedExpression> output =
                             bind(agg.getOutputExpressions(), agg.children(), agg, ctx.cascadesContext);
+
+                    // The columns referenced in group by are first obtained from the child's output,
+                    // and then from the node's output
+                    Map<String, Expression> childOutputsToExpr = agg.child().getOutput().stream()
+                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot, (oldExpr, newExpr) -> oldExpr));
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
                             .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
+                    aliasNameToExpr.entrySet().stream()
+                            .forEach(e -> childOutputsToExpr.putIfAbsent(e.getKey(), e.getValue()));
+
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
                                 if (groupBy instanceof UnboundSlot) {
                                     UnboundSlot unboundSlot = (UnboundSlot) groupBy;
                                     if (unboundSlot.getNameParts().size() == 1) {
                                         String name = unboundSlot.getNameParts().get(0);
-                                        if (aliasNameToExpr.containsKey(name)) {
-                                            return aliasNameToExpr.get(name);
+                                        if (childOutputsToExpr.containsKey(name)) {
+                                            return childOutputsToExpr.get(name);
                                         }
                                     }
                                 }
@@ -197,10 +205,17 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     List<NamedExpression> output =
                             bind(repeat.getOutputExpressions(), repeat.children(), repeat, ctx.cascadesContext);
 
+                    // The columns referenced in group by are first obtained from the child's output,
+                    // and then from the node's output
+                    Map<String, Expression> childOutputsToExpr = repeat.child().getOutput().stream()
+                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot, (oldExpr, newExpr) -> oldExpr));
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
                             .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
+                    aliasNameToExpr.entrySet().stream()
+                            .forEach(e -> childOutputsToExpr.putIfAbsent(e.getKey(), e.getValue()));
+
                     List<List<Expression>> replacedGroupingSets = repeat.getGroupingSets().stream()
                             .map(groupBy ->
                                 groupBy.stream().map(expr -> {
@@ -208,8 +223,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                         UnboundSlot unboundSlot = (UnboundSlot) expr;
                                         if (unboundSlot.getNameParts().size() == 1) {
                                             String name = unboundSlot.getNameParts().get(0);
-                                            if (aliasNameToExpr.containsKey(name)) {
-                                                return aliasNameToExpr.get(name);
+                                            if (childOutputsToExpr.containsKey(name)) {
+                                                return childOutputsToExpr.get(name);
                                             }
                                         }
                                     }

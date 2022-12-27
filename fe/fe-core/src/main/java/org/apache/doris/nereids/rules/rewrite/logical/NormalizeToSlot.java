@@ -21,8 +21,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -31,7 +29,6 @@ import com.google.common.collect.Maps;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import javax.annotation.Nullable;
@@ -42,17 +39,14 @@ public interface NormalizeToSlot {
     /** NormalizeSlotContext */
     class NormalizeToSlotContext {
         private final Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap;
-        private final Plan currentPlan;
 
-        public NormalizeToSlotContext(
-                Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap, Plan currentPlan) {
+        public NormalizeToSlotContext(Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap) {
             this.normalizeToSlotMap = normalizeToSlotMap;
-            this.currentPlan = currentPlan;
         }
 
         /** buildContext */
         public static NormalizeToSlotContext buildContext(
-                Set<Alias> existsAliases, Set<? extends Expression> sourceExpressions, Plan currentPlan) {
+                Set<Alias> existsAliases, Set<? extends Expression> sourceExpressions) {
             Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
 
             Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
@@ -68,55 +62,26 @@ public interface NormalizeToSlot {
                         NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression));
                 normalizeToSlotMap.put(expression, normalizeToSlotTriplet);
             }
-            return new NormalizeToSlotContext(normalizeToSlotMap, currentPlan);
+            return new NormalizeToSlotContext(normalizeToSlotMap);
         }
 
         /** normalizeToUseSlotRef, no custom normalize */
-        public <E extends Expression> List<E> normalizeToUseSlotRef(
-                List<E> expressions, boolean isOutput) {
-            return normalizeToUseSlotRef(expressions, (context, expr) -> expr, isOutput);
+        public <E extends Expression> List<E> normalizeToUseSlotRef(List<E> expressions) {
+            return normalizeToUseSlotRef(expressions, (context, expr) -> expr);
         }
 
         /** normalizeToUseSlotRef */
         public <E extends Expression> List<E> normalizeToUseSlotRef(List<E> expressions,
-                BiFunction<NormalizeToSlotContext, Expression, Expression> customNormalize,
-                boolean isOutput) {
+                BiFunction<NormalizeToSlotContext, Expression, Expression> customNormalize) {
             return expressions.stream()
                     .map(expr -> (E) expr.rewriteDownShortCircuit(child -> {
                         Expression newChild = customNormalize.apply(this, child);
                         if (newChild != null && newChild != child) {
                             return newChild;
                         }
-                        if (child instanceof ScalarFunction && !isOutput) {
-                            return getSlotFromChildOutputsWhichEqualName(currentPlan, child);
-                        }
-                        if (child instanceof ScalarFunction && isOutput
-                                && collectSlotFromChildOutputsWhichEqualName(currentPlan, child).isPresent()) {
-                            NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
-                            return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.originExpr;
-                        }
                         NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
                         return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
                     })).collect(ImmutableList.toImmutableList());
-        }
-
-        private Expression getSlotFromChildOutputsWhichEqualName(Plan repeat, Expression child) {
-            NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
-            Optional<Slot> slot = collectSlotFromChildOutputsWhichEqualName(repeat, child);
-            if (slot.isPresent()) {
-                return slot.get();
-            }
-            return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
-        }
-
-        private Optional<Slot> collectSlotFromChildOutputsWhichEqualName(
-                Plan repeat, Expression child) {
-            NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
-            String asName = normalizeToSlotTriplet == null
-                    ? child.toSql() : normalizeToSlotTriplet.remainExpr.getName();
-            return repeat.child(0).getOutput().stream()
-                    .filter(s -> s.getName().equals(asName))
-                    .findFirst();
         }
 
         /**
@@ -125,25 +90,14 @@ public interface NormalizeToSlot {
          * groupByExpressions: k1#0, k2#1 + 1;
          * bottom: k1#0, (k2#1 + 1) AS (k2 + 1)#2;
          */
-        public Set<NamedExpression> pushDownToNamedExpression(
-                Collection<? extends Expression> needToPushExpressions, Plan current) {
+        public Set<NamedExpression> pushDownToNamedExpression(Collection<? extends Expression> needToPushExpressions) {
             return needToPushExpressions.stream()
-                    .filter(e -> filterScalarFunWithSameAliasNameInChildOutput(e, current))
                     .map(expr -> {
                         NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(expr);
                         return normalizeToSlotTriplet == null
                                 ? (NamedExpression) expr
                                 : normalizeToSlotTriplet.pushedExpr;
                     }).collect(ImmutableSet.toImmutableSet());
-        }
-
-        private boolean filterScalarFunWithSameAliasNameInChildOutput(
-                Expression expression, Plan current) {
-            if (expression instanceof ScalarFunction) {
-                Optional<Slot> slot = collectSlotFromChildOutputsWhichEqualName(current, expression);
-                return !slot.isPresent();
-            }
-            return true;
         }
     }
 
