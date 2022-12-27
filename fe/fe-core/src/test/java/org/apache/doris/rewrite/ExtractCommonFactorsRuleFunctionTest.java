@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.rewrite;
 
@@ -74,7 +73,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     public void testWithoutRewritten() throws Exception {
         String query = "select * from tb1, tb2 where (tb1.k1 =1) or (tb2.k2=1)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -86,12 +85,19 @@ public class ExtractCommonFactorsRuleFunctionTest {
     }
 
     @Test
+    public void testWideCommonFactorsWithOrPredicate() throws Exception {
+        String query = "select * from tb1 where tb1.k1 > 1000 or tb1.k1 < 200 or tb1.k1 = 300";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertTrue(planString.contains("PREDICATES: (`tb1`.`k1` > 1000 OR `tb1`.`k1` < 200 OR `tb1`.`k1` = 300)"));
+    }
+
+    @Test
     public void testWideCommonFactorsWithEqualPredicate() throws Exception {
         String query = "select * from tb1, tb2 where (tb1.k1=1 and tb2.k1=1) or (tb1.k1 =2 and tb2.k1=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("(`tb1`.`k1` = 1 OR `tb1`.`k1` = 2)"));
         Assert.assertTrue(planString.contains("(`tb2`.`k1` = 1 OR `tb2`.`k1` = 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -99,7 +105,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1>1 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertFalse(planString.contains("(`tb1`.`k1` > 1 OR `tb1`.`k1` < 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -107,7 +113,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` <= 3"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -115,8 +121,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1 >1 and tb1.k1 <3 and tb1.k1 <5 and tb2.k1=1) "
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -125,7 +130,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -135,7 +140,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2)"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -145,7 +150,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2, 3)"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -156,7 +161,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertTrue(planString.contains("`tb1`.`k1` >= 1"));
         Assert.assertTrue(planString.contains("`tb1`.`k1` <= 4"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2, 3)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -173,52 +178,52 @@ public class ExtractCommonFactorsRuleFunctionTest {
     // TPC-H Q19
     @Test
     public void testComplexQuery() throws Exception {
-        String createTableSQL = "CREATE TABLE `lineitem` (\n" +
-                "  `l_orderkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_partkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_suppkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_linenumber` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_quantity` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_extendedprice` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_discount` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_tax` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_returnflag` char(1) NOT NULL COMMENT \"\",\n" +
-                "  `l_linestatus` char(1) NOT NULL COMMENT \"\",\n" +
-                "  `l_shipdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_commitdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_receiptdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_shipinstruct` char(25) NOT NULL COMMENT \"\",\n" +
-                "  `l_shipmode` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `l_comment` varchar(44) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`l_orderkey`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+        String createTableSQL = "CREATE TABLE `lineitem` (\n"
+                + "  `l_orderkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_partkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_suppkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_linenumber` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_quantity` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_extendedprice` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_discount` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_tax` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_returnflag` char(1) NOT NULL COMMENT \"\",\n"
+                + "  `l_linestatus` char(1) NOT NULL COMMENT \"\",\n"
+                + "  `l_shipdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_commitdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_receiptdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_shipinstruct` char(25) NOT NULL COMMENT \"\",\n"
+                + "  `l_shipmode` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `l_comment` varchar(44) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`l_orderkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
-        createTableSQL = "CREATE TABLE `part` (\n" +
-                "  `p_partkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `p_name` varchar(55) NOT NULL COMMENT \"\",\n" +
-                "  `p_mfgr` char(25) NOT NULL COMMENT \"\",\n" +
-                "  `p_brand` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `p_type` varchar(25) NOT NULL COMMENT \"\",\n" +
-                "  `p_size` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `p_container` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `p_retailprice` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `p_comment` varchar(23) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`p_partkey`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+        createTableSQL = "CREATE TABLE `part` (\n"
+                + "  `p_partkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `p_name` varchar(55) NOT NULL COMMENT \"\",\n"
+                + "  `p_mfgr` char(25) NOT NULL COMMENT \"\",\n"
+                + "  `p_brand` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `p_type` varchar(25) NOT NULL COMMENT \"\",\n"
+                + "  `p_size` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `p_container` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `p_retailprice` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `p_comment` varchar(23) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`p_partkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
         String query = "select sum(l_extendedprice* (1 - l_discount)) as revenue "
                 + "from lineitem, part "
@@ -284,7 +289,6 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // date
         String sql = "select * from tb3 where k6 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainQuery();
     }
 
     @Test
@@ -300,7 +304,6 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // date
         String sql = "select * from tb3 where k8 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainQuery();
     }
 
     @Test
@@ -308,6 +311,5 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // date
         String sql = "select * from tb3 where k9 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainQuery();
     }
 }
