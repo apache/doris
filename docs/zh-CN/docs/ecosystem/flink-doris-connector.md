@@ -143,6 +143,7 @@ enable_http_server_v2 = true
 **备注**
 
 1.请根据不同的 Flink 和 Scala 版本替换对应的 Connector 和 Flink 依赖版本。
+
 2.也可从[这里](https://repo.maven.apache.org/maven2/org/apache/doris/)下载相关版本jar包。 
 
 ## 使用方法
@@ -417,7 +418,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 1. Flink Doris Connector主要是依赖Checkpoint进行流式写入，所以Checkpoint的间隔即为数据的可见延迟时间。
 2. 为了保证Flink的Exactly Once语义，Flink Doris Connector 默认开启两阶段提交，Doris在1.1版本后默认开启两阶段提交。1.0可通过修改BE参数开启，可参考[two_phase_commit](../data-operate/import/import-way/stream-load-manual.md)。
 
-### 常见问题
+## 常见问题
 
 1. **Doris Source在数据读取完成后，流为什么就结束了？**
 

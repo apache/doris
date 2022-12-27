@@ -138,6 +138,7 @@ Add flink-doris-connector Maven dependencies
 **Notes**
 
 1. Please replace the corresponding Connector and Flink dependency versions according to different Flink and Scala versions. Version 1.1.0 only supports Flink1.14
+
 2. You can also download the relevant version jar package from [here](https://repo.maven.apache.org/maven2/org/apache/doris/).
 
 ## How to use
@@ -420,7 +421,7 @@ The most suitable scenario for using Flink Doris Connector is to synchronize sou
 1. The Flink Doris Connector mainly relies on Checkpoint for streaming writing, so the interval between Checkpoints is the visible delay time of the data.
 2. To ensure the Exactly Once semantics of Flink, the Flink Doris Connector enables two-phase commit by default, and Doris enables two-phase commit by default after version 1.1. 1.0 can be enabled by modifying the BE parameters, please refer to [two_phase_commit](../data-operate/import/import-way/stream-load-manual.md).
 
-### common problem
+## FAQ
 
 1. **After Doris Source finishes reading data, why does the stream end?**
 
