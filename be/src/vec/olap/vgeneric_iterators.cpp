@@ -149,7 +149,7 @@ void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
         d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
     }
-    auto tmp_pre_ctx_same_bit = get_pre_ctx_same();
+    const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
     dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
 }
@@ -161,7 +161,7 @@ void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
     DCHECK(start >= 0);
 
-    auto tmp_pre_ctx_same_bit = get_pre_ctx_same();
+    const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
     for (size_t i = 0; i < _cur_batch_num; ++i) {
         view->push_back({_block, static_cast<int>(start + i), tmp_pre_ctx_same_bit[i]});
     }

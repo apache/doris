@@ -124,7 +124,7 @@ public:
 
     void set_same(bool same) const { _same = same; }
 
-    std::vector<bool> get_pre_ctx_same() const { return _pre_ctx_same_bit; }
+    const std::vector<bool>& get_pre_ctx_same() const { return _pre_ctx_same_bit; }
 
     void set_pre_ctx_same(VMergeIteratorContext* ctx) const {
         int64_t index = ctx->get_cur_batch() - 1;

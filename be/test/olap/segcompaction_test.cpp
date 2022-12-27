@@ -310,7 +310,6 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
-            sleep(1);
         }
         num_segments = 1;
         rows_per_segment = 6400;
