@@ -152,6 +152,7 @@ public class InternalQuery {
 
         OriginalPlanner originalPlanner = new OriginalPlanner(stmt.getAnalyzer());
         TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setEnableVectorizedEngine(true);
         originalPlanner.plan(stmt, queryOptions);
 
         coord = new Coordinator(context, analyzer, originalPlanner);

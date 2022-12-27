@@ -22,10 +22,6 @@ import org.apache.doris.qe.ConnectContext;
 public class VectorizedUtil {
 
     public static boolean isVectorized() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
         return true;
     }
 

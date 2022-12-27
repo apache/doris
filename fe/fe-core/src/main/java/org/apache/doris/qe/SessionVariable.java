@@ -1114,7 +1114,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean enableVectorizedEngine() {
-        return enableVectorizedEngine;
+        return true;
     }
 
     public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
@@ -1554,6 +1554,7 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setQueryTimeout(queryTimeoutS);
+        queryOptions.setEnableVectorizedEngine(true);
         return queryOptions;
     }
 

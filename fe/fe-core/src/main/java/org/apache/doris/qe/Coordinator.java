@@ -251,6 +251,7 @@ public class Coordinator {
         this.descTable = planner.getDescTable().toThrift();
         this.returnedAllResults = false;
         initQueryOptions(context);
+        this.queryOptions.setEnableVectorizedEngine(true);
 
         setFromUserProperty(analyzer);
 
@@ -288,6 +289,7 @@ public class Coordinator {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setEnableVectorizedEngine(true);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
@@ -321,7 +323,6 @@ public class Coordinator {
         this.queryOptions.setEnableVectorizedEngine(true);
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.queryOptions.setEnableVectorizedEngine(true);
     }
 
     public long getJobId() {
