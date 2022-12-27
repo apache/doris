@@ -265,7 +265,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .getSlots()
                     .subList(groupSlotList.size(), outputTupleDesc.getSlots().size())
                     .stream()
-                    .peek(slot -> slot.setIsNullable(true))
                     .map(slot -> slot.getId().asInt())
                     .collect(ImmutableList.toImmutableList());
         }
