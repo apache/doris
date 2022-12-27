@@ -1935,5 +1935,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_func_pushdown = true;
+
+    /**
+     * Maximum number of events to poll in each RPC.
+     */
+    @ConfField(mutable = true)
+    public static int hms_events_batch_size_per_rpc = 500;
+
+    /**
+     * HMS polling interval in milliseconds.
+     */
+    @ConfField
+    public static int hms_events_polling_interval_ms = 5000;
 }
 

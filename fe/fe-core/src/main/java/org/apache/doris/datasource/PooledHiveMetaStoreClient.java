@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Preconditions;
@@ -29,8 +30,10 @@ import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
+import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
+import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -142,6 +145,30 @@ public class PooledHiveMetaStoreClient {
             return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    public CurrentNotificationEventId getCurrentNotificationEventId() {
+        try (CachedClient client = getClient()) {
+            return client.client.getCurrentNotificationEventId();
+        } catch (Exception e) {
+            LOG.error("Failed to fetch current notification event id", e);
+            throw new MetastoreNotificationFetchException(
+                    "Failed to get current notification event id. msg: " + e.getMessage());
+        }
+    }
+
+    public NotificationEventResponse getNextNotification(long lastEventId,
+            int maxEvents,
+            IMetaStoreClient.NotificationFilter filter)
+            throws MetastoreNotificationFetchException {
+        try (CachedClient client = getClient()) {
+            return client.client.getNextNotification(lastEventId, maxEvents, filter);
+        } catch (Exception e) {
+            LOG.error("Failed to get next notification based on last event id {}", lastEventId, e);
+            throw new MetastoreNotificationFetchException(
+                    "Failed to get next notification based on last event id: " + lastEventId + ". msg: " + e
+                            .getMessage());
         }
     }
 
