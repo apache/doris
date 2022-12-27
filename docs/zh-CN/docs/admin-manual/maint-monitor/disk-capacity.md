@@ -156,6 +156,6 @@ capacity_min_left_bytes_flood_stage 默认 1GB。
 
     `rm -rf data/0/12345/`
 
-  - 删除 Tablet 元数据（具体参考 [Tablet 元数据管理工具](./tablet-meta-tool.md)）
+  - 删除 Tablet 元数据（具体参考 [Tablet 元数据管理工具](./tablet-meta-tool)）
 
     `./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=12345 --schema_hash= 352781111`

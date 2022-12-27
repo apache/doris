@@ -29,7 +29,7 @@ under the License.
 In version 0.14, Doris supports atomic replacement of two tables.
 This operation only applies to OLAP tables.
 
-For partition level replacement operations, please refer to [Temporary Partition Document](../../partition/table-temp-partition)
+For partition level replacement operations, please refer to [Temporary Partition Document](../partition/table-temp-partition)
 
 ## Syntax
 
@@ -69,4 +69,4 @@ If `swap` is `false`, the operation is as follows:
 
 1. Atomic Overwrite Operation
 
-    In some cases, the user wants to be able to rewrite the data of a certain table, but if it is dropped and then imported, there will be a period of time in which the data cannot be viewed. At this time, the user can first use the `CREATE TABLE LIKE` statement to create a new table with the same structure, import the new data into the new table, and replace the old table atomically through the replacement operation to achieve the goal. For partition level atomic overwrite operation, please refer to [Temporary partition document](../../partition/table-temp-partition)
+    In some cases, the user wants to be able to rewrite the data of a certain table, but if it is dropped and then imported, there will be a period of time in which the data cannot be viewed. At this time, the user can first use the `CREATE TABLE LIKE` statement to create a new table with the same structure, import the new data into the new table, and replace the old table atomically through the replacement operation to achieve the goal. For partition level atomic overwrite operation, please refer to [Temporary partition document](../partition/table-temp-partition)

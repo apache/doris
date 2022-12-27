@@ -142,7 +142,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris supports [composite partition and single partition](../data-partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
+Doris supports [composite partition and single partition](./data-partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
 
 #### Single partition
 
@@ -674,7 +674,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 When deploying multiple FE nodes, you can deploy a load balancing layer on top of multiple FEs to achieve high availability of Doris.
 
-Please refer to [Load Balancing](../../admin-manual/cluster-management/load-balancing) for details on installation, deployment, and usage.
+Please refer to [Load Balancing](../admin-manual/cluster-management/load-balancing) for details on installation, deployment, and usage.
 
 ## Data update and deletion
 
