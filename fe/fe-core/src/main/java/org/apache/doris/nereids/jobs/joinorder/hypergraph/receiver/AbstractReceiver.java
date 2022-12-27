@@ -19,20 +19,23 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
+import java.util.HashMap;
 import java.util.List;
 
 /**
  * A interface of receiver
  */
 public interface AbstractReceiver {
-    public boolean emitCsgCmp(long csg, long cmp, List<Edge> edges);
+    boolean emitCsgCmp(long csg, long cmp, List<Edge> edges,
+            HashMap<Long, NamedExpression> projectExpression);
 
-    public void addGroup(long bitSet, Group group);
+    void addGroup(long bitSet, Group group);
 
-    public boolean contain(long bitSet);
+    boolean contain(long bitSet);
 
-    public void reset();
+    void reset();
 
-    public Group getBestPlan(long bitSet);
+    Group getBestPlan(long bitSet);
 }

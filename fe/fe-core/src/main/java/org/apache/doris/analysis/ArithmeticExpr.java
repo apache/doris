@@ -533,13 +533,13 @@ public class ArithmeticExpr extends Expr {
                     scale = Math.max(t1Scale, t2Scale);
                     precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
                 }
-                if (precision < scale) {
-                    type = castBinaryOp(Type.DOUBLE);
-                    break;
-                }
                 if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
                     // TODO(gabriel): if precision is bigger than 38?
                     precision = ScalarType.MAX_DECIMAL128_PRECISION;
+                }
+                if (precision < scale) {
+                    type = castBinaryOp(Type.DOUBLE);
+                    break;
                 }
                 type = ScalarType.createDecimalV3Type(precision, scale);
                 if (op == Operator.ADD || op == Operator.SUBTRACT) {
@@ -550,7 +550,12 @@ public class ArithmeticExpr extends Expr {
                         castChild(type, 1);
                     }
                 } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1.isDecimalV3()) {
-                    castChild(ScalarType.createDecimalV3Type(precision, t1Scale + t2Scale), 0);
+                    int targetScale = t1Scale + t2Scale;
+                    if (precision < targetScale) {
+                        type = castBinaryOp(Type.DOUBLE);
+                        break;
+                    }
+                    castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
                 }
                 break;
             case INT_DIVIDE:

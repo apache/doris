@@ -102,7 +102,7 @@ public class JdbcScanNode extends ScanNode {
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         for (Expr p : conjunctsList) {
             if (OdbcScanNode.shouldPushDownConjunct(jdbcType, p)) {
-                String filter = p.toMySql();
+                String filter = OdbcScanNode.conjunctExprToString(jdbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
             }

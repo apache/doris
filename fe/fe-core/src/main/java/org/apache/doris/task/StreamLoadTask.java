@@ -68,6 +68,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private Separator lineDelimiter;
     private PartitionNames partitions;
     private String path;
+    private long fileSize = 0;
     private boolean negative;
     private boolean strictMode = false; // default is false
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
@@ -81,6 +82,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean loadToSingleTablet = false;
     private String headerType = "";
     private List<String> hiddenColumns;
+    private boolean trimDoubleQuotes = false;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
@@ -159,6 +161,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return path;
     }
 
+    @Override
+    public long getFileSize() {
+        return fileSize;
+    }
+
     public boolean getNegative() {
         return negative;
     }
@@ -234,6 +241,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
+
     @Override
     public String getSequenceCol() {
         return sequenceCol;
@@ -244,11 +252,19 @@ public class StreamLoadTask implements LoadTaskInfo {
         return hiddenColumns;
     }
 
+    @Override
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
+        if (request.isSetFileSize()) {
+            streamLoadTask.fileSize = request.getFileSize();
+        }
         return streamLoadTask;
     }
 
@@ -340,6 +356,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetHiddenColumns()) {
             hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
         }
+        if (request.isSetTrimDoubleQuotes()) {
+            trimDoubleQuotes = request.isTrimDoubleQuotes();
+        }
     }
 
     // used for stream load
@@ -416,3 +435,4 @@ public class StreamLoadTask implements LoadTaskInfo {
         return maxFilterRatio;
     }
 }
+

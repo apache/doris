@@ -44,10 +44,229 @@ namespace doris {
 
 namespace stream_load {
 
-extern Status k_add_batch_status;
+Status k_add_batch_status;
 
-TDataSink get_data_sink(TDescriptorTable* desc_tbl);
-TDataSink get_decimal_sink(TDescriptorTable* desc_tbl);
+TDataSink get_data_sink(TDescriptorTable* desc_tbl) {
+    int64_t db_id = 1;
+    int64_t table_id = 2;
+    int64_t partition_id = 3;
+    int64_t index1_id = 4;
+    int64_t tablet1_id = 6;
+    int64_t tablet2_id = 7;
+
+    TDataSink data_sink;
+    data_sink.type = TDataSinkType::OLAP_TABLE_SINK;
+    data_sink.__isset.olap_table_sink = true;
+
+    TOlapTableSink& tsink = data_sink.olap_table_sink;
+    tsink.load_id.hi = 123;
+    tsink.load_id.lo = 456;
+    tsink.txn_id = 789;
+    tsink.db_id = 1;
+    tsink.table_id = 2;
+    tsink.tuple_id = 0;
+    tsink.num_replicas = 3;
+    tsink.db_name = "testDb";
+    tsink.table_name = "testTable";
+
+    // construct schema
+    TOlapTableSchemaParam& tschema = tsink.schema;
+    tschema.db_id = 1;
+    tschema.table_id = 2;
+    tschema.version = 0;
+
+    // descriptor
+    {
+        TDescriptorTableBuilder dtb;
+        {
+            TTupleDescriptorBuilder tuple_builder;
+
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_INT)
+                                           .column_name("c1")
+                                           .column_pos(1)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_BIGINT)
+                                           .column_name("c2")
+                                           .column_pos(2)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .string_type(10)
+                                           .column_name("c3")
+                                           .column_pos(3)
+                                           .build());
+
+            tuple_builder.build(&dtb);
+        }
+        {
+            TTupleDescriptorBuilder tuple_builder;
+
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_INT)
+                                           .column_name("c1")
+                                           .column_pos(1)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_BIGINT)
+                                           .column_name("c2")
+                                           .column_pos(2)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .string_type(20)
+                                           .column_name("c3")
+                                           .column_pos(3)
+                                           .build());
+
+            tuple_builder.build(&dtb);
+        }
+
+        *desc_tbl = dtb.desc_tbl();
+        tschema.slot_descs = desc_tbl->slotDescriptors;
+        tschema.tuple_desc = desc_tbl->tupleDescriptors[0];
+    }
+    // index
+    tschema.indexes.resize(1);
+    tschema.indexes[0].id = index1_id;
+    tschema.indexes[0].columns = {"c1", "c2", "c3"};
+    // tschema.indexes[1].id = 5;
+    // tschema.indexes[1].columns = {"c1", "c3"};
+    // partition
+    TOlapTablePartitionParam& tpartition = tsink.partition;
+    tpartition.db_id = db_id;
+    tpartition.table_id = table_id;
+    tpartition.version = table_id;
+    tpartition.__set_partition_column("c2");
+    tpartition.__set_distributed_columns({"c1", "c3"});
+    tpartition.partitions.resize(1);
+    tpartition.partitions[0].id = partition_id;
+    tpartition.partitions[0].num_buckets = 2;
+    tpartition.partitions[0].indexes.resize(1);
+    tpartition.partitions[0].indexes[0].index_id = index1_id;
+    tpartition.partitions[0].indexes[0].tablets = {tablet1_id, tablet2_id};
+    // location
+    TOlapTableLocationParam& location = tsink.location;
+    location.db_id = db_id;
+    location.table_id = table_id;
+    location.version = 0;
+    location.tablets.resize(2);
+    location.tablets[0].tablet_id = tablet1_id;
+    location.tablets[0].node_ids = {0, 1, 2};
+    location.tablets[1].tablet_id = tablet2_id;
+    location.tablets[1].node_ids = {0, 1, 2};
+    // location
+    TPaloNodesInfo& nodes_info = tsink.nodes_info;
+    nodes_info.nodes.resize(3);
+    nodes_info.nodes[0].id = 0;
+    nodes_info.nodes[0].host = "127.0.0.1";
+    nodes_info.nodes[0].async_internal_port = 4356;
+    nodes_info.nodes[1].id = 1;
+    nodes_info.nodes[1].host = "127.0.0.1";
+    nodes_info.nodes[1].async_internal_port = 4356;
+    nodes_info.nodes[2].id = 2;
+    nodes_info.nodes[2].host = "127.0.0.1";
+    nodes_info.nodes[2].async_internal_port = 4357;
+
+    return data_sink;
+}
+
+TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
+    int64_t db_id = 1;
+    int64_t table_id = 2;
+    int64_t partition_id = 3;
+    int64_t index1_id = 4;
+    int64_t tablet1_id = 6;
+    int64_t tablet2_id = 7;
+
+    TDataSink data_sink;
+    data_sink.type = TDataSinkType::OLAP_TABLE_SINK;
+    data_sink.__isset.olap_table_sink = true;
+
+    TOlapTableSink& tsink = data_sink.olap_table_sink;
+    tsink.load_id.hi = 123;
+    tsink.load_id.lo = 456;
+    tsink.txn_id = 789;
+    tsink.db_id = 1;
+    tsink.table_id = 2;
+    tsink.tuple_id = 0;
+    tsink.num_replicas = 3;
+    tsink.db_name = "testDb";
+    tsink.table_name = "testTable";
+
+    // construct schema
+    TOlapTableSchemaParam& tschema = tsink.schema;
+    tschema.db_id = 1;
+    tschema.table_id = 2;
+    tschema.version = 0;
+
+    // descriptor
+    {
+        TDescriptorTableBuilder dtb;
+        {
+            TTupleDescriptorBuilder tuple_builder;
+
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_INT)
+                                           .column_name("c1")
+                                           .column_pos(1)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .decimal_type(5, 2)
+                                           .column_name("c2")
+                                           .column_pos(2)
+                                           .build());
+
+            tuple_builder.build(&dtb);
+        }
+
+        *desc_tbl = dtb.desc_tbl();
+        tschema.slot_descs = desc_tbl->slotDescriptors;
+        tschema.tuple_desc = desc_tbl->tupleDescriptors[0];
+    }
+    // index
+    tschema.indexes.resize(1);
+    tschema.indexes[0].id = index1_id;
+    tschema.indexes[0].columns = {"c1", "c2"};
+    // tschema.indexes[1].id = 5;
+    // tschema.indexes[1].columns = {"c1", "c3"};
+    // partition
+    TOlapTablePartitionParam& tpartition = tsink.partition;
+    tpartition.db_id = db_id;
+    tpartition.table_id = table_id;
+    tpartition.version = table_id;
+    tpartition.__set_partition_column("c1");
+    tpartition.__set_distributed_columns({"c2"});
+    tpartition.partitions.resize(1);
+    tpartition.partitions[0].id = partition_id;
+    tpartition.partitions[0].num_buckets = 2;
+    tpartition.partitions[0].indexes.resize(1);
+    tpartition.partitions[0].indexes[0].index_id = index1_id;
+    tpartition.partitions[0].indexes[0].tablets = {tablet1_id, tablet2_id};
+    // location
+    TOlapTableLocationParam& location = tsink.location;
+    location.db_id = db_id;
+    location.table_id = table_id;
+    location.version = 0;
+    location.tablets.resize(2);
+    location.tablets[0].tablet_id = tablet1_id;
+    location.tablets[0].node_ids = {0, 1, 2};
+    location.tablets[1].tablet_id = tablet2_id;
+    location.tablets[1].node_ids = {0, 1, 2};
+    // location
+    TPaloNodesInfo& nodes_info = tsink.nodes_info;
+    nodes_info.nodes.resize(3);
+    nodes_info.nodes[0].id = 0;
+    nodes_info.nodes[0].host = "127.0.0.1";
+    nodes_info.nodes[0].async_internal_port = 4356;
+    nodes_info.nodes[1].id = 1;
+    nodes_info.nodes[1].host = "127.0.0.1";
+    nodes_info.nodes[1].async_internal_port = 4356;
+    nodes_info.nodes[2].id = 2;
+    nodes_info.nodes[2].host = "127.0.0.1";
+    nodes_info.nodes[2].async_internal_port = 4357;
+
+    return data_sink;
+}
 
 class VTestInternalService : public PBackendService {
 public:
@@ -68,31 +287,6 @@ public:
         brpc::ClosureGuard done_guard(done);
         Status status;
         status.to_protobuf(response->mutable_status());
-    }
-
-    void tablet_writer_add_batch(google::protobuf::RpcController* controller,
-                                 const PTabletWriterAddBatchRequest* request,
-                                 PTabletWriterAddBatchResult* response,
-                                 google::protobuf::Closure* done) override {
-        brpc::ClosureGuard done_guard(done);
-        {
-            std::lock_guard<std::mutex> l(_lock);
-            _row_counters += request->tablet_ids_size();
-            if (request->eos()) {
-                _eof_counters++;
-            }
-            k_add_batch_status.to_protobuf(response->mutable_status());
-
-            if (request->has_row_batch() && _row_desc != nullptr) {
-                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-                attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
-                RowBatch batch(*_row_desc, request->row_batch());
-                for (int i = 0; i < batch.num_rows(); ++i) {
-                    LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
-                    _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
-                }
-            }
-        }
     }
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,

@@ -37,7 +37,7 @@ suite("test_streamload_perfomance") {
 
         streamLoad {
             table tableName
-            time 5000
+            time 100000
             inputIterator rowIt
         }
     } finally {

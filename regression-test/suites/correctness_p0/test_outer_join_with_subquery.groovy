@@ -78,6 +78,31 @@ suite("test_outer_join_with_subquery") {
         ) as subq_2 on (subq_1.c1 = subq_2.c2);
     """
 
+    qt_select"""
+        with idm_org_table as (
+        SELECT 
+            1 a
+        ) 
+        select 
+        a 
+        from 
+        test_outer_join_with_subquery_outerjoin_A 
+        where 
+        a in (
+            SELECT 
+            a 
+            from 
+            test_outer_join_with_subquery_outerjoin_B 
+            where 
+            a = (
+                select 
+                a 
+                from 
+                idm_org_table
+            )
+        );
+    """
+
     sql """
         drop table if exists test_outer_join_with_subquery_outerjoin_A;
     """

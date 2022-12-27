@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_cast_function") {
-    sql """ SET enable_vectorized_engine = TRUE; """
-
     qt_sql """ select cast (1 as BIGINT) """
     qt_sql """ select cast(cast ("11.2" as double) as bigint) """
     qt_sql """ select cast ("0.0101031417" as datetime) """
@@ -39,16 +37,7 @@ suite("test_cast_function") {
                 end as bitmap
             ) is NULL
         """
-        exception "errCode = 2, detailMessage = [INVALID_ARGUMENT]Conversion from UInt8 to BitMap is not supported"
+        exception "[INVALID_ARGUMENT]Conversion from UInt8 to BitMap is not supported"
     }
-
-    sql """ SET enable_vectorized_engine = FALSE; """
-
-    qt_sql """ select cast (1 as BIGINT) """
-    qt_sql """ select cast(cast ("11.2" as double) as bigint) """
-    qt_sql """ select cast ("0.0101031417" as datetime) """
-    qt_sql """ select cast ("0.0000031417" as datetime) """
-    qt_sql """ select cast (NULL AS CHAR(1)); """
-    qt_sql """ select cast ('20190101' AS CHAR(2)); """
 }
 

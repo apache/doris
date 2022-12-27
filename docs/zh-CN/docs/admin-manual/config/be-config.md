@@ -359,7 +359,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 类型：int
 * 描述：用于限制一个查询请求中，scan node 节点能拆分的最大 scan key 的个数。当一个带有条件的查询请求到达 scan node 节点时，scan node 会尝试将查询条件中 key 列相关的条件拆分成多个 scan key range。之后这些 scan key range 会被分配给多个 scanner 线程进行数据扫描。较大的数值通常意味着可以使用更多的 scanner 线程来提升扫描操作的并行度。但在高并发场景下，过多的线程可能会带来更大的调度开销和系统负载，反而会降低查询响应速度。一个经验数值为 50。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables.md) 中 `max_scan_key_num` 的说明。
   - 当在高并发场景下发下并发度无法提升时，可以尝试降低该数值并观察影响。
-* 默认值：1024
+* 默认值：48
 
 #### `doris_scan_range_row_count`
 
@@ -1380,3 +1380,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: BlockingPriorityQueue中剩余任务的优先级频率增加
 * 默认值:512
+
+#### `jdbc_drivers_dir
+
+* 描述: 存放 jdbc driver 的默认目录。
+* 默认值: `${DORIS_HOME}/jdbc_drivers`

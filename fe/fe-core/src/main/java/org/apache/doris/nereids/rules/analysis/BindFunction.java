@@ -33,11 +33,9 @@ import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -51,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Locale;
@@ -78,7 +77,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 logicalProject().thenApply(ctx -> {
                     LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundExpr = bind(project.getProjects(), ctx.connectContext.getEnv());
-                    return new LogicalProject<>(boundExpr, project.child());
+                    return new LogicalProject<>(boundExpr, project.child(), project.isDistinct());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
@@ -103,15 +102,15 @@ public class BindFunction implements AnalysisRuleFactory {
             RuleType.BINDING_FILTER_FUNCTION.build(
                logicalFilter().thenApply(ctx -> {
                    LogicalFilter<GroupPlan> filter = ctx.root;
-                   List<Expression> predicates = bind(filter.getExpressions(), ctx.connectContext.getEnv());
-                   return new LogicalFilter<>(predicates.get(0), filter.child());
+                   List<Expression> conjuncts = bind(filter.getExpressions(), ctx.connectContext.getEnv());
+                   return new LogicalFilter<>(ImmutableSet.copyOf(conjuncts), filter.child());
                })
             ),
             RuleType.BINDING_HAVING_FUNCTION.build(
                 logicalHaving().thenApply(ctx -> {
                     LogicalHaving<GroupPlan> having = ctx.root;
-                    List<Expression> predicates = bind(having.getExpressions(), ctx.connectContext.getEnv());
-                    return new LogicalHaving<>(predicates.get(0), having.child());
+                    List<Expression> conjuncts = bind(having.getExpressions(), ctx.connectContext.getEnv());
+                    return new LogicalHaving<>(ImmutableSet.copyOf(conjuncts), having.child());
                 })
             ),
             RuleType.BINDING_SORT_FUNCTION.build(
@@ -133,6 +132,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     List<Expression> hashConjuncts = bind(join.getHashJoinConjuncts(), ctx.connectContext.getEnv());
                     List<Expression> otherConjuncts = bind(join.getOtherJoinConjuncts(), ctx.connectContext.getEnv());
                     return new LogicalJoin<>(join.getJoinType(), hashConjuncts, otherConjuncts,
+                            join.getHint(),
                             join.left(), join.right());
                 })
             ),
@@ -151,13 +151,19 @@ public class BindFunction implements AnalysisRuleFactory {
             .collect(Collectors.toList());
     }
 
-    private static class FunctionBinder extends DefaultExpressionRewriter<Env> {
+    /**
+     * function binder
+     */
+    public static class FunctionBinder extends DefaultExpressionRewriter<Env> {
         public static final FunctionBinder INSTANCE = new FunctionBinder();
 
         public <E extends Expression> E bind(E expression, Env env) {
             return (E) expression.accept(this, env);
         }
 
+        /**
+         * bindTableValuedFunction
+         */
         public LogicalTVFRelation bindTableValuedFunction(UnboundTVFRelation unboundTVFRelation,
                 StatementContext statementContext) {
             Env env = statementContext.getConnectContext().getEnv();
@@ -175,28 +181,41 @@ public class BindFunction implements AnalysisRuleFactory {
             return new LogicalTVFRelation(relationId, (TableValuedFunction) function);
         }
 
+        /**
+         * bindTableGeneratingFunction
+         */
+        public BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,
+                StatementContext statementContext) {
+            Env env = statementContext.getConnectContext().getEnv();
+            FunctionRegistry functionRegistry = env.getFunctionRegistry();
+
+            String functionName = unboundFunction.getName();
+            FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(
+                    functionName, unboundFunction.getArguments());
+            BoundFunction function = functionBuilder.build(functionName, unboundFunction.getArguments());
+            if (!(function instanceof TableGeneratingFunction)) {
+                throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
+            }
+
+            return function;
+        }
+
         @Override
-        public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+        public Expression visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
             unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
 
-            // FunctionRegistry can't support boolean arg now, tricky here.
-            if (unboundFunction.getName().equalsIgnoreCase("count")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if ((arguments.size() == 0 && unboundFunction.isStar()) || arguments.stream()
-                        .allMatch(Expression::isConstant)) {
-                    return new Count();
-                }
-                if (arguments.size() == 1) {
-                    AggregateParam aggregateParam = new AggregateParam(
-                            unboundFunction.isDistinct(), true, AggPhase.LOCAL, false);
-                    return new Count(aggregateParam, unboundFunction.getArguments().get(0));
-                }
-            }
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
             String functionName = unboundFunction.getName();
-            FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                    functionName, unboundFunction.getArguments());
-            return builder.build(functionName, unboundFunction.getArguments());
+            List<Object> arguments = unboundFunction.isDistinct()
+                    ? ImmutableList.builder()
+                        .add(unboundFunction.isDistinct())
+                        .addAll(unboundFunction.getArguments())
+                        .build()
+                    : (List) unboundFunction.getArguments();
+
+            FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+            BoundFunction boundFunction = builder.build(functionName, arguments);
+            return boundFunction;
         }
 
         /**

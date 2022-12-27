@@ -348,7 +348,7 @@ There are two ways to configure BE configuration items:
 * Type: int
 * Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../../advanced/variables).
   - When the concurrency cannot be improved in high concurrency scenarios, try to reduce this value and observe the impact.
-* Default value: 1024
+* Default value: 48
 
 #### `doris_scan_range_row_count`
 
@@ -1363,3 +1363,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 * Default value: 512
 
+#### `jdbc_drivers_dir
+
+* Description: Default dirs to put jdbc drivers.
+* Default value: `${DORIS_HOME}/jdbc_drivers`

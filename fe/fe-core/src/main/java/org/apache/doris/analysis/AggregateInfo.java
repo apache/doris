@@ -235,14 +235,17 @@ public final class AggregateInfo extends AggregateInfoBase {
      * Used by new optimizer.
      */
     public static AggregateInfo create(
-            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
-            TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
+            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs, List<Integer> aggExprIds,
+            boolean isPartialAgg, TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
         result.outputTupleDesc = tupleDesc;
         result.intermediateTupleDesc = intermediateTupleDesc;
         int aggExprSize = result.getAggregateExprs().size();
         for (int i = 0; i < aggExprSize; i++) {
             result.materializedSlots.add(i);
+            String label = (isPartialAgg ? "partial_" : "")
+                    + aggExprs.get(i).toSql() + "[#" + aggExprIds.get(i) + "]";
+            result.materializedSlotLabels.add(label);
         }
         return result;
     }

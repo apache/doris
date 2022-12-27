@@ -413,10 +413,6 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
     }
 }
 
-Status VMysqlResultWriter::append_row_batch(const RowBatch* batch) {
-    return Status::RuntimeError("Not Implemented MysqlResultWriter::append_row_batch scalar");
-}
-
 Status VMysqlResultWriter::append_block(Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();

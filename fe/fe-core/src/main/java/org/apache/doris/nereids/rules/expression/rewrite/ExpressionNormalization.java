@@ -19,9 +19,12 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeticComparisonRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
@@ -42,9 +45,12 @@ public class ExpressionNormalization extends ExpressionRewrite {
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
             CharacterLiteralTypeCoercion.INSTANCE,
+            SimplifyArithmeticRule.INSTANCE,
             TypeCoercion.INSTANCE,
             FoldConstantRule.INSTANCE,
-            SimplifyCastRule.INSTANCE
+            SimplifyCastRule.INSTANCE,
+            DigitalMaskingConvert.INSTANCE,
+            SimplifyArithmeticComparisonRule.INSTANCE
     );
 
     public ExpressionNormalization(ConnectContext context) {

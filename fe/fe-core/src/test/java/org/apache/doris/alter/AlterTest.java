@@ -118,7 +118,8 @@ public class AlterTest {
                 + "PROPERTIES('replication_num' = '1');");
 
         createTable(
-                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 time(3),\n" + "    v1 int \n,"
+                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
+                        + "    v1 int \n,"
                         + "    v2 datetime(3)\n" + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
@@ -410,7 +411,7 @@ public class AlterTest {
         alterTable(stmt, true);
 
         // no conflict
-        stmt = "alter table test.tbl6 add column k3 int, add column k4 time(6)";
+        stmt = "alter table test.tbl6 add column k3 int, add column k4 datetime(6)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(false);
 
@@ -1038,14 +1039,14 @@ public class AlterTest {
         // external table support reorder column
         db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertTrue(odbcTable.getBaseSchema().stream()
+        Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
         stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
         alterTable(stmt, false);
-        Assert.assertTrue(odbcTable.getBaseSchema().stream()
+        Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
 
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k6";

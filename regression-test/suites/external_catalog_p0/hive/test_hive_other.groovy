@@ -50,45 +50,29 @@ suite("test_hive_other", "p0") {
     }
 
 
-    def set_be_config = { ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            // No need to set this config anymore, but leave this code sample here
-            // StringBuilder setConfigCommand = new StringBuilder();
-            // setConfigCommand.append("curl -X POST http://")
-            // setConfigCommand.append(backend[2])
-            // setConfigCommand.append(":")
-            // setConfigCommand.append(backend[5])
-            // setConfigCommand.append("/api/update_config?")
-            // String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=true"
-            // logger.info(command1)
-            // String command2 = setConfigCommand.toString() + "enable_new_file_scanner=true"
-            // logger.info(command2)
-            // def process1 = command1.execute()
-            // int code = process1.waitFor()
-            // assertEquals(code, 0)
-            // def process2 = command2.execute()
-            // code = process1.waitFor()
-            // assertEquals(code, 0)
-        }
-    }
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
         String hdfs_port = context.config.otherConfigs.get("hdfs_port")
         String catalog_name = "hive_test_other"
-        set_be_config.call()
 
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists ${catalog_name}"""
-        sql """
-            create catalog ${catalog_name} properties (
-                "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
-            );
-            """
+        sql """create resource if not exists hms_resource_hive_other properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+        );"""
+        sql """create catalog if not exists ${catalog_name} with resource hms_resource_hive_other;"""
+
+        // test user's grants on external catalog
+        sql """drop user if exists ext_catalog_user"""
+        sql """create user ext_catalog_user identified by '12345'"""
+        sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
+        sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
+        connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
+            order_qt_ext_catalog_grants """show databases from ${catalog_name}"""
+        }
+        sql """drop user ext_catalog_user"""
+
         sql """switch ${catalog_name}"""
         sql """use `default`"""
         // order_qt_show_tables """show tables"""
@@ -146,9 +130,8 @@ suite("test_hive_other", "p0") {
                 "uri" = "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_*"
             ) order by name;
         """
+
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """drop resource if exists hms_resource_hive_other"""
     }
 }
-
-
-
-

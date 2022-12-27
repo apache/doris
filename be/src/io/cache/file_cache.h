@@ -61,7 +61,17 @@ public:
     virtual int64_t get_oldest_match_time() const = 0;
 
 protected:
-    Status _remove_file(const Path& cache_file, const Path& cache_done_file, size_t* cleaned_size);
+    Status _remove_file(const Path& file, size_t* cleaned_size);
+
+    Status _remove_cache_and_done(const Path& cache_file, const Path& cache_done_file,
+                                  size_t* cleaned_size);
+
+    Status _get_dir_files_and_remove_unfinished(const Path& cache_dir,
+                                                std::vector<Path>& cache_names);
+
+    Status _clean_unfinished_files(const std::vector<Path>& unfinished_files);
+
+    Status _check_and_delete_empty_dir(const Path& cache_dir);
 
     template <typename T>
     struct SubFileLRUComparator {

@@ -292,10 +292,4 @@ Status ToRowBlockConverter::convert(std::shared_ptr<RowBlockV2>* result) {
     return Status::OK();
 }
 
-Status convert_to_row_block(const arrow::RecordBatch& batch, const Schema& schema,
-                            std::shared_ptr<RowBlockV2>* result) {
-    ToRowBlockConverter converter(batch, schema);
-    return converter.convert(result);
-}
-
 } // namespace doris

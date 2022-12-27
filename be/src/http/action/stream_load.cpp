@@ -40,16 +40,16 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/utils.h"
+#include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
@@ -397,10 +397,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<StreamLoadPipe>(kMaxPipeBufferedBytes /* max_buffered_bytes */,
-                                                     64 * 1024 /* min_chunk_size */,
-                                                     ctx->body_bytes /* total_length */);
-        RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                ctx->body_bytes /* total_length */);
+        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
+
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
     } else {
@@ -409,6 +410,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         RETURN_IF_ERROR(file_sink->open());
         request.__isset.path = true;
         request.fileType = TFileType::FILE_LOCAL;
+        request.__set_file_size(ctx->body_bytes);
         ctx->body_sink = file_sink;
     }
     if (!http_req->header(HTTP_COLUMNS).empty()) {
@@ -564,6 +566,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
 
     if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
         request.__set_hidden_columns(http_req->header(HTTP_HIDDEN_COLUMNS));
+    }
+    if (!http_req->header(HTTP_TRIM_DOUBLE_QUOTES).empty()) {
+        if (iequal(http_req->header(HTTP_TRIM_DOUBLE_QUOTES), "true")) {
+            request.__set_trim_double_quotes(true);
+        } else {
+            request.__set_trim_double_quotes(false);
+        }
     }
 
 #ifndef BE_TEST

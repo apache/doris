@@ -181,31 +181,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true>(block, sel, size);
-        } else {
-            _base_evaluate<false>(block, sel, size);
-        }
-    }
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true, false>(block, sel, size, flags);
-        } else {
-            _base_evaluate<false, false>(block, sel, size, flags);
-        }
-    }
-
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true, true>(block, sel, size, flags);
-        } else {
-            _base_evaluate<false, true>(block, sel, size, flags);
-        }
-    }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -383,69 +358,6 @@ private:
             return lhs != rhs;
         }
         return lhs == rhs;
-    }
-
-    template <bool is_nullable>
-    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-        uint16_t new_size = 0;
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_uint32_value = 0;
-                memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^
-                                (!block->cell(idx).is_null() &&
-                                 _operator(_values->find(tmp_uint32_value), _values->end()));
-                } else {
-                    new_size +=
-                            _opposite ^ _operator(_values->find(tmp_uint32_value), _values->end());
-                }
-            } else {
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                             _operator(_values->find(*cell_value), _values->end()));
-                } else {
-                    new_size += _opposite ^ _operator(_values->find(*cell_value), _values->end());
-                }
-            }
-        }
-        *size = new_size;
-    }
-
-    template <bool is_nullable, bool is_and>
-    void _base_evaluate(const ColumnBlock* block, const uint16_t* sel, uint16_t size,
-                        bool* flags) const {
-        for (uint16_t i = 0; i < size; ++i) {
-            if (!flags[i]) {
-                continue;
-            }
-
-            uint16_t idx = sel[i];
-            auto result = true;
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_uint32_value = 0;
-                memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                if constexpr (is_nullable) {
-                    result &= !block->cell(idx).is_null();
-                }
-                result &= _operator(_values->find(tmp_uint32_value), _values->end());
-            } else {
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                if constexpr (is_nullable) {
-                    result &= !block->cell(idx).is_null();
-                }
-                result &= _operator(_values->find(*cell_value), _values->end());
-            }
-
-            if constexpr (is_and) {
-                flags[i] &= _opposite ^ result;
-            } else {
-                flags[i] |= _opposite ^ result;
-            }
-        }
     }
 
     template <bool is_nullable, bool is_opposite>

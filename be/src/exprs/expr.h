@@ -279,7 +279,6 @@ protected:
     friend class FunctionCall;
     friend class HashJoinNode;
     friend class ExecNode;
-    friend class OlapScanNode;
     friend class SetVar;
     friend class NativeUdfExpr;
     friend class JsonFunctions;

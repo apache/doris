@@ -73,10 +73,10 @@ THRIFT_SOURCE=thrift-0.13.0
 THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
 
 # protobuf
-PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.14.0.tar.gz"
-PROTOBUF_NAME=protobuf-3.14.0.tar.gz
-PROTOBUF_SOURCE=protobuf-3.14.0
-PROTOBUF_MD5SUM="0c9d2a96f3656ba7ef3b23b533fb6170"
+PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
+PROTOBUF_NAME=protobuf-3.15.0.tar.gz
+PROTOBUF_SOURCE=protobuf-3.15.0
+PROTOBUF_MD5SUM="3fb6c41f7b3c621424543f43d54baa42"
 
 # gflags
 GFLAGS_DOWNLOAD="https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"

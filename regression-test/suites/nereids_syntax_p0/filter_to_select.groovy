@@ -16,7 +16,6 @@
 // under the License.
 
 suite("filter_to_select") {
-    sql "SET enable_vectorized_engine=true;"
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=true;"
 

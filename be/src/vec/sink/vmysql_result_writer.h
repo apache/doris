@@ -24,7 +24,6 @@
 
 namespace doris {
 class BufferControlBlock;
-class RowBatch;
 class MysqlRowBuffer;
 class TFetchDataResult;
 
@@ -38,8 +37,6 @@ public:
                        RuntimeProfile* parent_profile);
 
     virtual Status init(RuntimeState* state) override;
-
-    virtual Status append_row_batch(const RowBatch* batch) override;
 
     virtual Status append_block(Block& block) override;
 

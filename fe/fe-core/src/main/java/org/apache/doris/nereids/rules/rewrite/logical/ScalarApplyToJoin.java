@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -67,6 +68,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 correlationFilter
                         .map(ExpressionUtils::extractConjunction)
                         .orElse(ExpressionUtils.EMPTY_CONDITION),
+                JoinHint.NONE,
                 (LogicalPlan) apply.left(),
                 (LogicalPlan) apply.right());
     }

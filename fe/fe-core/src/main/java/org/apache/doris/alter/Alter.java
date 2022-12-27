@@ -431,11 +431,14 @@ public class Alter {
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
         switch (table.getType()) {
+            case MATERIALIZED_VIEW:
             case OLAP:
                 OlapTable olapTable = (OlapTable) table;
                 needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, clusterName, db);
                 break;
             case ODBC:
+            case JDBC:
+            case HIVE:
             case MYSQL:
             case ELASTICSEARCH:
                 processAlterExternalTable(stmt, table, db);
@@ -495,7 +498,8 @@ public class Alter {
         boolean swapTable = clause.isSwapTable();
         db.writeLockOrDdlException();
         try {
-            Table newTbl = db.getTableOrMetaException(newTblName, TableType.OLAP);
+            List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
+            Table newTbl = db.getTableOrMetaException(newTblName, tableTypes);
             OlapTable olapNewTbl = (OlapTable) newTbl;
             List<Table> tableList = Lists.newArrayList(origTable, newTbl);
             tableList.sort((Comparator.comparing(Table::getId)));

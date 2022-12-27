@@ -211,6 +211,8 @@ struct TBrokerScanRangeParams {
     12: optional i32 line_delimiter_length = 1;
     13: optional string column_separator_str;
     14: optional string line_delimiter_str;
+    // trim double quotes for csv
+    15: optional bool trim_double_quotes;
 
 }
 
@@ -255,6 +257,8 @@ struct TFileAttributes {
     8: optional bool read_by_column_def;
     // csv with header type
     9: optional string header_type;
+    // trim double quotes for csv
+    10: optional bool trim_double_quotes;
 }
 
 struct TIcebergDeleteFileDesc {
@@ -501,6 +505,7 @@ struct TSchemaScanNode {
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
   13: optional list<TSchemaTableStructure> table_structure
+  14: optional string catalog
 }
 
 struct TMetaScanNode {
@@ -622,6 +627,8 @@ struct TNestedLoopJoinNode {
   5: optional bool is_output_left_side_only
 
   6: optional Exprs.TExpr vjoin_conjunct
+
+  7: optional bool is_mark
 }
 
 struct TMergeJoinNode {

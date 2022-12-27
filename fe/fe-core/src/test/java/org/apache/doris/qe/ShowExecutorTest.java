@@ -34,6 +34,7 @@ import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -260,6 +261,7 @@ public class ShowExecutorTest {
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("testCluster:testUser");
         ctx.setCluster("testCluster");
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
         new Expectations(ctx) {
             {
@@ -272,7 +274,14 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDb() throws AnalysisException {
+        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ShowDbStmt stmt = new ShowDbStmt(null);
+        try {
+            stmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -301,7 +310,14 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws AnalysisException {
+        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ShowDbStmt stmt = new ShowDbStmt(null);
+        try {
+            stmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         executor.execute();
@@ -309,7 +325,18 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTable() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", null, false, null);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("testTbl", resultSet.getString(0));
+        Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowTableFromCatalog() throws AnalysisException {
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", "internal", false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -320,7 +347,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTableFromUnknownDatabase() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:emptyDb", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:emptyDb", null, false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
@@ -329,7 +356,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTablePattern() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", false, "empty%");
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", null, false, "empty%");
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -416,7 +443,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowTableVerbose() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", true, null);
+        ShowTableStmt stmt = new ShowTableStmt("testCluster:testDb", null, true, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 

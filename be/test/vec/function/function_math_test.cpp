@@ -369,6 +369,18 @@ TEST(MathFunctionTest, round_test) {
     }
 }
 
+TEST(MathFunctionTest, round_bankers_test) {
+    std::string func_name = "round_bankers";
+
+    {
+        InputTypeSet input_types = {TypeIndex::Float64};
+
+        DataSet data_set = {{{0.4}, 0.0}, {{-3.5}, -4.0}, {{4.5}, 4.0}, {{Null()}, Null()}};
+
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    }
+}
+
 TEST(MathFunctionTest, least_test) {
     std::string func_name = "least";
 

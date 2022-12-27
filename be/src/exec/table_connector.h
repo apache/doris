@@ -49,10 +49,6 @@ public:
 
     virtual Status exec_write_sql(const std::u16string& insert_stmt,
                                   const fmt::memory_buffer& _insert_stmt_buffer) = 0;
-    //write data into table row batch
-    Status append(const std::string& table_name, RowBatch* batch,
-                  const std::vector<ExprContext*>& _output_expr_ctxs, uint32_t start_send_row,
-                  uint32_t* num_rows_sent);
 
     //write data into table vectorized
     Status append(const std::string& table_name, vectorized::Block* block,

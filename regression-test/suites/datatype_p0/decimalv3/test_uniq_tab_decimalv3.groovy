@@ -39,7 +39,6 @@ suite("test_uniq_tab_decimalv3") {
     "storage_format" = "V2"
     )
     """
-    sql "set enable_vectorized_engine = true"
 
     sql """insert into ${table1} values(1.1,1.2,1.3,1.4,1.5,1.6),
             (1.1,1.2,1.3,1.4,1.56,1.234),

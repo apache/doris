@@ -18,7 +18,6 @@
 suite("test_bitmap_intersect", "p0") {
 
     def tbName = "test_bitmap_intersect"
-    sql """ SET enable_vectorized_engine = FALSE; """
     sql """ DROP TABLE IF EXISTS ${tbName} """
     sql """ create table if not exists ${tbName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) distributed by hash (tag) PROPERTIES("replication_num" = "1"); """
     sql """ insert into ${tbName} values('A', to_bitmap(1)); """
@@ -38,7 +37,7 @@ suite("test_bitmap_intersect", "p0") {
            from
              ${tbName}
            group by
-             tag 
+             tag
        ) t
        """
    qt_sql  """ select
@@ -54,8 +53,6 @@ suite("test_bitmap_intersect", "p0") {
              tag having tag not in ("A","B")
        ) t
        """
-
-    sql """ SET enable_vectorized_engine = true; """
     qt_sql  """ select
        bitmap_to_string(bitmap_intersect(user_ids))
        from

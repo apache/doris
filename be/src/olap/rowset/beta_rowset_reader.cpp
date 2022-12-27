@@ -20,8 +20,6 @@
 #include <utility>
 
 #include "olap/delete_handler.h"
-#include "olap/generic_iterators.h"
-#include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
@@ -198,27 +196,16 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
-    if (config::enable_storage_vectorization && read_context->is_vec) {
-        if (read_context->need_ordered_result &&
-            _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = vectorized::new_merge_iterator(
-                    iterators, read_context->sequence_id_idx, read_context->is_unique,
-                    read_context->read_orderby_key_reverse, read_context->merged_rows);
-        } else {
-            if (read_context->read_orderby_key_reverse) {
-                // reverse iterators to read backward for ORDER BY key DESC
-                std::reverse(iterators.begin(), iterators.end());
-            }
-            final_iterator = vectorized::new_union_iterator(iterators);
-        }
+    if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
+        final_iterator = vectorized::new_merge_iterator(
+                iterators, read_context->sequence_id_idx, read_context->is_unique,
+                read_context->read_orderby_key_reverse, read_context->merged_rows);
     } else {
-        if (read_context->need_ordered_result &&
-            _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx,
-                                                read_context->is_unique, read_context->merged_rows);
-        } else {
-            final_iterator = new_union_iterator(iterators);
+        if (read_context->read_orderby_key_reverse) {
+            // reverse iterators to read backward for ORDER BY key DESC
+            std::reverse(iterators.begin(), iterators.end());
         }
+        final_iterator = vectorized::new_union_iterator(iterators);
     }
 
     auto s = final_iterator->init(_read_options);
@@ -227,123 +214,22 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         return Status::Error<ROWSET_READER_INIT>();
     }
     _iterator.reset(final_iterator);
-
-    // The data in _input_block will be copied shallowly to _output_block.
-    // Therefore, for nestable fields, the _input_block can't be shared.
-    bool has_nestable_fields = false;
-    for (const auto* field : _input_schema->columns()) {
-        if (field != nullptr && field->get_sub_field_count() > 0) {
-            has_nestable_fields = true;
-            break;
-        }
-    }
-
-    // init input block
-    if (_can_reuse_schema && !has_nestable_fields) {
-        if (read_context->reuse_block == nullptr) {
-            read_context->reuse_block.reset(
-                    new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
-        }
-        _input_block = read_context->reuse_block;
-    } else {
-        _input_block.reset(
-                new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
-    }
-
-    if (!read_context->is_vec) {
-        // init input/output block and row
-        _output_block.reset(new RowBlock(read_context->tablet_schema));
-
-        RowBlockInfo output_block_info;
-        output_block_info.row_num = std::min(1024, read_context->batch_size);
-        output_block_info.null_supported = true;
-        output_block_info.column_ids = *(_context->return_columns);
-        _output_block->init(output_block_info);
-        _row.reset(new RowCursor());
-        RETURN_NOT_OK(_row->init(read_context->tablet_schema, *(_context->return_columns)));
-    }
-
-    return Status::OK();
-}
-
-Status BetaRowsetReader::next_block(RowBlock** block) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    // read next input block
-    _input_block->clear();
-    {
-        auto s = _iterator->next_batch(_input_block.get());
-        if (!s.ok()) {
-            if (s.is<END_OF_FILE>()) {
-                *block = nullptr;
-                return Status::Error<END_OF_FILE>();
-            }
-            LOG(WARNING) << "failed to read next block: " << s.to_string();
-            return Status::Error<ROWSET_READ_FAILED>();
-        }
-    }
-
-    // convert to output block
-    _output_block->clear();
-    {
-        SCOPED_RAW_TIMER(&_stats->block_convert_ns);
-        _input_block->convert_to_row_block(_row.get(), _output_block.get());
-    }
-    *block = _output_block.get();
     return Status::OK();
 }
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (config::enable_storage_vectorization && _context->is_vec) {
-        do {
-            auto s = _iterator->next_batch(block);
-            if (!s.ok()) {
-                if (s.is<END_OF_FILE>()) {
-                    return Status::Error<END_OF_FILE>();
-                } else {
-                    LOG(WARNING) << "failed to read next block: " << s.to_string();
-                    return Status::Error<ROWSET_READ_FAILED>();
-                }
+    do {
+        auto s = _iterator->next_batch(block);
+        if (!s.ok()) {
+            if (s.is<END_OF_FILE>()) {
+                return Status::Error<END_OF_FILE>();
+            } else {
+                LOG(WARNING) << "failed to read next block: " << s.to_string();
+                return Status::Error<ROWSET_READ_FAILED>();
             }
-        } while (block->rows() == 0);
-    } else {
-        bool is_first = true;
-
-        do {
-            // read next input block
-            {
-                _input_block->clear();
-                {
-                    auto s = _iterator->next_batch(_input_block.get());
-                    if (!s.ok()) {
-                        if (s.is<END_OF_FILE>()) {
-                            if (is_first) {
-                                return Status::Error<END_OF_FILE>();
-                            } else {
-                                break;
-                            }
-                        } else {
-                            LOG(WARNING) << "failed to read next block: " << s.to_string();
-                            return Status::Error<ROWSET_READ_FAILED>();
-                        }
-                    } else if (_input_block->selected_size() == 0) {
-                        continue;
-                    }
-                }
-            }
-
-            {
-                SCOPED_RAW_TIMER(&_stats->block_convert_ns);
-                auto s = _input_block->convert_to_vec_block(block);
-                if (UNLIKELY(!s.ok())) {
-                    LOG(WARNING) << "failed to read next block: " << s.to_string();
-                    return Status::Error<STRING_OVERFLOW_IN_VEC_ENGINE>();
-                }
-            }
-            is_first = false;
-        } while (block->rows() <
-                 _context->batch_size); // here we should keep block.rows() < batch_size
-    }
+        }
+    } while (block->rows() == 0);
 
     return Status::OK();
 }

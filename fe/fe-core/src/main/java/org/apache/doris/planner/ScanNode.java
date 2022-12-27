@@ -43,7 +43,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -260,6 +262,26 @@ public abstract class ScanNode extends PlanNode {
                 ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
                 result.add(Range.closed(bound, bound));
             }
+        } else if (expr instanceof CompoundPredicate) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            ColumnRanges leftChildRange = null;
+            ColumnRanges rightChildRange = null;
+            switch (compoundPredicate.getOp()) {
+                case AND:
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc);
+                    return leftChildRange.intersectRanges(rightChildRange);
+                case OR:
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc);
+                    return leftChildRange.unionRanges(rightChildRange);
+                case NOT:
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    return leftChildRange.complementOfRanges();
+                default:
+                    throw new RuntimeException("unknown OP in compound predicate: "
+                        + compoundPredicate.getOp().toString());
+            }
         }
 
         if (result.isEmpty()) {
@@ -375,6 +397,67 @@ public abstract class ScanNode extends PlanNode {
 
         public static ColumnRanges createIsNull() {
             return IS_NULL;
+        }
+
+        public ColumnRanges complementOfRanges() {
+            if (type == Type.CONVERT_SUCCESS) {
+                RangeSet<ColumnBound> rangeSet = TreeRangeSet.create();
+                rangeSet.addAll(ranges);
+                return create(Lists.newArrayList(rangeSet.complement().asRanges()));
+            }
+            return CONVERT_FAILURE;
+        }
+
+        public ColumnRanges intersectRanges(ColumnRanges other) {
+            // intersect ranges can handle isnull
+            switch (this.type) {
+                case IS_NULL:
+                    return createIsNull();
+                case CONVERT_FAILURE:
+                    return createFailure();
+                case CONVERT_SUCCESS:
+                    switch (other.type) {
+                        case IS_NULL:
+                            return createIsNull();
+                        case CONVERT_FAILURE:
+                            return createFailure();
+                        case CONVERT_SUCCESS:
+                            RangeSet<ColumnBound> rangeSet = TreeRangeSet.create();
+                            rangeSet.addAll(this.ranges);
+                            RangeSet<ColumnBound> intersectSet = TreeRangeSet.create();
+
+                            other.ranges.forEach(range -> intersectSet.addAll(rangeSet.subRangeSet(range)));
+                            return create(Lists.newArrayList(intersectSet.asRanges()));
+                        default:
+                            return createFailure();
+                    }
+                default:
+                    return createFailure();
+            }
+        }
+
+        public ColumnRanges unionRanges(ColumnRanges other) {
+            switch (this.type) {
+                case IS_NULL:
+                case CONVERT_FAILURE:
+                    return createFailure();
+                case CONVERT_SUCCESS:
+                    switch (other.type) {
+                        case IS_NULL:
+                        case CONVERT_FAILURE:
+                            return createFailure();
+                        case CONVERT_SUCCESS:
+                            RangeSet<ColumnBound> rangeSet = TreeRangeSet.create();
+                            rangeSet.addAll(this.ranges);
+                            rangeSet.addAll(other.ranges);
+                            List<Range<ColumnBound>> unionRangeList = Lists.newArrayList(rangeSet.asRanges());
+                            return create(unionRangeList);
+                        default:
+                            return createFailure();
+                    }
+                default:
+                    return createFailure();
+            }
         }
 
         public static ColumnRanges createFailure() {

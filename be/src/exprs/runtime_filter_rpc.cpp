@@ -58,6 +58,7 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     pfragment_instance_id->set_lo(state->fragment_instance_id().lo);
 
     _rpc_context->request.set_filter_id(_filter_id);
+    _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec());
     _rpc_context->cntl.set_timeout_ms(1000);
     _rpc_context->cid = _rpc_context->cntl.call_id();
 

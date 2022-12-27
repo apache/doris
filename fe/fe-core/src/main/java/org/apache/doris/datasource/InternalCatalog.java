@@ -1970,6 +1970,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
                     groupSchema.checkColocateSchema(olapTable);
+                    groupSchema.checkDynamicPartition(properties, olapTable.getDefaultDistributionInfo());
                 }
                 // add table to this group, if group does not exist, create a new one
                 Env.getCurrentColocateIndex()

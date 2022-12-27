@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.HllType;
 
@@ -41,28 +42,29 @@ public class HllUnion extends AggregateFunction
         super("hll_union", arg0);
     }
 
-    public HllUnion(AggregateParam aggregateParam, Expression arg0) {
-        super("hll_union", aggregateParam, arg0);
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(HllType.INSTANCE);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return ImmutableList.of(HllType.INSTANCE);
+    public HllUnion withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
     }
 
     @Override
     public HllUnion withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllUnion(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public HllUnion withAggregateParam(AggregateParam aggregateParam) {
-        return new HllUnion(aggregateParam, child());
+        return new HllUnion(children.get(0));
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitHllUnion(this, context);
     }
 }

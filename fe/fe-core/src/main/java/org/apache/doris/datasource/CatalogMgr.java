@@ -26,6 +26,8 @@ import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -56,6 +58,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -103,6 +106,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private void addCatalog(CatalogIf catalog) {
         nameToCatalog.put(catalog.getName(), catalog);
         idToCatalog.put(catalog.getId(), catalog);
+        if (catalog.getResource() != null) {
+            Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource())
+                    .addReference(catalog.getName(), ReferenceType.CATALOG);
+        }
     }
 
     private CatalogIf removeCatalog(long catalogId) {
@@ -112,6 +119,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             nameToCatalog.remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
+            if (catalog.getResource() != null) {
+                Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
+                if (catalogResource != null) {
+                    catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
+                }
+            }
         }
         return catalog;
     }
@@ -222,11 +235,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void createCatalog(CreateCatalogStmt stmt) throws UserException {
         writeLock();
         try {
-            if (stmt.isSetIfNotExists() && nameToCatalog.containsKey(stmt.getCatalogName())) {
-                LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
-                return;
-            }
             if (nameToCatalog.containsKey(stmt.getCatalogName())) {
+                if (stmt.isSetIfNotExists()) {
+                    LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
+                    return;
+                }
                 throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
             }
             long id = Env.getCurrentEnv().getNextId();
@@ -298,6 +311,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            if (catalog instanceof ExternalCatalog) {
+                String resource = ((ExternalCatalog) catalog).getCatalogProperty().getResource();
+                if (resource != null) {
+                    throw new DdlException(String.format(
+                            "Catalog %s has %s resource, please change the resource properties directly.",
+                            stmt.getCatalogName(), resource));
+                }
             }
             if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
                     .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
@@ -371,11 +392,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), catalog.getName());
                 }
+                if (catalog.getResource() != null) {
+                    rows.add(Arrays.asList("resource", catalog.getResource()));
+                }
                 for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
-                    List<String> row = Lists.newArrayList();
-                    row.add(elem.getKey());
-                    row.add(elem.getValue());
-                    rows.add(row);
+                    rows.add(Arrays.asList(elem.getKey(), elem.getValue()));
                 }
             }
         } finally {
@@ -398,7 +419,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .append("`");
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, false));
+                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true));
                 sb.append("\n);");
             }
 

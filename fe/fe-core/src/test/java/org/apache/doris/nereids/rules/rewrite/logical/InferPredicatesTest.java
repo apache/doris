@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -78,8 +77,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest01() {
         String sql = "select * from student join score on student.id = score.sid where student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -87,10 +85,10 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                     )
                 );
     }
@@ -98,8 +96,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest02() {
         String sql = "select * from student join score on student.id = score.sid";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -114,8 +111,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest03() {
         String sql = "select * from student join score on student.id = score.sid where student.id in (1,2,3)";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -123,7 +119,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("id IN (1, 2, 3)")),
+                        ).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
                         logicalOlapScan()
                     )
                 );
@@ -132,8 +128,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest04() {
         String sql = "select * from student join score on student.id = score.sid and student.id in (1,2,3)";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -141,7 +136,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("id IN (1, 2, 3)")),
+                        ).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
                         logicalOlapScan()
                     )
                 );
@@ -150,8 +145,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest05() {
         String sql = "select * from student join score on student.id = score.sid join course on score.sid = course.id where student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -160,14 +154,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalJoin(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         ),
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                        ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
                     )
                 );
     }
@@ -175,8 +169,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest06() {
         String sql = "select * from student join score on student.id = score.sid join course on score.sid = course.id and score.sid > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -185,14 +178,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalJoin(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         ),
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                        ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
                     )
                 );
     }
@@ -200,8 +193,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest07() {
         String sql = "select * from student left join score on student.id = score.sid where student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -209,10 +201,10 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                     )
                 );
     }
@@ -220,8 +212,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest08() {
         String sql = "select * from student left join score on student.id = score.sid and student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -230,7 +221,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalOlapScan(),
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                        ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                     )
                 );
     }
@@ -239,8 +230,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     public void inferPredicatesTest09() {
         // convert left join to inner join
         String sql = "select * from student left join score on student.id = score.sid where score.sid > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -248,10 +238,10 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                     )
                 );
     }
@@ -259,8 +249,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest10() {
         String sql = "select * from (select id as nid, name from student) t left join score on t.nid = score.sid where t.nid > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -269,11 +258,11 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalProject(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filer -> filer.getPredicates().toSql().contains("id > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
                         ),
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                        ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                     )
                 );
     }
@@ -281,8 +270,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest11() {
         String sql = "select * from (select id as nid, name from student) t left join score on t.nid = score.sid and t.nid > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -293,7 +281,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                             ),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                     )
                 );
     }
@@ -301,24 +289,21 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest12() {
         String sql = "select * from student left join (select sid as nid, sum(grade) from score group by sid) s on s.nid = student.id where student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
                     logicalJoin(
-                            logicalFilter(
-                                    logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
+                        logicalFilter(
+                            logicalOlapScan()
+                        ).when(filer -> filer.getPredicate().toSql().contains("id > 1")),
+                        logicalAggregate(
                             logicalProject(
-                                    logicalAggregate(
-                                            logicalProject(
-                                                    logicalFilter(
-                                                    logicalOlapScan()
-                                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                    ))
-                            )
+                                    logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicate().toSql().contains("sid > 1"))
+                        ))
                     )
                 );
     }
@@ -326,8 +311,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest13() {
         String sql = "select * from (select id, name from student where id = 1) t left join score on t.id = score.sid";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -336,11 +320,11 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filer -> filer.getPredicates().toSql().contains("id = 1"))
+                                    ).when(filter -> filter.getPredicate().toSql().contains("id = 1"))
                             ),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filer -> filer.getPredicates().toSql().contains("sid = 1"))
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid = 1"))
                     )
                 );
     }
@@ -348,8 +332,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest14() {
         String sql = "select * from student left semi join score on student.id = score.sid where student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -357,11 +340,11 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                             )
                     )
                 );
@@ -370,8 +353,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest15() {
         String sql = "select * from student left semi join score on student.id = score.sid and student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -379,11 +361,11 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                        ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                         logicalProject(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -392,8 +374,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest16() {
         String sql = "select * from student left anti join score on student.id = score.sid and student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -403,7 +384,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalProject(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -412,8 +393,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest17() {
         String sql = "select * from student left anti join score on student.id = score.sid and score.sid > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -423,7 +403,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                         logicalProject(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -432,8 +412,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
     @Test
     public void inferPredicatesTest18() {
         String sql = "select * from student left anti join score on student.id = score.sid where student.id > 1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -441,11 +420,11 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                        ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                         logicalProject(
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -453,9 +432,30 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
 
     @Test
     public void inferPredicatesTest19() {
-        String sql = "select * from subquery1 left semi join (select t1.k3 from (select * from subquery3 left semi join  (select k1 from subquery4 where k1 = 3) t on subquery3.k3 = t.k1) t1 inner join (select k2,sum(k2) as sk2 from subquery2 group by k2) t2 on t2.k2 = t1.v1 and t1.v2 > t2.sk2) t3 on t3.k3 = subquery1.k1";
-        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
-        System.out.println(plan.treeString());
+        String sql = "select * from subquery1\n"
+                + "left semi join (\n"
+                + "  select t1.k3\n"
+                + "  from (\n"
+                + "    select *\n"
+                + "    from subquery3\n"
+                + "    left semi join\n"
+                + "    (\n"
+                + "      select k1\n"
+                + "      from subquery4\n"
+                + "      where k1 = 3\n"
+                + "    ) t\n"
+                + "    on subquery3.k3 = t.k1\n"
+                + "  ) t1\n"
+                + "  inner join\n"
+                + "  (\n"
+                + "    select k2,sum(k2) as sk2\n"
+                + "    from subquery2\n"
+                + "    group by k2\n"
+                + "  ) t2\n"
+                + "  on t2.k2 = t1.v1 and t1.v2 > t2.sk2\n"
+                + ") t3\n"
+                + "on t3.k3 = subquery1.k1";
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -463,23 +463,28 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                     logicalJoin(
                         logicalFilter(
                                 logicalOlapScan()
-                        ).when(filter -> filter.getPredicates().toSql().contains("k1 = 3")),
+                        ).when(filter -> filter.getPredicate().toSql().contains("k1 = 3")),
                         logicalProject(
+                            logicalJoin(
                                 logicalJoin(
-                                       logicalJoin(
-                                               logicalProject(
-                                                       logicalFilter(
-                                                               logicalOlapScan()
-                                                       ).when(filter -> filter.getPredicates().toSql().contains("k3 = 3"))
-                                               ),
-                                               logicalProject(
-                                                       logicalFilter(
-                                                               logicalOlapScan()
-                                                       ).when(filter -> filter.getPredicates().toSql().contains("k1 = 3"))
-                                               )
-                                       ),
-                                        logicalProject()
+                                   logicalProject(
+                                           logicalFilter(
+                                                   logicalOlapScan()
+                                           ).when(filter -> filter.getPredicate().toSql().contains("k3 = 3"))
+                                   ),
+                                   logicalProject(
+                                           logicalFilter(
+                                                   logicalOlapScan()
+                                           ).when(filter -> filter.getPredicate().toSql().contains("k1 = 3"))
+                                   )
+
+                                ),
+                                logicalAggregate(
+                                    logicalProject(
+                                            logicalOlapScan()
+                                    )
                                 )
+                            )
                         )
                     )
                 );
@@ -498,7 +503,7 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                                 logicalOlapScan(),
                                 logicalFilter(
                                         logicalOlapScan()
-                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         ),
                         logicalOlapScan()
                     )
@@ -517,15 +522,40 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                             logicalJoin(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                    ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                             ),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
                     )
                 );
     }
+
+    /**
+     * test for #15310
+     */
+    @Test
+    public void inferPredicatesTest22() {
+        String sql = "select * from student join (select sid as id1, sid as id2, grade from score) s on student.id = s.id1 where s.id1 > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matchesFromRoot(
+                        logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalOlapScan()
+                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                            )
+                        )
+                );
+    }
 }
+

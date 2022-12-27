@@ -118,11 +118,11 @@ public class ReplicaTest {
 
         // 3. Check equal
         for (int i = 0; i < 11; i++) {
-            Assert.assertTrue(list1.get(i).equals(list2.get(i)));
+            Assert.assertEquals(list1.get(i), list2.get(i));
         }
 
-        Assert.assertTrue(list1.get(1).equals(list1.get(1)));
-        Assert.assertFalse(list1.get(1).equals(list1));
+        Assert.assertEquals(list1.get(1), list1.get(1));
+        Assert.assertNotEquals(list1.get(1), list1);
 
         dis.close();
         Files.deleteIfExists(path);
