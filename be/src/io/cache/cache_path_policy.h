@@ -45,13 +45,13 @@ public:
 
 class NoCachePathPolicy : public CachePathPolicy {
 public:
-    NoCachePathPolicy() {}
+    NoCachePathPolicy() = default;
     std::string get_cache_path(const std::string& path) const override { return path; }
 };
 
 class SegmentCachePathPolicy : public CachePathPolicy {
 public:
-    SegmentCachePathPolicy() {}
+    SegmentCachePathPolicy() = default;
     std::string get_cache_path(const std::string& path) const override {
         // the segment file path is {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
         // cache path is: {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}/
@@ -64,7 +64,6 @@ public:
     CacheOptions(FileCacheType cache_type_, const CachePathPolicy& path_policy_)
             : cache_type(cache_type_), path_policy(path_policy_) {}
 
-public:
     FileCacheType cache_type;
     CachePathPolicy path_policy;
 };
