@@ -67,7 +67,6 @@ struct RowsetReaderContext {
     bool record_rowids = false;
     bool is_vertical_compaction = false;
     bool is_key_column_group = false;
-    std::shared_ptr<Schema> reuse_input_schema;
 };
 
 } // namespace doris

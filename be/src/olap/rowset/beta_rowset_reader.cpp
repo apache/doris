@@ -72,40 +72,23 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), _read_options.delete_condition_predicates.get(),
                 &_read_options.col_id_to_del_predicates);
-        // if del cond is not empty, schema may be different in multiple rowset
-        _can_reuse_schema = _read_options.col_id_to_del_predicates.empty();
-    }
-    // In vertical compaction, every column group need new schema
-    if (read_context->is_vertical_compaction) {
-        _can_reuse_schema = false;
-    }
-    if (!_can_reuse_schema || _context->reuse_input_schema == nullptr) {
-        std::vector<uint32_t> read_columns;
-        std::set<uint32_t> read_columns_set;
-        std::set<uint32_t> delete_columns_set;
-        for (int i = 0; i < _context->return_columns->size(); ++i) {
-            read_columns.push_back(_context->return_columns->at(i));
-            read_columns_set.insert(_context->return_columns->at(i));
-        }
-        _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
-        for (auto cid : delete_columns_set) {
-            if (read_columns_set.find(cid) == read_columns_set.end()) {
-                read_columns.push_back(cid);
-            }
-        }
-        VLOG_NOTICE << "read columns size: " << read_columns.size();
-        _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
-        if (_can_reuse_schema) {
-            _context->reuse_input_schema = _input_schema;
-        }
     }
 
-    // if can reuse schema, context must have reuse_input_schema
-    // if can't reuse schema, context mustn't have reuse_input_schema
-    DCHECK(_can_reuse_schema ^ (_context->reuse_input_schema == nullptr));
-    if (_context->reuse_input_schema != nullptr && _input_schema == nullptr) {
-        _input_schema = _context->reuse_input_schema;
+    std::vector<uint32_t> read_columns;
+    std::set<uint32_t> read_columns_set;
+    std::set<uint32_t> delete_columns_set;
+    for (int i = 0; i < _context->return_columns->size(); ++i) {
+        read_columns.push_back(_context->return_columns->at(i));
+        read_columns_set.insert(_context->return_columns->at(i));
     }
+    _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    for (auto cid : delete_columns_set) {
+        if (read_columns_set.find(cid) == read_columns_set.end()) {
+            read_columns.push_back(cid);
+        }
+    }
+    VLOG_NOTICE << "read columns size: " << read_columns.size();
+    _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
 
     if (read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),

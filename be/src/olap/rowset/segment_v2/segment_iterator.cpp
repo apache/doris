@@ -171,7 +171,7 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return Status::OK();
 }
 
-Status SegmentIterator::_init(bool is_vec) {
+Status SegmentIterator::_init() {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     // get file handle from file descriptor of segment
@@ -185,12 +185,8 @@ Status SegmentIterator::_init(bool is_vec) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    if (is_vec) {
-        _vec_init_lazy_materialization();
-        _vec_init_char_column_id();
-    } else {
-        _init_lazy_materialization();
-    }
+    _vec_init_lazy_materialization();
+    _vec_init_char_column_id();
     // Remove rows that have been marked deleted
     if (_opts.delete_bitmap.count(segment_id()) > 0 &&
         _opts.delete_bitmap[segment_id()] != nullptr) {
@@ -577,34 +573,6 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
     RETURN_IF_ERROR(_read_columns(_seek_schema->column_ids(), _seek_block.get(), 0, num_rows));
     _seek_block->set_num_rows(num_rows);
     return Status::OK();
-}
-
-void SegmentIterator::_init_lazy_materialization() {
-    if (!_col_predicates.empty()) {
-        std::set<ColumnId> predicate_columns;
-        for (auto predicate : _col_predicates) {
-            predicate_columns.insert(predicate->column_id());
-        }
-        _opts.delete_condition_predicates->get_all_column_ids(predicate_columns);
-
-        // ARRAY column do not support lazy materialization read
-        for (auto cid : _schema.column_ids()) {
-            if (_schema.column(cid)->type() == OLAP_FIELD_TYPE_ARRAY) {
-                predicate_columns.insert(cid);
-            }
-        }
-
-        // when all return columns have predicates, disable lazy materialization to avoid its overhead
-        if (_schema.column_ids().size() > predicate_columns.size()) {
-            _lazy_materialization_read = true;
-            _predicate_columns.assign(predicate_columns.cbegin(), predicate_columns.cend());
-            for (auto cid : _schema.column_ids()) {
-                if (predicate_columns.find(cid) == predicate_columns.end()) {
-                    _non_predicate_columns.push_back(cid);
-                }
-            }
-        }
-    }
 }
 
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
@@ -1000,7 +968,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
-        RETURN_IF_ERROR(_init(true));
+        RETURN_IF_ERROR(_init());
         _inited = true;
         if (_lazy_materialization_read || _opts.record_rowids) {
             _block_rowids.resize(_opts.block_row_max);
