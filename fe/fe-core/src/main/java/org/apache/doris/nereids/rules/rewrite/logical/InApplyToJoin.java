@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.common.NereidsException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -27,9 +29,12 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
+
+import java.util.List;
 
 /**
  * Convert InApply to LogicalJoin.
@@ -51,15 +56,19 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 predicate = new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
                         apply.right().getOutput().get(0));
             }
-
+            List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
+            if (conjuncts.stream().anyMatch(expression -> expression.children().stream()
+                    .anyMatch(expr -> expr.getDataType() == BitmapType.INSTANCE))) {
+                throw new NereidsException(new AnalysisException("nereids don't support bitmap filter"));
+            }
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
                 return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
-                        ExpressionUtils.extractConjunction(predicate),
+                        conjuncts,
                         JoinHint.NONE,
                         apply.left(), apply.right());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
-                        ExpressionUtils.extractConjunction(predicate),
+                        conjuncts,
                         JoinHint.NONE,
                         apply.left(), apply.right());
             }
