@@ -880,6 +880,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-EXPORT",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ENCRYPT-KEY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FUNCTIONS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TYPECAST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
