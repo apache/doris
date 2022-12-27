@@ -32,6 +32,7 @@ public class PrintableMap<K, V> {
     private String entryDelimiter = ",";
 
     public static final Set<String> SENSITIVE_KEY;
+    public static final String PASSWORD_MASK = "*XXX";
 
     static {
         SENSITIVE_KEY = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -80,7 +81,7 @@ public class PrintableMap<K, V> {
                 sb.append("\"");
             }
             if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
-                sb.append("*XXX");
+                sb.append(PASSWORD_MASK);
             } else {
                 sb.append(entry.getValue());
             }
