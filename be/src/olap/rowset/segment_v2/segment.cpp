@@ -36,6 +36,7 @@
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -306,20 +307,18 @@ Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
     row_location->segment_id = _segment_id;
 
     if (has_seq_col) {
-        MemPool pool;
         size_t num_to_read = 1;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read, false, _pk_index_reader->type_info(),
-                                                  nullptr, &cvb));
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
+        auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _pk_index_reader->type_info()->type(), 1, 0);
+        auto index_column = index_type->create_column();
         size_t num_read = num_to_read;
-        RETURN_IF_ERROR(index_iterator->next_batch(&num_read, &column_block_view));
+        RETURN_IF_ERROR(index_iterator->next_batch(&num_read, index_column));
         DCHECK(num_to_read == num_read);
 
-        const Slice* sought_key = reinterpret_cast<const Slice*>(cvb->cell_ptr(0));
+        Slice sought_key =
+                Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
         Slice sought_key_without_seq =
-                Slice(sought_key->get_data(), sought_key->get_size() - seq_col_length);
+                Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length);
 
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
@@ -330,7 +329,7 @@ Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
         Slice sequence_id =
                 Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
         Slice previous_sequence_id = Slice(
-                sought_key->get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
+                sought_key.get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
         if (sequence_id.compare(previous_sequence_id) < 0) {
             return Status::AlreadyExist("key with higher sequence id exists");
         }

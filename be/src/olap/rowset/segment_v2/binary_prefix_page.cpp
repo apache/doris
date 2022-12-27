@@ -273,5 +273,24 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     return Status::OK();
 }
 
+Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    DCHECK(_parsed);
+    if (PREDICT_FALSE(*n == 0 || _cur_pos >= _num_values)) {
+        *n = 0;
+        return Status::OK();
+    }
+    size_t max_fetch = std::min(*n, static_cast<size_t>(_num_values - _cur_pos));
+
+    // read and copy values
+    for (size_t i = 0; i < max_fetch; ++i) {
+        dst->insert_data((char*)(_current_value.data()), _current_value.size());
+        _read_next_value();
+        _cur_pos++;
+    }
+
+    *n = max_fetch;
+    return Status::OK();
+}
+
 } // namespace segment_v2
 } // namespace doris
