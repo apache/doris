@@ -119,11 +119,11 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     return Status::OK();
 }
 
+// fast_execute can direct copy expr filter result which build by apply index in segment_iterator
 bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, size_t result,
                                     size_t input_rows_count) {
-    auto column_with_name = block.get_by_position(arguments[1]);
-    auto query_value = column_with_name.to_string(0);
+    auto query_value = block.get_by_position(arguments[1]).to_string(0);
     std::string column_name = block.get_by_position(arguments[0]).name;
     auto result_column_name = column_name + "_" + _function->get_name() + "_" + query_value;
     if (!block.has(result_column_name)) {

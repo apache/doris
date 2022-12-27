@@ -98,9 +98,9 @@ public:
 
     Status add_compound_value(SQLFilterOp op, CppType value);
 
-    bool is_fixed_value_range() const;
-
     bool is_in_compound_value_range() const;
+
+    bool is_fixed_value_range() const;
 
     bool is_scope_value_range() const;
 
@@ -551,8 +551,7 @@ bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
         return true;
     }
 
-    return (!is_fixed_value_range() && !is_scope_value_range() && !contain_null() &&
-            !is_in_compound_value_range());
+    return (!is_fixed_value_range() && !is_scope_value_range() && !contain_null());
 }
 
 template <PrimitiveType primitive_type>

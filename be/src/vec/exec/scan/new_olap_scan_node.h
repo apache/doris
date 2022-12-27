@@ -65,7 +65,8 @@ private:
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
-    // _compound_filters store conditions in the one compound relationship in conjunct expr tree, like: "(a or b) and (c or d)", conditions for a,b,c,d will be stored
+    // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,
+    // such as: "(a or b) and (c or d)", conditions for a,b,c,d will be stored
     std::vector<TCondition> _compound_filters;
 
 private:

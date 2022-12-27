@@ -127,8 +127,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewOlapScanner::set_compound_filters(
-        const std::vector<TCondition>& compound_filters) {
+void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compound_filters) {
     _compound_filters = compound_filters;
 }
 

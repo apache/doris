@@ -487,8 +487,8 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
     return true;
 }
 
-Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
-                                                        roaring::Roaring* output_result) {
+Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
+        ColumnPredicate* pred, roaring::Roaring* output_result) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
     RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
                                    output_result));
@@ -498,10 +498,9 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(ColumnPre
 Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         auto pred_type = pred->type();
-        bool is_support =
-                pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
-                pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
-                pred_type == PredicateType::GT || pred_type == PredicateType::GE;
+        bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
+                          pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
+                          pred_type == PredicateType::GT || pred_type == PredicateType::GE;
         if (!is_support) {
             continue;
         }
@@ -523,7 +522,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         std::string pred_result_sign = _gen_predicate_sign(pred);
-        _rowid_result_for_index.emplace(std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
+        _rowid_result_for_index.emplace(
+                std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
     }
 
     return Status::OK();
@@ -536,7 +536,7 @@ std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
     auto pred_type = predicate->type();
     auto predicate_params = predicate->predicate_params();
     pred_result_sign = column_desc->name() + "_" + predicate->pred_type_string(pred_type) + "_" +
-                predicate_params->value;
+                       predicate_params->value;
 
     return pred_result_sign;
 }
@@ -544,7 +544,7 @@ std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
 std::string SegmentIterator::_gen_predicate_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
     pred_result_sign = predicate_info->column_name + "_" + predicate_info->query_op + "_" +
-                predicate_info->query_value;
+                       predicate_info->query_value;
     return pred_result_sign;
 }
 

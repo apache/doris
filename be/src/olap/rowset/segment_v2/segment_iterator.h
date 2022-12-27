@@ -124,7 +124,8 @@ private:
     Status _apply_bitmap_index();
 
     Status _apply_index_except_leafnode_of_andnode();
-    Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred, roaring::Roaring* output_result);
+    Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
+                                                          roaring::Roaring* output_result);
 
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
@@ -188,11 +189,10 @@ private:
     std::string _gen_predicate_sign(ColumnPredicateInfo* predicate_info);
 
     void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
-                                    vectorized::Block* block,
-                                    const std::string& pred_result_sign,
+                                    vectorized::Block* block, const std::string& pred_result_sign,
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
-                                            vectorized::Block* block);
+                                     vectorized::Block* block);
 
 private:
     class BitmapRangeIterator;

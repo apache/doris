@@ -474,7 +474,8 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 }
 
-void TabletReader::_init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params) {
+void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
+        const ReaderParams& read_params) {
     for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
         TCondition tmp_cond = condition;
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();

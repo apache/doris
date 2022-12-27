@@ -505,7 +505,8 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                         *range);
             }
 
-            if (pdt == PushDownType::UNACCEPTABLE && TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
+            if (pdt == PushDownType::UNACCEPTABLE &&
+                TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
                 _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), &pdt,
                                               in_predicate_checker, eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
@@ -941,15 +942,16 @@ Status VScanNode::_normalize_compound_predicate(
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
                     std::visit(
                             [&](auto& value_range) {
-                                _normalize_binary_in_compound_predicate(
-                                        child_expr, expr_ctx, slot, value_range, pdt);
+                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
+                                                                        value_range, pdt);
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt, in_predicate_checker, eq_predicate_checker);
+                _normalize_compound_predicate(child_expr, expr_ctx, pdt, in_predicate_checker,
+                                              eq_predicate_checker);
             }
         }
     }
@@ -958,9 +960,11 @@ Status VScanNode::_normalize_compound_predicate(
 }
 
 template <PrimitiveType T>
-Status VScanNode::_normalize_binary_in_compound_predicate(
-        vectorized::VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-        ColumnValueRange<T>& range, PushDownType* pdt) {
+Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* expr,
+                                                          VExprContext* expr_ctx,
+                                                          SlotDescriptor* slot,
+                                                          ColumnValueRange<T>& range,
+                                                          PushDownType* pdt) {
     DCHECK(expr->children().size() == 2);
     if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
@@ -989,10 +993,9 @@ Status VScanNode::_normalize_binary_in_compound_predicate(
         }
         DCHECK(slot_ref_child >= 0);
         const std::string& fn_name =
-                    reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
-        if (eq_pdt == PushDownType::ACCEPTABLE || 
-                ne_pdt == PushDownType::ACCEPTABLE ||
-                noneq_pdt == PushDownType::ACCEPTABLE) {
+                reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
+        if (eq_pdt == PushDownType::ACCEPTABLE || ne_pdt == PushDownType::ACCEPTABLE ||
+            noneq_pdt == PushDownType::ACCEPTABLE) {
             if (value.data != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
