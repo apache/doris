@@ -26,6 +26,7 @@ suite("test_external_resource_mysql", "p2") {
         String mysqlResourceName = "jdbc_resource_mysql_57"
         String mysqlDatabaseName01 = "external_mysql_database01"
         String mysqlTableName01 = "external_mysql_table01"
+        String mysqlTableName02 = "external_mysql_table02"
 
         sql """drop resource if exists ${mysqlResourceName};"""
         sql """
@@ -58,11 +59,19 @@ suite("test_external_resource_mysql", "p2") {
         def res = sql """select count(*) from ${mysqlTableName01};"""
         logger.info("recoding select: " + res.toString())
 
+        sql """
+            CREATE EXTERNAL TABLE ${mysqlTableName02} LIKE ${mysqlTableName01};
+            """
+        res = sql """select count(*) from ${mysqlTableName02};"""
+        logger.info("recoding select: " + res.toString())
+
         sql """drop table if exists ${mysqlTableName01}"""
+        sql """drop table if exists ${mysqlTableName02}"""
         sql """drop database if exists ${mysqlDatabaseName01};"""
 
     }
 }
+
 
 
 

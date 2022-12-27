@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20221213
+- Modified: protobuf 3.14.0 -> 3.15.0
+
 ## v20221212
 - Modified: s2geometry 0.9.0 -> 0.10.0
 - Added: Abseil, it is dependency of new s2geometry

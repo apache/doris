@@ -98,7 +98,9 @@ public class JoinEstimation {
     public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
         JoinType joinType = join.getJoinType();
         double rowCount = Double.MAX_VALUE;
-        if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
+        if (joinType == JoinType.LEFT_SEMI_JOIN
+                || joinType == JoinType.LEFT_ANTI_JOIN
+                || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
             double rightCount = rightStats.getRowCount();
             double leftCount = leftStats.getRowCount();
             if (join.getHashJoinConjuncts().isEmpty()) {

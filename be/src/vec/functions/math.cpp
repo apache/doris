@@ -368,6 +368,10 @@ struct RoundName {
     static constexpr auto name = "round";
 };
 
+struct RoundBankersName {
+    static constexpr auto name = "round_bankers";
+};
+
 /// round(double,int32)-->double
 /// key_str:roundFloat64Int32
 template <typename Name>
@@ -411,15 +415,17 @@ struct DecimalRoundOneImpl {
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
-#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                        \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();   \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>();
+#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                           \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>();    \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>();    \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();      \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>(); \
+    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,      \
+                                               TieBreakingMode::Bankers>>();
 
     REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
     REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)

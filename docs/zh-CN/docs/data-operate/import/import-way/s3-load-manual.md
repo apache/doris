@@ -80,7 +80,7 @@ under the License.
 
 ## 常见问题
 
-S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或没支持 virtual-hosted style 方式的访问，此时我们可以添加 `use_path_style` 参数来强制使用 path style 方式：
+1. S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或没支持 virtual-hosted style 方式的访问，此时我们可以添加 `use_path_style` 参数来强制使用 path style 方式：
 
 ```text
   WITH S3
@@ -93,5 +93,19 @@ S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可
   )
 ```
 
+<version since="1.2">
 
+2. 支持使用临时秘钥（TOKEN) 访问所有支持 S3 协议的对象存储，用法如下：
 
+```
+  WITH S3
+  (
+        "AWS_ENDPOINT" = "AWS_ENDPOINT",
+        "AWS_ACCESS_KEY" = "AWS_TEMP_ACCESS_KEY",
+        "AWS_SECRET_KEY" = "AWS_TEMP_SECRET_KEY",
+        "AWS_TOKEN" = "AWS_TEMP_TOKEN",
+        "AWS_REGION" = "AWS_REGION"
+  )
+```
+
+</version>

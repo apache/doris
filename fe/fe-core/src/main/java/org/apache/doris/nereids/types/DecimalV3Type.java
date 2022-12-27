@@ -36,13 +36,12 @@ import java.util.Objects;
  */
 @Developing
 public class DecimalV3Type extends FractionalType {
-    public static final int MAX_DECIMALV2_SCALE = 9;
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
 
-    public static final DecimalV3Type DEFAULT_DECIMAL32 = new DecimalV3Type(DEFAULT_PRECISION, DEFAULT_SCALE);
-    public static final DecimalV3Type DEFAULT_DECIMAL64 = new DecimalV3Type(DEFAULT_PRECISION, DEFAULT_SCALE);
+    public static final DecimalV3Type DEFAULT_DECIMAL32 = new DecimalV3Type(MAX_DECIMAL32_PRECISION, DEFAULT_SCALE);
+    public static final DecimalV3Type DEFAULT_DECIMAL64 = new DecimalV3Type(MAX_DECIMAL64_PRECISION, DEFAULT_SCALE);
     public static final DecimalV3Type DEFAULT_DECIMAL128 = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
     public static final DecimalV3Type SYSTEM_DEFAULT = DEFAULT_DECIMAL32;
 
@@ -82,22 +81,21 @@ public class DecimalV3Type extends FractionalType {
 
     /** createDecimalV3Type. */
     public static DecimalV3Type createDecimalV3Type(int precision) {
-        if (precision <= MAX_DECIMAL32_PRECISION) {
-            return DEFAULT_DECIMAL32;
-        }
-        if (precision <= MAX_DECIMAL64_PRECISION) {
-            return DEFAULT_DECIMAL64;
-        }
-        if (precision <= MAX_DECIMAL128_PRECISION) {
-            return DEFAULT_DECIMAL128;
-        }
+        return createDecimalV3Type(precision, DEFAULT_SCALE);
+    }
 
-        return new DecimalV3Type(Math.min(precision, MAX_DECIMAL128_PRECISION), DEFAULT_SCALE);
+    /** createDecimalV3Type. */
+    public static DecimalV3Type createDecimalV3Type(int precision, int scale) {
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION);
+        Preconditions.checkArgument(scale >= 0);
+        Preconditions.checkArgument(precision >= scale);
+        return new DecimalV3Type(precision, scale);
     }
 
     public static DecimalV3Type createDecimalV3Type(BigDecimal bigDecimal) {
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
-        return createDecimalV3Type(precision);
+        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
+        return createDecimalV3Type(precision, scale);
     }
 
     public static DecimalV3Type widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right) {

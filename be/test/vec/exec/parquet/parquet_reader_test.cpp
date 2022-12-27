@@ -18,7 +18,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "io/local_file_reader.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -89,8 +89,9 @@ TEST_F(ParquetReaderTest, normal) {
     DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-    LocalFileReader* reader =
-            new LocalFileReader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
+    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileReaderSPtr reader;
+    local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader);
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);

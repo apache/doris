@@ -64,7 +64,6 @@ public class SortNode extends PlanNode {
     private final boolean  useTopN;
 
     private boolean  isDefaultLimit;
-    private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private DataPartition inputPartition;
@@ -128,14 +127,6 @@ public class SortNode extends PlanNode {
 
     public void setInputPartition(DataPartition inputPartition) {
         this.inputPartition = inputPartition;
-    }
-
-    public long getOffset() {
-        return offset;
-    }
-
-    public void setOffset(long offset) {
-        this.offset = offset;
     }
 
     public SortInfo getSortInfo() {

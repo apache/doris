@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
@@ -30,6 +31,7 @@ import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.EsExternalTable;
@@ -38,6 +40,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -92,22 +95,42 @@ public class CatalogMgrTest extends TestWithFeService {
         // user1 has the privileges of testc which is granted by ctl.db.tbl format.
         Assert.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
 
-        // create catalog
+        // create hms catalog by resource
+        CreateResourceStmt hmsResource = (CreateResourceStmt) parseAndAnalyzeStmt(
+                "create resource hms_resource properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
+                rootCtx);
+        env.getResourceMgr().createResource(hmsResource);
         CreateCatalogStmt hiveCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog hive properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
+                "create catalog hive with resource hms_resource;",
                 rootCtx);
         env.getCatalogMgr().createCatalog(hiveCatalog);
+        // deprecated: create hms catalog by properties
+        CreateCatalogStmt hiveCatalog2 = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog hive2 properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(hiveCatalog2);
+
         CreateCatalogStmt iceBergCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
                 "create catalog iceberg properties('type' = 'hms', 'iceberg.hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
         env.getCatalogMgr().createCatalog(iceBergCatalog);
 
-        // create es catalog
+        // create es catalog by resource
+        CreateResourceStmt esResource = (CreateResourceStmt) parseAndAnalyzeStmt(
+                "create resource es_resource properties('type' = 'es', 'hosts' = 'http://192.168.0.1', 'user' = 'user1');",
+                rootCtx);
+
+        env.getResourceMgr().createResource(esResource);
         CreateCatalogStmt esCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog es properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
-                        + " 'elasticsearch.username' = 'user1');",
+                "create catalog es with resource es_resource;",
                 rootCtx);
         env.getCatalogMgr().createCatalog(esCatalog);
+        // deprecated: create es catalog by properties
+        CreateCatalogStmt esCatalog2 = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog es2 properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
+                        + " 'elasticsearch.username' = 'user1');",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(esCatalog2);
 
         createDbAndTableForCatalog(env.getCatalogMgr().getCatalog("hive"));
         createDbAndTableForCatalog(env.getCatalogMgr().getCatalog("es"));
@@ -156,11 +179,22 @@ public class CatalogMgrTest extends TestWithFeService {
         String showCatalogSql = "SHOW CATALOGS";
         ShowCatalogStmt showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
-        Assertions.assertEquals(5, showResultSet.getResultRows().size());
+        Assertions.assertEquals(7, showResultSet.getResultRows().size());
 
         //test result order
         Assertions.assertEquals("es", showResultSet.getResultRows().get(0).get(1));
-        Assertions.assertEquals("internal", showResultSet.getResultRows().get(4).get(1));
+        Assertions.assertEquals("internal", showResultSet.getResultRows().get(6).get(1));
+
+        // Can't alter catalog with resource directly
+        String alterCltWithResource = "ALTER CATALOG hive SET PROPERTIES"
+                + " ('hive.metastore.uris' = 'thrift://192.168.0.2:9084');";
+        try {
+            mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCltWithResource));
+            Assert.fail("Can't alter catalog with resource directly");
+        } catch (UserException e) {
+            Assert.assertEquals(e.getMessage(),
+                    "errCode = 2, detailMessage = Catalog hive has hms_resource resource, please change the resource properties directly.");
+        }
 
         showCatalogSql = "SHOW CATALOGS LIKE 'hms%'";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
@@ -234,7 +268,7 @@ public class CatalogMgrTest extends TestWithFeService {
         showCatalogSql = "SHOW CATALOGS";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt);
-        Assertions.assertEquals(4, showResultSet.getResultRows().size());
+        Assertions.assertEquals(6, showResultSet.getResultRows().size());
     }
 
     private void testCatalogMgrPersist() throws Exception {
@@ -256,7 +290,7 @@ public class CatalogMgrTest extends TestWithFeService {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         CatalogMgr mgr2 = CatalogMgr.read(dis);
 
-        Assert.assertEquals(5, mgr2.listCatalogs().size());
+        Assert.assertEquals(7, mgr2.listCatalogs().size());
         Assert.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
         Assert.assertEquals(0, mgr2.getInternalCatalog().getId());
         Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
@@ -265,8 +299,8 @@ public class CatalogMgrTest extends TestWithFeService {
         EsExternalCatalog esExternalCatalog = (EsExternalCatalog) mgr2.getCatalog("es");
         Assert.assertNotNull(esExternalCatalog);
         Map<String, String> properties = esExternalCatalog.getCatalogProperty().getProperties();
-        Assert.assertEquals("user1", properties.get(EsExternalCatalog.PROP_USERNAME));
-        Assert.assertEquals("http://192.168.0.1", properties.get(EsExternalCatalog.PROP_HOSTS));
+        Assert.assertEquals("user1", properties.get(EsResource.USER));
+        Assert.assertEquals("http://192.168.0.1", properties.get(EsResource.HOSTS));
         Assert.assertEquals("user1", esExternalCatalog.getUsername());
         Assert.assertEquals("http://192.168.0.1", esExternalCatalog.getNodes()[0]);
 

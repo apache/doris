@@ -84,7 +84,7 @@ public class SlotRef extends Expr {
         analysisDone();
     }
 
-    // nerieds use this constructor to build aggFnParam
+    // nereids use this constructor to build aggFnParam
     public SlotRef(Type type, boolean nullable) {
         super();
         // tuple id and slot id is meaningless here, nereids just use type and nullable

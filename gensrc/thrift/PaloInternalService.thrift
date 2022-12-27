@@ -185,6 +185,8 @@ struct TQueryOptions {
   54: optional bool enable_share_hash_table_for_broadcast_join
 
   55: optional bool enable_pipeline_engine = false
+
+  56: optional i32 repeat_max_num = 0
 }
     
 

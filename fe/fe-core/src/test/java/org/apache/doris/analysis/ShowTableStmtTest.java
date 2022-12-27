@@ -44,25 +44,25 @@ public class ShowTableStmtTest {
 
     @Test
     public void testNormal() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW TABLES FROM testCluster:testDb", stmt.toString());
+        Assert.assertEquals("SHOW TABLES FROM internal.testDb", stmt.toString());
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
         Assert.assertFalse(stmt.isVerbose());
         Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_testDb", stmt.getMetaData().getColumn(0).getName());
 
-        stmt = new ShowTableStmt("abc", true, null);
+        stmt = new ShowTableStmt("abc", null, true, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW FULL TABLES FROM testCluster:abc", stmt.toString());
+        Assert.assertEquals("SHOW FULL TABLES FROM internal.abc", stmt.toString());
         Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
 
-        stmt = new ShowTableStmt("abc", true, "bcd");
+        stmt = new ShowTableStmt("abc", null, true, "bcd");
         stmt.analyze(analyzer);
         Assert.assertEquals("bcd", stmt.getPattern());
-        Assert.assertEquals("SHOW FULL TABLES FROM testCluster:abc LIKE 'bcd'", stmt.toString());
+        Assert.assertEquals("SHOW FULL TABLES FROM internal.abc LIKE 'bcd'", stmt.toString());
         Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
@@ -70,7 +70,7 @@ public class ShowTableStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoDb() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
         stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
         Assert.fail("No exception throws");
     }

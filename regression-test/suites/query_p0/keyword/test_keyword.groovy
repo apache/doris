@@ -109,4 +109,11 @@ suite("test_keyword", "query,p0") {
     try_sql "select k1 as k7, k2 as k8, k3 as k9 from baseall t group by k7, k8, k9 having k7 > 5 \
             order by k7;"
     try_sql "select k1 as k7, k2 as k8, k3 as k9 from baseall t where k8 > 0 group by k7, k8, k9 having k7 > 5 order by k7;"
+
+    sql 'set enable_vectorized_engine=true'
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
+    qt_distinct "select distinct upper(k6) from ${tableName1} order by upper(k6)"
+    qt_distinct "select distinct * from ${tableName1} where k1<20 order by k1, k2, k3, k4"
 }

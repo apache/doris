@@ -155,8 +155,14 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
-                                       child(1)->get_next_span(), eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(1)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[1], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(1)->get_next_span(), eos);
 
         sink(state, &block, eos);
 
@@ -213,7 +219,12 @@ Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
     do {
         release_block_memory(_left_block);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(state, &_left_block, &_left_side_eos),
+                child(0)->get_next_after_projects(
+                        state, &_left_block, &_left_side_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 child(0)->get_next_span(), _left_side_eos);
 
     } while (_left_block.rows() == 0 && !_left_side_eos);
@@ -600,8 +611,9 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
 void VNestedLoopJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << std::string(indentation_level * 2, ' ');
     *out << "VNestedLoopJoinNode";
-    *out << "(eos=" << (_matched_rows_done ? "true" : "false")
+    *out << "(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
          << " left_block_pos=" << _left_block_pos;
+    *out << ")\n children=";
     VJoinNodeBase::debug_string(indentation_level, out);
     *out << ")";
 }
@@ -660,7 +672,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
 }
 
 bool VNestedLoopJoinNode::need_more_input_data() const {
-    return _need_more_input_data;
+    return _need_more_input_data and !_left_side_eos;
 }
 
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {

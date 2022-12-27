@@ -68,6 +68,7 @@ public class ShowDbStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        this.catalogName = this.catalogName == null ? analyzer.getDefaultCatalog() : this.catalogName;
     }
 
     @Override
@@ -102,7 +103,7 @@ public class ShowDbStmt extends ShowStmt {
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
         }
-        if (catalogName != null) {
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
             sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();

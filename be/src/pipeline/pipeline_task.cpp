@@ -35,6 +35,7 @@ void PipelineTask::_init_profile() {
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
     _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
 }
 
@@ -130,7 +131,7 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     while (!_fragment_context->is_canceled()) {
-        if (!_source->can_read() && _data_state != SourceState::MORE_DATA) {
+        if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
             set_state(BLOCKED_FOR_SOURCE);
             break;
         }
@@ -178,6 +179,7 @@ Status PipelineTask::close() {
     }
     if (_opened) {
         COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
+        COUNTER_UPDATE(_schedule_counts, _schedule_time);
         COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
@@ -224,6 +226,8 @@ std::string PipelineTask::debug_string() const {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
                        _operators[i]->debug_string());
     }
+    fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
+                   _sink->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 

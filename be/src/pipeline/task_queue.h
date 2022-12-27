@@ -108,7 +108,7 @@ private:
     size_t _core_size;
     std::atomic<size_t> _next_core = 0;
     std::atomic<bool> _closed;
-    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 200;
+    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 
 } // namespace pipeline

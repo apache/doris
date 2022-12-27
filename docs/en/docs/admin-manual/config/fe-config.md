@@ -991,7 +991,7 @@ Whether to enable vectorized load
 
 #### `enable_new_load_scan_node`
 
-Default: false
+Default: true
 
 Whether to enable file scan node
 
@@ -2572,3 +2572,25 @@ Default：x@8
 #### `proxy_auth_enable`
 
 Default：false
+
+#### `enable_func_pushdown`
+
+Default：true
+
+IsMutable：true
+
+MasterOnly：false
+
+Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables
+
+#### `jdbc_drivers_dir`
+
+Default: `${DORIS_HOME}/jdbc_drivers`;
+
+IsMutable：false
+
+MasterOnly：false
+
+The default dir to put jdbc drivers.
+
+

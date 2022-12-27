@@ -118,13 +118,21 @@ public class Config extends ConfigBase {
 
     /**
      * plugin_dir:
-     *      plugin install directory
+     * plugin install directory
      */
     @ConfField
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean plugin_enable = true;
+
+    /**
+     * The default path to save jdbc drivers.
+     * You can put all jdbc drivers in this path, and when creating jdbc resource with only jdbc driver file name,
+     * Doris will find jars from this path.
+     */
+    @ConfField
+    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
     /**
      * The default parallelism of the load execution plan
@@ -1452,7 +1460,7 @@ public class Config extends ConfigBase {
      * When the result set is large, you may need to increase this value.
      */
     @ConfField
-    public static int grpc_max_message_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
+    public static int grpc_max_message_size_bytes = 2147483647; // 2GB
 
     /**
      * Used to set minimal number of replication per tablet.
@@ -1920,5 +1928,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_fqdn_mode = false;
+
+    /**
+     * This is used whether to push down function to MYSQL in external Table with query sql
+     * like odbc, jdbc for mysql table
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_func_pushdown = true;
 }
 

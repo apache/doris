@@ -34,4 +34,6 @@ suite("group_by_constant") {
 
     qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 'g',  1 order by lo_partkey"""
 
+    qt_sql """select 2 from lineorder group by 1"""
+
 }

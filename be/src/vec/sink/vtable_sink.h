@@ -38,8 +38,6 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status send(RuntimeState* state, RowBatch* batch) override;
-
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().

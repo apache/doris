@@ -26,6 +26,7 @@
 
 namespace doris {
 namespace io {
+class FileSystem;
 
 class FileWriter {
 public:
@@ -51,6 +52,8 @@ public:
     virtual Status finalize() = 0;
 
     virtual size_t bytes_appended() const = 0;
+
+    virtual FileSystem* fs() const = 0;
 
     const Path& path() const { return _path; }
 

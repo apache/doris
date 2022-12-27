@@ -305,7 +305,7 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            root.setLimit(stmt.getLimit());
+            root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
             root.computeStats(analyzer);
         }
 
@@ -738,10 +738,15 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (functionName.equalsIgnoreCase("HLL_UNION_AGG")) {
-                        // do nothing
-                    } else if (functionName.equalsIgnoreCase("HLL_RAW_AGG")) {
-                        // do nothing
+                    } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)
+                            || functionName.equalsIgnoreCase(FunctionSet.HLL_RAW_AGG)
+                            || functionName.equalsIgnoreCase(FunctionSet.HLL_UNION)) {
+                        if (col.getAggregationType() != AggregateType.HLL_UNION) {
+                            turnOffReason =
+                                    "Aggregate Operator not match: HLL_UNION <--> " + col.getAggregationType();
+                            returnColumnValidate = false;
+                            break;
+                        }
                     } else if (functionName.equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();

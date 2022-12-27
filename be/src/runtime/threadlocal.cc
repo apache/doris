@@ -22,7 +22,6 @@
 #include <ostream>
 
 #include "common/logging.h"
-#include "gutil/once.h"
 #include "util/errno.h"
 
 namespace doris {
@@ -31,7 +30,7 @@ namespace doris {
 static pthread_key_t destructors_key;
 
 // The above key must only be initialized once per process.
-static GoogleOnceType once = GOOGLE_ONCE_INIT;
+static std::once_flag once;
 
 namespace {
 
@@ -66,7 +65,7 @@ static void create_key() {
 
 // Adds a destructor to the list.
 void add_destructor(void (*destructor)(void*), void* arg) {
-    GoogleOnceInit(&once, &create_key);
+    std::call_once(once, create_key);
 
     // Returns NULL if nothing is set yet.
     std::unique_ptr<PerThreadDestructorList> p(new PerThreadDestructorList());
