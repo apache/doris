@@ -93,7 +93,7 @@ private:
         return true;
     }
 
-    Status _init(bool is_vec = false);
+    Status _init();
 
     Status _init_return_column_iterators();
     Status _init_bitmap_index_iterators();
