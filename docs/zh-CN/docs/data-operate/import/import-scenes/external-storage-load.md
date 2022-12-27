@@ -181,7 +181,8 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
   )
 ```
 
-<version since="1.2"></version>
+<version since="1.2">
+
 2. 支持使用临时秘钥（TOKEN) 访问所有支持 S3 协议的对象存储，用法如下：
 
 ```
@@ -194,3 +195,5 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
         "AWS_REGION" = "AWS_REGION"
   )
 ```
+
+</version>

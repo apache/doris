@@ -73,12 +73,12 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                 if (groupByExpr instanceof IntegerLikeLiteral) {
                                     IntegerLikeLiteral i = (IntegerLikeLiteral) groupByExpr;
                                     int ord = i.getIntValue();
+                                    checkOrd(ord, aggOutput.size());
                                     Expression aggExpr = aggOutput.get(ord - 1);
                                     if (!CollectionUtils.isEmpty(aggExpr.children())
                                             && aggExpr.child(0) instanceof Literal) {
                                         continue;
                                     }
-                                    checkOrd(ord, aggOutput.size());
                                     groupByWithoutOrd.add(aggExpr);
                                 } else {
                                     groupByWithoutOrd.add(groupByExpr);

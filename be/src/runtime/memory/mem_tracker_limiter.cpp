@@ -22,7 +22,6 @@
 #include <boost/stacktrace.hpp>
 #include <queue>
 
-#include "gutil/once.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
