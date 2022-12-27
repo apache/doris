@@ -24,7 +24,6 @@
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/bloom_filter_predicate.h"
-#include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/itoken_extractor.h"
