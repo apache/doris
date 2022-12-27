@@ -196,7 +196,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
         });
         ArrayList<Long> parititonsSize = Lists.newArrayList();
-        for (Partition partition : table.getPartitions()) {
+        for (Partition partition : partitions) {
             parititonsSize.add(partition.getDataSize());
         }
 

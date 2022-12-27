@@ -45,6 +45,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -2942,8 +2943,8 @@ opt_rollup ::=
 opt_distribution_number ::=
     /* Empty */
     {:
-        /* If distribution number is null, default distribution number is 10. */
-        RESULT = 10;
+        /* If distribution number is null, default distribution number is FeConstants.default_bucket_num. */
+        RESULT = FeConstants.default_bucket_num;
     :}
     | KW_BUCKETS INTEGER_LITERAL:numDistribution
     {:

@@ -112,7 +112,7 @@ public class CreateTableStmt extends DdlStmt {
         newProperties.put(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "true");
 
         if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
-            distributionDesc.setBuckets(11);
+            distributionDesc.setBuckets(FeConstants.default_bucket_num);
         } else {
             long partitionSize = ParseUtil
                     .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
