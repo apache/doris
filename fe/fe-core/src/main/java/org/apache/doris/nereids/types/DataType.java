@@ -449,7 +449,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isDateType() {
-        return isDate() || isDateTime();
+        return isDate() || isDateTime() || isDateV2() || isDateTimeV2();
     }
 
     public boolean isNullType() {
