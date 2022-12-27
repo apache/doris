@@ -140,6 +140,7 @@ Status ParquetReader::_open_file() {
     system_properties.system_type = _scan_params.file_type;
     system_properties.properties = _scan_params.properties;
     system_properties.hdfs_params = _scan_params.hdfs_params;
+    system_properties.broker_addresses = _scan_params.broker_addresses;
 
     FileDescription file_description;
     file_description.path = _scan_range.path;

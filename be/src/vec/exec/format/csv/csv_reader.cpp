@@ -109,6 +109,7 @@ Status CsvReader::init_reader(bool is_load) {
     system_properties.system_type = _params.file_type;
     system_properties.properties = _params.properties;
     system_properties.hdfs_params = _params.hdfs_params;
+    system_properties.broker_addresses = _params.broker_addresses;
 
     FileDescription file_description;
     file_description.path = _range.path;
