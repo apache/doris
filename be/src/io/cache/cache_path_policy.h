@@ -33,8 +33,13 @@ enum class FileCacheType : uint8_t {
 
 FileCacheType cache_type_from_string(const std::string& type);
 
+// CachePathPolicy it to define which cache path should be used
+// for the local cache of the given file(path).
+// The dervied class should implement get_cache_path() method
 class CachePathPolicy {
 public:
+    // path: the path of file which will be cached
+    // return value: the cache path of the given file.
     virtual std::string get_cache_path(const std::string& path) const { return ""; }
 };
 
