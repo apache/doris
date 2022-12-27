@@ -1276,8 +1276,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Absorb the plan trees of all childFragments into unionNode
             // and fix up the fragment tree in the process.
             for (int i = 0; i < childrenFragments.size(); ++i) {
-                setOperationFragment.setFragmentInPlanTree(setOperationNode.getChild(i));
-                setOperationFragment.addChildren(childrenFragments.get(i).getChildren());
+                connectChildFragmentNotCheckExchangeNode(setOperationNode, i, setOperationFragment,
+                         childrenFragments.get(i),
+                         context);
             }
         } else {
             setOperationFragment = new PlanFragment(context.nextFragmentId(), setOperationNode,
