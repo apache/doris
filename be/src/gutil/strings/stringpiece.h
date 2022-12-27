@@ -124,7 +124,6 @@
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
-#include "gutil/type_traits.h"
 
 class StringPiece {
 private:
@@ -287,10 +286,6 @@ public:
 
     StringPiece substr(size_type pos, size_type n = npos) const;
 };
-
-#ifndef SWIG
-DECLARE_POD(StringPiece); // So vector<StringPiece> becomes really fast
-#endif
 
 // This large function is defined inline so that in a fairly common case where
 // one of the arguments is a literal, the compiler can elide a lot of the

@@ -31,7 +31,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -42,11 +41,11 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -148,8 +147,8 @@ public class PruneOlapScanTabletTest {
             }
         };
 
-        Expression expr = ExpressionUtils.and(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo);
-        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expr,
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo),
                 new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());

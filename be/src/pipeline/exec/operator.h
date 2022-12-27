@@ -276,7 +276,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         if (in_block->rows() > 0) {
             return _sink->send(state, in_block, source_state == SourceState::FINISHED);
         }
@@ -449,6 +448,8 @@ public:
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {
                 source_state = SourceState::MORE_DATA;
+            } else if (source_state == SourceState::MORE_DATA) {
+                source_state = _child_source_state;
             }
         }
         return Status::OK();

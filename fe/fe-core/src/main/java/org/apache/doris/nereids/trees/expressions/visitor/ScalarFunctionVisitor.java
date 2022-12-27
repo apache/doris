@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dpow;
@@ -199,6 +200,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -522,6 +524,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDaysSub(DaysSub daysSub, C context) {
         return visitScalarFunction(daysSub, context);
+    }
+
+    default R visitDigitalMasking(DigitalMasking digitalMasking, C context) {
+        return visitScalarFunction(digitalMasking, context);
     }
 
     default R visitYearsSub(YearsSub yearsSub, C context) {
@@ -1006,6 +1012,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRound(Round round, C context) {
         return visitScalarFunction(round, context);
+    }
+
+    default R visitRoundBankers(RoundBankers roundBankers, C context) {
+        return visitScalarFunction(roundBankers, context);
     }
 
     default R visitRpad(Rpad rpad, C context) {

@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 public class PushdownFilterThroughAggregationTest implements PatternMatchSupported {
@@ -78,7 +79,7 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                 logicalAggregate(
                                         logicalFilter(
                                                 logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().equals(filterPredicate))
+                                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
                                 )
                         )
                 );
@@ -134,11 +135,10 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                         logicalAggregate(
                                                 logicalFilter(
                                                         logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().child(0) instanceof GreaterThan)
-                                                        .when(filter -> filter.getPredicates()
-                                                                .child(1) instanceof LessThanEqual)
+                                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof LessThanEqual
+                                                        && ImmutableList.copyOf(filter.getConjuncts()).get(1) instanceof GreaterThan)
                                         )
-                                ).when(filter -> filter.getPredicates() instanceof EqualTo)
+                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo)
                         )
                 );
     }

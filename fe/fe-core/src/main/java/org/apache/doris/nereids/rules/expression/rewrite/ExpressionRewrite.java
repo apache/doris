@@ -23,17 +23,21 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -57,11 +61,28 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
+                new GenerateExpressionRewrite().build(),
                 new OneRowRelationExpressionRewrite().build(),
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
                 new FilterExpressionRewrite().build(),
                 new JoinExpressionRewrite().build());
+    }
+
+    private class GenerateExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalGenerate().then(generate -> {
+                List<Function> generators = generate.getGenerators();
+                List<Function> newGenerators = generators.stream()
+                        .map(func -> (Function) rewriter.rewrite(func))
+                        .collect(Collectors.toList());
+                if (generators.equals(newGenerators)) {
+                    return generate;
+                }
+                return generate.withGenerators(newGenerators);
+            }).toRule(RuleType.REWRITE_GENERATE_EXPRESSION);
+        }
     }
 
     private class OneRowRelationExpressionRewrite extends OneRewriteRuleFactory {
@@ -100,11 +121,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalFilter().then(filter -> {
-                Expression newExpr = rewriter.rewrite(filter.getPredicates());
-                if (newExpr.equals(filter.getPredicates())) {
+                Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
+                        rewriter.rewrite(filter.getPredicate())));
+                if (newConjuncts.equals(filter.getConjuncts())) {
                     return filter;
                 }
-                return new LogicalFilter<>(newExpr, filter.child());
+                return new LogicalFilter<>(newConjuncts, filter.child());
             }).toRule(RuleType.REWRITE_FILTER_EXPRESSION);
         }
     }

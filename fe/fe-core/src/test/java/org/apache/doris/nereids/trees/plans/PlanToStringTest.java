@@ -34,6 +34,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -61,7 +62,7 @@ public class PlanToStringTest {
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
-        LogicalFilter<Plan> plan = new LogicalFilter<>(new EqualTo(Literal.of(1), Literal.of(1)), child);
+        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
         Assertions.assertEquals("LogicalFilter ( predicates=(1 = 1) )", plan.toString());
     }
@@ -81,7 +82,8 @@ public class PlanToStringTest {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
-                        + "output=\\[id#\\d+, name#\\d+], candidateIndexIds=\\[], selectedIndexId=-1, preAgg=ON \\)"));
+                        + "output=\\[id#\\d+, name#\\d+], indexName=<index_not_selected>, "
+                        + "selectedIndexId=-1, preAgg=ON \\)"));
     }
 
     @Test

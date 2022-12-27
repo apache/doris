@@ -546,6 +546,7 @@ struct TStreamLoadPutRequest {
     39: optional string hidden_columns
     40: optional PlanNodes.TFileCompressType compress_type
     41: optional i64 file_size // only for stream load with parquet or orc
+    42: optional bool trim_double_quotes // trim double quotes for csv
 }
 
 struct TStreamLoadPutResult {

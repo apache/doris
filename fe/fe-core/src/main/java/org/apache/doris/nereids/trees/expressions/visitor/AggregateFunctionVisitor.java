@@ -19,14 +19,18 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 /** AggregateFunctionVisitor. */
@@ -71,5 +75,21 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSum(Sum sum, C context) {
         return visitAggregateFunction(sum, context);
+    }
+
+    default R visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, C context) {
+        return visitAggregateFunction(bitmapUnionCount, context);
+    }
+
+    default R visitNdv(Ndv ndv, C context) {
+        return visitAggregateFunction(ndv, context);
+    }
+
+    default R visitHllUnionAgg(HllUnionAgg hllUnionAgg, C context) {
+        return visitAggregateFunction(hllUnionAgg, context);
+    }
+
+    default R visitHllUnion(HllUnion hllUnion, C context) {
+        return visitAggregateFunction(hllUnion, context);
     }
 }

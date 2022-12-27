@@ -19,22 +19,25 @@
 
 #include "exec/text_converter.h"
 #include "io/file_reader.h"
+#include "io/fs/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vparquet_column_reader.h"
 
 namespace doris::vectorized {
 
-struct RowGroupIndex {
-    int32_t row_group_id;
-    int32_t first_row;
-    int32_t last_row;
-    RowGroupIndex(int32_t id, int32_t first, int32_t last)
-            : row_group_id(id), first_row(first), last_row(last) {}
-};
-
 class RowGroupReader {
 public:
+    static const std::vector<int64_t> NO_DELETE;
+
+    struct RowGroupIndex {
+        int32_t row_group_id;
+        int64_t first_row;
+        int64_t last_row;
+        RowGroupIndex(int32_t id, int64_t first, int64_t last)
+                : row_group_id(id), first_row(first), last_row(last) {}
+    };
+
     struct LazyReadContext {
         VExprContext* vconjunct_ctx = nullptr;
         bool can_lazy_read = false;
@@ -56,26 +59,66 @@ public:
         std::unordered_map<std::string, VExprContext*> missing_columns;
     };
 
-    RowGroupReader(doris::FileReader* file_reader,
-                   const std::vector<ParquetReadColumn>& read_columns,
-                   const RowGroupIndex& _row_group_idx, const tparquet::RowGroup& row_group,
-                   cctz::time_zone* ctz, const LazyReadContext& lazy_read_ctx);
+    /**
+     * Support row-level delete in iceberg:
+     * https://iceberg.apache.org/spec/#position-delete-files
+     */
+    struct PositionDeleteContext {
+        // the filtered rows in current row group
+        const std::vector<int64_t>& delete_rows;
+        // the first row id of current row group in parquet file
+        const int64_t first_row_id;
+        // the number of rows in current row group
+        const int64_t num_rows;
+        const int64_t last_row_id;
+        // current row id to read in the row group
+        int64_t current_row_id;
+        // start index in delete_rows
+        const int64_t start_index;
+        // end index in delete_rows
+        const int64_t end_index;
+        // current index in delete_rows
+        int64_t index;
+        const bool has_filter;
+
+        PositionDeleteContext(const std::vector<int64_t>& delete_rows, const int64_t num_rows,
+                              const int64_t first_row_id, const int64_t start_index,
+                              const int64_t end_index)
+                : delete_rows(delete_rows),
+                  first_row_id(first_row_id),
+                  num_rows(num_rows),
+                  last_row_id(first_row_id + num_rows),
+                  current_row_id(first_row_id),
+                  start_index(start_index),
+                  end_index(end_index),
+                  index(start_index),
+                  has_filter(end_index > start_index) {}
+
+        PositionDeleteContext(const int64_t num_rows, const int64_t first_row)
+                : PositionDeleteContext(NO_DELETE, num_rows, first_row, 0, 0) {}
+
+        PositionDeleteContext(const PositionDeleteContext& filter) = default;
+    };
+
+    RowGroupReader(io::FileReaderSPtr file_reader,
+                   const std::vector<ParquetReadColumn>& read_columns, const int32_t row_group_id,
+                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
+                   const PositionDeleteContext& position_delete_ctx,
+                   const LazyReadContext& lazy_read_ctx);
 
     ~RowGroupReader();
-    Status init(const FieldDescriptor& schema,
+    Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
                 std::unordered_map<int, tparquet::OffsetIndex>& col_offsets);
-    Status next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* _batch_eof);
-    int64_t lazy_read_filtered_rows() { return _lazy_read_filtered_rows; }
-    const RowGroupIndex& index() { return _row_group_idx; }
-    void set_row_ranges(const std::vector<doris::vectorized::RowRange>& row_ranges);
+    Status next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
 
     ParquetColumnReader::Statistics statistics();
 
 private:
-    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* _batch_eof);
+    void _merge_read_ranges(std::vector<RowRange>& row_ranges);
+    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
-                             size_t batch_size, size_t* read_rows, bool* _batch_eof,
+                             size_t batch_size, size_t* read_rows, bool* batch_eof,
                              ColumnSelectVector& select_vector);
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     const uint8_t* _build_filter_map(ColumnPtr& sv, size_t num_rows, bool* can_filter_all);
@@ -89,13 +132,16 @@ private:
             Block* block, size_t rows,
             const std::unordered_map<std::string, VExprContext*>& missing_columns);
 
-    doris::FileReader* _file_reader;
+    io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<ParquetReadColumn>& _read_columns;
-    const RowGroupIndex& _row_group_idx;
+    const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
     cctz::time_zone* _ctz;
+    PositionDeleteContext _position_delete_ctx;
+    // merge the row ranges generated from page index and position delete.
+    std::vector<RowRange> _read_ranges;
 
     const LazyReadContext& _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;

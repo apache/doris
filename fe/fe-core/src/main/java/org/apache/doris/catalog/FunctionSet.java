@@ -653,8 +653,12 @@ public class FunctionSet<T> {
                 .put(Type.MAX_DECIMALV2_TYPE,
                         "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
+
     public static final String HLL_HASH = "hll_hash";
     public static final String HLL_UNION = "hll_union";
+    public static final String HLL_UNION_AGG = "hll_union_agg";
+    public static final String HLL_RAW_AGG = "hll_raw_agg";
+    public static final String HLL_CARDINALITY = "hll_cardinality";
 
     private static final Map<Type, String> HLL_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -928,6 +932,7 @@ public class FunctionSet<T> {
     public static final String TO_QUANTILE_STATE = "to_quantile_state";
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
+    public static final String HISTOGRAM = "histogram";
 
     private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -2601,6 +2606,8 @@ public class FunctionSet<T> {
                             .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT, Type.INT),
                                     new ArrayType(t), t,
                                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t), Type.VARCHAR, t,
+                                    "", "", "", "", "", true, false, true, true));
         }
 
         // Avg
@@ -2775,7 +2782,7 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createAnalyticBuiltin("ntile",
                 Collections.singletonList(Type.BIGINT), Type.BIGINT, Type.BIGINT, null, null, null, null, null, true));
 
-        for (Type t : Type.getSupportedTypes()) {
+        for (Type t : Type.getTrivialTypes()) {
             if (t.isNull()) {
                 continue; // NULL is handled through type promotion.
             }

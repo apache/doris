@@ -65,10 +65,6 @@ public:
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not implement");
-    }
-
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -263,7 +259,6 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-
     // Num of pre allocated free blocks
     RuntimeProfile::Counter* _pre_alloc_free_blocks_num = nullptr;
     // Num of newly created free blocks when running query

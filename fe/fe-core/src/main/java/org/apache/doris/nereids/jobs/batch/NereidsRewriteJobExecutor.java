@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProjec
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
+import org.apache.doris.nereids.rules.rewrite.logical.InnerToCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
@@ -91,10 +93,11 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(topDownBatch(ImmutableList.of(PushFilterInsideJoin.INSTANCE)))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
-                .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
+                .add(topDownBatch(ImmutableList.of(new InnerToCrossJoin())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
+                .add(topDownBatch(ImmutableList.of(new CountDistinctRewrite())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithAggregate())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithoutAggregate())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanTablet())))
@@ -105,6 +108,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateUnnecessaryProject())))
                 .add(topDownBatch(ImmutableList.of(new EliminateAggregate())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeSetOperations())))
+                .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
                 .add(topDownBatch(ImmutableList.of(new BuildAggForUnion())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(new CheckAfterRewrite())))

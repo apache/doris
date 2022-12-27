@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -271,6 +272,16 @@ public class CostCalculator {
             return CostEstimate.of(
                     assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                     assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
+                    0
+            );
+        }
+
+        @Override
+        public CostEstimate visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.of(
+                    statistics.getRowCount(),
+                    statistics.getRowCount(),
                     0
             );
         }

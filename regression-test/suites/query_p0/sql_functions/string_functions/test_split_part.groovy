@@ -25,6 +25,6 @@ suite("test_split_part") {
       where
           split_part("bCKHDX07at", "5.7.37", cast(name as int)) is not null;
     """
-    exception "errCode = 2, detailMessage = [RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
+    exception "[RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
   }
 }

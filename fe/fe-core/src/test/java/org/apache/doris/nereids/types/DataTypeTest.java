@@ -50,4 +50,62 @@ public class DataTypeTest {
         Assertions.assertNotEquals(varcharType1, varcharType3);
         Assertions.assertNotEquals(varcharType1.hashCode(), varcharType3.hashCode());
     }
+
+    @Test
+    void testConvertFromString() {
+        // boolean
+        Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("bool"));
+        Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("boolean"));
+        // tinyint
+        Assertions.assertEquals(TinyIntType.INSTANCE, DataType.convertFromString("tinyint"));
+        // smallint
+        Assertions.assertEquals(SmallIntType.INSTANCE, DataType.convertFromString("smallint"));
+        // int
+        Assertions.assertEquals(IntegerType.INSTANCE, DataType.convertFromString("int"));
+        // bigint
+        Assertions.assertEquals(BigIntType.INSTANCE, DataType.convertFromString("bigint"));
+        // largeint
+        Assertions.assertEquals(LargeIntType.INSTANCE, DataType.convertFromString("largeint"));
+        // float
+        Assertions.assertEquals(FloatType.INSTANCE, DataType.convertFromString("float"));
+        // double
+        Assertions.assertEquals(DoubleType.INSTANCE, DataType.convertFromString("double"));
+        // decimalv2
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(13, 9),
+                DataType.convertFromString("decimal(13, 9)"));
+        // decimalv3
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(13, 9),
+                DataType.convertFromString("decimalv3(13, 9)"));
+        // text
+        Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("text"));
+        // string
+        Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("string"));
+        // char
+        Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("char(10)"));
+        // varchar
+        Assertions.assertEquals(VarcharType.createVarcharType(10), DataType.convertFromString("varchar(10)"));
+        // null
+        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null"));
+        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null_type"));
+        // date
+        Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
+        // datev2
+        Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
+        // time
+        Assertions.assertEquals(TimeType.INSTANCE, DataType.convertFromString("time"));
+        // datetime
+        Assertions.assertEquals(DateTimeType.INSTANCE, DataType.convertFromString("datetime"));
+        // datetimev2
+        Assertions.assertEquals(DateTimeV2Type.of(3), DataType.convertFromString("datetimev2(3)"));
+        // hll
+        Assertions.assertEquals(HllType.INSTANCE, DataType.convertFromString("hll"));
+        // bitmap
+        Assertions.assertEquals(BitmapType.INSTANCE, DataType.convertFromString("bitmap"));
+        // quantile_state
+        Assertions.assertEquals(QuantileStateType.INSTANCE, DataType.convertFromString("quantile_state"));
+        // json
+        Assertions.assertEquals(JsonType.INSTANCE, DataType.convertFromString("json"));
+        // array
+        Assertions.assertEquals(ArrayType.of(IntegerType.INSTANCE), DataType.convertFromString("array<int>"));
+    }
 }

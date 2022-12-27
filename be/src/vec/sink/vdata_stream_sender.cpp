@@ -78,7 +78,12 @@ Status Channel::init(RuntimeState* state) {
     }
 
     if (state->query_options().__isset.enable_local_exchange) {
-        _enable_local_exchange = state->query_options().enable_local_exchange;
+        _is_local &= state->query_options().enable_local_exchange;
+    }
+
+    if (_is_local) {
+        _local_recvr = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                _fragment_instance_id, _dest_node_id);
     }
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
@@ -92,7 +97,7 @@ Status Channel::init(RuntimeState* state) {
 Status Channel::send_current_block(bool eos) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
     // so this feature is turned off here by default. We need to re-examine this logic
-    if (_enable_local_exchange && is_local()) {
+    if (is_local()) {
         return send_local_block(eos);
     }
     SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
@@ -107,18 +112,15 @@ Status Channel::send_current_block(bool eos) {
 
 Status Channel::send_local_block(bool eos) {
     SCOPED_TIMER(_parent->_local_send_timer);
-    std::shared_ptr<VDataStreamRecvr> recvr =
-            _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
-                                                                    _dest_node_id);
     Block block = _mutable_block->to_block();
     _mutable_block->set_muatable_columns(block.clone_empty_columns());
-    if (recvr != nullptr) {
+    if (_recvr_is_valid()) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block.rows());
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
-        recvr->add_block(&block, _parent->_sender_id, true);
+        _local_recvr->add_block(&block, _parent->_sender_id, true);
         if (eos) {
-            recvr->remove_sender(_parent->_sender_id, _be_number);
+            _local_recvr->remove_sender(_parent->_sender_id, _be_number);
         }
     }
     return Status::OK();
@@ -126,14 +128,11 @@ Status Channel::send_local_block(bool eos) {
 
 Status Channel::send_local_block(Block* block) {
     SCOPED_TIMER(_parent->_local_send_timer);
-    std::shared_ptr<VDataStreamRecvr> recvr =
-            _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
-                                                                    _dest_node_id);
-    if (recvr != nullptr) {
+    if (_recvr_is_valid()) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block->bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block->rows());
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
-        recvr->add_block(block, _parent->_sender_id, false);
+        _local_recvr->add_block(block, _parent->_sender_id, false);
     }
     return Status::OK();
 }
@@ -461,15 +460,15 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
                                profile()->total_time_counter()),
             "");
     _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
-    for (int i = 0; i < _channels.size(); ++i) {
-        RETURN_IF_ERROR(_channels[i]->init(state));
-    }
     return Status::OK();
 }
 
 Status VDataStreamSender::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
     DCHECK(state != nullptr);
+    for (int i = 0; i < _channels.size(); ++i) {
+        RETURN_IF_ERROR(_channels[i]->init(state));
+    }
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
@@ -478,10 +477,6 @@ Status VDataStreamSender::open(RuntimeState* state) {
 
     _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
-}
-
-Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VOlapScanNode Node::get_next scalar");
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {

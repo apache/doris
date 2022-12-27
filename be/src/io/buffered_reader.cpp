@@ -21,6 +21,7 @@
 #include <sstream>
 
 #include "common/config.h"
+#include "olap/iterators.h"
 #include "olap/olap_define.h"
 #include "util/bit_util.h"
 
@@ -185,7 +186,7 @@ bool BufferedReader::closed() {
     return _reader->closed();
 }
 
-BufferedFileStreamReader::BufferedFileStreamReader(FileReader* file, uint64_t offset,
+BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint64_t offset,
                                                    uint64_t length, size_t max_buf_size)
         : _file(file),
           _file_start_offset(offset),
@@ -223,11 +224,12 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     int64_t has_read = 0;
     SCOPED_RAW_TIMER(&_statistics.read_time);
     while (has_read < to_read) {
-        int64_t loop_read = 0;
-        RETURN_IF_ERROR(_file->readat(_buf_end_offset + has_read, to_read - has_read, &loop_read,
-                                      _buf.get() + buf_remaining + has_read));
+        size_t loop_read = 0;
+        Slice resutl(_buf.get() + buf_remaining + has_read, to_read - has_read);
+        IOContext io_context;
+        RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, resutl, io_context, &loop_read));
         _statistics.read_calls++;
-        if (loop_read <= 0) {
+        if (loop_read == 0) {
             break;
         }
         has_read += loop_read;

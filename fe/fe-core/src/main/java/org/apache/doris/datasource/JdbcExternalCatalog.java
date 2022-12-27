@@ -79,9 +79,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
         jdbcUser = properties.getOrDefault(JdbcResource.USER, "");
         jdbcPasswd = properties.getOrDefault(JdbcResource.PASSWORD, "");
-        jdbcUrl = properties.getOrDefault(JdbcResource.URL, "");
+        jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
         handleJdbcUrl();
-        properties.put(JdbcResource.URL, jdbcUrl);
+        properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         driverUrl = properties.getOrDefault(JdbcResource.DRIVER_URL, "");
         driverClass = properties.getOrDefault(JdbcResource.DRIVER_CLASS, "");
         return properties;

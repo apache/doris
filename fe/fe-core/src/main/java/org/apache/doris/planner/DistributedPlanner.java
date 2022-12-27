@@ -236,7 +236,8 @@ public class DistributedPlanner {
         // move 'result' to end, it depends on all of its children
         fragments.remove(result);
         fragments.add(result);
-        if (!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1) {
+        if ((!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1)
+                || (!(root instanceof SortNode) && root.hasOffset())) {
             result = createMergeFragment(result);
             fragments.add(result);
         }
@@ -251,11 +252,17 @@ public class DistributedPlanner {
      */
     private PlanFragment createMergeFragment(PlanFragment inputFragment)
             throws UserException {
-        Preconditions.checkState(inputFragment.isPartitioned());
+        Preconditions.checkState(inputFragment.isPartitioned() || inputFragment.getPlanRoot().hasOffset());
 
         // exchange node clones the behavior of its input, aside from the conjuncts
         ExchangeNode mergePlan =
                 new ExchangeNode(ctx.getNextNodeId(), inputFragment.getPlanRoot(), false);
+        PlanNode inputRoot = inputFragment.getPlanRoot();
+        if (inputRoot.hasOffset()) {
+            long limit = inputRoot.getOffset() + inputRoot.getLimit();
+            inputRoot.unsetLimit();
+            inputRoot.setLimit(limit);
+        }
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         mergePlan.init(ctx.getRootAnalyzer());
         Preconditions.checkState(mergePlan.hasValidStats());
@@ -656,7 +663,7 @@ public class DistributedPlanner {
                     continue;
                 }
 
-                SlotRef leftSlot = lhsJoinExpr.unwrapSlotRef();
+                SlotRef leftSlot = node.getChild(0).findSrcSlotRef(lhsJoinExpr.getSrcSlotRef());
                 if (leftSlot.getTable() instanceof OlapTable
                         && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`

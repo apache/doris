@@ -24,6 +24,9 @@ namespace config {
 // Dir of custom config file
 CONF_String(custom_config_dir, "${DORIS_HOME}/conf");
 
+// Dir of jdbc drivers
+CONF_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+
 // cluster id
 CONF_Int32(cluster_id, "-1");
 // port on which BackendService is exported

@@ -84,9 +84,6 @@ public:
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
-    // Gets/Creates the query wide block mgr.
-    Status create_block_mgr();
-
     Status create_load_dir();
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -401,6 +398,17 @@ public:
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
+    }
+
+    int repeat_max_num() const {
+#ifndef BE_TEST
+        if (!_query_options.__isset.repeat_max_num) {
+            return 10000;
+        }
+        return _query_options.repeat_max_num;
+#else
+        return 10;
+#endif
     }
 
 private:

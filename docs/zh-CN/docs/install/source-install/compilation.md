@@ -58,8 +58,10 @@ under the License.
 | apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
 | apache/doris:build-env-for-1.0.0| | 1.0.0 |
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
-| apache/doris:build-env-ldb-toolchain-latest | | 1.1.x, trunk |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | 1.1.x, trunk |
+| apache/doris:build-env-for-1.2| | 1.1.x, 1.2.x |
+| apache/doris:build-env-for-1.2-no-avx2| | 1.1.x, 1.2.x |
+| apache/doris:build-env-ldb-toolchain-latest | | trunk |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | trunk |
 
 **注意**：
 

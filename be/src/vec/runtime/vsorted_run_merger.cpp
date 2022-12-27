@@ -21,7 +21,6 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
-#include "runtime/sorter.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"

@@ -102,6 +102,9 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
+    if (_eos) {
+        return Status::OK();
+    }
 
     std::list<VScanner*> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
@@ -551,7 +554,7 @@ Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, S
 
 Status VScanNode::_normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx,
                                            SlotDescriptor* slot, PushDownType* pdt) {
-    if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
+    if (TExprNodeType::BITMAP_PRED == expr->node_type() && expr->type().is_integer_type()) {
         DCHECK(expr->children().size() == 1);
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {

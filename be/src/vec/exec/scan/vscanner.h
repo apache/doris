@@ -64,6 +64,10 @@ protected:
 public:
     VScanNode* get_parent() { return _parent; }
 
+    int64_t get_time_cost_ns() const { return _per_scanner_timer; }
+
+    int64_t get_rows_read() const { return _num_rows_read; }
+
     Status try_append_late_arrival_runtime_filter();
 
     // Call start_wait_worker_timer() when submit the scanner to the thread pool.
@@ -164,6 +168,9 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
+    // num of rows return from scanner, after filter block
+    int64_t _num_rows_return = 0;
+
     // Set true after counter is updated finally
     bool _has_updated_counter = false;
 
@@ -182,6 +189,7 @@ protected:
     bool _is_counted_down = false;
 
     ScannerCounter _counter;
+    int64_t _per_scanner_timer = 0;
 };
 
 } // namespace doris::vectorized

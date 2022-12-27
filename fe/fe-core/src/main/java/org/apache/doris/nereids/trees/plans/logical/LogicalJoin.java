@@ -174,6 +174,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         switch (joinType) {
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
                 return ImmutableList.copyOf(left().getOutput());
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:

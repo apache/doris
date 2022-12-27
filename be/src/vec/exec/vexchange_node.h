@@ -39,7 +39,6 @@ public:
     Status prepare(RuntimeState* state) override;
     Status alloc_resource(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, Block* row_batch, bool* eos) override;
     void release_resource(RuntimeState* state) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
@@ -58,6 +57,7 @@ private:
 
     // use in merge sort
     size_t _offset;
+    int64_t _num_rows_skipped;
     VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;

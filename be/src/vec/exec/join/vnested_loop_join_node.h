@@ -57,10 +57,6 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VNestedLoopJoinNode::get_next scalar");
-    }
-
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
     const RowDescriptor& intermediate_row_desc() const override {

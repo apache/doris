@@ -20,43 +20,44 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "exec/aggregation_sink_operator.h"
-#include "exec/aggregation_source_operator.h"
-#include "exec/analytic_sink_operator.h"
-#include "exec/analytic_source_operator.h"
 #include "exec/data_sink.h"
-#include "exec/datagen_operator.h"
-#include "exec/empty_set_operator.h"
-#include "exec/exchange_sink_operator.h"
-#include "exec/exchange_source_operator.h"
-#include "exec/hashjoin_build_sink.h"
-#include "exec/hashjoin_probe_operator.h"
-#include "exec/mysql_scan_operator.h"
-#include "exec/repeat_operator.h"
-#include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
-#include "exec/scan_operator.h"
-#include "exec/schema_scan_operator.h"
-#include "exec/select_operator.h"
-#include "exec/set_probe_sink_operator.h"
-#include "exec/set_sink_operator.h"
-#include "exec/set_source_operator.h"
-#include "exec/sort_sink_operator.h"
-#include "exec/sort_source_operator.h"
-#include "exec/streaming_aggregation_sink_operator.h"
-#include "exec/streaming_aggregation_source_operator.h"
-#include "exec/table_sink_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "pipeline/exec/aggregation_sink_operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/exec/analytic_sink_operator.h"
+#include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/broker_scan_operator.h"
 #include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/exchange_sink_operator.h"
+#include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/hashjoin_build_sink.h"
+#include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/mysql_scan_operator.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/repeat_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
+#include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/scan_operator.h"
+#include "pipeline/exec/schema_scan_operator.h"
+#include "pipeline/exec/select_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h"
+#include "pipeline/exec/set_sink_operator.h"
+#include "pipeline/exec/set_source_operator.h"
+#include "pipeline/exec/sort_sink_operator.h"
+#include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
@@ -78,6 +79,7 @@
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
 
 using apache::thrift::transport::TTransportException;
@@ -97,6 +99,10 @@ PipelineFragmentContext::PipelineFragmentContext(
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back) {
     _fragment_watcher.start();
+}
+
+PipelineFragmentContext::~PipelineFragmentContext() {
+    _call_back(_runtime_state.get(), &_exec_status);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -547,6 +553,14 @@ Status PipelineFragmentContext::submit() {
     }
 }
 
+void PipelineFragmentContext::close_if_prepare_failed() {
+    for (auto& task : _tasks) {
+        DCHECK(!task->is_pending_finish());
+        WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
+        close_a_pipeline();
+    }
+}
+
 // construct sink operator
 Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     OperatorBuilderPtr sink_;
@@ -570,6 +584,11 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     case TDataSinkType::JDBC_TABLE_SINK:
     case TDataSinkType::ODBC_TABLE_SINK: {
         sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
+        break;
+    }
+    case TDataSinkType::RESULT_FILE_SINK: {
+        sink_ = std::make_shared<ResultFileSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                _sink.get());
         break;
     }
     default:

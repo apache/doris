@@ -114,15 +114,15 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 logicalHaving(aggregate()).then(having -> {
                     Aggregate aggregate = having.child();
                     Resolver resolver = new Resolver(aggregate);
-                    resolver.resolve(having.getPredicates());
+                    having.getConjuncts().forEach(resolver::resolve);
                     return createPlan(resolver, having.child(), (r, a) -> {
-                        Expression newPredicates = ExpressionUtils.replace(
-                                having.getPredicates(), r.getSubstitution());
-                        return new LogicalFilter<>(newPredicates, a);
+                        Set<Expression> newConjuncts = ExpressionUtils.replace(
+                                having.getConjuncts(), r.getSubstitution());
+                        return new LogicalFilter<>(newConjuncts, a);
                     });
                 })),
             RuleType.FILL_UP_HAVING_PROJECT.build(
-                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getPredicates(),
+                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getConjuncts(),
                     having.child()))
             )
         );

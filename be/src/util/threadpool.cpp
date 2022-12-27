@@ -23,12 +23,12 @@
 #include <cstdint>
 #include <limits>
 #include <ostream>
+#include <thread>
 
 #include "common/logging.h"
 #include "gutil/macros.h"
 #include "gutil/map-util.h"
 #include "gutil/strings/substitute.h"
-#include "gutil/sysinfo.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/scoped_cleanup.h"
 #include "util/thread.h"
@@ -52,7 +52,7 @@ private:
 ThreadPoolBuilder::ThreadPoolBuilder(string name)
         : _name(std::move(name)),
           _min_threads(0),
-          _max_threads(base::NumCPUs()),
+          _max_threads(std::thread::hardware_concurrency()),
           _max_queue_size(std::numeric_limits<int>::max()),
           _idle_timeout(std::chrono::milliseconds(500)) {}
 

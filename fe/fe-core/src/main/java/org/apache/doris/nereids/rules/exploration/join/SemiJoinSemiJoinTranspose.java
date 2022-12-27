@@ -44,7 +44,12 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
             Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_SEMI_JOIN),
             Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_ANTI_JOIN),
             Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_ANTI_JOIN),
-            Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_SEMI_JOIN));
+            Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_SEMI_JOIN),
+            Pair.of(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, JoinType.NULL_AWARE_LEFT_ANTI_JOIN),
+            Pair.of(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, JoinType.LEFT_SEMI_JOIN),
+            Pair.of(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, JoinType.LEFT_ANTI_JOIN),
+            Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.NULL_AWARE_LEFT_ANTI_JOIN),
+            Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.NULL_AWARE_LEFT_ANTI_JOIN));
 
     /*
      *      topJoin                newTopJoin

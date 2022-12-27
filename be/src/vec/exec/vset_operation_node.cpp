@@ -219,7 +219,6 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
 
             RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
         }
-        finalize_probe(state, i);
     }
     return st;
 }
@@ -227,8 +226,8 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::get_next(RuntimeState* state, Block* output_block,
                                                  bool* eos) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExceptNode::get_next");
-    SCOPED_TIMER(_probe_timer);
     return pull(state, output_block, eos);
 }
 
@@ -239,6 +238,7 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
+    _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
 
     // Prepare result expr lists.
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
@@ -382,6 +382,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_block, bool* eos) {
+    SCOPED_TIMER(_pull_timer);
     create_mutable_cols(output_block);
     auto st = std::visit(
             [&](auto&& arg) -> Status {
@@ -404,6 +405,7 @@ Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_
 //build a hash table from child(0)
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
+    SCOPED_TIMER(_build_timer);
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
     MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
@@ -411,7 +413,6 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     bool eos = false;
     while (!eos) {
         block.clear_column_data();
-        SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 child(0)->get_next_after_projects(
@@ -469,33 +470,32 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* /*state*/, int child_id,
-                                                   Block* block, bool eos) {
+Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int child_id, Block* block,
+                                                   bool eos) {
+    SCOPED_TIMER(_probe_timer);
     CHECK(_build_finished) << "cannot sink probe data before build finished";
     if (child_id > 1) {
         CHECK(_probe_finished_children_index[child_id - 1])
                 << fmt::format("child with id: {} should be probed first", child_id);
     }
     auto probe_rows = block->rows();
-
-    if (probe_rows == 0) {
-        return Status::OK();
+    if (probe_rows > 0) {
+        RETURN_IF_ERROR(extract_probe_column(*block, _probe_columns, child_id));
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& arg) -> Status {
+                    using HashTableCtxType = std::decay_t<decltype(arg)>;
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        HashTableProbe<HashTableCtxType, is_intersect> process_hashtable_ctx(
+                                this, probe_rows);
+                        return process_hashtable_ctx.mark_data_in_hashtable(arg);
+                    } else {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                    }
+                },
+                *_hash_table_variants));
     }
 
-    RETURN_IF_ERROR(extract_probe_column(*block, _probe_columns, child_id));
-
-    return std::visit(
-            [&](auto&& arg) -> Status {
-                using HashTableCtxType = std::decay_t<decltype(arg)>;
-                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableProbe<HashTableCtxType, is_intersect> process_hashtable_ctx(
-                            this, probe_rows);
-                    return process_hashtable_ctx.mark_data_in_hashtable(arg);
-                } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                }
-            },
-            *_hash_table_variants);
+    return eos ? finalize_probe(state, child_id) : Status::OK();
 }
 
 template <bool is_intersect>
@@ -561,10 +561,6 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs,
                                                              int child_id) {
-    if (block.rows() == 0) {
-        return Status::OK();
-    }
-
     for (size_t i = 0; i < _child_expr_lists[child_id].size(); ++i) {
         int result_col_id = -1;
         RETURN_IF_ERROR(_child_expr_lists[child_id][i]->execute(&block, &result_col_id));

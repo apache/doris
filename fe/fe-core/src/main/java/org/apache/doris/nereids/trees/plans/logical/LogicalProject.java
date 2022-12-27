@@ -47,17 +47,33 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     // For project nodes under union, erasure cannot be configured, so add this flag.
     private final boolean canEliminate;
 
+    private final boolean isDistinct;
+
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, Collections.emptyList(), true, child);
+        this(projects, Collections.emptyList(), true, child, false);
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child) {
-        this(projects, excepts, true, child);
+        this(projects, excepts, true, child, false);
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
                           boolean canEliminate, CHILD_TYPE child) {
-        this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child);
+        this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, false);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, boolean isDistinct) {
+        this(projects, Collections.emptyList(), true, child, isDistinct);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child,
+                            boolean isDistinct) {
+        this(projects, excepts, true, child, isDistinct);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
+                          boolean canEliminate, CHILD_TYPE child, boolean isDistinct) {
+        this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
     /**
@@ -67,11 +83,12 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      */
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
+            CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
         this.excepts = ImmutableList.copyOf(excepts);
         this.canEliminate = canEliminate;
+        this.isDistinct = isDistinct;
     }
 
     /**
@@ -125,7 +142,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         LogicalProject that = (LogicalProject) o;
         return projects.equals(that.projects)
                 && excepts.equals(that.excepts)
-                && canEliminate == that.canEliminate;
+                && canEliminate == that.canEliminate
+                && isDistinct == that.isDistinct;
     }
 
     @Override
@@ -136,18 +154,19 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, canEliminate, children.get(0));
+        return new LogicalProject<>(projects, excepts, canEliminate, children.get(0), isDistinct);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalProject<>(projects, excepts, canEliminate,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), child(), isDistinct);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child());
+        return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child(),
+                isDistinct);
     }
 
     public boolean canEliminate() {
@@ -155,6 +174,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     public Plan withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isEliminate, child());
+        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
+    }
+
+    public boolean isDistinct() {
+        return isDistinct;
     }
 }

@@ -34,7 +34,7 @@ import com.google.common.collect.Lists;
 /**
  * Convert InApply to LogicalJoin.
  * <p>
- * Not In -> LEFT_ANTI_JOIN
+ * Not In -> NULL_AWARE_LEFT_ANTI_JOIN
  * In -> LEFT_SEMI_JOIN
  */
 public class InApplyToJoin extends OneRewriteRuleFactory {
@@ -53,7 +53,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             }
 
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
-                return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(),
+                return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
                         ExpressionUtils.extractConjunction(predicate),
                         JoinHint.NONE,
                         apply.left(), apply.right());
