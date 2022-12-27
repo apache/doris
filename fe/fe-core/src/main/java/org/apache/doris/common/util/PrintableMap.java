@@ -40,6 +40,7 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
+        SENSITIVE_KEY.add("elasticsearch.password");
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
