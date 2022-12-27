@@ -109,6 +109,10 @@ Status CsvReader::init_reader(bool is_load) {
     system_properties.system_type = _params.file_type;
     system_properties.properties = _params.properties;
     system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                  _params.broker_addresses.end());
+    }
 
     FileDescription file_description;
     file_description.path = _range.path;
