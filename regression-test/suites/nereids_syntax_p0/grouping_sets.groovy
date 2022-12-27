@@ -157,4 +157,79 @@ suite("test_nereids_grouping_sets") {
     order_qt_select """
         select k1, sum(k2) from (select k1, k2, grouping(k1), grouping(k2) from groupingSetsTableNotNullable group by grouping sets((k1), (k2)))a group by k1
     """
+
+    sql """
+        drop table if exists grouping_subquery_table;
+    """
+
+    sql """
+        create table grouping_subquery_table ( a int not null, b int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        insert into grouping_subquery_table values
+        (1, 1), (1, 2), (1, 3), (1, 4),
+        (2, 1), (2, 2), (2, 3), (2, 4),
+        (3, 1), (3, 2), (3, 3), (3, 4),
+        (4, 1), (4, 2), (4, 3), (4, 4);
+    """
+
+    qt_select7 """
+        SELECT
+        a
+        FROM
+        (
+            with base_table as (
+            SELECT
+                `a`,
+                sum(`b`) as `sum(b)`
+            FROM
+                (
+                SELECT
+                    inv.a,
+                    sum(inv.b) as b
+                FROM
+                    grouping_subquery_table inv
+                group by
+                    inv.a
+                ) T
+            GROUP BY
+                `a`
+            ),
+            grouping_sum_table as (
+            select
+                `a`,
+                sum(`sum(b)`) as `sum(b)`
+            from
+                base_table
+            group by
+                grouping sets (
+                (`base_table`.`a`)
+                )
+            )
+            select
+            *
+            from
+            (
+                select
+                `a`,
+                `sum(b)`
+                from
+                base_table
+                union all
+                select
+                `a`,
+                `sum(b)`
+                from
+                grouping_sum_table
+            ) T
+        ) T2;
+    """
 }
