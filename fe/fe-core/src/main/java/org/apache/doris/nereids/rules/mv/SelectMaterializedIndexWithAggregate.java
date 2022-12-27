@@ -401,8 +401,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             );
 
                             if (result.exprRewriteMap.isEmpty()) {
-                                return agg.withChildren(project.withChildren(filter.withChildren(
-                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId)
+                                return agg.withChildren(repeat.withChildren(project.withChildren(filter.withChildren(
+                                        scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId))
                                 )));
                             } else {
                                 List<NamedExpression> newProjectList = replaceProjectList(project,
@@ -417,10 +417,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                 result.exprRewriteMap),
                                         agg.isNormalized(),
                                         agg.getSourceRepeat(),
-                                        newProject
+                                        repeat.withChildren(newProject)
                                 );
                             }
-                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_PROJECT_FILTER_SCAN),
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_PROJECT_FILTER_SCAN),
 
                 // filter can't push down
                 // Aggregate(Repeat(Filter(Project(Scan))))
@@ -480,9 +480,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             Set<Expression> predicates,
             List<AggregateFunction> aggregateFunctions,
             List<Expression> groupingExprs) {
-        Preconditions.checkArgument(scan.getOutputSet().containsAll(requiredScanOutput),
+        // remove virtual slot for grouping sets.
+        Set<Slot> nonVirtualRequiredScanOutput = requiredScanOutput.stream()
+                .filter(slot -> !(slot instanceof VirtualSlotReference))
+                .collect(ImmutableSet.toImmutableSet());
+        Preconditions.checkArgument(scan.getOutputSet().containsAll(nonVirtualRequiredScanOutput),
                 String.format("Scan's output (%s) should contains all the input required scan output (%s).",
-                        scan.getOutput(), requiredScanOutput));
+                        scan.getOutput(), nonVirtualRequiredScanOutput));
 
         OlapTable table = scan.getTable();
 
@@ -499,7 +503,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     return new SelectResult(preAggStatus, scan.getTable().getBaseIndexId(), new ExprRewriteMap());
                 } else {
                     List<MaterializedIndex> rollupsWithAllRequiredCols = table.getVisibleIndex().stream()
-                            .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutput))
+                            .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput))
                             .collect(Collectors.toList());
                     return new SelectResult(preAggStatus, selectBestIndex(rollupsWithAllRequiredCols, scan, predicates),
                             new ExprRewriteMap());
@@ -524,7 +528,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 ImmutableList.of())
                         .stream()
                         .filter(index -> !candidatesWithoutRewriting.contains(index))
-                        .map(index -> rewriteAgg(index, scan, requiredScanOutput, predicates, aggregateFunctions,
+                        .map(index -> rewriteAgg(index, scan, nonVirtualRequiredScanOutput, predicates,
+                                aggregateFunctions,
                                 groupingExprs))
                         .filter(aggRewriteResult -> checkPreAggStatus(scan, aggRewriteResult.index.getId(),
                                 predicates,
@@ -536,7 +541,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 List<MaterializedIndex> haveAllRequiredColumns = Streams.concat(
                         candidatesWithoutRewriting.stream()
-                                .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutput)),
+                                .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput)),
                         candidatesWithRewriting
                                 .stream()
                                 .filter(aggRewriteResult -> containAllRequiredColumns(aggRewriteResult.index, scan,
