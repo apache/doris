@@ -35,9 +35,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -136,8 +140,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                 result.exprRewriteMap),
                                         agg.isNormalized(),
                                         agg.getSourceRepeat(),
-                                        // Not that no need to replace slots in the filter, because the slots to replace
-                                        // are value columns, which shouldn't appear in filters.
+                                        // Note that no need to replace slots in the filter, because the slots to
+                                        // replace are value columns, which shouldn't appear in filters.
                                         filter.withChildren(
                                                 scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId))
                                 );
@@ -311,15 +315,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         .collect(Collectors.groupingBy(index -> index.getId() == table.getBaseIndexId()));
 
                 // Duplicate-keys table could use base index and indexes that pre-aggregation status is on.
-                Stream<MaterializedIndex> checkPreAggResult = Stream.concat(
+                Set<MaterializedIndex> candidatesWithoutRewriting = Stream.concat(
                         indexesGroupByIsBaseOrNot.get(true).stream(),
                         indexesGroupByIsBaseOrNot.getOrDefault(false, ImmutableList.of())
                                 .stream()
                                 .filter(index -> checkPreAggStatus(scan, index.getId(), predicates,
                                         aggregateFunctions, groupingExprs).isOn())
-                );
-
-                Set<MaterializedIndex> candidatesWithoutRewriting = checkPreAggResult.collect(Collectors.toSet());
+                ).collect(ImmutableSet.toImmutableSet());
 
                 // try to rewrite bitmap, hll by materialized index columns.
                 List<AggRewriteResult> candidatesWithRewriting = indexesGroupByIsBaseOrNot.getOrDefault(false,
@@ -328,6 +330,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         .filter(index -> !candidatesWithoutRewriting.contains(index))
                         .map(index -> rewriteAgg(index, scan, requiredScanOutput, predicates, aggregateFunctions,
                                 groupingExprs))
+                        .filter(aggRewriteResult -> checkPreAggStatus(scan, aggRewriteResult.index.getId(),
+                                predicates,
+                                // check pre-agg status of aggregate function that couldn't rewrite.
+                                aggFuncsDiff(aggregateFunctions, aggRewriteResult),
+                                groupingExprs).isOn())
                         .filter(result -> result.success)
                         .collect(Collectors.toList());
 
@@ -351,6 +358,16 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             }
             default:
                 throw new RuntimeException("Not supported keys type: " + table.getKeysType());
+        }
+    }
+
+    private List<AggregateFunction> aggFuncsDiff(List<AggregateFunction> aggregateFunctions,
+            AggRewriteResult aggRewriteResult) {
+        if (aggRewriteResult.success) {
+            return ImmutableList.copyOf(Sets.difference(ImmutableSet.copyOf(aggregateFunctions),
+                    aggRewriteResult.exprRewriteMap.aggFuncMap.keySet()));
+        } else {
+            return aggregateFunctions;
         }
     }
 
@@ -468,10 +485,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             return checkAggFunc(sum, AggregateType.SUM, extractSlotId(sum.child()), context, false);
         }
 
-        // TODO: select count(xxx) for duplicated-keys table.
         @Override
         public PreAggStatus visitCount(Count count, CheckContext context) {
-            // Now count(distinct key_column) is only supported for aggregate-keys and unique-keys OLAP table.
             if (count.isDistinct() && count.arity() == 1) {
                 Optional<ExprId> exprIdOpt = extractSlotId(count.child(0));
                 if (exprIdOpt.isPresent() && context.exprIdToKeyColumn.containsKey(exprIdOpt.get())) {
@@ -489,6 +504,16 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return PreAggStatus.on();
             } else {
                 return PreAggStatus.off("invalid bitmap_union_count: " + bitmapUnionCount.toSql());
+            }
+        }
+
+        @Override
+        public PreAggStatus visitHllUnionAgg(HllUnionAgg hllUnionAgg, CheckContext context) {
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllUnionAgg.child());
+            if (slotOpt.isPresent() && context.exprIdToValueColumn.containsKey(slotOpt.get().getExprId())) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid hll_union_agg: " + hllUnionAgg.toSql());
             }
         }
 
@@ -711,32 +736,60 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         /**
          * count(distinct col) -> bitmap_union_count(mv_bitmap_union_col)
+         * count(col) -> sum(mv_count_col)
          */
         @Override
         public Expression visitCount(Count count, RewriteContext context) {
             if (count.isDistinct() && count.arity() == 1) {
+                // count(distinct col) -> bitmap_union_count(mv_bitmap_union_col)
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
 
                 // count distinct a value column.
                 if (slotOpt.isPresent() && !context.checkContext.exprIdToKeyColumn.containsKey(
                         slotOpt.get().getExprId())) {
-                    String bitmapUnionCountColumn = CreateMaterializedViewStmt
+                    String bitmapUnionColumn = CreateMaterializedViewStmt
                             .mvColumnBuilder(AggregateType.BITMAP_UNION.name().toLowerCase(), slotOpt.get().getName());
 
-                    Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(bitmapUnionCountColumn);
-                    // has bitmap_union_count column
+                    Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(bitmapUnionColumn);
+                    // has bitmap_union column
                     if (mvColumn != null && context.checkContext.exprIdToValueColumn.containsValue(mvColumn)) {
-                        Slot bitmapUnionCountSlot = context.checkContext.scan.getNonUserVisibleOutput()
+                        Slot bitmapUnionSlot = context.checkContext.scan.getNonUserVisibleOutput()
                                 .stream()
-                                .filter(s -> s.getName().equals(bitmapUnionCountColumn))
+                                .filter(s -> s.getName().equals(bitmapUnionColumn))
                                 .findFirst()
                                 .get();
 
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionCountSlot);
-                        context.exprRewriteMap.projectExprMap.put(slotOpt.get(), bitmapUnionCountSlot);
-                        BitmapUnionCount bitmapUnionCount = new BitmapUnionCount(bitmapUnionCountSlot);
+                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionSlot);
+                        context.exprRewriteMap.projectExprMap.put(slotOpt.get(), bitmapUnionSlot);
+                        BitmapUnionCount bitmapUnionCount = new BitmapUnionCount(bitmapUnionSlot);
                         context.exprRewriteMap.aggFuncMap.put(count, bitmapUnionCount);
                         return bitmapUnionCount;
+                    }
+                }
+            } else if (!count.isDistinct() && count.arity() == 1) {
+                // count(col) -> sum(mv_count_col)
+
+                Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
+                // count a value column.
+                if (slotOpt.isPresent() && !context.checkContext.exprIdToKeyColumn.containsKey(
+                        slotOpt.get().getExprId())) {
+                    String countColumn = CreateMaterializedViewStmt
+                            .mvColumnBuilder("count", slotOpt.get().getName());
+
+                    Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(countColumn);
+                    // has bitmap_union_count column
+                    if (mvColumn != null && context.checkContext.exprIdToValueColumn.containsValue(mvColumn)) {
+                        Slot countSlot = context.checkContext.scan.getNonUserVisibleOutput()
+                                .stream()
+                                .filter(s -> s.getName().equals(countColumn))
+                                .findFirst()
+                                .get();
+
+                        context.exprRewriteMap.slotMap.put(slotOpt.get(), countSlot);
+                        context.exprRewriteMap.projectExprMap.put(slotOpt.get(), countSlot);
+                        Sum sum = new Sum(countSlot);
+                        context.exprRewriteMap.aggFuncMap.put(count, sum);
+                        return sum;
                     }
                 }
             }
@@ -775,6 +828,103 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             }
 
             return bitmapUnionCount;
+        }
+
+        /**
+         * hll_union(hll_hash(col)) to hll_union(mv_hll_union_col)
+         */
+        @Override
+        public Expression visitHllUnion(HllUnion hllUnion, RewriteContext context) {
+            if (hllUnion.child() instanceof HllHash) {
+                HllHash hllHash = (HllHash) hllUnion.child();
+                Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllHash.child());
+                if (slotOpt.isPresent()) {
+                    String hllUnionColumn = CreateMaterializedViewStmt
+                            .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), slotOpt.get().getName());
+
+                    Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(hllUnionColumn);
+                    // has hll_union column
+                    if (mvColumn != null && context.checkContext.exprIdToValueColumn.containsValue(mvColumn)) {
+                        Slot hllUnionSlot = context.checkContext.scan.getNonUserVisibleOutput()
+                                .stream()
+                                .filter(s -> s.getName().equals(hllUnionColumn))
+                                .findFirst()
+                                .get();
+
+                        context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
+                        context.exprRewriteMap.projectExprMap.put(hllHash, hllUnionSlot);
+                        HllUnion newHllUnion = new HllUnion(hllUnionSlot);
+                        context.exprRewriteMap.aggFuncMap.put(hllUnion, newHllUnion);
+                        return newHllUnion;
+                    }
+                }
+            }
+
+            return hllUnion;
+        }
+
+        /**
+         * hll_union_agg(hll_hash(col)) -> hll_union-agg(mv_hll_union_col)
+         */
+        @Override
+        public Expression visitHllUnionAgg(HllUnionAgg hllUnionAgg, RewriteContext context) {
+            if (hllUnionAgg.child() instanceof HllHash) {
+                HllHash hllHash = (HllHash) hllUnionAgg.child();
+                Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllHash.child());
+                if (slotOpt.isPresent()) {
+                    String hllUnionColumn = CreateMaterializedViewStmt
+                            .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), slotOpt.get().getName());
+
+                    Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(hllUnionColumn);
+                    // has hll_union column
+                    if (mvColumn != null && context.checkContext.exprIdToValueColumn.containsValue(mvColumn)) {
+                        Slot hllUnionSlot = context.checkContext.scan.getNonUserVisibleOutput()
+                                .stream()
+                                .filter(s -> s.getName().equals(hllUnionColumn))
+                                .findFirst()
+                                .get();
+
+                        context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
+                        context.exprRewriteMap.projectExprMap.put(hllHash, hllUnionSlot);
+                        HllUnionAgg newHllUnionAgg = new HllUnionAgg(hllUnionSlot);
+                        context.exprRewriteMap.aggFuncMap.put(hllUnionAgg, newHllUnionAgg);
+                        return newHllUnionAgg;
+                    }
+                }
+            }
+
+            return hllUnionAgg;
+        }
+
+        /**
+         * ndv(col) -> hll_union_agg(mv_hll_union_col)
+         */
+        @Override
+        public Expression visitNdv(Ndv ndv, RewriteContext context) {
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(ndv.child(0));
+            // ndv on a value column.
+            if (slotOpt.isPresent() && !context.checkContext.exprIdToKeyColumn.containsKey(
+                    slotOpt.get().getExprId())) {
+                String hllUnionColumn = CreateMaterializedViewStmt
+                        .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), slotOpt.get().getName());
+
+                Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(hllUnionColumn);
+                // has hll_union column
+                if (mvColumn != null && context.checkContext.exprIdToValueColumn.containsValue(mvColumn)) {
+                    Slot hllUnionSlot = context.checkContext.scan.getNonUserVisibleOutput()
+                            .stream()
+                            .filter(s -> s.getName().equals(hllUnionColumn))
+                            .findFirst()
+                            .get();
+
+                    context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
+                    context.exprRewriteMap.projectExprMap.put(slotOpt.get(), hllUnionSlot);
+                    HllUnionAgg hllUnionAgg = new HllUnionAgg(hllUnionSlot);
+                    context.exprRewriteMap.aggFuncMap.put(ndv, hllUnionAgg);
+                    return hllUnionAgg;
+                }
+            }
+            return ndv;
         }
     }
 

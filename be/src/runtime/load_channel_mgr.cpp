@@ -24,6 +24,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
+#include "util/time.h"
 
 namespace doris {
 

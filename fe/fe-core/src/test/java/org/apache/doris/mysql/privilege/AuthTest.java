@@ -212,7 +212,7 @@ public class AuthTest {
         Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1",
                 "123456", null));
         Assert.assertFalse(auth.checkPlainPasswordForTest("other:cmy", "192.168.0.1", "12345", null));
-        Assert.assertTrue(currentUser.get(0).equals(userIdentity));
+        Assert.assertEquals(currentUser.get(0), userIdentity);
 
         // 3. create another user: zhangsan@"192.%"
         userIdentity = new UserIdentity("zhangsan", "192.%");
