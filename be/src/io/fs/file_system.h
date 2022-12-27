@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "gutil/macros.h"
+#include "io/cache/cache_path_policy.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
@@ -51,6 +52,9 @@ public:
     DISALLOW_COPY_AND_ASSIGN(FileSystem);
 
     virtual Status create_file(const Path& path, FileWriterPtr* writer) = 0;
+
+    virtual Status open_file(const Path& path, const CacheOptions& cache_options,
+                             FileReaderSPtr* reader) = 0;
 
     virtual Status open_file(const Path& path, FileReaderSPtr* reader) = 0;
 

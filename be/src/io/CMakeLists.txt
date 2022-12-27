@@ -44,7 +44,9 @@ set(IO_FILES
     fs/hdfs_file_reader.cpp
     fs/broker_file_system.cpp
     fs/broker_file_reader.cpp
+    fs/remote_file_system.cpp
     fs/stream_load_pipe.cpp
+    cache/cache_path_policy.cpp
     cache/dummy_file_cache.cpp
     cache/file_cache.cpp
     cache/file_cache_manager.cpp
