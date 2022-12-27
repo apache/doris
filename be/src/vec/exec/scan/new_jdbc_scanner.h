@@ -48,7 +48,7 @@ private:
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
     const TupleDescriptor* _tuple_desc;
-    // the sql query database type: mysql, PG 
+    // the sql query database type: like mysql, PG...
     TOdbcTableType::type _table_type;
     // Scanner of JDBC.
     std::unique_ptr<JdbcConnector> _jdbc_connector;
