@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## DECIMALV3
+
+<version since="1.2.1">
+
+DECIMALV3
+
+</version>
+
 ### description
     DECIMALV3(M[,D])
     高精度定点数，M 代表一共有多少个有效数字(precision)，D 代表小数位有多少数字(scale)，
@@ -39,7 +46,7 @@ DECIMALV3有一套很复杂的类型推演规则，针对不同的表达式，�
 #### 四则运算
 
 * 加法 / 减法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y), max(b, y))，即整数部分和小数部分都分别使用两个操作数中较大的值。
-* 乘法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a, x), max(b, y))。
+* 乘法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + x, b + y)。
 * 除法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + y, b)。
 
 #### 聚合运算

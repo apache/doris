@@ -37,9 +37,6 @@ public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VSchemaScanNode();
     Status prepare(RuntimeState* state) override;
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VSchemaScanNode Node::get_next scalar");
-    }
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Prepare conjuncts, create Schema columns to slots mapping

@@ -25,10 +25,8 @@
 #include <unordered_map>
 
 #include "exec/data_sink.h"
-#include "exec/exchange_node.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
-#include "runtime/data_stream_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -123,8 +121,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         _is_report_success = request.query_options.is_report_success;
     }
 
-    RETURN_IF_ERROR(_runtime_state->create_block_mgr());
-
     // set up desc tbl
     DescriptorTbl* desc_tbl = nullptr;
     if (fragments_ctx != nullptr) {
@@ -151,7 +147,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         if (_runtime_state->enable_vectorized_exec()) {
             static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
         } else {
-            static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+            RETURN_ERROR_IF_NON_VEC;
         }
     }
 
@@ -215,8 +211,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
-    _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size()));
-    // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
 
@@ -249,7 +243,7 @@ Status PlanFragmentExecutor::open() {
     if (_runtime_state->enable_vectorized_exec()) {
         status = open_vectorized_internal();
     } else {
-        status = open_internal();
+        RETURN_ERROR_IF_NON_VEC;
     }
 
     if (!status.ok() && !status.is<CANCELLED>() && _runtime_state->log_has_space()) {
@@ -342,7 +336,12 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _plan->get_next_after_projects(_runtime_state.get(), block, &_done),
+                _plan->get_next_after_projects(
+                        _runtime_state.get(), block, &_done,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _plan, std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _plan->get_next_span(), _done);
 
         if (block->rows() > 0) {
@@ -351,90 +350,6 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
         }
     }
     *eos = _done;
-
-    return Status::OK();
-}
-
-Status PlanFragmentExecutor::open_internal() {
-    {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
-        SCOPED_TIMER(profile()->total_time_counter());
-        RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
-    }
-
-    if (_sink == nullptr) {
-        return Status::OK();
-    }
-    {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
-        RETURN_IF_ERROR(_sink->open(runtime_state()));
-    }
-
-    // If there is a sink, do all the work of driving it here, so that
-    // when this returns the query has actually finished
-    RowBatch* batch = nullptr;
-    while (true) {
-        {
-            SCOPED_CPU_TIMER(_fragment_cpu_timer);
-            RETURN_IF_ERROR(get_next_internal(&batch));
-        }
-
-        if (batch == nullptr) {
-            break;
-        }
-
-        if (VLOG_ROW_IS_ON) {
-            VLOG_ROW << "open_internal: #rows=" << batch->num_rows()
-                     << " desc=" << row_desc().debug_string();
-
-            for (int i = 0; i < batch->num_rows(); ++i) {
-                TupleRow* row = batch->get_row(i);
-                VLOG_ROW << row->to_string(row_desc());
-            }
-        }
-
-        SCOPED_TIMER(profile()->total_time_counter());
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
-        // Collect this plan and sub plan statistics, and send to parent plan.
-        if (_collect_query_statistics_with_every_batch) {
-            _collect_query_statistics();
-        }
-        const Status& st = _sink->send(runtime_state(), batch);
-        if (st.is<END_OF_FILE>()) {
-            break;
-        }
-        RETURN_IF_ERROR(st);
-    }
-
-    // Close the sink *before* stopping the report thread. Close may
-    // need to add some important information to the last report that
-    // gets sent. (e.g. table sinks record the files they have written
-    // to in this method)
-    // The coordinator report channel waits until all backends are
-    // either in error or have returned a status report with done =
-    // true, so tearing down any data stream state (a separate
-    // channel) in Close is safe.
-
-    // TODO: If this returns an error, the d'tor will call Close again. We should
-    // audit the sinks to check that this is ok, or change that behaviour.
-    {
-        SCOPED_TIMER(profile()->total_time_counter());
-        _collect_query_statistics();
-        Status status;
-        {
-            std::lock_guard<std::mutex> l(_status_lock);
-            status = _status;
-        }
-        status = _sink->close(runtime_state(), status);
-        RETURN_IF_ERROR(status);
-    }
-
-    // Setting to nullptr ensures that the d'tor won't double-close the sink.
-    _sink.reset(nullptr);
-    _done = true;
-
-    stop_report_thread();
-    send_report(true);
 
     return Status::OK();
 }
@@ -553,46 +468,6 @@ void PlanFragmentExecutor::stop_report_thread() {
     _report_thread.join();
 }
 
-Status PlanFragmentExecutor::get_next(RowBatch** batch) {
-    VLOG_FILE << "GetNext(): instance_id=" << _runtime_state->fragment_instance_id();
-    Status status = get_next_internal(batch);
-    update_status(status);
-
-    if (_done) {
-        LOG_INFO("PlanFragmentExecutor::get_next finished")
-                .tag("query_id", _query_id)
-                .tag("instance_id", _runtime_state->fragment_instance_id());
-        // Query is done, return the thread token
-        stop_report_thread();
-        send_report(true);
-    }
-
-    return status;
-}
-
-Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
-    if (_done) {
-        *batch = nullptr;
-        return Status::OK();
-    }
-
-    while (!_done) {
-        _row_batch->reset();
-        SCOPED_TIMER(profile()->total_time_counter());
-        RETURN_IF_ERROR(_plan->get_next(_runtime_state.get(), _row_batch.get(), &_done));
-
-        if (_row_batch->num_rows() > 0) {
-            COUNTER_UPDATE(_rows_produced_counter, _row_batch->num_rows());
-            *batch = _row_batch.get();
-            break;
-        }
-
-        *batch = nullptr;
-    }
-
-    return Status::OK();
-}
-
 void PlanFragmentExecutor::update_status(const Status& new_status) {
     if (new_status.ok()) {
         return;
@@ -634,12 +509,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();
     auto id = _runtime_state->fragment_instance_id();
-    if (_runtime_state->enable_vectorized_exec()) {
-        env->vstream_mgr()->cancel(id);
-    } else {
-        env->stream_mgr()->cancel(id);
-        env->result_mgr()->cancel(id);
-    }
+    DCHECK(_runtime_state->enable_vectorized_exec());
+    env->vstream_mgr()->cancel(id);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }
@@ -656,8 +527,6 @@ void PlanFragmentExecutor::close() {
     if (_closed) {
         return;
     }
-
-    _row_batch.reset(nullptr);
 
     // Prepare may not have been called, which sets _runtime_state
     if (_runtime_state != nullptr) {

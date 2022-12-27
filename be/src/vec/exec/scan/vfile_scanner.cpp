@@ -210,11 +210,10 @@ Status VFileScanner::_init_src_block(Block* block) {
             data_type = DataTypeFactory::instance().create_data_type(it->second, true);
         }
         if (data_type == nullptr) {
-            return Status::NotSupported(
-                    fmt::format("Not support data type:{} for column: {}",
-                                (it == _name_to_col_type.end() ? slot->type().debug_string()
-                                                               : it->second.debug_string()),
-                                slot->col_name()));
+            return Status::NotSupported("Not support data type {} for column {}",
+                                        it == _name_to_col_type.end() ? slot->type().debug_string()
+                                                                      : it->second.debug_string(),
+                                        slot->col_name());
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(

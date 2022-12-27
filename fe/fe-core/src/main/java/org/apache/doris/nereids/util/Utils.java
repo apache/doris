@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -193,7 +194,7 @@ public class Utils {
     }
 
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
-            List<Expression> conjuncts, List<Expression> slots) {
+            Set<Expression> conjuncts, List<Expression> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
     }

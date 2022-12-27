@@ -93,6 +93,8 @@ public:
         return _num_buffered_bytes + batch_size > _total_buffer_limit;
     }
 
+    bool is_closed() const { return _is_closed; }
+
 private:
     class SenderQueue;
     class PipSenderQueue;
@@ -217,7 +219,9 @@ public:
     void _update_block_queue_empty() override { _block_queue_empty = _block_queue.empty(); }
 
     Status get_batch(Block** next_block) override {
-        CHECK(!should_wait());
+        CHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
+                              << ", _block_queue_empty: " << _block_queue_empty
+                              << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
         return _inner_get_batch(next_block);
     }
@@ -245,10 +249,13 @@ public:
         materialize_block_inplace(*nblock);
 
         size_t block_size = nblock->bytes();
+        auto block_mem_size = nblock->allocated_bytes();
         {
             std::unique_lock<std::mutex> l(_lock);
             _block_queue.emplace_back(block_size, nblock);
         }
+        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
+        _recvr->_blocks_memory_usage->add(block_mem_size);
         _update_block_queue_empty();
         _data_arrival_cv.notify_one();
 

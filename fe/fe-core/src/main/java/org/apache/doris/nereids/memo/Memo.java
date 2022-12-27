@@ -25,6 +25,7 @@ import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -209,11 +210,11 @@ public class Memo {
      * Utility function to create a new {@link CascadesContext} with this Memo.
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(this, statementContext);
+        return new CascadesContext(this, statementContext, PhysicalProperties.ANY);
     }
 
     public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(this, statementContext, cteContext);
+        return new CascadesContext(this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -677,7 +678,8 @@ public class Memo {
             builder.append(group).append("\n");
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             StatsDeriveResult stats = group.getStatistics();
-            if (stats != null && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+            if (stats != null && !group.getLogicalExpressions().isEmpty()
+                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
                 for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }

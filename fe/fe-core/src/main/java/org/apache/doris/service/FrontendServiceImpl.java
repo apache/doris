@@ -139,6 +139,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -172,9 +173,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Env env = Env.getCurrentEnv();
-        List<CatalogIf> catalogIfs = env.getCatalogMgr().listCatalogs();
+        List<CatalogIf> catalogIfs = Lists.newArrayList();
+        if (Strings.isNullOrEmpty(params.catalog)) {
+            catalogIfs = env.getCatalogMgr().listCatalogs();
+        } else {
+            catalogIfs.add(env.getCatalogMgr()
+                    .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
+        }
         for (CatalogIf catalog : catalogIfs) {
-            List<String> dbNames = catalog.getDbNames();
+            List<String> dbNames = catalog.getDbNamesOrEmpty();
             LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
 
             UserIdentity currentUser = null;
@@ -228,11 +235,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
+
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
+
         if (db != null) {
-            for (String tableName : db.getTableNamesWithLock()) {
+            Set<String> tableNames = db.getTableNamesOrEmptyWithLock();
+            for (String tableName : tableNames) {
                 LOG.debug("get table: {}, wait to check", tableName);
                 if (!Env.getCurrentEnv().getAuth()
                         .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
@@ -280,16 +290,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (catalog != null) {
             DatabaseIf db = catalog.getDbNullable(params.db);
             if (db != null) {
-                List<TableIf> tables = null;
+                List<TableIf> tables = Lists.newArrayList();
                 if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                    tables = db.getTables();
+                    tables = db.getTablesOrEmpty();
                 } else {
                     switch (params.getType()) {
                         case "VIEW":
-                            tables = db.getViews();
+                            tables = db.getViewsOrEmpty();
                             break;
                         default:
-                            tables = db.getTables();
+                            tables = db.getTablesOrEmpty();
                     }
                 }
                 for (TableIf table : tables) {
@@ -415,11 +425,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
         if (db != null) {
-            TableIf table = db.getTableNullable(params.getTableName());
+            TableIf table = db.getTableNullableIfException(params.getTableName());
             if (table != null) {
                 table.readLock();
                 try {
-                    for (Column column : table.getBaseSchema()) {
+                    List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                    for (Column column : baseSchema) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
                         final Integer precision = column.getOriginType().getPrecision();
                         if (precision != null) {

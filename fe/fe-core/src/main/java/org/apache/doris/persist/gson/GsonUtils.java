@@ -23,6 +23,7 @@ import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HdfsResource;
@@ -137,7 +138,8 @@ public class GsonUtils {
             .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
-            .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName());
+            .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory

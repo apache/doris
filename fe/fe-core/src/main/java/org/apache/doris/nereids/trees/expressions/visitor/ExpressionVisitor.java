@@ -21,7 +21,9 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -62,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
@@ -69,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -81,6 +85,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -93,7 +98,8 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
  * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
 public abstract class ExpressionVisitor<R, C>
-        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>, TableValuedFunctionVisitor<R, C> {
+        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>,
+        TableValuedFunctionVisitor<R, C>, TableGeneratingFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
 
@@ -112,8 +118,17 @@ public abstract class ExpressionVisitor<R, C>
         return visitBoundFunction(tableValuedFunction, context);
     }
 
+    @Override
+    public R visitTableGeneratingFunction(TableGeneratingFunction tableGeneratingFunction, C context) {
+        return visitBoundFunction(tableGeneratingFunction, context);
+    }
+
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
         return visit(boundFunction, context);
+    }
+
+    public R visitAggregateExpression(AggregateExpression aggregateExpression, C context) {
+        return visit(aggregateExpression, context);
     }
 
     public R visitAlias(Alias alias, C context) {
@@ -362,6 +377,18 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
         return visit(virtualSlotReference, context);
+    }
+
+    public R visitTVFProperties(TVFProperties tvfProperties, C context) {
+        return visit(tvfProperties, context);
+    }
+
+    public R visitInterval(Interval interval, C context) {
+        return visit(interval, context);
+    }
+
+    public R visitBoundStar(BoundStar boundStar, C context) {
+        return visit(boundStar, context);
     }
 
     /* ********************************************************************************************

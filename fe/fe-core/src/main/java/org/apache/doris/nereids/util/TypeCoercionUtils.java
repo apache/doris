@@ -135,7 +135,7 @@ public class TypeCoercionUtils {
 
         if (returnType == null && input instanceof PrimitiveType
                 && expected instanceof CharacterType) {
-            returnType = StringType.INSTANCE;
+            returnType = expected.defaultConcreteType();
         }
 
         // could not do implicit cast, just return null. Throw exception in check analysis.

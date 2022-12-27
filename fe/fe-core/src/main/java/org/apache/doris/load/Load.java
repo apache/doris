@@ -585,8 +585,8 @@ public class Load {
             // so there will be a shadow column: '__doris_shadow_B'
             // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
             for (Column column : table.getFullSchema()) {
-                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
                     if (parsedColumnExprMap.containsKey(originCol)) {
                         Expr mappingExpr = parsedColumnExprMap.get(originCol);
                         if (mappingExpr != null) {
@@ -749,11 +749,11 @@ public class Load {
     public static List<ImportColumnDesc> getSchemaChangeShadowColumnDesc(Table tbl, Map<String, Expr> columnExprMap) {
         List<ImportColumnDesc> shadowColumnDescs = Lists.newArrayList();
         for (Column column : tbl.getFullSchema()) {
-            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
                 continue;
             }
 
-            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
             if (columnExprMap.containsKey(originCol)) {
                 Expr mappingExpr = columnExprMap.get(originCol);
                 if (mappingExpr != null) {
@@ -1061,6 +1061,17 @@ public class Load {
                     throw new AnalysisException("Don't support aggregation function in load expression");
                 }
             }
+
+            // Array type do not support cast now
+            Type exprReturnType = expr.getType();
+            if (exprReturnType.isArrayType()) {
+                Type schemaType = tbl.getColumn(entry.getKey()).getType();
+                if (exprReturnType != schemaType) {
+                    throw new AnalysisException("Don't support load from type:" + exprReturnType + " to type:"
+                            + schemaType + " for column:" + entry.getKey());
+                }
+            }
+
             exprsByName.put(entry.getKey(), expr);
         }
 

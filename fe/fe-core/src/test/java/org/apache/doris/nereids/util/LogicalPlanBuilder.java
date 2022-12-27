@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -35,10 +36,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class LogicalPlanBuilder {
@@ -104,7 +107,7 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
-                this.plan, right);
+                JoinHint.NONE, this.plan, right);
         return from(join);
     }
 
@@ -122,8 +125,12 @@ public class LogicalPlanBuilder {
         return limit(limit, 0);
     }
 
-    public LogicalPlanBuilder filter(Expression predicate) {
-        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(predicate, this.plan);
+    public LogicalPlanBuilder filter(Expression conjunct) {
+        return filter(ImmutableSet.copyOf(ExpressionUtils.extractConjunction(conjunct)));
+    }
+
+    public LogicalPlanBuilder filter(Set<Expression> conjuncts) {
+        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(conjuncts, this.plan);
         return from(filter);
     }
 

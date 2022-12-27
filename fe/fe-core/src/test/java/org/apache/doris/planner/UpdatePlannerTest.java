@@ -96,7 +96,7 @@ public class UpdatePlannerTest {
                 v1.getName();
                 result = "v1";
                 shadowV1.getName();
-                result = SchemaChangeHandler.SHADOW_NAME_PRFIX + "v1";
+                result = SchemaChangeHandler.SHADOW_NAME_PREFIX + "v1";
             }
         };
 

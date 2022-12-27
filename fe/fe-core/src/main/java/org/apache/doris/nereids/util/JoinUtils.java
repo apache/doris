@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -51,8 +50,8 @@ import java.util.stream.Collectors;
  */
 public class JoinUtils {
     public static boolean couldShuffle(Join join) {
-        // Cross-join only can be broadcast join.
-        return !(join.getJoinType().isCrossJoin());
+        // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
+        return !(join.getJoinType().isCrossJoin()) && !(join.getJoinType().isNullAwareLeftAntiJoin());
     }
 
     public static boolean couldBroadcast(Join join) {
@@ -174,8 +173,7 @@ public class JoinUtils {
     }
 
     public static boolean shouldNestedLoopJoin(Join join) {
-        JoinType joinType = join.getJoinType();
-        return (joinType.isInnerJoin() && join.getHashJoinConjuncts().isEmpty()) || joinType.isCrossJoin();
+        return join.getHashJoinConjuncts().isEmpty();
     }
 
     /**

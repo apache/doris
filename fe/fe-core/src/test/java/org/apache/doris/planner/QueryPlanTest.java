@@ -684,7 +684,7 @@ public class QueryPlanTest extends TestWithFeService {
         String castSql = "select * from test.baseall where k11 < cast('2020-03-26' as date)";
         SelectStmt selectStmt = (SelectStmt) parseAndAnalyzeStmt(castSql);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
-        Assert.assertTrue(rightExpr.getType().equals(ScalarType.getDefaultDateType(Type.DATETIME)));
+        Assert.assertEquals(rightExpr.getType(), ScalarType.getDefaultDateType(Type.DATETIME));
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
@@ -2195,5 +2195,28 @@ public class QueryPlanTest extends TestWithFeService {
         String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
         String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
         Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
+    }
+
+    @Test
+    public void testPreaggregationOfHllUnion() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("create table test.test_hll(\n"
+                + "    dt date,\n"
+                + "    id int,\n"
+                + "    name char(10),\n"
+                + "    province char(10),\n"
+                + "    os char(10),\n"
+                + "    pv hll hll_union\n"
+                + ")\n"
+                + "Aggregate KEY (dt,id,name,province,os)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "PROPERTIES(\n"
+                + "    \"replication_num\" = \"1\",\n"
+                + "    \"in_memory\"=\"false\"\n"
+                + ");");
+
+        String queryBaseTableStr = "explain select dt, hll_union(pv) from test.test_hll group by dt";
+        String explainString = getSQLPlanOrErrorMsg(queryBaseTableStr);
+        Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
     }
 }

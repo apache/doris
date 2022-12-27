@@ -36,12 +36,6 @@ public:
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
-    }
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {}
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return Status::OK();
@@ -70,28 +64,6 @@ public:
     bool can_do_bloom_filter() const override { return true; }
 
 private:
-    template <bool is_nullable>
-    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-        uint16_t new_size = 0;
-        if constexpr (!is_vectorized) {
-            for (uint16_t i = 0; i < *size; ++i) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                const StringValue* cell_value =
-                        reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
-                doris_udf::StringVal target;
-                cell_value->to_string_val(&target);
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                             (_state->function)(_fn_ctx, target, pattern).val);
-                } else {
-                    new_size += _opposite ^ (_state->function)(_fn_ctx, target, pattern).val;
-                }
-            }
-        }
-        *size = new_size;
-    }
-
     template <bool is_and>
     void _evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         if constexpr (is_vectorized) {

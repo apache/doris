@@ -34,12 +34,51 @@
 #include <string>
 
 #include "common/status.h"
-#include "exec/parquet_writer.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vfile_result_writer.h"
 
 namespace doris::vectorized {
+
+class ParquetOutputStream : public arrow::io::OutputStream {
+public:
+    ParquetOutputStream(FileWriter* file_writer);
+    ParquetOutputStream(FileWriter* file_writer, const int64_t& written_len);
+    ~ParquetOutputStream() override;
+
+    arrow::Status Write(const void* data, int64_t nbytes) override;
+    // return the current write position of the stream
+    arrow::Result<int64_t> Tell() const override;
+    arrow::Status Close() override;
+
+    bool closed() const override { return _is_closed; }
+
+    int64_t get_written_len() const;
+
+    void set_written_len(int64_t written_len);
+
+private:
+    FileWriter* _file_writer; // not owned
+    int64_t _cur_pos = 0;     // current write position
+    bool _is_closed = false;
+    int64_t _written_len = 0;
+};
+
+class ParquetBuildHelper {
+public:
+    static void build_schema_repetition_type(
+            parquet::Repetition::type& parquet_repetition_type,
+            const TParquetRepetitionType::type& column_repetition_type);
+
+    static void build_schema_data_type(parquet::Type::type& parquet_data_type,
+                                       const TParquetDataType::type& column_data_type);
+
+    static void build_compression_type(parquet::WriterProperties::Builder& builder,
+                                       const TParquetCompressionType::type& compression_type);
+
+    static void build_version(parquet::WriterProperties::Builder& builder,
+                              const TParquetVersion::type& parquet_version);
+};
 
 class VFileWriterWrapper {
 public:

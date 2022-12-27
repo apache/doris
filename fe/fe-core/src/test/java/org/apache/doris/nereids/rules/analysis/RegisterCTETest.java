@@ -28,7 +28,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
@@ -120,7 +120,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         new MockUp<RuleSet>() {
             @Mock
             public List<Rule> getExplorationRules() {
-                return Lists.newArrayList(new AggregateDisassemble().build());
+                return Lists.newArrayList(new AggregateStrategies().buildRules());
             }
         };
 
@@ -198,9 +198,9 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("cte1"));
         SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        SlotReference count = new SlotReference(new ExprId(14), "count()", BigIntType.INSTANCE,
+        SlotReference count = new SlotReference(new ExprId(14), "count(*)", BigIntType.INSTANCE,
                 false, ImmutableList.of());
-        Alias countAlias = new Alias(new ExprId(14), new Count(), "count()");
+        Alias countAlias = new Alias(new ExprId(14), new Count(), "count(*)");
 
         PlanChecker.from(connectContext)
                 .analyze(sql3)

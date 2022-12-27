@@ -42,9 +42,7 @@ public:
 
     bool is_pending_finish() const override;
 
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
+    bool runtime_filters_are_ready_or_timeout() override;
 };
 
 } // namespace doris::pipeline

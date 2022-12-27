@@ -23,11 +23,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitmapXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 import com.google.common.collect.ImmutableList;
@@ -51,7 +55,12 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(Max.class),
             agg(Min.class),
-            agg(Sum.class)
+            agg(Sum.class),
+            agg(GroupBitAnd.class, "group_bit_and"),
+            agg(GroupBitOr.class, "group_bit_or"),
+            agg(GroupBitXor.class, "group_bit_xor"),
+            agg(Ndv.class)
+
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();

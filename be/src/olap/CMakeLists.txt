@@ -30,7 +30,6 @@ add_library(Olap STATIC
     bloom_filter.hpp
     block_column_predicate.cpp
     byte_buffer.cpp
-    collect_iterator.cpp
     compaction.cpp
     compaction_permit_limiter.cpp
     compress.cpp
@@ -39,7 +38,6 @@ add_library(Olap STATIC
     delete_handler.cpp
     delta_writer.cpp
     file_helper.cpp
-    generic_iterators.cpp
     hll.cpp
     inverted_index_parser.cpp
     itoken_extractor.cpp
@@ -56,8 +54,6 @@ add_library(Olap STATIC
     page_cache.cpp
     push_handler.cpp
     reader.cpp
-    tuple_reader.cpp
-    row_block.cpp
     row_block2.cpp
     row_cursor.cpp
     version_graph.cpp

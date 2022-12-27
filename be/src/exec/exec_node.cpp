@@ -27,30 +27,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/analytic_eval_node.h"
-#include "exec/assert_num_rows_node.h"
-#include "exec/broker_scan_node.h"
-#include "exec/cross_join_node.h"
-#include "exec/empty_set_node.h"
-#include "exec/es_http_scan_node.h"
-#include "exec/except_node.h"
-#include "exec/exchange_node.h"
-#include "exec/hash_join_node.h"
-#include "exec/intersect_node.h"
-#include "exec/merge_node.h"
-#include "exec/mysql_scan_node.h"
-#include "exec/odbc_scan_node.h"
-#include "exec/olap_scan_node.h"
-#include "exec/partitioned_aggregation_node.h"
-#include "exec/repeat_node.h"
-#include "exec/schema_scan_node.h"
-#include "exec/select_node.h"
-#include "exec/spill_sort_node.h"
-#include "exec/table_function_node.h"
-#include "exec/topn_node.h"
-#include "exec/union_node.h"
 #include "exprs/expr_context.h"
-#include "odbc_scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -86,51 +63,6 @@
 namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
-
-ExecNode::RowBatchQueue::RowBatchQueue(int max_batches) : BlockingQueue<RowBatch*>(max_batches) {}
-
-ExecNode::RowBatchQueue::~RowBatchQueue() {
-    DCHECK(cleanup_queue_.empty());
-}
-
-void ExecNode::RowBatchQueue::AddBatch(RowBatch* batch) {
-    if (!blocking_put(batch)) {
-        std::lock_guard<std::mutex> lock(lock_);
-        cleanup_queue_.push_back(batch);
-    }
-}
-
-bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros) {
-    // return blocking_put_with_timeout(batch, timeout_micros);
-    return blocking_put(batch);
-}
-
-RowBatch* ExecNode::RowBatchQueue::GetBatch() {
-    RowBatch* result = nullptr;
-    if (blocking_get(&result)) {
-        return result;
-    }
-    return nullptr;
-}
-
-int ExecNode::RowBatchQueue::Cleanup() {
-    int num_io_buffers = 0;
-
-    // RowBatch* batch = nullptr;
-    // while ((batch = GetBatch()) != nullptr) {
-    //   num_io_buffers += batch->num_io_buffers();
-    //   delete batch;
-    // }
-
-    std::lock_guard<std::mutex> l(lock_);
-    for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin(); it != cleanup_queue_.end();
-         ++it) {
-        // num_io_buffers += (*it)->num_io_buffers();
-        delete *it;
-    }
-    cleanup_queue_.clear();
-    return num_io_buffers;
-}
 
 ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : _id(tnode.node_id),
@@ -449,8 +381,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 #ifdef DORIS_WITH_MYSQL
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VMysqlScanNode(pool, tnode, descs));
-        } else
-            *node = pool->add(new MysqlScanNode(pool, tnode, descs));
+        } else {
+            RETURN_ERROR_IF_NON_VEC;
+        }
         return Status::OK();
 #else
         return Status::InternalError(
@@ -460,7 +393,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -482,7 +415,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -490,7 +423,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new SchemaScanNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -498,7 +431,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new OlapScanNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -506,7 +439,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -521,7 +454,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             }
             *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new HashJoinNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -529,7 +462,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new CrossJoinNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -537,7 +470,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VEmptySetNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new EmptySetNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -545,7 +478,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new doris::vectorized::VExchangeNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new ExchangeNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -553,7 +486,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new doris::vectorized::VSelectNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new SelectNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -561,11 +494,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
         } else {
-            if (tnode.sort_node.use_top_n) {
-                *node = pool->add(new TopNNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new SpillSortNode(pool, tnode, descs));
-            }
+            RETURN_ERROR_IF_NON_VEC;
         }
 
         return Status::OK();
@@ -573,19 +502,18 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VAnalyticEvalNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new AnalyticEvalNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
     case TPlanNodeType::MERGE_NODE:
-        *node = pool->add(new MergeNode(pool, tnode, descs));
-        return Status::OK();
+        RETURN_ERROR_IF_NON_VEC;
 
     case TPlanNodeType::UNION_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VUnionNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new UnionNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -593,7 +521,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VIntersectNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new IntersectNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -601,7 +529,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new ExceptNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -609,7 +537,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new BrokerScanNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -617,7 +545,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         } else {
-            return Status::InternalError("Not support file scan node in non-vec engine");
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -625,7 +553,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VRepeatNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new RepeatNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -633,7 +561,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VAssertNumRowsNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -641,7 +569,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+            RETURN_ERROR_IF_NON_VEC;
         }
         return Status::OK();
 
@@ -650,8 +578,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
             return Status::OK();
         } else {
-            error_msg << "numbers table function only support vectorized execution";
-            return Status::InternalError(error_msg.str());
+            RETURN_ERROR_IF_NON_VEC;
         }
 
     default:
@@ -809,10 +736,6 @@ Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
     return state->check_query_state(msg);
 }
 
-Status ExecNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented get batch");
-}
-
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     return Status::NotSupported("Not Implemented get block");
 }
@@ -849,14 +772,16 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
     return Status::OK();
 }
 
-Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status ExecNode::get_next_after_projects(
+        RuntimeState* state, vectorized::Block* block, bool* eos,
+        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func) {
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
-        auto status = get_next(state, &_origin_block, eos);
+        auto status = func(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);
     }
-    return get_next(state, block, eos);
+    return func(state, block, eos);
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

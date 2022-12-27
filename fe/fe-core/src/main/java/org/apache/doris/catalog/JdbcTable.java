@@ -104,37 +104,47 @@ public class JdbcTable extends Table {
     }
 
     public String getJdbcUrl() {
-        return jdbcUrl;
+        return getFromJdbcResourceOrDefault(JdbcResource.JDBC_URL, jdbcUrl);
     }
 
     public String getJdbcUser() {
-        return jdbcUser;
+        return getFromJdbcResourceOrDefault(JdbcResource.USER, jdbcUser);
     }
 
     public String getJdbcPasswd() {
-        return jdbcPasswd;
+        return getFromJdbcResourceOrDefault(JdbcResource.PASSWORD, jdbcPasswd);
     }
 
     public String getDriverClass() {
-        return driverClass;
+        return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_CLASS, driverClass);
     }
 
     public String getDriverUrl() {
-        return driverUrl;
+        return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_URL, driverUrl);
+    }
+
+    private String getFromJdbcResourceOrDefault(String key, String defaultVal) {
+        if (Strings.isNullOrEmpty(resourceName)) {
+            return defaultVal;
+        }
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (resource instanceof JdbcResource) {
+            return ((JdbcResource) resource).getProperty(key);
+        }
+        return defaultVal;
     }
 
     @Override
     public TTableDescriptor toThrift() {
         TJdbcTable tJdbcTable = new TJdbcTable();
-        tJdbcTable.setJdbcUrl(jdbcUrl);
-        tJdbcTable.setJdbcUser(jdbcUser);
-        tJdbcTable.setJdbcPassword(jdbcPasswd);
+        tJdbcTable.setJdbcUrl(getJdbcUrl());
+        tJdbcTable.setJdbcUser(getJdbcUser());
+        tJdbcTable.setJdbcPassword(getJdbcPasswd());
         tJdbcTable.setJdbcTableName(externalTableName);
-        tJdbcTable.setJdbcDriverClass(driverClass);
-        tJdbcTable.setJdbcDriverUrl(driverUrl);
+        tJdbcTable.setJdbcDriverClass(getDriverClass());
+        tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
-
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
         tTableDescriptor.setJdbcTable(tJdbcTable);

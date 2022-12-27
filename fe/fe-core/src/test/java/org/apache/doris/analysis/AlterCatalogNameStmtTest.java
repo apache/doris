@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -40,7 +39,6 @@ public class AlterCatalogNameStmtTest {
 
     @Before
     public void setUp() throws DdlException {
-        Config.enable_multi_catalog = true;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "%");

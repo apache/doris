@@ -56,14 +56,23 @@ suite("test_hive_other", "p0") {
         String hdfs_port = context.config.otherConfigs.get("hdfs_port")
         String catalog_name = "hive_test_other"
 
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists ${catalog_name}"""
-        sql """
-            create catalog ${catalog_name} properties (
-                "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
-            );
-            """
+        sql """create resource if not exists hms_resource_hive_other properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+        );"""
+        sql """create catalog if not exists ${catalog_name} with resource hms_resource_hive_other;"""
+
+        // test user's grants on external catalog
+        sql """drop user if exists ext_catalog_user"""
+        sql """create user ext_catalog_user identified by '12345'"""
+        sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
+        sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
+        connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
+            order_qt_ext_catalog_grants """show databases from ${catalog_name}"""
+        }
+        sql """drop user ext_catalog_user"""
+
         sql """switch ${catalog_name}"""
         sql """use `default`"""
         // order_qt_show_tables """show tables"""
@@ -121,9 +130,8 @@ suite("test_hive_other", "p0") {
                 "uri" = "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_*"
             ) order by name;
         """
+
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """drop resource if exists hms_resource_hive_other"""
     }
 }
-
-
-
-

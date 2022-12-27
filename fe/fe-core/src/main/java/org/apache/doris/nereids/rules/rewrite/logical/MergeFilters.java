@@ -23,7 +23,8 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableSet;
 
 /**
  * this rule aims to merge consecutive filters.
@@ -48,10 +49,9 @@ public class MergeFilters extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalFilter()).then(filter -> {
             LogicalFilter<? extends Plan> childFilter = filter.child();
-            Expression predicates = filter.getPredicates();
-            Expression childPredicates = childFilter.getPredicates();
-            Expression mergedPredicates = ExpressionUtils.and(predicates, childPredicates);
-            return new LogicalFilter<>(mergedPredicates, childFilter.child());
+            return new LogicalFilter<>(ImmutableSet.<Expression>builder()
+                    .addAll(filter.getConjuncts())
+                    .addAll(childFilter.getConjuncts()).build(), childFilter.child());
         }).toRule(RuleType.MERGE_FILTERS);
     }
 

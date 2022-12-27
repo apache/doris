@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -268,6 +270,46 @@ public class PlanChecker {
         }
     }
 
+    public PlanChecker applyImplementation(Rule rule) {
+        return applyImplementation(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    private PlanChecker applyImplementation(Group group, Rule rule) {
+        // copy groupExpressions can prevent ConcurrentModificationException
+        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
+            applyImplementation(logicalExpression, rule);
+        }
+
+        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
+            applyImplementation(physicalExpression, rule);
+        }
+        return this;
+    }
+
+    private PlanChecker applyImplementation(GroupExpression groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+
+        for (Plan before : matchResult) {
+            List<Plan> afters = rule.transform(before, cascadesContext);
+            for (Plan after : afters) {
+                if (before != after) {
+                    cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+                }
+            }
+        }
+
+        for (Group childGroup : groupExpression.children()) {
+            for (GroupExpression logicalExpression : childGroup.getLogicalExpressions()) {
+                applyImplementation(logicalExpression, rule);
+            }
+
+            for (GroupExpression physicalExpression : childGroup.getPhysicalExpressions()) {
+                applyImplementation(physicalExpression, rule);
+            }
+        }
+        return this;
+    }
+
     public PlanChecker deriveStats() {
         cascadesContext.pushJob(
                 new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
@@ -305,7 +347,7 @@ public class PlanChecker {
 
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
-        assertMatches(memo, () -> GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
@@ -323,7 +365,7 @@ public class PlanChecker {
     private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
         Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
-                        + memo.getRoot().getLogicalExpression().getPlan().treeString()
+                        + memo.copyOut().treeString()
                         + "\n"
         );
         return this;
@@ -371,6 +413,17 @@ public class PlanChecker {
                     }
                 }
         );
+        return this;
+    }
+
+    public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
+        adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN));
+        nereidsPlanner.plan(adapter);
+        consumer.accept(nereidsPlanner);
         return this;
     }
 

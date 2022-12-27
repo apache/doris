@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -74,7 +75,7 @@ class FindHashConditionForJoinTest {
         Expression less = new LessThan(scoreId, studentId);
         List<Expression> expr = ImmutableList.of(eq1, eq2, eq3, or, less);
         LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
-                expr, student, score);
+                expr, JoinHint.NONE, student, score);
         CascadesContext context = MemoTestUtils.createCascadesContext(join);
         List<Rule> rules = Lists.newArrayList(new FindHashConditionForJoin().build());
 

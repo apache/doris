@@ -338,6 +338,16 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (type != PrimitiveType.DATETIMEV2) {
                 literal.setType(Type.fromPrimitiveType(type));
             }
+            if (type.isDateV2Type()) {
+                try {
+                    literal.checkValueValid();
+                } catch (AnalysisException e) {
+                    LOG.warn("Value {} for partition key [type = {}] is invalid! This is a bug exists in Doris "
+                            + "1.2.0 and fixed since Doris 1.2.1. You should create this table again using Doris "
+                            + "1.2.1+ .", literal.getStringValue(), type);
+                    ((DateLiteral) literal).setMinValue();
+                }
+            }
             keys.add(literal);
         }
     }

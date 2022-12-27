@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## DECIMALV3
+
+<version since="1.2.1">
+
+DECIMALV3
+
+</version>
+
 ### Description
 DECIMALV3 (M [,D])
 
@@ -41,7 +48,7 @@ DECIMALV3 has a very complex set of type inference rules. For different expressi
 #### Arithmetic Expressions
 
 * Plus / Minus: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y), max(b, y)). That is, the integer part and the decimal part use the larger value of the two operands respectively.
-* Multiply: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a, x), max(b, y)).
+* Multiply: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + x, b + y).
 * Divide: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + y, b).
 
 #### Aggregation functions

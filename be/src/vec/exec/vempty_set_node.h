@@ -26,9 +26,6 @@ namespace vectorized {
 class VEmptySetNode : public ExecNode {
 public:
     VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
-    }
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 };
 } // namespace vectorized

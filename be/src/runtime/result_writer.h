@@ -23,7 +23,6 @@
 namespace doris {
 
 class Status;
-class RowBatch;
 class RuntimeState;
 struct TypeDescriptor;
 
@@ -39,18 +38,16 @@ public:
     ~ResultWriter() {};
 
     virtual Status init(RuntimeState* state) = 0;
-    // convert and write one row batch
-    virtual Status append_row_batch(const RowBatch* batch) = 0;
-
-    // virtual Status append_block(const vectorized::Block& block) {
-    //     return Status::InternalError("Not support append vec block now.");
-    // }
 
     virtual Status close() = 0;
 
     virtual int64_t get_written_rows() const { return _written_rows; }
 
     virtual bool output_object_data() const { return _output_object_data; }
+
+    void set_output_object_data(bool output_object_data) {
+        _output_object_data = output_object_data;
+    }
 
     static const std::string NULL_IN_CSV;
     virtual void set_header_info(const std::string& header_type, const std::string& header) {
