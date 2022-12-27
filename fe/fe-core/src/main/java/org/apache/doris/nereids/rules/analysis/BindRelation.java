@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -98,6 +99,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+        } else if (table.getType() == TableType.SCHEMA) {
+            return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
         }
         throw new AnalysisException("Unsupported tableType:" + table.getType());
     }
@@ -122,6 +125,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+        } else if (table.getType() == TableType.SCHEMA) {
+            return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
         }
         throw new AnalysisException("Unsupported tableType:" + table.getType());
     }
