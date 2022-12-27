@@ -67,7 +67,7 @@ under the License.
     
 4. 删除 Catalog
 
-    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
+    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
     
     该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
 
