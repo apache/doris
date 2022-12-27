@@ -456,6 +456,7 @@ terminal String
     KW_NULL,
     KW_NULLS,
     KW_OBSERVER,
+    KW_OF,
     KW_OFFSET,
     KW_ON,
     KW_ONLY,
@@ -592,6 +593,7 @@ terminal String
     KW_VARCHAR,
     KW_VARIABLES,
     KW_VERBOSE,
+    KW_VERSION,
     KW_VIEW,
     KW_WARNINGS,
     KW_WEEK,
@@ -684,6 +686,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
+nonterminal SnapshotVersion opt_snapshot_version, snapshot_version;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -5095,9 +5098,31 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
+    table_name:name opt_snapshot_version:snapshotVersion opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, snapshotVersion);
+    :}
+    ;
+
+opt_snapshot_version ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | snapshot_version:snapshotVersion
+    {:
+        RESULT = snapshotVersion;
+    :}
+    ;
+
+snapshot_version ::=
+    KW_FOR KW_VERSION KW_AS KW_OF INTEGER_LITERAL:version
+    {:
+        RESULT = new SnapshotVersion(version);
+    :}
+    | KW_FOR KW_TIME KW_AS KW_OF STRING_LITERAL:time
+    {:
+        RESULT = new SnapshotVersion(time);
     :}
     ;
 
@@ -6686,6 +6711,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_NULLS:id
     {: RESULT = id; :}
+    | KW_OF:id
+    {: RESULT = id; :}
     | KW_OFFSET:id
     {: RESULT = id; :}
     | KW_ONLY:id
@@ -6809,6 +6836,8 @@ keyword ::=
     | KW_VALUE:id
     {: RESULT = id; :}
     | KW_VERBOSE:id
+    {: RESULT = id; :}
+    | KW_VERSION:id
     {: RESULT = id; :}
     | KW_VIEW:id
     {: RESULT = id; :}

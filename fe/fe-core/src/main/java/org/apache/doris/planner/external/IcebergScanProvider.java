@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SnapshotVersion;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
@@ -54,14 +56,19 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.types.Conversions;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -75,6 +82,7 @@ import java.util.OptionalLong;
  */
 public class IcebergScanProvider extends HiveScanProvider {
 
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
     public static final String V2_DELETE_TBL = "iceberg#delete#tbl";
     public static final String V2_DELETE_DB = "iceberg#delete#db";
@@ -168,6 +176,18 @@ public class IcebergScanProvider extends HiveScanProvider {
 
         org.apache.iceberg.Table table = getIcebergTable();
         TableScan scan = table.newScan();
+        SnapshotVersion snapshotVersion = desc.getRef().getSnapshotVersion();
+        if (snapshotVersion != null) {
+            SnapshotVersion.VersionType type = snapshotVersion.getType();
+            if (type == SnapshotVersion.VersionType.VERSION) {
+                scan = scan.useSnapshot(snapshotVersion.getVersion());
+            } else {
+                LocalDateTime asOfTime = LocalDateTime.parse(snapshotVersion.getTime(), DATE_TIME_FORMATTER);
+                long snapshotId = LocalDateTime.from(asOfTime).atZone(TimeUtils.getTimeZone().toZoneId())
+                        .toInstant().toEpochMilli();
+                scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));
+            }
+        }
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
         }
@@ -197,6 +217,27 @@ public class IcebergScanProvider extends HiveScanProvider {
             }
         }
         return splits;
+    }
+
+    public static long getSnapshotIdAsOfTime(List<HistoryEntry> historyEntries, long asOfTimestamp) {
+        // find history at or before asOfTimestamp
+        HistoryEntry latestHistory = null;
+        for (HistoryEntry entry : historyEntries) {
+            if (entry.timestampMillis() <= asOfTimestamp) {
+                if (latestHistory == null) {
+                    latestHistory = entry;
+                    continue;
+                }
+                if (entry.timestampMillis() > latestHistory.timestampMillis()) {
+                    latestHistory = entry;
+                }
+            }
+        }
+        if (latestHistory == null) {
+            throw new NotFoundException("No version history at or before "
+                + Instant.ofEpochMilli(asOfTimestamp));
+        }
+        return latestHistory.snapshotId();
     }
 
     private List<IcebergDeleteFileFilter> getDeleteFileFilters(FileScanTask spitTask) {
