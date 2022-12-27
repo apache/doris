@@ -77,32 +77,39 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    protected void init() {
+        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
+        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
+        InitCatalogLog initCatalogLog = new InitCatalogLog();
+        initCatalogLog.setCatalogId(id);
+        initCatalogLog.setType(InitCatalogLog.Type.HMS);
+        List<String> allDatabases = client.getAllDatabases();
+        // Update the db name to id map.
+        for (String dbName : allDatabases) {
+            long dbId;
+            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
+                dbId = dbNameToId.get(dbName);
+                tmpDbNameToId.put(dbName, dbId);
+                ExternalDatabase db = idToDb.get(dbId);
+                db.setUnInitialized(invalidCacheInInit);
+                tmpIdToDb.put(dbId, db);
+                initCatalogLog.addRefreshDb(dbId);
+            } else {
+                dbId = Env.getCurrentEnv().getNextId();
+                tmpDbNameToId.put(dbName, dbId);
+                HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
+                tmpIdToDb.put(dbId, db);
+                initCatalogLog.addCreateDb(dbId, dbName);
+            }
+        }
+        dbNameToId = tmpDbNameToId;
+        idToDb = tmpIdToDb;
+        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
+    }
+
+    @Override
     public void notifyPropertiesUpdated() {
         initLocalObjectsImpl();
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.keySet());
-    }
-
-    @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return client.getAllTables(getRealTableName(dbName));
-        }
-    }
-
-    @Override
-    public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return client.tableExists(getRealTableName(dbName), tblName);
     }
 
     @Override
@@ -136,34 +143,32 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    protected void init() {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(InitCatalogLog.Type.HMS);
-        List<String> allDatabases = client.getAllDatabases();
-        // Update the db name to id map.
-        for (String dbName : allDatabases) {
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
-            } else {
-                dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(dbName, dbId);
-                HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
-            }
+    public List<String> listDatabaseNames(SessionContext ctx) {
+        makeSureInitialized();
+        return Lists.newArrayList(dbNameToId.keySet());
+    }
+
+    @Override
+    public List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
+        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
+            List<String> names = Lists.newArrayList();
+            hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
+            return names;
+        } else {
+            return client.getAllTables(getRealTableName(dbName));
         }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
+    }
+
+    @Override
+    public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
+        return client.tableExists(getRealTableName(dbName), tblName);
+    }
+
+    public PooledHiveMetaStoreClient getClient() {
+        makeSureInitialized();
+        return client;
     }
 
     @Override
@@ -177,11 +182,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     true, null, field.getComment(), true, null, -1));
         }
         return tmpSchema;
-    }
-
-    public PooledHiveMetaStoreClient getClient() {
-        makeSureInitialized();
-        return client;
     }
 
     public void setLastSyncedEventId(long lastSyncedEventId) {
