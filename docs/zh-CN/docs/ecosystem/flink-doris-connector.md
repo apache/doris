@@ -143,6 +143,7 @@ enable_http_server_v2 = true
 **备注**
 
 1.请根据不同的 Flink 和 Scala 版本替换对应的 Connector 和 Flink 依赖版本。
+2.也可从[这里](https://repo.maven.apache.org/maven2/org/apache/doris/)下载相关版本jar包。 
 
 ## 使用方法
 
@@ -418,7 +419,15 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ### 常见问题
 
-1. **Bitmap类型写入**
+1. **Doris Source在数据读取完成后，流为什么就结束了？**
+
+目前Doris Source是有界流，不支持CDC方式读取。
+
+2. **Flink读取Doris可以进行条件下推吗？**
+
+通过配置doris.filter.query参数，详情参考配置小节。
+
+3. **如何写入Bitmap类型？**
 
 ```sql
 CREATE TABLE bitmap_sink (
@@ -436,12 +445,28 @@ WITH (
   'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
 )
 ```
-2. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
+4. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
 
 Exactly-Once场景下，Flink Job重启时必须从最新的Checkpoint/Savepoint启动，否则会报如上错误。
 不要求Exactly-Once时，也可通过关闭2PC提交（sink.enable-2pc=false） 或更换不同的sink.label-prefix解决。
 
-3. **errCode = 2, detailMessage = transaction [19650] not found**
+5. **errCode = 2, detailMessage = transaction [19650] not found**
 
 发生在Commit阶段，checkpoint里面记录的事务ID，在FE侧已经过期，此时再次commit就会出现上述错误。
 此时无法从checkpoint启动，后续可通过修改fe.conf的streaming_label_keep_max_second配置来延长过期时间，默认12小时。
+
+6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
+
+这是因为同一个库并发导入超过了100，可通过调整 fe.conf的参数 `max_running_txn_num_per_db` 来解决。具体可参考 [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+
+7. **Flink写入Uniq模型时，如何保证一批数据的有序性？**
+
+可以添加sequence列配置来保证，具体可参考 [sequence](https://doris.apache.org/zh-CN/docs/dev/data-operate/update-delete/sequence-column-manual)
+
+8. **Flink任务没报错，但是无法同步数据？**
+
+Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，需要判断上游是否有数据写入。1.1.0之后，依赖Checkpoint，必须开启Checkpoint才能写入。
+
+9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
+
+通常发生在Connector1.1.0之前，是由于写入频率过快，导致版本过多。可以通过设置sink.batch.size 和 sink.batch.interval参数来降低Streamload的频率。
