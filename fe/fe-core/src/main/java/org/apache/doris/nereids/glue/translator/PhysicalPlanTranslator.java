@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -1053,7 +1054,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Expr expr : predicateList) {
             extractExecSlot(expr, requiredSlotIdList);
         }
-        boolean nonPredicate = CollectionUtils.isEmpty(requiredSlotIdList);
         for (Expr expr : execExprList) {
             extractExecSlot(expr, requiredSlotIdList);
         }
@@ -1061,8 +1061,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdList));
         }
-        if (!hasExprCalc(project) && (!hasPrune(project) || (nonPredicate && inputPlanNode instanceof ScanNode))
-                && !projectOnAgg(project)) {
+        if (!shouldKeepProject(project, inputPlanNode)) {
             List<NamedExpression> namedExpressions = project.getProjects();
             for (int i = 0; i < namedExpressions.size(); i++) {
                 NamedExpression n = namedExpressions.get(i);
@@ -1084,6 +1083,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
+    private boolean shouldKeepProject(PhysicalProject project, PlanNode child) {
+        boolean keep = hasExprCalc(project) || projectOnAgg(project);
+        if (keep) {
+            return true;
+        }
+        if (child instanceof ScanNode) {
+            List<Expr> predicateList = child.getConjuncts();
+            Set<SlotId> requiredSlotIdList = new HashSet<>();
+            for (Expr expr : predicateList) {
+                extractExecSlot(expr, requiredSlotIdList);
+            }
+            return !requiredSlotIdList.isEmpty();
+        } else {
+            return hasPrune(project);
+        }
+    }
     private void updateChildSlotsMaterialization(PlanNode execPlan,
             Set<SlotId> requiredSlotIdList,
             PlanTranslatorContext context) {
