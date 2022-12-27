@@ -926,7 +926,6 @@ Status VScanNode::_normalize_compound_predicate(
         const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
                 eq_predicate_checker) {
     if (TExprNodeType::COMPOUND_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
         auto compound_fn_name = expr->fn().name.function_name;
         auto children_num = expr->children().size();
         for (auto i = 0; i < children_num; ++i) {
