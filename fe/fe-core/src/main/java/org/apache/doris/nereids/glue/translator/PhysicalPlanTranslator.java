@@ -257,6 +257,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .getSlots()
                     .subList(groupSlotList.size(), outputTupleDesc.getSlots().size())
                     .stream()
+                    .peek(slot -> slot.setIsNullable(true))
                     .map(slot -> slot.getId().asInt())
                     .collect(ImmutableList.toImmutableList());
         }
@@ -978,6 +979,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         continue;
                     }
                     SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                    if (sf == null) {
+                        continue;
+                    }
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     leftIntermediateSlotDescriptor.add(sd);
                 }
@@ -986,6 +990,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         continue;
                     }
                     SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                    if (sf == null) {
+                        continue;
+                    }
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     rightIntermediateSlotDescriptor.add(sd);
                 }
