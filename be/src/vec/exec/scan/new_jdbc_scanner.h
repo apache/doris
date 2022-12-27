@@ -26,12 +26,12 @@ namespace vectorized {
 class NewJdbcScanner : public VScanner {
 public:
     NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                   const TupleId& tuple_id, const std::string& query_string);
+                   const TupleId& tuple_id, const std::string& query_string,
+                   TOdbcTableType::type table_type);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-public:
     Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
 
 protected:
@@ -48,6 +48,8 @@ private:
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
     const TupleDescriptor* _tuple_desc;
+    // the sql query database type: mysql, PG 
+    TOdbcTableType::type _table_type;
     // Scanner of JDBC.
     std::unique_ptr<JdbcConnector> _jdbc_connector;
     JdbcConnectorParam _jdbc_param;
