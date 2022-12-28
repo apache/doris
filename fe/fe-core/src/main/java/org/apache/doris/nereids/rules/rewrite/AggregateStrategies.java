@@ -781,7 +781,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 false, Optional.empty(), logicalAgg.getLogicalProperties(),
                 requireGather, logicalAgg.child());
 
-        AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
@@ -794,7 +794,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         } else {
                             Alias alias = nonDistinctAggFunctionToAliasPhase1.get(outputChild);
                             return new AggregateExpression(
-                                    aggregateFunction, inputToResultParam, alias.toSlot());
+                                    aggregateFunction, bufferToResultParam, alias.toSlot());
                         }
                     } else {
                         return outputChild;
@@ -803,7 +803,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         PhysicalHashAggregate<Plan> gatherLocalGatherGlobalAgg
                 = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), globalOutput,
-                Optional.empty(), inputToResultParam, false,
+                Optional.empty(), bufferToResultParam, false,
                 logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg);
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {

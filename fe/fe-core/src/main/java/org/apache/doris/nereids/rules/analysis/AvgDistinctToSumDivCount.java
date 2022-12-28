@@ -44,26 +44,22 @@ public class AvgDistinctToSumDivCount extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.AVG_DISTINCT_TO_SUM_DIV_COUNT.build(
-                logicalAggregate().then(agg -> {
-                    if (agg.getDistinctArguments().size() > 1) {
-                        Map<AggregateFunction, Expression> avgToSumDivCount = agg.getAggregateFunctions()
-                                .stream()
-                                .filter(function -> function instanceof Avg && function.isDistinct())
-                                .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
-                                    Sum sum = new Sum(true, ((Avg) function).child());
-                                    Count count = new Count(true, ((Avg) function).child());
-                                    Divide divide = new Divide(sum, count);
-                                    return divide;
-                                }));
-                        if (!avgToSumDivCount.isEmpty()) {
-                            List<NamedExpression> newOutput = agg.getOutputExpressions().stream()
-                                    .map(expr -> (NamedExpression) ExpressionUtils.replace(expr, avgToSumDivCount))
-                                    .collect(Collectors.toList());
-                            return new LogicalAggregate<>(agg.getGroupByExpressions(), newOutput,
-                                    agg.child());
-                        } else {
-                            return agg;
-                        }
+                logicalAggregate().when(agg -> agg.getDistinctArguments().size() > 1).then(agg -> {
+                    Map<AggregateFunction, Expression> avgToSumDivCount = agg.getAggregateFunctions()
+                            .stream()
+                            .filter(function -> function instanceof Avg && function.isDistinct())
+                            .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
+                                Sum sum = new Sum(true, ((Avg) function).child());
+                                Count count = new Count(true, ((Avg) function).child());
+                                Divide divide = new Divide(sum, count);
+                                return divide;
+                            }));
+                    if (!avgToSumDivCount.isEmpty()) {
+                        List<NamedExpression> newOutput = agg.getOutputExpressions().stream()
+                                .map(expr -> (NamedExpression) ExpressionUtils.replace(expr, avgToSumDivCount))
+                                .collect(Collectors.toList());
+                        return new LogicalAggregate<>(agg.getGroupByExpressions(), newOutput,
+                                agg.child());
                     } else {
                         return agg;
                     }

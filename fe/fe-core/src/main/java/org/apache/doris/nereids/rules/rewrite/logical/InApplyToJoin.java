@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -56,10 +55,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 predicate = new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
                         apply.right().getOutput().get(0));
             }
+
+            //TODO nereids should support bitmap runtime filter in future
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
             if (conjuncts.stream().anyMatch(expression -> expression.children().stream()
                     .anyMatch(expr -> expr.getDataType() == BitmapType.INSTANCE))) {
-                throw new NereidsException(new AnalysisException("nereids don't support bitmap filter"));
+                throw new AnalysisException("nereids don't support bitmap runtime filter");
             }
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
                 return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
