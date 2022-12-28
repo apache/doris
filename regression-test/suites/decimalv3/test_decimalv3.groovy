@@ -15,10 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_approx_count_distinct") {
-    qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
-    sql 'set enable_vectorized_engine=true;'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
-    qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
+suite("test_decimalv3") {
+    def db = "test_decimalv3_db"
+    sql "CREATE DATABASE IF NOT EXISTS ${db}"
+    sql "use ${db}"
+    sql "drop table if exists test5"
+	sql '''CREATE  TABLE test5 (   `a` decimalv3(38,18),   `b` decimalv3(38,18) ) ENGINE=OLAP DUPLICATE KEY(`a`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`a`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1" ) '''
+	sql "insert into test5 values(50,2)"
+	sql "drop view if exists test5_v"
+	sql "create view test5_v (amout) as select cast(a*b as decimalv3(38,18)) from test5"
+
+	qt_decimalv3 "select * from test5_v"
 }

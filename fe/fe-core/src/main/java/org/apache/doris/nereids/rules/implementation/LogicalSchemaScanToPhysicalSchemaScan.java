@@ -15,10 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_approx_count_distinct") {
-    qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
-    sql 'set enable_vectorized_engine=true;'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
-    qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
+package org.apache.doris.nereids.rules.implementation;
+
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
+
+import java.util.Optional;
+
+/**
+ * SchemaScan
+ */
+public class LogicalSchemaScanToPhysicalSchemaScan extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalSchemaScan().then(scan ->
+                new PhysicalSchemaScan(scan.getId(),
+                        scan.getTable(),
+                        scan.getQualifier(),
+                        Optional.empty(),
+                        scan.getLogicalProperties())
+        ).toRule(RuleType.LOGICAL_SCHEMA_SCAN_TO_PHYSICAL_SCHEMA_SCAN_RULE);
+    }
 }

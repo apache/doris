@@ -44,18 +44,17 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
     protected final ImmutableList<String> qualifier;
-    protected final ImmutableList<Long> selectedPartitionIds;
 
     protected final RelationId id;
 
     public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
-        this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
+        this(id, type, table, qualifier, Optional.empty(), Optional.empty());
     }
 
     public LogicalRelation(RelationId id, PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         this(id, type, new OlapTable(), Collections.emptyList(), groupExpression,
-                logicalProperties, Collections.emptyList());
+                logicalProperties);
     }
 
     /**
@@ -65,13 +64,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Long> selectedPartitionIds) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-        this.selectedPartitionIds = ImmutableList.copyOf(
-                Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
         this.id = id;
     }
 
@@ -133,10 +129,6 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      */
     public String qualifiedName() {
         return Utils.qualifiedName(qualifier, table.getName());
-    }
-
-    public List<Long> getSelectedPartitionIds() {
-        return selectedPartitionIds;
     }
 
     public RelationId getId() {
