@@ -107,6 +107,8 @@ public:
             simdjson::padded_string json_str {pch, len};
             simdjson::ondemand::document doc = parser_.iterate(json_str);
 
+            // simdjson process top level primitive types specially
+            // so some repeated code here
             switch (doc.type()) {
             case simdjson::ondemand::json_type::object:
             case simdjson::ondemand::json_type::array: {
@@ -213,7 +215,9 @@ public:
                     break;
                 }
             }
-            if (err_ != JsonbErrType::E_NONE) break;
+            if (err_ != JsonbErrType::E_NONE) {
+                break;
+            }
 
             if (!writer_.writeEndObject()) {
                 err_ = JsonbErrType::E_OUTPUT_FAIL;
@@ -238,7 +242,9 @@ public:
                     break;
                 }
             }
-            if (err_ != JsonbErrType::E_NONE) break;
+            if (err_ != JsonbErrType::E_NONE) {
+                break;
+            }
 
             if (!writer_.writeEndArray()) {
                 err_ = JsonbErrType::E_OUTPUT_FAIL;
@@ -290,6 +296,11 @@ public:
                 return;
             }
         } else if (num.is_int64() || num.is_uint64()) {
+            if (num.is_uint64() && num.get_uint64() > std::numeric_limits<int64_t>::max()) {
+                err_ = JsonbErrType::E_OCTAL_OVERFLOW;
+                LOG(WARNING) << "overflow number: " << num.get_uint64();
+                return;
+            }
             int64_t val = num.is_int64() ? num.get_int64() : num.get_uint64();
             int size = 0;
             if (val <= std::numeric_limits<int8_t>::max()) {
@@ -308,8 +319,8 @@ public:
                 return;
             }
         } else {
-            err_ = JsonbErrType::E_INVALID_DECIMAL;
-            LOG(WARNING) << "invalid number: "; // << num;
+            err_ = JsonbErrType::E_INVALID_NUMBER;
+            LOG(WARNING) << "invalid number: " << num.as_double();
             return;
         }
     }

@@ -206,7 +206,6 @@ public:
             }
 
             const auto& val = col_from_string->get_data_at(i);
-            error = JsonbErrType::E_NONE;
             if (parser.parse(val.data, val.size)) {
                 // insert jsonb format data
                 col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
