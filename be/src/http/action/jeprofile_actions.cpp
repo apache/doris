@@ -38,7 +38,7 @@ namespace doris {
 static std::mutex kJeprofileActionMutex;
 class JeHeapAction : public HttpHandler {
 public:
-    JeHeapAction() {}
+    JeHeapAction() = default;
     virtual ~JeHeapAction() {}
 
     virtual void handle(HttpRequest* req) override;
