@@ -156,6 +156,15 @@ public:
                                   bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
+
+    virtual std::string get_search_str() const {
+        DCHECK(false) << "should not reach here";
+        return "";
+    }
+
+    virtual void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter>) {
+        DCHECK(false) << "should not reach here";
+    }
     uint32_t column_id() const { return _column_id; }
 
     virtual std::string debug_string() const {
