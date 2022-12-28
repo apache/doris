@@ -37,7 +37,7 @@ PredicateType MatchPredicate::type() const {
 }
 
 Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                            uint32_t num_rows, roaring::Roaring* bitmap) const {
+                                uint32_t num_rows, roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
         return Status::OK();
     }

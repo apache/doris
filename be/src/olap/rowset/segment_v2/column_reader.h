@@ -32,10 +32,10 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h" // for InvertedIndexReader
-#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
-#include "olap/rowset/segment_v2/parsed_page.h"        // for ParsedPage
-#include "olap/rowset/segment_v2/row_ranges.h"         // for RowRanges
+#include "olap/rowset/segment_v2/ordinal_page_index.h"    // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/page_handle.h"           // for PageHandle
+#include "olap/rowset/segment_v2/parsed_page.h"           // for ParsedPage
+#include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "util/file_cache.h"

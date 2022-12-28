@@ -576,7 +576,8 @@ Status SegmentIterator::_apply_inverted_index() {
             remaining_predicates.push_back(pred);
         } else {
             roaring::Roaring bitmap = _row_bitmap;
-            Status res = pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(), &bitmap);
+            Status res = pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(),
+                                        &bitmap);
             if (!res.ok()) {
                 LOG(WARNING) << "failed to evaluate index"
                              << ", column predicate type: " << pred->pred_type_string(pred->type())
@@ -1099,7 +1100,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             nrows_read += rows_to_read;
         }
 
-        _split_row_ranges.emplace_back(std::pair{range_from, range_to});
+        _split_row_ranges.emplace_back(std::pair {range_from, range_to});
         // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
     } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
     return Status::OK();

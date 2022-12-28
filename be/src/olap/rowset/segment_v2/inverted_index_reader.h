@@ -24,8 +24,8 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "io/fs/file_system.h"
-#include "olap/olap_common.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/tablet_schema.h"
 
@@ -65,8 +65,8 @@ public:
                          InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
                          roaring::Roaring* bit_map) = 0;
     virtual Status try_query(const std::string& column_name, const void* query_value,
-                         InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                         uint32_t* count) = 0;
+                             InvertedIndexQueryType query_type,
+                             InvertedIndexParserType analyser_type, uint32_t* count) = 0;
 
     virtual InvertedIndexReaderType type() = 0;
     bool indexExists(io::Path& index_file_path);
@@ -85,10 +85,10 @@ public:
             : _reader(reader), _analyser_type(analyser_type) {}
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                    InvertedIndexQueryType query_type, uint32_t segment_num_rows, 
+                                    InvertedIndexQueryType query_type, uint32_t segment_num_rows,
                                     roaring::Roaring* bit_map);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                    InvertedIndexQueryType query_type, uint32_t* count);
+                                        InvertedIndexQueryType query_type, uint32_t* count);
 
     InvertedIndexParserType get_inverted_index_analyser_type() const;
 

@@ -72,8 +72,10 @@ VExpr::VExpr(const VExpr& vexpr)
           _prepared(vexpr._prepared) {}
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
-        : _opcode(TExprOpcode::INVALID_OPCODE), _type(type),
-          _fn_context_index(-1), _prepared(false) {
+        : _opcode(TExprOpcode::INVALID_OPCODE),
+          _type(type),
+          _fn_context_index(-1),
+          _prepared(false) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }

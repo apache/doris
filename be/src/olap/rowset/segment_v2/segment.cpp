@@ -283,7 +283,7 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                            const TabletIndex *index_meta,
+                                            const TabletIndex* index_meta,
                                             InvertedIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {

@@ -301,7 +301,7 @@ public:
                 condition.__set_condition_op("match_element_ge");
             }
             condition.condition_values.push_back(
-                cast_to_string<primitive_type, CppType>(value.second, 0));
+                    cast_to_string<primitive_type, CppType>(value.second, 0));
             if (condition.condition_values.size() != 0) {
                 filters.push_back(condition);
             }
@@ -399,7 +399,7 @@ private:
     CppType _high_value;        // Column's high value, open interval at right
     SQLFilterOp _low_op;
     SQLFilterOp _high_op;
-    std::set<CppType> _fixed_values; // Column's fixed int value
+    std::set<CppType> _fixed_values;                       // Column's fixed int value
     std::set<std::pair<MatchType, CppType>> _match_values; // match value using in full-text search
 
     bool _contain_null;
@@ -572,7 +572,7 @@ Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppT
 
 template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_match_value(MatchType match_type,
-    const CppType& value) {
+                                                         const CppType& value) {
     std::pair<MatchType, CppType> match_value(match_type, value);
     _match_values.insert(match_value);
     _contain_null = false;
@@ -613,10 +613,8 @@ bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
         return true;
     }
 
-    return (!is_fixed_value_range() && 
-                !is_scope_value_range() && 
-                !contain_null() &&
-                !is_match_value_range());
+    return (!is_fixed_value_range() && !is_scope_value_range() && !contain_null() &&
+            !is_match_value_range());
 }
 
 template <PrimitiveType primitive_type>
@@ -1114,10 +1112,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     if (range.is_match_value_range() && _begin_scan_keys.empty()) {
         _begin_scan_keys.emplace_back();
         _begin_scan_keys.back().add_value(
-            cast_to_string<primitive_type, CppType>(type_limit<CppType>::min(), 0));
+                cast_to_string<primitive_type, CppType>(type_limit<CppType>::min(), 0));
         _end_scan_keys.emplace_back();
         _end_scan_keys.back().add_value(
-            cast_to_string<primitive_type, CppType>(type_limit<CppType>::max(), 0));
+                cast_to_string<primitive_type, CppType>(type_limit<CppType>::max(), 0));
         _begin_include = true;
         _end_include = true;
         *exact_value = false;

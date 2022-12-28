@@ -19,11 +19,11 @@
 
 #include <roaring/roaring.hh>
 
-#include "olap/schema.h"
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/schema.h"
 #include "olap/selection_vector.h"
 #include "vec/columns/column.h"
 
@@ -51,7 +51,7 @@ enum class PredicateType {
     IS_NOT_NULL = 10,
     BF = 11,            // BloomFilter
     BITMAP_FILTER = 12, // BitmapFilter
-    MATCH = 13, // fulltext match
+    MATCH = 13,         // fulltext match
 };
 
 inline std::string type_to_string(PredicateType type) {

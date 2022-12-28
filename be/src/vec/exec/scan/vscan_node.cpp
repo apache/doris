@@ -21,8 +21,8 @@
 #include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/runtime_profile.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -1035,8 +1035,8 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
 
 template <PrimitiveType T>
 Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx,
-                                             SlotDescriptor* slot,
-                                             ColumnValueRange<T>& range, PushDownType* pdt) {
+                                             SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                             PushDownType* pdt) {
     if (TExprNodeType::MATCH_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
 
@@ -1045,9 +1045,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                 slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
-        auto match_checker = [](const std::string& fn_name) {
-            return fn_name == "match";
-        };
+        auto match_checker = [](const std::string& fn_name) { return fn_name == "match"; };
         StringRef value;
         int slot_ref_child = -1;
         PushDownType temp_pdt;
@@ -1062,11 +1060,12 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                               T == TYPE_HLL) {
                     auto val = StringValue(value.data, value.size);
                     ColumnValueRange<T>::add_match_value_range(temp_range,
-                        to_match_type(expr->op()), reinterpret_cast<CppType*>(&val));
+                                                               to_match_type(expr->op()),
+                                                               reinterpret_cast<CppType*>(&val));
                 } else {
-                    ColumnValueRange<T>::add_match_value_range(temp_range,
-                        to_match_type(expr->op()),
-                        reinterpret_cast<CppType*>(const_cast<char*>(value.data)));
+                    ColumnValueRange<T>::add_match_value_range(
+                            temp_range, to_match_type(expr->op()),
+                            reinterpret_cast<CppType*>(const_cast<char*>(value.data)));
                 }
                 range.intersection(temp_range);
             }

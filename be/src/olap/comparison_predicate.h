@@ -59,8 +59,8 @@ public:
                                bitmap);
     }
 
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                            uint32_t num_rows, roaring::Roaring* bitmap) const override {
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
             return Status::OK();
         }
@@ -68,8 +68,7 @@ public:
         std::string column_name = column_desc->name();
 
         InvertedIndexQueryType query_type;
-        switch (PT)
-        {
+        switch (PT) {
         case PredicateType::EQ:
             query_type = InvertedIndexQueryType::EQUAL_QUERY;
             break;
@@ -93,10 +92,10 @@ public:
         }
 
         roaring::Roaring roaring;
-        RETURN_IF_ERROR(
-            iterator->read_from_inverted_index(column_name, &_value, query_type, num_rows, &roaring));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
+                                                           num_rows, &roaring));
 
-        if constexpr(PT == PredicateType::NE) {
+        if constexpr (PT == PredicateType::NE) {
             *bitmap -= roaring;
         } else {
             *bitmap &= roaring;

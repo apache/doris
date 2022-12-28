@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+
+#include "common/status.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -27,9 +28,11 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     return exists;
 }
 
-Status InvertedIndexIterator::read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                    InvertedIndexQueryType query_type, uint32_t segment_num_rows, 
-                                    roaring::Roaring* bit_map) {
+Status InvertedIndexIterator::read_from_inverted_index(const std::string& column_name,
+                                                       const void* query_value,
+                                                       InvertedIndexQueryType query_type,
+                                                       uint32_t segment_num_rows,
+                                                       roaring::Roaring* bit_map) {
     return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
 }
 

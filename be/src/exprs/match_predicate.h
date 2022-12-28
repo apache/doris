@@ -39,10 +39,10 @@ public:
     }
 
     static bool is_valid(std::string fn_name) {
-        return fn_name == "match_any" || fn_name == "match_all" ||
-               fn_name == "match_phrase" || fn_name == "match_element_eq" ||
-               fn_name == "match_element_lt" || fn_name == "match_element_gt" ||
-               fn_name == "match_element_le" || fn_name == "match_element_ge";
+        return fn_name == "match_any" || fn_name == "match_all" || fn_name == "match_phrase" ||
+               fn_name == "match_element_eq" || fn_name == "match_element_lt" ||
+               fn_name == "match_element_gt" || fn_name == "match_element_le" ||
+               fn_name == "match_element_ge";
     }
 
 protected:
@@ -65,8 +65,8 @@ public:
     }
 
     //evaluate predicate on inverted
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                     uint32_t num_rows, roaring::Roaring* bitmap) const override;
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override;
 
 private:
     InvertedIndexQueryType _to_inverted_index_query_type(MatchType match_type) const;

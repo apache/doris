@@ -266,7 +266,7 @@ private:
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
-    std::unordered_map<std::string, std::pair<bool, roaring::Roaring> > _rowid_result_for_index;
+    std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
     std::vector<std::pair<uint32_t, uint32_t>> _split_row_ranges;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
