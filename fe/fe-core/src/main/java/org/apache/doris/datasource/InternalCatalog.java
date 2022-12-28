@@ -1848,7 +1848,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Map<String, String> properties = stmt.getProperties();
 
         // get use light schema change
-        Boolean enableLightSchemaChange = false;
+        Boolean enableLightSchemaChange;
         try {
             enableLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
         } catch (AnalysisException e) {
@@ -1889,7 +1889,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
 
-        boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableUniqueKeyMergeOnWrite;
         try {
             enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
         } catch (AnalysisException e) {
