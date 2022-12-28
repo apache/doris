@@ -105,8 +105,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
     private void doExecute(List<NotificationEvent> events) {
         for (NotificationEvent event : events) {
             //            LOG.info("event消息内容:{}", event.toString());
-            LOG.error("收到hive event消息，id:为{},时间为:{},db为:{},table为:{},type为:{}", event.getEventId(), event.getEventTime(),
-                    event.getDbName(), event.getTableName(), event.getEventType());
+            LOG.error("收到hive event消息，id:为{},时间为:{},db为:{},table为:{},type为:{}", event.getEventId(),
+                    event.getEventTime(), event.getDbName(), event.getTableName(), event.getEventType());
         }
     }
 
