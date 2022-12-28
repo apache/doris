@@ -192,8 +192,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public NotificationEventResponse getNextEventResponse(String catalogName)
             throws MetastoreNotificationFetchException {
         if (lastSyncedEventId == -1) {
-            lastSyncedEventId = getCurrentEventId();
             LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
+            lastSyncedEventId = getCurrentEventId();
+            //            LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
             return null;
         }
 
@@ -206,6 +207,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     public long getCurrentEventId() {
+        if (client == null) {
+            LOG.error("client为空====================");
+            return -1;
+        }
         CurrentNotificationEventId currentNotificationEventId = client.getCurrentNotificationEventId();
         if (currentNotificationEventId == null) {
             LOG.error("获取currentNotificationEventId为null");
