@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TExpr;
@@ -52,12 +53,25 @@ public class PrepareStmt extends StatementBase {
     private UUID id;
     // whether return binary protocol mysql row or not
     private boolean binaryRowFormat;
+    int schemaVersion = -1;
+    OlapTable tbl;
 
     public PrepareStmt(StatementBase stmt, String name, boolean binaryRowFormat) {
         this.inner = stmt;
         this.stmtName = name;
         this.id = UUID.randomUUID();
         this.binaryRowFormat = binaryRowFormat;
+    }
+
+    public boolean reAnalyze() {
+        if (schemaVersion == tbl.getBaseSchemaVersion()) {
+            return false;
+        }
+        serializedDescTable = null;
+        serializedOutputExpr = null;
+        descTable = null;
+        this.id = UUID.randomUUID();
+        return true;
     }
 
     public TDescriptorTable getDescTable() {
@@ -169,6 +183,8 @@ public class PrepareStmt extends StatementBase {
         if (!selectStmt.checkAndSetPointQuery()) {
             throw new UserException("Only support prepare SelectStmt point query now");
         }
+        tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
+        schemaVersion = tbl.getBaseSchemaVersion();
         analyzer.setPrepareStmt(this);
     }
 

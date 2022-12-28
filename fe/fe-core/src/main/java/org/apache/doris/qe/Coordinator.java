@@ -591,10 +591,12 @@ public class Coordinator {
         if (!isPointQuery) {
             sendFragment();
         } else {
-            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
             Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-            pointExec.setAddressAndBackendID(toBrpcHost(execBeAddr), addressToBackendID.get(execBeAddr));
+            Long backendId = planRoot.getScanBackendIds().iterator().next();
+            Backend backend = this.idToBackend.get(backendId);
+            TNetworkAddress execBeAddr = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            pointExec.setAddressAndBackendID(toBrpcHost(execBeAddr), backendId);
             pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
         }
     }

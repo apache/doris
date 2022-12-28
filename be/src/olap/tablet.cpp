@@ -1972,8 +1972,7 @@ Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescr
     if (tablet_schema->store_row_column()) {
         // create _source column
         segment_v2::ColumnIterator* column_iterator = nullptr;
-        RETURN_IF_ERROR(segment->new_column_iterator(TabletSchema::row_oriented_column(),
-                                                     &column_iterator));
+        RETURN_IF_ERROR(segment->new_row_column_iterator(&column_iterator));
         std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
         segment_v2::ColumnIteratorOptions opt;
         OlapReaderStatistics stats;

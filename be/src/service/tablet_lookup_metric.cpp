@@ -142,10 +142,10 @@ std::string TabletLookupMetric::print_profile() {
             "lookup_key:{}us, lookup_data:{}us, output_data:{}us, hit_lookup_cache:{}"
             ""
             ""
-            ", is_binary_row:{}"
+            ", is_binary_row:{}, output_columns:{}"
             "",
             total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
-            _hit_lookup_cache, _binary_row_format);
+            _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size());
 }
 
 Status TabletLookupMetric::_init_keys(const PTabletKeyLookupRequest* request) {

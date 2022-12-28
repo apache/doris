@@ -698,9 +698,11 @@ public class StmtExecutor implements ProfileWriter {
                     context.getStmtId(), context.getForwardedStmtId());
         }
 
+        boolean reanalyzed = false;
+        PrepareStmtContext preparedStmtCtx = null;
         if (parsedStmt instanceof ExecuteStmt) {
             ExecuteStmt execStmt = (ExecuteStmt) parsedStmt;
-            PrepareStmtContext preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
+            preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
             if (preparedStmtCtx == null) {
                 throw new UserException("Could not execute, since `" + execStmt.getName() + "` not exist");
             }
@@ -711,7 +713,12 @@ public class StmtExecutor implements ProfileWriter {
             analyzer = preparedStmtCtx.analyzer;
             Preconditions.checkState(parsedStmt.isAnalyzed());
             LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
-            return;
+            if (!preparedStmtCtx.stmt.reAnalyze()) {
+                return;
+            }
+            // continue analyze
+            reanalyzed = true;
+            parsedStmt.reset();
         }
 
         parse();
@@ -804,6 +811,11 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
+        }
+        if (reanalyzed) {
+            LOG.debug("update planner and analyzer after prepared statement reanalyzed");
+            preparedStmtCtx.planner = planner;
+            preparedStmtCtx.analyzer = analyzer;
         }
     }
 
@@ -904,13 +916,15 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 List<String> origColLabels =
                         Lists.newArrayList(parsedStmt.getColLabels());
-
                 // Re-analyze the stmt with a new analyzer.
                 analyzer = new Analyzer(context.getEnv(), context);
 
                 // query re-analyze
                 parsedStmt.reset();
                 parsedStmt.analyze(analyzer);
+                if (prepareStmt != null) {
+                    prepareStmt.analyze(analyzer);
+                }
 
                 // Restore the original result types and column labels.
                 parsedStmt.castResultExprs(origResultTypes);

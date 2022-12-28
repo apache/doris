@@ -208,6 +208,10 @@ public class OlapScanNode extends ScanNode {
         return sampleTabletIds;
     }
 
+    public HashSet<Long> getScanBackendIds() {
+        return scanBackendIds;
+    }
+
     public void setSampleTabletIds(List<Long> sampleTablets) {
         if (sampleTablets != null) {
             this.sampleTabletIds.addAll(sampleTablets);
@@ -467,7 +471,7 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        // la   zy evaluation, since stmt is a prepared statment
+        // lazy evaluation, since stmt is a prepared statment
         isFromPrepareStmt = analyzer.getPrepareStmt() != null;
         if (!isFromPrepareStmt) {
             computeColumnFilter();

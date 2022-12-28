@@ -174,6 +174,10 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    private void handleStmtReset() {
+        ctx.getState().setOk();
+    }
+
     private void debugPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
@@ -563,6 +567,13 @@ public class ConnectProcessor {
                 break;
             case COM_PING:
                 handlePing();
+                break;
+            case COM_STMT_RESET:
+                handleStmtReset();
+                break;
+            case COM_STMT_CLOSE:
+                // TODO
+                handleStmtReset();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");

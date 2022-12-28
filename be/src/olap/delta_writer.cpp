@@ -446,10 +446,6 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         _tablet->update_max_version_schema(_tablet_schema);
     }
-
-    if (ori_tablet_schema.store_row_column()) {
-        _tablet_schema->add_row_column();
-    }
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {

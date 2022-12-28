@@ -53,7 +53,6 @@ public:
     const std::vector<vectorized::VExprContext*>& output_exprs() { return _output_exprs_ctxs; }
 
 private:
-    int128_t uuid;
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
     DescriptorTbl* _desc_tbl;

@@ -82,10 +82,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     }
 
     vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
-    // need to generate row oriented column writer
-    if (merge_tablet_schema->store_row_column()) {
-        merge_tablet_schema->add_row_column();
-    }
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {

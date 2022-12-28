@@ -102,6 +102,9 @@ public:
 
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
+    // add an extra column writer for writing row column
+    Status append_row_column_writer();
+    bool has_row_column_writer() { return _has_row_column_writer; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -163,6 +166,7 @@ private:
     bool _is_first_row = true;
     faststring _min_key;
     faststring _max_key;
+    bool _has_row_column_writer = false;
 };
 
 } // namespace segment_v2
