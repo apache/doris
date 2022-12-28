@@ -31,7 +31,7 @@ suite("test_not_supported_agg_fn") {
                                                            WHEN FALSE THEN ref_0.`PS_COMMENT`
                                                            ELSE ref_0.`PS_COMMENT`
                                                        END AS c3
-            FROM regression_test_tpch_sf0_1_p1.partsupp AS ref_0
+            FROM regression_test_tpch_sf1_p1.partsupp AS ref_0
             WHERE ref_0.`PS_PARTKEY` IS NULL
             ORDER BY ref_0.`PS_COMMENT`
             """

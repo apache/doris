@@ -51,7 +51,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = ""
+excludeSuites = "test_date_function,create_table_use_partition_policy"
 // this directories will not be executed
 excludeDirectories = ""
 
@@ -89,3 +89,9 @@ enableEsTest=false
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
+
+cacheDataPath = "/tmp"
+
+s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3BucketName = "doris-build-hk-1308700295"
+s3Region = "ap-hongkong"

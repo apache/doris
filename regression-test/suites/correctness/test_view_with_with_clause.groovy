@@ -34,7 +34,7 @@ suite("test_view_with_with_clause") {
     sql """insert into test_view_with_with_clause values ('2022-12-02','002','002001');"""
 
     sql """
-        create view viewtest_test_view_with_with_clause (b,cnt) as 
+        create view if not exists viewtest_test_view_with_with_clause (b,cnt) as 
             with aaa as (
                 select b,count(distinct c) cnt 
                 from  test_view_with_with_clause

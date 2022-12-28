@@ -94,8 +94,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb15  """ select * from ${ex_tb15} order by col1; """
         order_qt_ex_tb16  """ select * from ${ex_tb16} order by id; """
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
-        order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
-        order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        // order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
+        // order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
 
         sql """drop catalog if exists ${catalog_name} """
