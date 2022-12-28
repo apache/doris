@@ -232,4 +232,32 @@ suite("test_nereids_grouping_sets") {
             ) T
         ) T2;
     """
+
+    order_qt_select1 """
+        select coalesce(col1, 'all') as col1, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select2 """
+        select coalesce(col1, 'all') as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select3 """
+        select coalesce(col1, 'all') as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col2),());
+    """
+
+    order_qt_select4 """
+        select if(1 = null, 'all', 2) as col1, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select5 """
+        select if(col1 = null, 'all', 2) as col1, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select6 """
+        select if(1 = null, 'all', 2) as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select7 """
+        select if(col1 = null, 'all', 2) as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
 }
