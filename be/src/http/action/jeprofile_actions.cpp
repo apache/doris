@@ -39,7 +39,7 @@ static std::mutex kJeprofileActionMutex;
 class JeHeapAction : public HttpHandler {
 public:
     JeHeapAction() = default;
-    virtual ~JeHeapAction() {}
+    virtual ~JeHeapAction() = default;
 
     virtual void handle(HttpRequest* req) override;
 };
