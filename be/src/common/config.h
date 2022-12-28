@@ -868,6 +868,10 @@ CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
 
+// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
+// Will remove after fully test.
+CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
