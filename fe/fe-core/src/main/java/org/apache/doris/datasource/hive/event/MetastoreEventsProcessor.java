@@ -77,7 +77,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      * <code>{@link Config#hms_events_batch_size_per_rpc}</code>
      */
     private List<NotificationEvent> getNextHMSEvents(HMSExternalCatalog hmsExternalCatalog) {
-        LOG.info("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
+        LOG.error("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
         NotificationEventResponse response = hmsExternalCatalog.getNextEventResponse(hmsExternalCatalog.getName());
 
         if (response == null) {
@@ -104,8 +104,9 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
     private void doExecute(List<NotificationEvent> events) {
         for (NotificationEvent event : events) {
-            LOG.info("event消息内容:{}", event.toString());
-            //            LOG.info("收到hive event消息，id:为{},时间为:{},db为:{},table为:{},type为:{}",event.getEventId(),);
+            //            LOG.info("event消息内容:{}", event.toString());
+            LOG.error("收到hive event消息，id:为{},时间为:{},db为:{},table为:{},type为:{}", event.getEventId(), event.getEventTime(),
+                    event.getDbName(), event.getTableName(), event.getEventType());
         }
     }
 
@@ -131,7 +132,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 try {
                     events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
-                        LOG.info("Events size are {} on catalog [{}]", events.size(), hmsExternalCatalog.getName());
+                        LOG.error("Events size are {} on catalog [{}]", events.size(), hmsExternalCatalog.getName());
                         processEvents(events, hmsExternalCatalog);
                     }
                 } catch (MetastoreNotificationFetchException e) {

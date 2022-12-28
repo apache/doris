@@ -200,8 +200,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         long currentEventId = getCurrentEventId();
+        LOG.error("本次getNextEventResponse的currentEventId为{},lastSyncedEventId为{}", currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
-            LOG.info("Event id not updated when pulling events on catalog [{}]", catalogName);
+            LOG.error("Event id not updated when pulling events on catalog [{}]", catalogName);
             return null;
         }
         return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
