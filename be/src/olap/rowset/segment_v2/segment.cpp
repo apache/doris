@@ -24,8 +24,8 @@
 
 #include "common/config.h"
 #include "common/logging.h" // LOG
-#include "io/cache/cache_path_policy.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
@@ -46,18 +46,18 @@ using io::FileCacheManager;
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      std::shared_ptr<Segment>* output) {
-    io::CacheOptions cache_options(io::cache_type_from_string(config::file_cache_type),
-                                   io::SegmentCachePathPolicy());
+    io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+                                         io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, cache_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
         RETURN_IF_ERROR(
-                io::global_local_filesystem()->open_file(path, cache_options, &file_reader));
+                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, cache_options, &file_reader));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
     }
 #endif
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/cache/cache_path_policy.h"
+#include "io/fs/file_reader_options.h"
 
 namespace doris {
 namespace io {

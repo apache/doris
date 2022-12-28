@@ -59,9 +59,9 @@ public:
     }
 };
 
-class CacheOptions {
+class FileReaderOptions {
 public:
-    CacheOptions(FileCacheType cache_type_, const CachePathPolicy& path_policy_)
+    FileReaderOptions(FileCacheType cache_type_, const CachePathPolicy& path_policy_)
             : cache_type(cache_type_), path_policy(path_policy_) {}
 
     FileCacheType cache_type;

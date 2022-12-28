@@ -36,7 +36,7 @@ public:
 
     virtual Status connect() = 0;
 
-    Status open_file(const Path& path, const CacheOptions& cache_options,
+    Status open_file(const Path& path, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader) override;
 
     Status open_file(const Path& path, FileReaderSPtr* reader) override {

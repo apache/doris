@@ -23,8 +23,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/cache/cache_path_policy.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_reader_options.h"
 
 namespace doris {
 namespace io {

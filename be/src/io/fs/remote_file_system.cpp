@@ -18,17 +18,17 @@
 #include "io/fs/remote_file_system.h"
 
 #include "gutil/strings/stringpiece.h"
-#include "io/cache/cache_path_policy.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_reader_options.h"
 
 namespace doris {
 namespace io {
 
-Status RemoteFileSystem::open_file(const Path& path, const CacheOptions& cache_options,
+Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& reader_options,
                                    FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
     RETURN_IF_ERROR(open_file(path, &raw_reader));
-    switch (cache_options.cache_type) {
+    switch (reader_options.cache_type) {
     case io::FileCacheType::NO_CACHE: {
         *reader = raw_reader;
         break;
@@ -36,10 +36,10 @@ Status RemoteFileSystem::open_file(const Path& path, const CacheOptions& cache_o
     case io::FileCacheType::SUB_FILE_CACHE:
     case io::FileCacheType::WHOLE_FILE_CACHE: {
         StringPiece str(path.native());
-        std::string cache_path = cache_options.path_policy.get_cache_path(str.as_string());
+        std::string cache_path = reader_options.path_policy.get_cache_path(str.as_string());
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, raw_reader,
-                cache_options.cache_type);
+                reader_options.cache_type);
         FileCacheManager::instance()->add_file_cache(cache_path, cache_reader);
         *reader = cache_reader;
         break;
@@ -49,7 +49,7 @@ Status RemoteFileSystem::open_file(const Path& path, const CacheOptions& cache_o
     }
     default: {
         // TODO: add file block cache reader
-        return Status::InternalError("Unknown cache type: {}", cache_options.cache_type);
+        return Status::InternalError("Unknown cache type: {}", reader_options.cache_type);
     }
     }
     return Status::OK();
