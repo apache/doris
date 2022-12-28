@@ -448,6 +448,8 @@ CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
+// for jeprofile in jemalloc
+CONF_mString(jeprofile_dir, "${DORIS_HOME}/log");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
