@@ -48,8 +48,9 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.0     | 1.14+ | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.0     | 1.15+ | 1.0+   | 8    | -         |
+| 1.1.0     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.0     | 1.15  | 1.0+   | 8    | -         |
+| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
 
 ## 编译与安装
 
@@ -128,40 +129,14 @@ enable_http_server_v2 = true
 
 ## 使用 Maven 管理
 
-添加 flink-doris-connector 和必要的 Flink Maven 依赖
+添加 flink-doris-connector
 
 ```
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-java</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-streaming-java_${scala.version}</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-clients_${scala.version}</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-<!-- flink table -->
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-table-planner_${scala.version}</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-
 <!-- flink-doris-connector -->
 <dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
-  <version>1.1.0</version>
+  <artifactId>flink-doris-connector-1.16</artifactId>
+  <version>1.3.0</version>
 </dependency>  
 ```
 

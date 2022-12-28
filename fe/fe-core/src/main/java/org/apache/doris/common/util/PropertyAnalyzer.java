@@ -447,12 +447,12 @@ public class PropertyAnalyzer {
 
     public static Boolean analyzeUseLightSchemaChange(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return true;
         }
         String value = properties.get(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
-        // set light schema change false by default
+        // set light schema change true by default
         if (null == value) {
-            return false;
+            return true;
         }
         properties.remove(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
         if (value.equalsIgnoreCase("true")) {
@@ -460,8 +460,7 @@ public class PropertyAnalyzer {
         } else if (value.equalsIgnoreCase("false")) {
             return false;
         }
-        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE
-                + " must be `true` or `false`");
+        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE + " must be `true` or `false`");
     }
 
     public static Boolean analyzeDisableAutoCompaction(Map<String, String> properties) throws AnalysisException {

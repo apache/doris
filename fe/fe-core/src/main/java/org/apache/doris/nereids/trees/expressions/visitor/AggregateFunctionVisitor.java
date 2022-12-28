@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -91,5 +92,9 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitHllUnion(HllUnion hllUnion, C context) {
         return visitAggregateFunction(hllUnion, context);
+    }
+
+    default R visitApproxCountDistinct(ApproxCountDistinct approxCountDistinct, C context) {
+        return visitAggregateFunction(approxCountDistinct, context);
     }
 }
