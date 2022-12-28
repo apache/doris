@@ -32,15 +32,16 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** min agg function. */
+public class Min extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
 public class Min extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature,
         ForbiddenMetricTypeArguments {
 
     public Min(Expression child) {
-        super("min", child);
+        this(false, false, child);
     }
 
-    public Min(boolean isDistinct, Expression arg) {
-        super("min", false, arg);
+    public Min(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
+        super("min", isAlwaysNullable, isDistinct, arg);
     }
 
     @Override
@@ -57,13 +58,18 @@ public class Min extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public Min withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Min(isDistinct, children.get(0));
+        return new Min(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public Min withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Min(children.get(0));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new Min(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
