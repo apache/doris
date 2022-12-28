@@ -2132,4 +2132,27 @@ public class QueryPlanTest {
         String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryTableStr);
         Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
     }
+
+    @Test
+    public void testPreaggregationOfHllUnion() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("create table test.test_hll(\n"
+                + "    dt date,\n"
+                + "    id int,\n"
+                + "    name char(10),\n"
+                + "    province char(10),\n"
+                + "    os char(10),\n"
+                + "    pv hll hll_union\n"
+                + ")\n"
+                + "Aggregate KEY (dt,id,name,province,os)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "PROPERTIES(\n"
+                + "    \"replication_num\" = \"1\",\n"
+                + "    \"in_memory\"=\"false\"\n"
+                + ");");
+
+        String queryBaseTableStr = "explain select dt, hll_union(pv) from test.test_hll group by dt";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryBaseTableStr);
+        Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
+    }
 }

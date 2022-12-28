@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AnalyticWindow.Boundary;
 import org.apache.doris.analysis.AnalyticWindow.BoundaryType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -90,9 +91,6 @@ public class AnalyticExpr extends Expr {
     // Internal function used to implement FIRST_VALUE with a window equal and
     // additional null handling in the backend.
     public static String FIRST_VALUE_REWRITE = "FIRST_VALUE_REWRITE";
-
-    // The function of HLL_UNION_AGG can't be used with a window by now.
-    public static String HLL_UNION_AGG = "HLL_UNION_AGG";
 
     public AnalyticExpr(FunctionCallExpr fnCall, List<Expr> partitionExprs,
                         List<OrderByElement> orderByElements, AnalyticWindow window) {
@@ -233,7 +231,7 @@ public class AnalyticExpr extends Expr {
             return false;
         }
 
-        return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
+        return fn.functionName().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG);
     }
 
     /**

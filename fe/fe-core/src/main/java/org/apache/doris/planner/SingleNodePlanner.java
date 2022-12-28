@@ -572,10 +572,15 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
-                        // do nothing
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_RAW_AGG")) {
-                        // do nothing
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)
+                            || aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_RAW_AGG)
+                            || aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_UNION)) {
+                        if (col.getAggregationType() != AggregateType.HLL_UNION) {
+                            turnOffReason =
+                                    "Aggregate Operator not match: HLL_UNION <--> " + col.getAggregationType();
+                            returnColumnValidate = false;
+                            break;
+                        }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();

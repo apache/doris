@@ -582,8 +582,12 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 .put(Type.DECIMALV2,
                         "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
+
     public static final String HLL_HASH = "hll_hash";
     public static final String HLL_UNION = "hll_union";
+    public static final String HLL_UNION_AGG = "hll_union_agg";
+    public static final String HLL_RAW_AGG = "hll_raw_agg";
+    public static final String HLL_CARDINALITY = "hll_cardinality";
 
     private static final Map<Type, String> HLL_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
