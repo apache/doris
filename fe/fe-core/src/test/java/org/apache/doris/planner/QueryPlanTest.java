@@ -2225,6 +2225,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println("whz_test : " + explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
