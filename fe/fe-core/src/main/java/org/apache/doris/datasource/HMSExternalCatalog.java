@@ -63,7 +63,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         this.id = catalogId;
         this.name = name;
         this.type = "hms";
-        this.lastSyncedEventId = -1l;
+        this.lastSyncedEventId = -1L;
         if (resource == null) {
             props.putAll(HMSResource.getPropertiesFromDLF());
         }
@@ -193,7 +193,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public NotificationEventResponse getNextEventResponse(String catalogName)
             throws MetastoreNotificationFetchException {
         makeSureInitialized();
-        if (lastSyncedEventId == -1l) {
+        if (lastSyncedEventId == -1L) {
             LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
             lastSyncedEventId = getCurrentEventId();
             //            LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
