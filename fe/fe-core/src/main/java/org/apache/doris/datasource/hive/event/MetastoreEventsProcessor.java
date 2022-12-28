@@ -137,9 +137,11 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 } catch (MetastoreNotificationFetchException e) {
                     LOG.error("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
-                    LOG.error("Failed to process hive metastore [{}] events in the range of event id from {} to {}.",
-                            hmsExternalCatalog.getName(),
-                            events.get(0).getEventId(), events.get(events.size() - 1).getEventId(), ex);
+                    //                    LOG.error("Failed to process hive metastore [{}] events in the range of event id from {} to {}.",
+                    //                            hmsExternalCatalog.getName(),
+                    //                            events.get(0).getEventId(), events.get(events.size() - 1).getEventId(), ex);
+                    LOG.error("Failed to process hive metastore [{}] events .",
+                            hmsExternalCatalog.getName(), ex);
                 }
             }
         }
