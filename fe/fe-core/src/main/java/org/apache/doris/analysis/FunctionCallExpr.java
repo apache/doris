@@ -817,10 +817,11 @@ public class FunctionCallExpr extends Expr {
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
                 || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
-                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG"))
+                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG")
+                || fnName.getFunction().equalsIgnoreCase("HLL_UNION"))
                 && !arg.type.isHllType()) {
             throw new AnalysisException(
-                    "HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
+                    "HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
         }
 
         if (fnName.getFunction().equalsIgnoreCase("min")

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 import com.google.common.collect.ImmutableList;
@@ -57,8 +59,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Sum.class),
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
-            agg(GroupBitXor.class, "group_bit_xor")
-
+            agg(GroupBitXor.class, "group_bit_xor"),
+            agg(Ndv.class),
+            agg(ApproxCountDistinct.class, "approx_count_distinct")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();

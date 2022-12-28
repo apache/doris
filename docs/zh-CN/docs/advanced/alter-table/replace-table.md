@@ -28,7 +28,7 @@ under the License.
 
 在 0.14 版本中，Doris 支持对两个表进行原子的替换操作。 该操作仅适用于 OLAP 表。
 
-分区级别的替换操作，请参阅 [临时分区文档](../../partition/table-temp-partition)
+分区级别的替换操作，请参阅 [临时分区文档](../partition/table-temp-partition)
 
 ## 语法说明
 

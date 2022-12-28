@@ -684,7 +684,7 @@ public class QueryPlanTest extends TestWithFeService {
         String castSql = "select * from test.baseall where k11 < cast('2020-03-26' as date)";
         SelectStmt selectStmt = (SelectStmt) parseAndAnalyzeStmt(castSql);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
-        Assert.assertTrue(rightExpr.getType().equals(ScalarType.getDefaultDateType(Type.DATETIME)));
+        Assert.assertEquals(rightExpr.getType(), ScalarType.getDefaultDateType(Type.DATETIME));
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
@@ -2195,5 +2195,48 @@ public class QueryPlanTest extends TestWithFeService {
         String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
         String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
         Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
+    }
+
+    @Test
+    public void testPreaggregationOfHllUnion() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("create table test.test_hll(\n"
+                + "    dt date,\n"
+                + "    id int,\n"
+                + "    name char(10),\n"
+                + "    province char(10),\n"
+                + "    os char(10),\n"
+                + "    pv hll hll_union\n"
+                + ")\n"
+                + "Aggregate KEY (dt,id,name,province,os)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "PROPERTIES(\n"
+                + "    \"replication_num\" = \"1\",\n"
+                + "    \"in_memory\"=\"false\"\n"
+                + ");");
+
+        String queryBaseTableStr = "explain select dt, hll_union(pv) from test.test_hll group by dt";
+        String explainString = getSQLPlanOrErrorMsg(queryBaseTableStr);
+        Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
+    }
+
+    @Test
+    public void testRewriteOrToIn() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)"));
+
+        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `query_time` IN (3, 4)"));
+
+        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: (`query_time` = 1 OR `query_time` = 2 OR `scan_bytes` = 2), `scan_bytes` IN (2, 3)"));
+
+        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `scan_bytes` IN (2, 3)"));
     }
 }

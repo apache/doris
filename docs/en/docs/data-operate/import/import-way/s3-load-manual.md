@@ -93,7 +93,8 @@ example:
    )
 ```
 
-<version since="1.2"></version>
+<version since="1.2">
+
 2. Support using temporary security credentials to access object stores that support the S3 protocol:
 
 ```
@@ -106,3 +107,5 @@ example:
         "AWS_REGION" = "AWS_REGION"
   )
 ```
+
+</version>

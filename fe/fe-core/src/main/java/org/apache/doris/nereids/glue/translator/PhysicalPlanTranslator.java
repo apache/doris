@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
@@ -105,6 +106,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SelectNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
@@ -446,6 +448,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
+
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
         if (olapScan.getStats() != null) {
             olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
@@ -487,6 +490,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
         }
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, PlanTranslatorContext context) {
+        Table table = schemaScan.getTable();
+
+        List<Slot> slotList = new ImmutableList.Builder<Slot>()
+                .addAll(schemaScan.getOutput())
+                .addAll(schemaScan.getNonUserVisibleOutput())
+                .build();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
+        tupleDescriptor.setTable(table);
+
+        SchemaScanNode scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
+
+        context.getScanNodes().add(scanNode);
+        PlanFragment planFragment =
+                new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);
         return planFragment;
     }
@@ -1276,8 +1299,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Absorb the plan trees of all childFragments into unionNode
             // and fix up the fragment tree in the process.
             for (int i = 0; i < childrenFragments.size(); ++i) {
-                setOperationFragment.setFragmentInPlanTree(setOperationNode.getChild(i));
-                setOperationFragment.addChildren(childrenFragments.get(i).getChildren());
+                connectChildFragmentNotCheckExchangeNode(setOperationNode, i, setOperationFragment,
+                         childrenFragments.get(i),
+                         context);
             }
         } else {
             setOperationFragment = new PlanFragment(context.nextFragmentId(), setOperationNode,

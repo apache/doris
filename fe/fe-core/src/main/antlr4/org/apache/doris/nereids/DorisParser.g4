@@ -201,7 +201,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias lateralView*                               #tableName
+    : multipartIdentifier specifiedPartition? tableAlias lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
@@ -296,7 +296,7 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN (DISTINCT? arguments+=expression
+    | identifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
@@ -308,6 +308,11 @@ primaryExpression
 
 qualifiedName
     : identifier (DOT identifier)*
+    ;
+
+specifiedPartition
+    : PARTITION identifier
+    | PARTITIONS identifierList
     ;
 
 constant

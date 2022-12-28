@@ -108,7 +108,7 @@ public:
                                     ColumnSelectVector& select_vector, size_t batch_size,
                                     size_t* read_rows, bool* eof) = 0;
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
-                         const ParquetReadColumn& column, const tparquet::RowGroup& row_group,
+                         const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size);
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
