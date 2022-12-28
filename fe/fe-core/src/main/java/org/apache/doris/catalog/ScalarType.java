@@ -582,7 +582,7 @@ public class ScalarType extends Type {
                 }
                 break;
             case DATETIMEV2:
-                stringBuilder.append("datetime").append("(").append(scale).append(")");
+                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
             case TIME:
                 stringBuilder.append("time");
