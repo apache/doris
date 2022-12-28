@@ -170,7 +170,7 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
     }
     case TFileType::FILE_BROKER: {
         RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[0],
-                                             system_properties.properties, file_description.path,
+                                             system_properties.properties, file_description,
                                              &file_system_ptr, file_reader));
         break;
     }
@@ -232,12 +232,12 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
 
 Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
                                          const std::map<std::string, std::string>& prop,
-                                         const std::string& path,
+                                         const FileDescription& file_description,
                                          io::FileSystem** broker_file_system,
                                          io::FileReaderSPtr* reader) {
-    *broker_file_system = new io::BrokerFileSystem(broker_addr, prop);
+    *broker_file_system = new io::BrokerFileSystem(broker_addr, prop, file_description.file_size);
     RETURN_IF_ERROR((dynamic_cast<io::BrokerFileSystem*>(*broker_file_system))->connect());
-    RETURN_IF_ERROR((*broker_file_system)->open_file(path, reader));
+    RETURN_IF_ERROR((*broker_file_system)->open_file(file_description.path, reader));
     return Status::OK();
 }
 } // namespace doris
