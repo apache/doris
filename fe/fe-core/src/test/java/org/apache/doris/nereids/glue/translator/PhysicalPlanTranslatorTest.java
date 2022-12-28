@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.OlapScanNode;
@@ -39,6 +41,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -81,5 +84,142 @@ public class PhysicalPlanTranslatorTest {
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class::isInstance, scanNodeList);
         Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getMaterializedSlots().size());
+    }
+
+    /**
+     * proj(col1)
+     *   +--sort(output(col1, col2))
+     * the proj is not eliminated
+     */
+    @Test
+    public void testNotEliminateProjectForPrune() throws Exception {
+        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        List<Slot> t1Output = new ArrayList<>();
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        t1Output.add(col1);
+        t1Output.add(col2);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
+        PhysicalOlapScan scan = new PhysicalOlapScan(RelationUtil.newRelationId(), t1, qualifier, 0L,
+                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                Optional.empty(), t1Properties);
+        OrderKey orderKey = new OrderKey(col2, true, true);
+        LogicalProperties sortLogicalProperties = new LogicalProperties(() -> Lists.newArrayList(col1, col2));
+        PhysicalQuickSort sort = new PhysicalQuickSort(Lists.newArrayList(orderKey), sortLogicalProperties, scan);
+        List<NamedExpression> projList = new ArrayList<>();
+        projList.add(col2);
+        LogicalProperties projLogicalProperties = new LogicalProperties(() -> Lists.newArrayList(col1));
+        PhysicalProject<PhysicalQuickSort<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
+                projLogicalProperties, sort);
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator();
+        PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
+        PlanNode planNode = fragment.getPlanRoot();
+        Assertions.assertFalse(planNode.getProjectList().isEmpty());
+    }
+
+    /**
+     * proj(col1)
+     *   +--sort(output(col1))
+     * the proj is eliminated
+     */
+    @Test
+    public void testEliminateProjectForPrune() throws Exception {
+        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        List<Slot> t1Output = new ArrayList<>();
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        t1Output.add(col1);
+        t1Output.add(col2);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
+        PhysicalOlapScan scan = new PhysicalOlapScan(RelationUtil.newRelationId(), t1, qualifier, 0L,
+                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                Optional.empty(), t1Properties);
+        OrderKey orderKey = new OrderKey(col2, true, true);
+        LogicalProperties sortLogicalProperties = new LogicalProperties(() -> Lists.newArrayList(col1));
+        PhysicalQuickSort sort = new PhysicalQuickSort(Lists.newArrayList(orderKey), sortLogicalProperties, scan);
+        List<NamedExpression> projList = new ArrayList<>();
+        projList.add(col2);
+        LogicalProperties projLogicalProperties = new LogicalProperties(() -> Lists.newArrayList(col1));
+        PhysicalProject<PhysicalQuickSort<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
+                projLogicalProperties, sort);
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator();
+        PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
+        PlanNode planNode = fragment.getPlanRoot();
+        Assertions.assertNull(planNode.getProjectList());
+    }
+
+    /**
+     * proj(col1)
+     *   +--scan(output: col1, col2)
+     * proj is eliminated
+     */
+    @Test
+    public void testEliminateProjectOnScan() throws Exception {
+        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        List<Slot> t1Output = new ArrayList<>();
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        t1Output.add(col1);
+        t1Output.add(col2);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
+        PhysicalOlapScan scan = new PhysicalOlapScan(RelationUtil.newRelationId(), t1, qualifier, 0L,
+                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                Optional.empty(), t1Properties);
+
+        List<NamedExpression> projList = new ArrayList<>();
+        projList.add(col2);
+        LogicalProperties projLogicalProperties = new LogicalProperties(() -> Lists.newArrayList(col1));
+        PhysicalProject<PhysicalOlapScan> project = new PhysicalProject<>(projList,
+                projLogicalProperties, scan);
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator();
+        PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
+        PlanNode planNode = fragment.getPlanRoot();
+        Assertions.assertNull(planNode.getProjectList());
+    }
+
+    /**
+     * proj(col1)
+     *   +--scan(output: col1, col2, conjuncts: col2>1)
+     * proj is not eliminated
+     */
+    @Test
+    public void testNotEliminateProjectOnScanWithConjuncts() throws Exception {
+        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        List<Slot> t1Output = new ArrayList<>();
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        t1Output.add(col1);
+        t1Output.add(col2);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
+        PhysicalOlapScan scan = new PhysicalOlapScan(RelationUtil.newRelationId(), t1, qualifier, 0L,
+                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                Optional.empty(), t1Properties);
+        Literal t1FilterRight = new IntegerLiteral(1);
+        Expression t1FilterExpr = new GreaterThan(col2, t1FilterRight);
+        PhysicalFilter<PhysicalOlapScan> filter =
+                new PhysicalFilter<>(ImmutableSet.of(t1FilterExpr),
+                        new LogicalProperties(() -> Lists.newArrayList(col1, col2)),
+                        scan);
+        List<NamedExpression> projList = new ArrayList<>();
+        projList.add(col1);
+        LogicalProperties projLogicalProperties = new LogicalProperties(() -> Lists.newArrayList(col1));
+        PhysicalProject<PhysicalFilter<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
+                projLogicalProperties, filter);
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator();
+        PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
+        PlanNode planNode = fragment.getPlanRoot();
+        Assertions.assertTrue(planNode.getProjectList() != null);
     }
 }
