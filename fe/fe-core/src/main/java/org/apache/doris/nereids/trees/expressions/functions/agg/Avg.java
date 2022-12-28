@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -38,14 +37,14 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** avg agg function. */
-public class Avg extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
+public class Avg extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
 
     public Avg(Expression child) {
-        super("avg", child);
+        this(false, false, child);
     }
 
-    public Avg(boolean isDistinct, Expression child) {
-        super("avg", isDistinct, child);
+    public Avg(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
+        super("avg", isAlwaysNullable, isDistinct, arg);
     }
 
     @Override
@@ -64,13 +63,18 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(isDistinct, children.get(0));
+        return new Avg(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public Avg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(isDistinct, children.get(0));
+        return new Avg(isDistinct, isAlwaysNullable, children.get(0));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new Avg(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override

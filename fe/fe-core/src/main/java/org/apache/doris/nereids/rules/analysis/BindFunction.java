@@ -85,8 +85,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
                     List<Expression> groupBy = bind(agg.getGroupByExpressions(), ctx.connectContext.getEnv());
                     List<NamedExpression> output = bind(agg.getOutputExpressions(), ctx.connectContext.getEnv());
-                    // if agg function in output is not alwaysNullable, we should change it to nullable, but now
-                    // alias's nullable depends on its child, so we change it when normalize it to slot.
+                    // if group by is empty, the function should be nullable.
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),

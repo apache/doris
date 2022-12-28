@@ -34,12 +34,13 @@ import java.util.List;
 /** max agg function. */
 public class Max extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature,
         ForbiddenMetricTypeArguments {
+public class Max extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
     public Max(Expression child) {
-        super("max", child);
+        this(false, false, child);
     }
 
-    public Max(boolean isDistinct, Expression arg) {
-        super("max", false, arg);
+    public Max(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
+        super("max", isAlwaysNullable, isDistinct, arg);
     }
 
     @Override
@@ -56,13 +57,18 @@ public class Max extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public Max withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(isDistinct, children.get(0));
+        return new Max(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public Max withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Max(children.get(0));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new Max(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
