@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Preconditions;
@@ -462,6 +463,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         boolean isOrToInAllowed = true;
         Set<String> slotSet = new LinkedHashSet<>();
 
+        int rewriteThreshold;
+        if (ConnectContext.get() == null) {
+            rewriteThreshold = 2;
+        } else {
+            rewriteThreshold = ConnectContext.get().getSessionVariable().getRewriteOrToInPredicateThreshold();
+        }
+
         for (int i = 0; i < exprs.size(); i++) {
             Expr predicate = exprs.get(i);
             if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
@@ -492,9 +500,10 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         // isOrToInAllowed : true, means can rewrite
         // slotSet.size : nums of columnName in exprs, should be 1
         if (isOrToInAllowed && slotSet.size() == 1) {
+            if (exprs.size() < rewriteThreshold) {
+                return null;
+            }
             // slotRef to get ColumnName
-
-            // SlotRef firstSlot = (SlotRef) exprs.get(0).getChild(0);
             List<Expr> childrenList = exprs.get(0).getChildren();
             inPredicate = new InPredicate(exprs.get(0).getChild(0),
                     childrenList.subList(1, childrenList.size()), false);
