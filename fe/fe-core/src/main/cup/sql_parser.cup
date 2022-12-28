@@ -602,7 +602,8 @@ terminal String
     KW_WORK,
     KW_WRITE,
     KW_YEAR,
-    KW_MTMV;
+    KW_MTMV,
+    KW_TYPECAST;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -3666,6 +3667,10 @@ show_param ::=
     | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
+    :}
+    | KW_TYPECAST opt_db:dbName
+    {:
+        RESULT = new ShowTypeCastStmt(dbName, parser.where);
     :}
     | KW_FILE opt_db:dbName
     {:

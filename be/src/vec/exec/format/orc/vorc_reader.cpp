@@ -143,6 +143,10 @@ Status OrcReader::init_reader(
         system_properties.system_type = _scan_params.file_type;
         system_properties.properties = _scan_params.properties;
         system_properties.hdfs_params = _scan_params.hdfs_params;
+        if (_scan_params.__isset.broker_addresses) {
+            system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
+                                                      _scan_params.broker_addresses.end());
+        }
 
         FileDescription file_description;
         file_description.path = _scan_range.path;

@@ -92,6 +92,7 @@ import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowTrashStmt;
+import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
@@ -117,6 +118,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
@@ -196,6 +198,7 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.tuple.Triple;
@@ -387,6 +390,8 @@ public class ShowExecutor {
             handleMTMVJobs();
         } else if (stmt instanceof ShowMTMVTaskStmt) {
             handleMTMVTasks();
+        } else if (stmt instanceof ShowTypeCastStmt) {
+            handleShowTypeCastStmt();
         } else {
             handleEmtpy();
         }
@@ -2471,5 +2476,27 @@ public class ShowExecutor {
             results.add(task.toStringRow());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleShowTypeCastStmt() throws AnalysisException {
+        ShowTypeCastStmt showStmt = (ShowTypeCastStmt) stmt;
+
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
+
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        ImmutableSetMultimap<PrimitiveType, PrimitiveType> castMap = PrimitiveType.getImplicitCastMap();
+        if (db instanceof Database) {
+            resultRowSet = castMap.entries().stream().map(primitiveTypePrimitiveTypeEntry -> {
+                List<String> list = Lists.newArrayList();
+                list.add(primitiveTypePrimitiveTypeEntry.getKey().toString());
+                list.add(primitiveTypePrimitiveTypeEntry.getValue().toString());
+                return list;
+            }).collect(Collectors.toList());
+        }
+
+        // Only success
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 }

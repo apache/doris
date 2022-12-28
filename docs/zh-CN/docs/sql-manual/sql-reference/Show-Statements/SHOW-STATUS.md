@@ -32,7 +32,7 @@ SHOW STATUS
 
 ### Description
 
-该命令用于查看通过[创建物化视图](../../Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW)语句提交的创建物化视图作业的执行情况。
+该命令用于查看通过[创建物化视图](../Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW)语句提交的创建物化视图作业的执行情况。
 
 > 该语句相当于`SHOW ALTER TABLE ROLLUP`；
 
