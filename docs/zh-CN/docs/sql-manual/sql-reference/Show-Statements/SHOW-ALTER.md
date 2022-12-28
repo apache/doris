@@ -52,7 +52,7 @@ SHOW ALTER [CLUSTER | TABLE [COLUMN | ROLLUP] [FROM db_name]];
 1. 展示默认 db 的所有修改列的任务执行情况
 
    ```sql
-    SHOW ALTER TABLE COLUMN;
+   SHOW ALTER TABLE COLUMN;
    ```
 
 2. 展示某个表最近一次修改列的任务执行情况
