@@ -44,7 +44,7 @@ public:
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnString.
-    static constexpr size_t MAX_STRING_SIZE = 1024 * 1024 * 1024;
+    static constexpr size_t MAX_STRING_SIZE = 0xffffffff;
 
     friend class COWHelper<IColumn, ColumnString>;
     friend class OlapBlockDataConvertor;
@@ -63,7 +63,7 @@ private:
 
     void ALWAYS_INLINE check_chars_length(size_t length) const {
         if (UNLIKELY(length > MAX_STRING_SIZE)) {
-            LOG(FATAL) << "string column length is too large.";
+            LOG(FATAL) << "string column length is too large: " << length;
         }
     }
 
