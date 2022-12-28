@@ -51,7 +51,7 @@ void JeHeapAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, str);
 #else
     std::stringstream tmp_jeprof_file_name;
-    std::time_t now = std::time(0);
+    std::time_t now = std::time(nullptr);
     // Build a temporary file name that is hopefully unique.
     tmp_jeprof_file_name << config::jeprofile_dir << "/jeheap_dump." << now << "." << getpid()
                          << "." << rand() << ".heap";
