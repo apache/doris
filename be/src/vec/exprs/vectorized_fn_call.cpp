@@ -125,7 +125,8 @@ bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
                                     size_t input_rows_count) {
     auto query_value = block.get_by_position(arguments[1]).to_string(0);
     std::string column_name = block.get_by_position(arguments[0]).name;
-    auto result_column_name = column_name + "_" + _function->get_name() + "_" + query_value;
+    auto result_column_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + 
+                              _function->get_name() + "_" + query_value;
     if (!block.has(result_column_name)) {
         return false;
     }

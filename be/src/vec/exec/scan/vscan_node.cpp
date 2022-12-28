@@ -1046,13 +1046,14 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
         // Normalize match conjuncts like 'where col match value'
 
         auto match_checker = [](const std::string& fn_name) {
-            return true; // TODO xk fn_name == "match";
+            return fn_name == "match";
         };
         StringRef value;
         int slot_ref_child = -1;
-        PushDownType temp_pdt = _should_push_down_binary_predicate(
+        PushDownType temp_pdt;
+        RETURN_IF_ERROR(_should_push_down_binary_predicate(
                 reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx, &value, &slot_ref_child,
-                match_checker);
+                match_checker, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             DCHECK(slot_ref_child >= 0);
             if (value.data != nullptr) {

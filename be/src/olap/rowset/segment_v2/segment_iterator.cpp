@@ -442,7 +442,7 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(vectorize
     } else if (node_type == TExprNodeType::BINARY_PRED) {
         _column_predicate_info->query_op = expr->fn().name.function_name;
         // get child condition result in compound condtions
-        auto pred_result_sign = _gen_predicate_sign(_column_predicate_info.get());
+        auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
         if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
             _rowid_result_for_index[pred_result_sign].first) {
@@ -538,7 +538,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             return res;
         }
 
-        std::string pred_result_sign = _gen_predicate_sign(pred);
+        std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(
                 std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
     }
@@ -546,22 +546,22 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     return Status::OK();
 }
 
-std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
+std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predicate) {
     std::string pred_result_sign;
 
     auto column_desc = _schema.column(predicate->column_id());
     auto pred_type = predicate->type();
     auto predicate_params = predicate->predicate_params();
-    pred_result_sign = column_desc->name() + "_" + predicate->pred_type_string(pred_type) + "_" +
-                       predicate_params->value;
+    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_desc->name() + "_" +
+                       predicate->pred_type_string(pred_type) + "_" + predicate_params->value;
 
     return pred_result_sign;
 }
 
-std::string SegmentIterator::_gen_predicate_sign(ColumnPredicateInfo* predicate_info) {
+std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
-    pred_result_sign = predicate_info->column_name + "_" + predicate_info->query_op + "_" +
-                       predicate_info->query_value;
+    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" + 
+                       predicate_info->query_op + "_" + predicate_info->query_value;
     return pred_result_sign;
 }
 
@@ -580,15 +580,15 @@ Status SegmentIterator::_apply_inverted_index() {
             if (!res.ok()) {
                 LOG(WARNING) << "failed to evaluate index"
                              << ", column predicate type: " << pred->pred_type_string(pred->type())
-                             << ", error msg: " << res.get_error_msg();
+                             << ", error msg: " << res.code_as_string();
                 return res;
             }
 
-            std::string pred_sign = _gen_predicate_sign(pred);
             auto pred_type = pred->type();
             if (pred_type == PredicateType::MATCH) {
+                std::string pred_result_sign = _gen_predicate_result_sign(pred);
                 _rowid_result_for_index.emplace(
-                        std::make_pair(pred_sign, std::make_pair(false, bitmap)));
+                        std::make_pair(pred_result_sign, std::make_pair(false, bitmap)));
             }
 
             _row_bitmap &= bitmap;
@@ -599,19 +599,6 @@ Status SegmentIterator::_apply_inverted_index() {
     }
     _col_predicates = std::move(remaining_predicates);
     return Status::OK();
-}
-
-std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
-    std::string pred_sign;
-
-    auto column_desc = _schema.column(predicate->column_id());
-    auto pred_type = predicate->type();
-    auto predicate_params = predicate->predicate_params();
-    pred_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_desc->name() + "_"
-                + predicate->pred_type_string(pred_type) + "_"
-                + predicate_params->value;
-
-    return pred_sign;
 }
 
 Status SegmentIterator::_init_return_column_iterators() {
@@ -1392,6 +1379,10 @@ void SegmentIterator::_build_index_result_column(uint16_t* sel_rowid_idx, uint16
     size_t idx_in_block = 0;
     size_t idx_in_row_range = 0;
     size_t idx_in_selected = 0;
+    // _split_row_ranges store multiple ranges which split in function _read_columns_by_index(),
+    // index_result is a column predicate apply result in a whole segement,
+    // but a scanner thread one time can read max rows limit by block_row_max,
+    // so split _row_bitmap by one time scan range, in order to match size of one scanner thread read rows.
     for (auto origin_row_range : _split_row_ranges) {
         for (size_t rowid = origin_row_range.first; rowid < origin_row_range.second; ++rowid) {
             if (sel_rowid_idx == nullptr || (idx_in_selected < select_size &&

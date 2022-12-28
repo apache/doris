@@ -38,6 +38,13 @@ public:
         return pool->add(new MatchPredicateExpr(*this));
     }
 
+    static bool is_valid(std::string fn_name) {
+        return fn_name == "match_any" || fn_name == "match_all" ||
+               fn_name == "match_phrase" || fn_name == "match_element_eq" ||
+               fn_name == "match_element_lt" || fn_name == "match_element_gt" ||
+               fn_name == "match_element_le" || fn_name == "match_element_ge";
+    }
+
 protected:
     friend class Expr;
 };
@@ -51,19 +58,6 @@ public:
 
     virtual PredicateType type() const override;
 
-    // evaluate predicate on ColumnBlock
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
-        LOG(FATAL) << "Not Implemented MatchPredicate::evaluate";
-    }
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                             bool* flags) const override {
-        LOG(FATAL) << "Not Implemented MatchPredicate::evaluate";
-    }
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                              bool* flags) const override {
-        LOG(FATAL) << "Not Implemented MatchPredicate::evaluate";
-    }
-
     //evaluate predicate on Bitmap
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const override {
@@ -76,7 +70,7 @@ public:
 
 private:
     InvertedIndexQueryType _to_inverted_index_query_type(MatchType match_type) const;
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         std::string info = "MatchPredicate";
         return info;
     }

@@ -41,24 +41,17 @@ public:
     Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) override {
-        //const auto match_query_col = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto column_with_name = block.get_by_position(arguments[1]);
-        /*const auto* match_query = check_and_get_column<ColumnString>(match_query_col.get());
-        if (!match_query) {
-            return Status::InternalError("Not supported input arguments types");
-        }*/
-        auto match_query_str = column_with_name.to_string(0);
-        //std::string match_query_str = match_query_col->get_data_at(0).to_string();
+        auto match_query_str = block.get_by_position(arguments[1]).to_string(0);
         std::string column_name = block.get_by_position(arguments[0]).name;
-        auto match_pred_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
-        if (!block.has(match_pred_name)) {
+        auto match_pred_column_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
+        if (!block.has(match_pred_column_name)) {
             if (!config::enable_storage_vectorization) {
                 return Status::Cancelled("please check whether turn on the configuration 'enable_storage_vectorization'");
             }
-            LOG(WARNING) << "execute match query meet error, block no column: " << match_pred_name;
-            return Status::InternalError("match query meet error");
+            LOG(WARNING) << "execute match query meet error, block no column: " << match_pred_column_name;
+            return Status::InternalError("match query meet error, no match predicate evaluate result column in block.");
         }
-        auto match_pred_column = block.get_by_name(match_pred_name).column->convert_to_full_column_if_const();
+        auto match_pred_column = block.get_by_name(match_pred_column_name).column->convert_to_full_column_if_const();
  
         block.replace_by_position(result, std::move(match_pred_column)); 
         return Status::OK();

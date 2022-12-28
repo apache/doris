@@ -155,9 +155,11 @@ public class MatchPredicate extends Predicate {
     }
 
     public Boolean isMatchElement(Operator op) {
-        return Objects.equals(op.getName(), "match_element_eq") || Objects.equals(op.getName(), "match_element_lt")
-                || Objects.equals(op.getName(), "match_element_gt") || Objects.equals(op.getName(), "match_element_le")
-                || Objects.equals(op.getName(), "match_element_ge");
+        return Objects.equals(op.getName(), Operator.MATCH_ELEMENT_EQ.getName())
+                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_LT.getName())
+                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_GT.getName())
+                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_LE.getName())
+                || Objects.equals(op.getName(), Operator.MATCH_ELEMENT_GE.getName());
     }
 
     protected MatchPredicate(MatchPredicate other) {
