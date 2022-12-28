@@ -420,7 +420,7 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     case TYPE_CHAR: {
         std::string data = _jobject_to_string(env, jobj);
         // Now have test pg and oracle with char(100), if data='abc'
-        // but read string data length is 100, so need trim extral spaces
+        // but read string data length is 100, so need trim extra spaces
         if ((_conn_param.table_type == TOdbcTableType::POSTGRESQL) ||
             (_conn_param.table_type == TOdbcTableType::ORACLE)) {
             data = data.erase(data.find_last_not_of(' ') + 1);
