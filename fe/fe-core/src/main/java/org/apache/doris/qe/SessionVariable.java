@@ -1340,7 +1340,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
-        tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
+
+        // TODO: enable share hashtable for broadcast after switching completely to pipeline engine.
+        tResult.setEnableShareHashTableForBroadcastJoin(
+                enablePipelineEngine ? false : enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
