@@ -69,7 +69,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
         // TODO: 2022/12/27 判断是否开启同步
         //        if (enableHmsEventsIncrementalSync) {
-        setLastSyncedEventId(getCurrentEventId());
+        //        setLastSyncedEventId(getCurrentEventId());
         //        }
     }
 
