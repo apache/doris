@@ -96,6 +96,7 @@ set(OLAP_TEST_FILES
     olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
+    olap/itoken_extractor_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp

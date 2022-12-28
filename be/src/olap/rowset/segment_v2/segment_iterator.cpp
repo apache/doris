@@ -317,6 +317,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 _opts.col_id_to_predicates[cid].get(), &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
+
     size_t pre_size = condition_row_ranges->count();
     RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
     _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());

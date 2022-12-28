@@ -267,6 +267,7 @@ terminal String
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
+    KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
     KW_BROKER,
@@ -2143,7 +2144,7 @@ opt_password_lock_time ::=
     | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
     {:
         RESULT = opt;
-    :} 
+    :}
     ;
 
 passwd_lock_time_opt ::=
@@ -3269,6 +3270,10 @@ opt_index_type ::=
     | KW_USING KW_BITMAP
     {:
         RESULT = IndexDef.IndexType.BITMAP;
+    :}
+    | KW_USING KW_NGRAM_BF
+    {:
+        RESULT = IndexDef.IndexType.NGRAM_BF;
     :}
     | KW_USING KW_INVERTED
     {:
@@ -5662,10 +5667,10 @@ func_args_def ::=
 
 cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
-  {: 
-    CastExpr castExpr = new CastExpr(targetType, e); 
+  {:
+    CastExpr castExpr = new CastExpr(targetType, e);
     if (targetType.getType().getLength() != -1
-        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR 
+        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
         || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
         // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)
         // this is just a workaround to make the result correct
@@ -6503,6 +6508,8 @@ keyword ::=
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}
     | KW_BITMAP_UNION:id
+    {: RESULT = id; :}
+    | KW_NGRAM_BF:id
     {: RESULT = id; :}
     | KW_QUANTILE_UNION:id
     {: RESULT = id; :}

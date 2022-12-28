@@ -37,6 +37,11 @@ public class IndexDef {
     private String comment;
     private Map<String, String> properties;
 
+    public static final String NGRAM_SIZE_KEY = "gram_size";
+    public static final String NGRAM_BF_SIZE_KEY = "bf_size";
+    public static final String DEFAULT_NGRAM_SIZE = "2";
+    public static final String DEFAULT_NGRAM_BF_SIZE = "256";
+
     public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType,
                     Map<String, String> properties, String comment) {
         this.indexName = indexName;
@@ -56,6 +61,10 @@ public class IndexDef {
             this.properties = new HashMap<>();
         } else {
             this.properties = properties;
+        }
+        if (indexType == IndexType.NGRAM_BF) {
+            properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
+            properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
         }
     }
 
@@ -155,6 +164,7 @@ public class IndexDef {
         BITMAP,
         INVERTED,
         BLOOMFILTER,
+        NGRAM_BF
     }
 
     public boolean isInvertedIndex() {
@@ -162,7 +172,8 @@ public class IndexDef {
     }
 
     public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
+                || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
             PrimitiveType colType = column.getDataType();
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
@@ -177,6 +188,31 @@ public class IndexDef {
 
             if (indexType == IndexType.INVERTED) {
                 InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
+            } else if (indexType == IndexType.NGRAM_BF) {
+                if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR
+                        && colType != PrimitiveType.STRING) {
+                    throw new AnalysisException(colType + " is not supported in ngram_bf index. "
+                                                    + "invalid column: " + indexColName);
+                } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
+                    throw new AnalysisException(
+                        "ngram_bf index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                        + " AGG_KEYS table. invalid column: " + indexColName);
+                }
+                if (properties.size() != 2) {
+                    throw new AnalysisException("ngram_bf index should have gram_size and bf_size properties");
+                }
+                try {
+                    int ngramSize = Integer.parseInt(properties.get(NGRAM_SIZE_KEY));
+                    int bfSize = Integer.parseInt(properties.get(NGRAM_BF_SIZE_KEY));
+                    if (ngramSize > 256 || ngramSize < 1) {
+                        throw new AnalysisException("gram_size should be integer and less than 256");
+                    }
+                    if (bfSize > 65536 || bfSize < 64) {
+                        throw new AnalysisException("bf_size should be integer and between 64 and 65536");
+                    }
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                }
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
