@@ -33,6 +33,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -205,6 +206,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     public long getCurrentEventId() {
-        return client.getCurrentNotificationEventId().getEventId();
+        CurrentNotificationEventId currentNotificationEventId = client.getCurrentNotificationEventId();
+        if (currentNotificationEventId == null) {
+            LOG.error("获取currentNotificationEventId为null");
+            return -1;
+        }
+        return currentNotificationEventId.getEventId();
     }
 }
