@@ -107,8 +107,7 @@ public:
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     ColumnSelectVector& select_vector, size_t batch_size,
                                     size_t* read_rows, bool* eof) = 0;
-    static Status create(FileReader* file, FieldSchema* field,
-                         const tparquet::RowGroup& row_group,
+    static Status create(FileReader* file, FieldSchema* field, const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size);
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
