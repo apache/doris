@@ -92,8 +92,8 @@ suite("drop_policy") {
         def drop_policy_ret = try_sql """
             DROP STORAGE POLICY drop_policy_test
         """
-        // errCode = 2, detailMessage = current not support drop storage policy.
-        assertEquals(drop_policy_ret, null)
+        // can drop, no table use
+        assertEquals(drop_policy_ret.size(), 1)
     }
 
 }
