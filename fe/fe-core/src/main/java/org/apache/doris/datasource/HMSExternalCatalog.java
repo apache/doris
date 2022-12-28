@@ -53,7 +53,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
-    private long lastSyncedEventId = -1;
+    private long lastSyncedEventId;
 
     /**
      * Default constructor for HMSExternalCatalog.
@@ -67,8 +67,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             props.putAll(HMSResource.getPropertiesFromDLF());
         }
         catalogProperty = new CatalogProperty(resource, props);
-        setLastSyncedEventId(getCurrentEventId());
-        LOG.error("new HMSExternalCatalog(),lastSyncedEventId = {}", lastSyncedEventId);
+        //        setLastSyncedEventId(getCurrentEventId());
+        //        LOG.error("new HMSExternalCatalog(),lastSyncedEventId = {}", lastSyncedEventId);
     }
 
     public String getHiveMetastoreUris() {
@@ -190,7 +190,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public NotificationEventResponse getNextEventResponse(String catalogName)
             throws MetastoreNotificationFetchException {
         makeSureInitialized();
-        if (lastSyncedEventId == -1) {
+        if (lastSyncedEventId == 0) {
             LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
             lastSyncedEventId = getCurrentEventId();
             //            LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
