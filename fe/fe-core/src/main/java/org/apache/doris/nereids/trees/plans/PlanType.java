@@ -52,6 +52,7 @@ public enum PlanType {
     LOGICAL_UNION,
     LOGICAL_EXCEPT,
     LOGICAL_INTERSECT,
+    LOGICAL_USING_JOIN,
     GROUP_PLAN,
 
     // physical plan

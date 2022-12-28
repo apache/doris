@@ -66,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.planner.PlannerContext;
 
 import com.google.common.base.Preconditions;
@@ -76,6 +77,7 @@ import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -127,40 +129,62 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
-            RuleType.BINDING_JOIN_SLOT.build(
-                    logicalJoin().when(Plan::canBind)
-                            .whenNot(j -> j.getJoinType().equals(JoinType.USING_JOIN)).thenApply(ctx -> {
-                                LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
-                                List<Expression> cond = join.getOtherJoinConjuncts().stream()
-                                        .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
-                                        .collect(Collectors.toList());
-                                List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
-                                        .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
-                                        .collect(Collectors.toList());
-                                return new LogicalJoin<>(join.getJoinType(),
-                                        hashJoinConjuncts, cond, join.getHint(), join.left(), join.right());
-                            })
-            ),
+
             RuleType.BINDING_USING_JOIN_SLOT.build(
-                    logicalJoin().when(j -> j.getJoinType().equals(JoinType.USING_JOIN)).thenApply(ctx -> {
-                        LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
-                        List<Expression> unboundSlots = join.getHashJoinConjuncts();
-                        List<Expression> leftSlots = unboundSlots.stream()
-                                .map(expr -> bind(expr, Collections.singletonList(join.left()),
-                                        join, ctx.cascadesContext))
-                                .collect(Collectors.toList());
-                        List<Expression> rightSlots = unboundSlots.stream()
-                                .map(expr -> bind(expr, Collections.singletonList(join.right()),
-                                        join, ctx.cascadesContext))
-                                .collect(Collectors.toList());
+                    usingJoin().thenApply(ctx -> {
+                        UsingJoin<GroupPlan, GroupPlan> using = ctx.root;
+                        LogicalJoin lj = new LogicalJoin(using.getJoinType() == JoinType.CROSS_JOIN
+                                ? JoinType.INNER_JOIN : using.getJoinType(),
+                                using.getHashJoinConjuncts(),
+                                using.getOtherJoinConjuncts(), using.getHint(), using.left(),
+                                using.right());
+                        List<Expression> unboundSlots = lj.getHashJoinConjuncts();
+                        Set<String> slotNames = new HashSet<>();
+                        List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
+                        // Suppose A JOIN B USING(name) JOIN C USING(name), [A JOIN B] is the left node, in this case,
+                        // C should combine with table B on C.name=B.name. so we reverse the output to make sure that
+                        // the most right slot is matched with priority.
+                        Collections.reverse(leftOutput);
+                        List<Expression> leftSlots = new ArrayList<>();
+                        Scope scope = toScope(leftOutput.stream()
+                                .filter(s -> !slotNames.contains(s.getName()))
+                                .peek(s -> slotNames.add(s.getName())).collect(
+                                        Collectors.toList()));
+                        for (Expression unboundSlot : unboundSlots) {
+                            Expression expression = new SlotBinder(scope, lj, ctx.cascadesContext).bind(unboundSlot);
+                            leftSlots.add(expression);
+                        }
+                        slotNames.clear();
+                        scope = toScope(lj.right().getOutput().stream()
+                                .filter(s -> !slotNames.contains(s.getName()))
+                                .peek(s -> slotNames.add(s.getName())).collect(
+                                        Collectors.toList()));
+                        List<Expression> rightSlots = new ArrayList<>();
+                        for (Expression unboundSlot : unboundSlots) {
+                            Expression expression = new SlotBinder(scope, lj, ctx.cascadesContext).bind(unboundSlot);
+                            rightSlots.add(expression);
+                        }
                         int size = leftSlots.size();
                         List<Expression> hashEqExpr = new ArrayList<>();
                         for (int i = 0; i < size; i++) {
                             hashEqExpr.add(new EqualTo(leftSlots.get(i), rightSlots.get(i)));
                         }
-                        return new LogicalJoin(JoinType.INNER_JOIN, hashEqExpr,
-                                join.getOtherJoinConjuncts(), join.getHint(), join.left(), join.right());
+                        return lj.withHashJoinConjuncts(hashEqExpr);
                     })
+                ),
+                RuleType.BINDING_JOIN_SLOT.build(
+                        logicalJoin().when(Plan::canBind)
+                                .whenNot(j -> j.getJoinType().equals(JoinType.USING_JOIN)).thenApply(ctx -> {
+                                    LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
+                                    List<Expression> cond = join.getOtherJoinConjuncts().stream()
+                                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
+                                            .collect(Collectors.toList());
+                                    List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
+                                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
+                                            .collect(Collectors.toList());
+                                    return new LogicalJoin<>(join.getJoinType(),
+                                            hashJoinConjuncts, cond, join.getHint(), join.left(), join.right());
+                                })
                 ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
                 logicalAggregate().when(Plan::canBind).thenApply(ctx -> {
