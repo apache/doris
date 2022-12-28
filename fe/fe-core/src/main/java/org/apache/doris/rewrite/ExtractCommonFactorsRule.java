@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -503,18 +504,39 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             if (exprs.size() < rewriteThreshold) {
                 return null;
             }
-            // slotRef to get ColumnName
-            List<Expr> childrenList = exprs.get(0).getChildren();
-            inPredicate = new InPredicate(exprs.get(0).getChild(0),
-                    childrenList.subList(1, childrenList.size()), false);
 
-            for (int i = 1; i < exprs.size(); i++) {
-                childrenList = exprs.get(i).getChildren();
-                inPredicate.addChildren(childrenList.subList(1, childrenList.size()));
-            }
+            // get deduplication list
+            List<Expr> deduplicationExprs = getDeduplicationList(exprs);
+            inPredicate = new InPredicate(deduplicationExprs.get(0),
+                    deduplicationExprs.subList(1, deduplicationExprs.size()), false);
         }
 
         return inPredicate;
+    }
+
+    public List<Expr> getDeduplicationList(List<Expr> exprs) {
+        Set<Expr> set = new HashSet<>();
+        List<Expr> deduplicationExprList = new ArrayList<>();
+
+        deduplicationExprList.add(exprs.get(0).getChild(0));
+
+        for (Expr expr : exprs) {
+            if (expr instanceof BinaryPredicate) {
+                if (!set.contains(expr.getChild(1))) {
+                    set.add(expr.getChild(1));
+                    deduplicationExprList.add(expr.getChild(1));
+                }
+            } else {
+                List<Expr> childrenExprs = expr.getChildren();
+                for (Expr childrenExpr : childrenExprs.subList(1, childrenExprs.size())) {
+                    if (!set.contains(childrenExpr)) {
+                        set.add(childrenExpr);
+                        deduplicationExprList.add(childrenExpr);
+                    }
+                }
+            }
+        }
+        return deduplicationExprList;
     }
 
     /**
