@@ -385,6 +385,7 @@ inline OLAPStatus CollectIterator::Level1Iterator::_merge_next(const RowCursor**
             return OLAP_ERR_DATA_EOF;
         }
     } else {
+        delete _cur_child;
         _cur_child = nullptr;
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
