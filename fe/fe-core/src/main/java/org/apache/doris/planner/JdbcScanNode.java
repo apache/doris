@@ -195,6 +195,7 @@ public class JdbcScanNode extends ScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        msg.jdbc_scan_node.setTableType(jdbcType);
     }
 
     @Override
