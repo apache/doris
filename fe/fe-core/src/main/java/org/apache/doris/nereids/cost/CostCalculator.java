@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -113,6 +114,12 @@ public class CostCalculator {
             // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
             return new CostEstimate(costEstimate.getCpuCost() * 0.7, costEstimate.getMemoryCost(),
                     costEstimate.getNetworkCost(), costEstimate.getPenalty());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.getRowCount());
         }
 
         @Override

@@ -74,6 +74,8 @@ public class ProfileManager {
 
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
 
+    public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
+
     public static final String TRACE_ID = "Trace ID";
 
     public enum ProfileType {

@@ -37,6 +37,8 @@ Use [] to denote array subscripts, starting at 0.
 The content of path cannot contain ",[and].
 If the json_string format is incorrect, or the json_path format is incorrect, or matches cannot be found, NULL is returned.
 
+In addition, it is recommended to use the jsonb type and jsonb_extract_XXX function performs the same function.
+
 ### example
 
 1. Get the value of key as "k1"

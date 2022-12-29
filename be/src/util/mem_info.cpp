@@ -106,7 +106,7 @@ void MemInfo::process_minor_gc() {
     StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     if (config::enable_query_memroy_overcommit) {
         freed_mem +=
-                MemTrackerLimiter::free_top_overcommit_query(_s_process_full_gc_size - freed_mem);
+                MemTrackerLimiter::free_top_overcommit_query(_s_process_minor_gc_size - freed_mem);
     }
 }
 

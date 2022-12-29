@@ -65,7 +65,7 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 ## 支持数据格式
 
-目前 Stream Load 支持两个数据格式：CSV（文本） 和 JSON
+目前 Stream Load 支持数据格式：CSV（文本）、JSON、<version since="1.2" type="inline"> PARQUET 和 ORC</version>。
 
 ## 基本操作
 

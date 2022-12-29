@@ -226,6 +226,7 @@ multipartIdentifier
 // -----------------Expression-----------------
 namedExpression
     : expression (AS? name=errorCapturingIdentifier)?
+    | expression (AS? strName=STRING+)?
     ;
 
 namedExpressionSeq
