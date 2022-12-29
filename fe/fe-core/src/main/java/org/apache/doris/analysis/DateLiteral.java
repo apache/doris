@@ -1697,6 +1697,7 @@ public class DateLiteral extends LiteralExpr {
                 year = (int) data.getChar();
                 month = (int) data.get();
                 day = (int) data.get();
+                microsecond = 0;
                 if (len > 4) {
                     hour = (int) data.get();
                     minute = (int) data.get();
@@ -1707,7 +1708,11 @@ public class DateLiteral extends LiteralExpr {
                     second = 0;
                     microsecond = 0;
                 }
-                microsecond = len > 7 ? data.getInt() : 0;
+                if (len > 7) {
+                    microsecond = data.getInt();
+                    // choose highest scale to keep microsecond value
+                    type = ScalarType.createDatetimeV2Type(6);
+                }
             } else {
                 copy(MIN_DATETIME);
             }

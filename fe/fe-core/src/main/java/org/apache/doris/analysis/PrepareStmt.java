@@ -67,10 +67,7 @@ public class PrepareStmt extends StatementBase {
         if (schemaVersion == tbl.getBaseSchemaVersion()) {
             return false;
         }
-        serializedDescTable = null;
-        serializedOutputExpr = null;
-        descTable = null;
-        this.id = UUID.randomUUID();
+        reset();
         return true;
     }
 
@@ -80,10 +77,6 @@ public class PrepareStmt extends StatementBase {
 
     public UUID getID() {
         return id;
-    }
-
-    public void setPlaceHolders(List<PlaceHolderExpr> exprs) {
-        this.placeholders = exprs;
     }
 
     public List<PlaceHolderExpr> placeholders() {
@@ -213,5 +206,15 @@ public class PrepareStmt extends StatementBase {
         for (int i = 0; i < values.size(); ++i) {
             placeholders.get(i).setLiteral(values.get(i));
         }
+    }
+
+    @Override
+    public void reset() {
+        serializedDescTable = null;
+        serializedOutputExpr = null;
+        descTable = null;
+        this.id = UUID.randomUUID();
+        placeholders.clear();
+        inner.reset();
     }
 }

@@ -99,8 +99,8 @@ Status SegmentWriter::append_row_column_writer() {
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
 
-    init_column_meta(opts.meta, _footer.columns_size(),
-                    TabletSchema::row_oriented_column(), _tablet_schema);
+    init_column_meta(opts.meta, _footer.columns_size(), TabletSchema::row_oriented_column(),
+                     _tablet_schema);
     opts.need_bloom_filter = false;
     opts.need_bitmap_index = false;
     // smaller page size
@@ -110,13 +110,12 @@ Status SegmentWriter::append_row_column_writer() {
     opts.need_bitmap_index = false;
 
     std::unique_ptr<ColumnWriter> writer;
-    RETURN_IF_ERROR(ColumnWriter::create(opts,
-                    &TabletSchema::row_oriented_column(), _file_writer, &writer));
+    RETURN_IF_ERROR(ColumnWriter::create(opts, &TabletSchema::row_oriented_column(), _file_writer,
+                                         &writer));
     RETURN_IF_ERROR(writer->init());
     _column_ids.push_back(_column_ids.size());
     _column_writers.push_back(std::move(writer));
     _olap_data_convertor->add_column_data_convertor(TabletSchema::row_oriented_column());
-    _has_row_column_writer = true;
     return Status::OK();
 }
 

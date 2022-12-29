@@ -395,7 +395,7 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_time(double data) {
     if constexpr (is_binary_format) {
-        DCHECK(false) << "not implemented";
+        LOG(FATAL) << "not implemented";
     }
     // 1 for string trail, 1 for length, other for time str
     int ret = reserve(2 + MAX_TIME_WIDTH);
@@ -471,6 +471,9 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateTimeValue& data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_decimal(const DecimalV2Value& data, int round_scale) {
+    if constexpr (is_binary_format) {
+        ++_field_pos;
+    }
     // 1 for string trail, 1 for length, other for decimal str
     int ret = reserve(2 + MAX_DECIMAL_WIDTH);
 
@@ -485,6 +488,9 @@ int MysqlRowBuffer<is_binary_format>::push_decimal(const DecimalV2Value& data, i
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_string(const char* str, int64_t length) {
+    if constexpr (is_binary_format) {
+        ++_field_pos;
+    }
     // 9 for length pack max, 1 for sign, other for digits
     if (nullptr == str) {
         LOG(ERROR) << "input string is nullptr.";
@@ -517,7 +523,7 @@ int MysqlRowBuffer<is_binary_format>::push_null() {
         uint offset = (_field_pos + 2) / 8 + 1;
         uint bit = (1 << ((_field_pos + 2) & 7));
         /* Room for this as it's allocated start_binary_row*/
-        char* to = (char*)_pos + offset;
+        char* to = (char*)_buf + offset;
         *to = (char)((uchar)*to | (uchar)bit);
         _field_pos++;
         return 0;

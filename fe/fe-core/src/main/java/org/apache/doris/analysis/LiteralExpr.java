@@ -306,10 +306,14 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 return LiteralExpr.create("", Type.TIME);
             // MYSQL_TYPE_DATE
             case 10:
-                return LiteralExpr.create("0000-00-00", Type.DATE);
+                return LiteralExpr.create("1970-01-01", Type.DATE);
             // MYSQL_TYPE_DATETIME
             case 12:
-                return LiteralExpr.create("0000-00-00 00:00:00", Type.DATETIME);
+            // MYSQL_TYPE_TIMESTAMP
+            case 7:
+            // MYSQL_TYPE_TIMESTAMP2
+            case 17:
+                return LiteralExpr.create("1970-01-01 00:00:00", Type.DATETIME);
             // MYSQL_TYPE_STRING
             case 254:
             case 253:

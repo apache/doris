@@ -404,26 +404,6 @@ class Suite implements GroovyInterceptable {
         return JdbcUtils.prepareStatement(context.getConnection(), sql)
     } 
 
-    void set1(Object stmt, Object arg0) {
-        setArg(1, stmt, arg0);
-    }
-
-    void set2(Object stmt, Object arg1) {
-        setArg(2, stmt, arg0);
-    }
-
-    void setArg(int index, Object stmt, Object arg) {
-        if (arg0 instanceof Integer) {
-            (PreparedStatement) stmt.setInt(index, (Integer) arg0);
-        } 
-        if (arg0 instanceof String) {
-            (PreparedStatement) stmt.setString(index, (String) arg0);
-        } 
-        if (arg0 instanceof BigDecimal) {
-            (PreparedStatement) stmt.setBigDecimal(index, (BigDecimal) arg0);
-        }
-    }
-
     void quickRunTest(String tag, Object arg, boolean isOrder = false) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
