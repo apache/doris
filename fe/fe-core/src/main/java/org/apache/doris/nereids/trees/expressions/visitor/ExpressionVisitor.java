@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -399,6 +400,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitIntegralDivide(IntegralDivide integralDivide, C context) {
         return visitBinaryArithmetic(integralDivide, context);
+    }
+
+    public R visitOrderExpression(OrderExpression orderExpression, C context) {
+        return visit(orderExpression, context);
     }
 
     /* ********************************************************************************************

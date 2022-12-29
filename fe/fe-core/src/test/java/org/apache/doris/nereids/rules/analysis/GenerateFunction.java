@@ -481,7 +481,7 @@ public class GenerateFunction {
                 }
                 if (operators.contains(functionName)
                         || functionName.startsWith("castto")
-                        || (distinctFunctions.contains(functionName) && !"approx_count_distinct".equals(functionName))
+                        || (distinctFunctions.contains(functionName))
                         || onlyUsedInAnalyticFunction.contains(functionName)
                         || isArrayFunction(function)) {
                     continue;

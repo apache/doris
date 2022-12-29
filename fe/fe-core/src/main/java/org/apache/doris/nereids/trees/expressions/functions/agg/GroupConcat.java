@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,7 +39,8 @@ public class GroupConcat extends AggregateFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
@@ -44,29 +48,29 @@ public class GroupConcat extends AggregateFunction
     /**
      * constructor with 1 argument.
      */
-    public GroupConcat(Expression arg) {
-        super("group_concat", arg);
+    public GroupConcat(Expression arg, OrderExpression... orders) {
+        super("group_concat", ExpressionUtils.mergeArguments(arg, orders));
     }
 
     /**
      * constructor with 1 argument.
      */
-    public GroupConcat(boolean distinct, Expression arg) {
-        super("group_concat", distinct, arg);
+    public GroupConcat(boolean distinct, Expression arg, OrderExpression... orders) {
+        super("group_concat", distinct, ExpressionUtils.mergeArguments(arg, orders));
     }
 
     /**
      * constructor with 2 arguments.
      */
-    public GroupConcat(Expression arg0, Expression arg1) {
-        super("group_concat", arg0, arg1);
+    public GroupConcat(Expression arg0, Expression arg1, OrderExpression... orders) {
+        super("group_concat", ExpressionUtils.mergeArguments(arg0, arg1, orders));
     }
 
     /**
      * constructor with 2 arguments.
      */
-    public GroupConcat(boolean distinct, Expression arg0, Expression arg1) {
-        super("group_concat", distinct, arg0, arg1);
+    public GroupConcat(boolean distinct, Expression arg0, Expression arg1, OrderExpression... orders) {
+        super("group_concat", distinct, ExpressionUtils.mergeArguments(arg0, arg1, orders));
     }
 
     /**
@@ -74,12 +78,29 @@ public class GroupConcat extends AggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1
-                || children.size() == 2);
-        if (children.size() == 1) {
-            return new GroupConcat(distinct, children.get(0));
+        Preconditions.checkArgument(children().size() > 1);
+
+        boolean foundOrderExpr = false;
+        int firstOrderExrIndex = 0;
+        for (int i = 0; i < children.size(); i++) {
+            Expression child = children.get(i);
+            if (child instanceof OrderExpression) {
+                foundOrderExpr = true;
+            } else if (!foundOrderExpr) {
+                firstOrderExrIndex++;
+            } else {
+                throw new AnalysisException("invalid group_concat parameters: " + children);
+            }
+        }
+
+        if (firstOrderExrIndex == 1) {
+            List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size());
+            return new GroupConcat(distinct, children.get(0), orders.toArray(new OrderExpression[0]));
+        } else if (firstOrderExrIndex == 2) {
+            List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size());
+            return new GroupConcat(distinct, children.get(0), children.get(1), orders.toArray(new OrderExpression[0]));
         } else {
-            return new GroupConcat(distinct, children.get(0), children.get(1));
+            throw new AnalysisException("group_concat requires one or two parameters: " + children);
         }
     }
 
