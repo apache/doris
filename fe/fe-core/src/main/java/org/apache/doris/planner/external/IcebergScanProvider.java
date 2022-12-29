@@ -22,10 +22,10 @@ import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.SnapshotVersion;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HMSResource;
@@ -176,13 +176,13 @@ public class IcebergScanProvider extends HiveScanProvider {
 
         org.apache.iceberg.Table table = getIcebergTable();
         TableScan scan = table.newScan();
-        SnapshotVersion snapshotVersion = desc.getRef().getSnapshotVersion();
-        if (snapshotVersion != null) {
-            SnapshotVersion.VersionType type = snapshotVersion.getType();
-            if (type == SnapshotVersion.VersionType.VERSION) {
-                scan = scan.useSnapshot(snapshotVersion.getVersion());
+        TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
+        if (tableSnapshot != null) {
+            TableSnapshot.VersionType type = tableSnapshot.getType();
+            if (type == TableSnapshot.VersionType.VERSION) {
+                scan = scan.useSnapshot(tableSnapshot.getVersion());
             } else {
-                LocalDateTime asOfTime = LocalDateTime.parse(snapshotVersion.getTime(), DATE_TIME_FORMATTER);
+                LocalDateTime asOfTime = LocalDateTime.parse(tableSnapshot.getTime(), DATE_TIME_FORMATTER);
                 long snapshotId = LocalDateTime.from(asOfTime).atZone(TimeUtils.getTimeZone().toZoneId())
                         .toInstant().toEpochMilli();
                 scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));

@@ -686,7 +686,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
-nonterminal SnapshotVersion opt_snapshot_version, snapshot_version;
+nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -5098,31 +5098,31 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_snapshot_version:snapshotVersion opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
+    table_name:name opt_table_snapshot:tableSnapshot opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, snapshotVersion);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, tableSnapshot);
     :}
     ;
 
-opt_snapshot_version ::=
+opt_table_snapshot ::=
     /* empty */
     {:
         RESULT = null;
     :}
-    | snapshot_version:snapshotVersion
+    | table_snapshot:tableSnapshot
     {:
-        RESULT = snapshotVersion;
+        RESULT = tableSnapshot;
     :}
     ;
 
-snapshot_version ::=
+table_snapshot ::=
     KW_FOR KW_VERSION KW_AS KW_OF INTEGER_LITERAL:version
     {:
-        RESULT = new SnapshotVersion(version);
+        RESULT = new TableSnapshot(version);
     :}
     | KW_FOR KW_TIME KW_AS KW_OF STRING_LITERAL:time
     {:
-        RESULT = new SnapshotVersion(time);
+        RESULT = new TableSnapshot(time);
     :}
     ;
 

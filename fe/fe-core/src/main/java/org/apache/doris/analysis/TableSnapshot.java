@@ -17,7 +17,11 @@
 
 package org.apache.doris.analysis;
 
-public class SnapshotVersion {
+/**
+ * Snapshot read for time travel
+ * the version in 2022.12.28 just supports external iceberg table
+ */
+public class TableSnapshot {
 
     public enum VersionType {
         TIME, VERSION
@@ -27,17 +31,17 @@ public class SnapshotVersion {
     private String time;
     private long version;
 
-    public SnapshotVersion(long version) {
+    public TableSnapshot(long version) {
         this.version = version;
         this.type = VersionType.VERSION;
     }
 
-    public SnapshotVersion(String time) {
+    public TableSnapshot(String time) {
         this.time = time;
         this.type = VersionType.TIME;
     }
 
-    public SnapshotVersion(SnapshotVersion other) {
+    public TableSnapshot(TableSnapshot other) {
         this.type = other.type;
         this.time = other.time;
         this.version = other.version;
