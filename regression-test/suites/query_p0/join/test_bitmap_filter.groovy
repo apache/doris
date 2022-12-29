@@ -69,4 +69,9 @@ suite("test_bitmap_filter", "query_p0") {
         sql "select k1, k2 from ${tbl1} b1 where k1 in (select k2 from ${tbl2} b2 where b1.k2 = b2.k1) order by k1;"
         exception "In bitmap does not support correlated subquery"
     }
+
+    test {
+        sql "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
+        exception "HAVING clause dose not support in bitmap"
+    }
 }
