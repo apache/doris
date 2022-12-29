@@ -175,19 +175,6 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_NE(delta_writer, nullptr);
 
     MemPool pool;
-    // Tuple 1
-    {
-        Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
-        memset(tuple, 0, tuple_desc->byte_size());
-        *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = 123;
-        *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = 456;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = 1;
-        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))
-                ->from_date_str("2020-07-16 19:39:43", 19);
-
-        res = delta_writer->write(tuple);
-        EXPECT_EQ(Status::OK(), res);
-    }
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -212,7 +199,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);
     }
-    EXPECT_EQ(1, tablet->num_rows());
+    EXPECT_EQ(0, tablet->num_rows());
     // we should sleep 1 second for the migrated tablet has different time with the current tablet
     sleep(1);
 

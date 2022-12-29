@@ -169,8 +169,6 @@ set(RUNTIME_TEST_FILES
     runtime/fragment_mgr_test.cpp
     runtime/mem_limit_test.cpp
     runtime/stream_load_pipe_test.cpp
-    # TODO this test will override DeltaWriter, will make other test failed
-    # runtime/load_channel_mgr_test.cpp
     runtime/snapshot_loader_test.cpp
     runtime/user_function_cache_test.cpp
     runtime/kafka_consumer_pipe_test.cpp
