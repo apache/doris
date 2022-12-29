@@ -2040,9 +2040,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
                 && fn.getReturnType().isDecimalV3()) {
-            if ((children.get(0).getType().getPrecision() + children.get(1).getType().getPrecision()
-                    > ScalarType.MAX_PRECISION || !children.get(0).getType().isDecimalV3()
-                    || !children.get(1).getType().isDecimalV3()) && ConnectContext.get() != null
+            if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
                 return true;
             } else {

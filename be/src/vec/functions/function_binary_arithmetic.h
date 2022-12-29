@@ -354,10 +354,7 @@ struct DecimalBinaryOperation {
                        IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
-        } else if constexpr (!return_nullable_type && is_to_null_type) {
-            LOG(FATAL) << "Invalid function type!";
-            return column_result;
-        } else if constexpr (return_nullable_type) {
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(1, 0);
             column_result->get_element(0) = constant_constant(a, b, null_map->get_element(0));
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
@@ -380,10 +377,7 @@ struct DecimalBinaryOperation {
                        IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
-        } else if constexpr (!return_nullable_type && is_to_null_type) {
-            LOG(FATAL) << "Invalid function type!";
-            return column_result;
-        } else if constexpr (return_nullable_type) {
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
             vector_constant(column_left_ptr->get_data(), b, column_result->get_data(),
                             null_map->get_data());
@@ -407,10 +401,7 @@ struct DecimalBinaryOperation {
                        IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
-        } else if constexpr (!return_nullable_type && is_to_null_type) {
-            LOG(FATAL) << "Invalid function type!";
-            return column_result;
-        } else if constexpr (return_nullable_type) {
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
             constant_vector(a, column_right_ptr->get_data(), column_result->get_data(),
                             null_map->get_data());
@@ -436,10 +427,7 @@ struct DecimalBinaryOperation {
                        IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
-        } else if constexpr (!return_nullable_type && is_to_null_type) {
-            LOG(FATAL) << "Invalid function type!";
-            return column_result;
-        } else if constexpr (return_nullable_type) {
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_result->size(), 0);
             vector_vector(column_left_ptr->get_data(), column_right_ptr->get_data(),
                           column_result->get_data(), null_map->get_data());
