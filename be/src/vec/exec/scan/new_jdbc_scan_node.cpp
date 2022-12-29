@@ -25,7 +25,8 @@ NewJdbcScanNode::NewJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode,
         : VScanNode(pool, tnode, descs),
           _table_name(tnode.jdbc_scan_node.table_name),
           _tuple_id(tnode.jdbc_scan_node.tuple_id),
-          _query_string(tnode.jdbc_scan_node.query_string) {
+          _query_string(tnode.jdbc_scan_node.query_string),
+          _table_type(tnode.jdbc_scan_node.table_type) {
     _output_tuple_id = tnode.jdbc_scan_node.tuple_id;
 }
 
@@ -49,8 +50,8 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    NewJdbcScanner* scanner =
-            new NewJdbcScanner(_state, this, _limit_per_scanner, _tuple_id, _query_string);
+    NewJdbcScanner* scanner = new NewJdbcScanner(_state, this, _limit_per_scanner, _tuple_id,
+                                                 _query_string, _table_type);
     _scanner_pool.add(scanner);
     RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
     scanners->push_back(static_cast<VScanner*>(scanner));
