@@ -99,7 +99,8 @@ private:
     VDataStreamMgr* _mgr;
 
 #ifdef USE_MEM_TRACKER
-    RuntimeState* _state;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    TUniqueId _query_id;
 #endif
 
     // Fragment and node id of the destination exchange node this receiver is used by.
