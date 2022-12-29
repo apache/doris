@@ -24,9 +24,9 @@ suite("test_external_catalog_icebergv2", "p2") {
 
         sql """drop catalog if exists ${catalog_name};"""
         sql """
-            create catalog if not exists test_external_catalog_iceberg properties (
+            create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
-                'hive.metastore.uris' = 'thrift://172.21.16.47:7004'
+                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
             );
         """
 

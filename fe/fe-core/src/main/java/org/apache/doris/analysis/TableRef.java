@@ -515,7 +515,7 @@ public class TableRef implements ParseNode, Writable {
         }
     }
 
-    public void analyzeTableSnapshot(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeTableSnapshot(Analyzer analyzer) throws AnalysisException {
         if (tableSnapshot == null) {
             return;
         }

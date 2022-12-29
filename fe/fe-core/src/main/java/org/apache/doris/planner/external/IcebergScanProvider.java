@@ -67,8 +67,6 @@ import org.apache.iceberg.types.Conversions;
 
 import java.nio.ByteBuffer;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -82,7 +80,6 @@ import java.util.OptionalLong;
  */
 public class IcebergScanProvider extends HiveScanProvider {
 
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
     public static final String V2_DELETE_TBL = "iceberg#delete#tbl";
     public static final String V2_DELETE_DB = "iceberg#delete#db";
@@ -183,9 +180,7 @@ public class IcebergScanProvider extends HiveScanProvider {
                 if (type == TableSnapshot.VersionType.VERSION) {
                     scan = scan.useSnapshot(tableSnapshot.getVersion());
                 } else {
-                    LocalDateTime asOfTime = LocalDateTime.parse(tableSnapshot.getTime(), DATE_TIME_FORMATTER);
-                    long snapshotId = LocalDateTime.from(asOfTime).atZone(TimeUtils.getTimeZone().toZoneId())
-                            .toInstant().toEpochMilli();
+                    long snapshotId = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
                     scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));
                 }
             } catch (IllegalArgumentException e) {
