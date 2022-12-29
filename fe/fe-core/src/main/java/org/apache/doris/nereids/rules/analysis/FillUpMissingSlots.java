@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -170,6 +171,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
                         throw new AnalysisException("Aggregate functions in having clause can't be nested: "
                                 + expression.toSql() + ".");
+                    }
+                    if (groupByExpressions.isEmpty() && expression instanceof NullableAggregateFunction) {
+                        expression = ((NullableAggregateFunction) expression).withAlwaysNullable(true);
                     }
                     generateAliasForNewOutputSlots(expression);
                 } else {
