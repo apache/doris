@@ -27,14 +27,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -87,16 +85,6 @@ public class BindFunction implements AnalysisRuleFactory {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
                     List<Expression> groupBy = bind(agg.getGroupByExpressions(), ctx.connectContext.getEnv());
                     List<NamedExpression> output = bind(agg.getOutputExpressions(), ctx.connectContext.getEnv());
-                    if (groupBy.isEmpty()) {
-                        output = output.stream().map(ne -> {
-                            if (ne.isAlias() && ((Alias) ne).child() instanceof NullableAggregateFunction) {
-                                Alias alias = ((Alias) ne);
-                                NullableAggregateFunction fn = ((NullableAggregateFunction) alias.child());
-                                ne = alias.withChildren(ImmutableList.of(fn.withAlwaysNullable(true)));
-                            }
-                            return ne;
-                        }).collect(Collectors.toList());
-                    }
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),

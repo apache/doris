@@ -19,11 +19,17 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * ProjectToGlobalAggregate.
@@ -50,7 +56,15 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                        .anyMatch(this::hasNonWindowedAggregateFunction);
 
                if (needGlobalAggregate) {
-                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
+                   List<NamedExpression> output = project.getProjects().stream().map(ne -> {
+                       if (ne.isAlias() && ((Alias) ne).child() instanceof NullableAggregateFunction) {
+                           Alias alias = ((Alias) ne);
+                           NullableAggregateFunction fn = ((NullableAggregateFunction) alias.child());
+                           ne = alias.withChildren(ImmutableList.of(fn.withAlwaysNullable(true)));
+                       }
+                       return ne;
+                   }).collect(Collectors.toList());
+                   return new LogicalAggregate<>(ImmutableList.of(), output, project.child());
                } else {
                    return project;
                }
