@@ -56,7 +56,7 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static Status open(WriteRequest* req, DeltaWriter** writer,
-                       const UniqueId& load_id = TUniqueId(), bool is_vec = false);
+                       const UniqueId& load_id = TUniqueId());
 
     ~DeltaWriter();
 
@@ -152,9 +152,6 @@ private:
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
-
-    // use in vectorized load
-    bool _is_vec;
 
     // memory consumption snapshot for current delta_writer, only
     // used for std::sort

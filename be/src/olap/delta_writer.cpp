@@ -35,14 +35,12 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id,
-                         bool is_vec) {
-    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id, is_vec);
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id);
     return Status::OK();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
-                         bool is_vec)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -50,8 +48,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const
           _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _load_id(load_id),
-          _is_vec(is_vec) {}
+          _load_id(load_id) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -291,7 +288,7 @@ void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
                                   _rowset_ids, _cur_max_version, mem_table_insert_tracker,
-                                  mem_table_flush_tracker, _is_vec));
+                                  mem_table_flush_tracker));
 }
 
 Status DeltaWriter::close() {
