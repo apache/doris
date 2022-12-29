@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -245,7 +246,7 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
         }                                                                                          \
     };
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
-DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeFloat64, ts0.second_diff(ts1));
+DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
 
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
     DECLARE_DATE_FUNCTIONS(CLASS, NAME, DataTypeInt64, datetime_diff<TimeUnit::UNIT>(ts1, ts0))
@@ -798,7 +799,7 @@ struct CurrentDateImpl {
 
 template <typename FunctionName>
 struct CurrentTimeImpl {
-    using ReturnType = DataTypeFloat64;
+    using ReturnType = DataTypeTime;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
