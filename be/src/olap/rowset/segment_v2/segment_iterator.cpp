@@ -1359,7 +1359,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {
             // predicate not in compound query
-            block->get_by_name(column_sign.first).column =
+            block->get_by_name(iter.first).column =
                     vectorized::DataTypeUInt8().create_column_const(block->rows(), 1u);
             continue;
         }

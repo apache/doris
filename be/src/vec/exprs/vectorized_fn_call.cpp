@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "common/status.h"
+#include "common/consts.h"
 #include "exprs/anyval_util.h"
 #include "exprs/rpc_fn.h"
 #include "fmt/format.h"
