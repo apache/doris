@@ -192,16 +192,13 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     List<NamedExpression> output =
                             bind(agg.getOutputExpressions(), agg.children(), agg, ctx.cascadesContext);
 
-                    // The columns referenced in group by are first obtained from the child's output,
-                    // and then from the node's output
-                    Map<String, Expression> childOutputsToExpr = agg.child().getOutput().stream()
-                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot, (oldExpr, newExpr) -> oldExpr));
+                    // This is consistent with the behavior of the old optimizer.
+                    // TODO:It will be changed to the SQL standard in the future,
+                    //      first obtained from the child, and then obtained from the output of the operator.
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
                             .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
-                    aliasNameToExpr.entrySet().stream()
-                            .forEach(e -> childOutputsToExpr.putIfAbsent(e.getKey(), e.getValue()));
 
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
@@ -209,8 +206,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                     UnboundSlot unboundSlot = (UnboundSlot) groupBy;
                                     if (unboundSlot.getNameParts().size() == 1) {
                                         String name = unboundSlot.getNameParts().get(0);
-                                        if (childOutputsToExpr.containsKey(name)) {
-                                            return childOutputsToExpr.get(name);
+                                        if (aliasNameToExpr.containsKey(name)) {
+                                            return aliasNameToExpr.get(name);
                                         }
                                     }
                                 }

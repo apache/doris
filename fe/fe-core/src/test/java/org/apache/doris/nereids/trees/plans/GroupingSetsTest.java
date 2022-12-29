@@ -232,4 +232,10 @@ public class GroupingSetsTest extends TestWithFeService {
                 .checkPlannerResult("select if(col1 = null, 'all', 2) as col2, count(*) as cnt from"
                         + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col2),());");
     }
+
+    @Test
+    public void testGroup() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select b.k2 as k2 from t1 a left join (select k2 from t1) b on a.k2 = b.k2 group by k2");
+    }
 }
