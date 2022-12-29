@@ -396,7 +396,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
                 for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
-                    rows.add(Arrays.asList(elem.getKey(), elem.getValue()));
+                    if (PrintableMap.SENSITIVE_KEY.contains(elem.getKey())) {
+                        rows.add(Arrays.asList(elem.getKey(), PrintableMap.PASSWORD_MASK));
+                    } else {
+                        rows.add(Arrays.asList(elem.getKey(), elem.getValue()));
+                    }
                 }
             }
         } finally {
