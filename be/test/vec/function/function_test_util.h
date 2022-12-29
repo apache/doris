@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -233,7 +234,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_INT;
-    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
+                         std::is_same_v<ReturnType, DataTypeTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
@@ -293,7 +295,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
                     EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
-                                     std::is_same_v<ReturnType, DataTypeFloat64>) {
+                                     std::is_same_v<ReturnType, DataTypeFloat64> ||
+                                     std::is_same_v<ReturnType, DataTypeTime>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {
