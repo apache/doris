@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_reader_options.h"
 
 namespace doris {
 namespace io {
@@ -59,7 +60,7 @@ public:
 
     FileCachePtr new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
-                                const std::string& file_cache_type);
+                                io::FileCacheType cache_type);
 
     bool exist(const std::string& cache_path);
 
