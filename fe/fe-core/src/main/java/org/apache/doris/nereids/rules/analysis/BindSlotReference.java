@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -45,6 +46,8 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -125,7 +128,15 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
                     Set<Expression> boundConjuncts
-                            = bind(filter.getConjuncts(), filter.children(), filter, ctx.cascadesContext);
+                            = bind(filter.getConjuncts(), filter.children(), filter, ctx.cascadesContext)
+                            .stream().map(e -> {
+                                if (e.isAlias() && ((Alias) e).child() instanceof NullableAggregateFunction) {
+                                    Alias alias = ((Alias) e);
+                                    NullableAggregateFunction fn = ((NullableAggregateFunction) alias.child());
+                                    e = alias.withChildren(ImmutableList.of(fn.withAlwaysNullable(true)));
+                                }
+                                return e;
+                            }).collect(Collectors.toSet());
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
