@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HMSResource;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
@@ -54,14 +56,17 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.types.Conversions;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -168,6 +173,20 @@ public class IcebergScanProvider extends HiveScanProvider {
 
         org.apache.iceberg.Table table = getIcebergTable();
         TableScan scan = table.newScan();
+        TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
+        if (tableSnapshot != null) {
+            TableSnapshot.VersionType type = tableSnapshot.getType();
+            try {
+                if (type == TableSnapshot.VersionType.VERSION) {
+                    scan = scan.useSnapshot(tableSnapshot.getVersion());
+                } else {
+                    long snapshotId = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
+                    scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));
+                }
+            } catch (IllegalArgumentException e) {
+                throw new UserException(e);
+            }
+        }
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
         }
@@ -197,6 +216,27 @@ public class IcebergScanProvider extends HiveScanProvider {
             }
         }
         return splits;
+    }
+
+    public static long getSnapshotIdAsOfTime(List<HistoryEntry> historyEntries, long asOfTimestamp) {
+        // find history at or before asOfTimestamp
+        HistoryEntry latestHistory = null;
+        for (HistoryEntry entry : historyEntries) {
+            if (entry.timestampMillis() <= asOfTimestamp) {
+                if (latestHistory == null) {
+                    latestHistory = entry;
+                    continue;
+                }
+                if (entry.timestampMillis() > latestHistory.timestampMillis()) {
+                    latestHistory = entry;
+                }
+            }
+        }
+        if (latestHistory == null) {
+            throw new NotFoundException("No version history at or before "
+                + Instant.ofEpochMilli(asOfTimestamp));
+        }
+        return latestHistory.snapshotId();
     }
 
     private List<IcebergDeleteFileFilter> getDeleteFileFilters(FileScanTask spitTask) {
