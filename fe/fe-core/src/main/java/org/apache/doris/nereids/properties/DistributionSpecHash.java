@@ -28,6 +28,7 @@ import com.google.common.collect.Sets;
 
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -154,6 +155,13 @@ public class DistributionSpecHash extends DistributionSpec {
         return exprIdToEquivalenceSet;
     }
 
+    public Set<ExprId> getEquivalenceExprIdsOf(ExprId exprId) {
+        if (exprIdToEquivalenceSet.containsKey(exprId)) {
+            return equivalenceExprIds.get(exprIdToEquivalenceSet.get(exprId));
+        }
+        return new HashSet<>();
+    }
+
     @Override
     public boolean satisfy(DistributionSpec required) {
         if (required instanceof DistributionSpecAny) {
@@ -174,7 +182,13 @@ public class DistributionSpecHash extends DistributionSpec {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
+        // when this shuffle type is natural, we allow contains satisfied for possible colocate-join
+        if (this.shuffleType == ShuffleType.NATURAL) {
+            return containsSatisfy(requiredHash.getOrderedShuffledColumns());
+        }
+
+        if (requiredHash.shuffleType == ShuffleType.NATURAL) {
+            // this shuffle type is not natural but require natural
             return false;
         }
 

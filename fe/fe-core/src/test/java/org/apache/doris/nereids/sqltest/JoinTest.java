@@ -20,6 +20,7 @@ package org.apache.doris.nereids.sqltest;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class JoinTest extends SqlTestBase {
@@ -32,5 +33,33 @@ public class JoinTest extends SqlTestBase {
                 .matches(
                         innerLogicalJoin().when(j -> j.getHashJoinConjuncts().size() == 1)
                 );
+    }
+
+    @Test
+    void testColocatedJoin() {
+        String sql = "select * from T2 join T2 b on T2.id = b.id and T2.id = b.id;";
+        String plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
+                .optimize()
+                .getBestPlanTree()
+                .treeString();
+        Assertions.assertEquals(plan,
+                "PhysicalHashJoin ( type=INNER_JOIN, hashJoinCondition=[(id#0 = id#2), (id#0 = id#2)], otherJoinCondition=[], stats=(rows=1, width=2, penalty=0.0) )\n"
+                        + "|--PhysicalOlapScan ( qualified=default_cluster:test.T2, output=[id#0, score#1], stats=(rows=1, width=1, penalty=0.0) )\n"
+                        + "+--PhysicalOlapScan ( qualified=default_cluster:test.T2, output=[id#2, score#3], stats=(rows=1, width=1, penalty=0.0) )");
+        sql = "select * from T1 join T0 on T1.score = T0.score and T1.id = T0.id;";
+        plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
+                .optimize()
+                .getBestPlanTree()
+                .treeString();
+        Assertions.assertEquals(plan,
+                "PhysicalHashJoin ( type=INNER_JOIN, hashJoinCondition=[(score#1 = score#3), (id#0 = id#2)], otherJoinCondition=[], stats=(rows=1, width=2, penalty=0.0) )\n"
+                        + "|--PhysicalOlapScan ( qualified=default_cluster:test.T1, output=[id#0, score#1], stats=(rows=1, width=1, penalty=0.0) )\n"
+                        + "+--PhysicalOlapScan ( qualified=default_cluster:test.T0, output=[id#2, score#3], stats=(rows=1, width=1, penalty=0.0) )");
     }
 }
