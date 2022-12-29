@@ -370,6 +370,7 @@ inline Status CollectIterator::Level1Iterator::_merge_next(const RowCursor** row
             return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         }
     } else {
+        delete _cur_child;
         _cur_child = nullptr;
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
