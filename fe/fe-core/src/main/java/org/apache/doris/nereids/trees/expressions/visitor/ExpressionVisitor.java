@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -389,6 +390,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitBoundStar(BoundStar boundStar, C context) {
         return visit(boundStar, context);
+    }
+
+    public R visitIntegralDivide(IntegralDivide integralDivide, C context) {
+        return visitBinaryArithmetic(integralDivide, context);
     }
 
     /* ********************************************************************************************
