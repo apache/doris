@@ -453,7 +453,11 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
     for (const auto arg_index : arguments) {
         auto& data = block.get_by_position(arg_index);
         args_in.push_back(data.column.get());
-        is_nullable |= data.column->is_nullable();
+        if (const ColumnConst* const_col = check_and_get_column<ColumnConst>(*data.column)) {
+            is_nullable |= const_col->get_data_column().is_nullable();
+        } else {
+            is_nullable |= data.column->is_nullable();
+        }
     }
 
     auto& result_info = block.get_by_position(result_index);
