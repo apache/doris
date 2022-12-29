@@ -310,6 +310,10 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
     case TPrimitiveType::JSONB:
         return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
+    case TPrimitiveType::STRUCT:
+        // Note that(xy): this is the length of struct type itself,
+        // the length of its subtypes are not included.
+        return OLAP_STRUCT_MAX_LENGTH;
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::DECIMAL32:
@@ -402,8 +406,13 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
-
-    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+        for (size_t i = 0; i < column.children_columns_size(); i++) {
+            TabletColumn child_column;
+            child_column.init_from_pb(column.children_columns(i));
+            add_sub_column(child_column);
+        }
+    } else if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(0));
@@ -435,7 +444,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_visible(_visible);
 
-    if (_type == OLAP_FIELD_TYPE_ARRAY) {
+    if (_type == OLAP_FIELD_TYPE_STRUCT) {
+        for (size_t i = 0; i < _sub_columns.size(); i++) {
+            ColumnPB* child = column->add_children_columns();
+            _sub_columns[i].to_schema_pb(child);
+        }
+    }else if (_type == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);

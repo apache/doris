@@ -107,6 +107,21 @@ struct BaseAggregateFuncs {
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {}
 };
 
+// Define an empty trait for struct type because
+// we now only support struct type in dup key table.
+template <FieldType sub_type>
+struct BaseAggregateFuncs<OLAP_FIELD_TYPE_STRUCT, sub_type> {
+    // Default init do nothing, use direct_copy in struct field instead.
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {}
+
+    // Default update do nothing.
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {}
+
+    // Default finalize do nothing.
+    static void finalize(RowCursorCell* src, MemPool* mem_pool) {}
+};
+
 template <FieldType sub_type>
 struct BaseAggregateFuncs<OLAP_FIELD_TYPE_ARRAY, sub_type> {
     static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,

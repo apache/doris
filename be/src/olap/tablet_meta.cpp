@@ -295,8 +295,12 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
-
-    if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
+    if (tcolumn.column_type.type == TPrimitiveType::STRUCT) {
+        for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
+            ColumnPB* children_column = column->add_children_columns();
+            init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
+        }
+    }else if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
     }

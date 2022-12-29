@@ -336,7 +336,7 @@ public class CreateTableStmt extends DdlStmt {
                     // So the float and double could not be the first column in OLAP table.
                     if (keysColumnNames.isEmpty()) {
                         throw new AnalysisException("The olap table first column could not be float, double, string"
-                                + " or array, please use decimal or varchar instead.");
+                                + " or array, struct, please use decimal or varchar instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
