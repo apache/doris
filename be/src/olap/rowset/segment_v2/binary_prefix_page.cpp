@@ -257,17 +257,19 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     RETURN_IF_ERROR(_copy_current_to_output(dst->pool(), out));
     i++;
     out++;
+    _cur_pos++;
 
     // read and copy remaining values
     for (; i < max_fetch; ++i) {
-        _cur_pos++;
         RETURN_IF_ERROR(_read_next_value_to_output(prev[i - 1], dst->pool(), out));
         out++;
+        _cur_pos++;
     }
 
     //must update _current_value
     _current_value.clear();
     _current_value.assign_copy((uint8_t*)prev[i - 1].data, prev[i - 1].size);
+    _read_next_value();
 
     *n = max_fetch;
     return Status::OK();
