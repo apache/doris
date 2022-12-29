@@ -31,7 +31,6 @@ github:
     - etl
     - elt
     - sql
-    - mpp
     - snowflake
     - redshift
     - bigquery
