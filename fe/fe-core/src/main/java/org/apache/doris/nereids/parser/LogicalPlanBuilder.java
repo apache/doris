@@ -199,6 +199,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -500,6 +501,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression expression = getExpression(ctx.expression());
             if (ctx.name != null) {
                 return new UnboundAlias(expression, ctx.name.getText());
+            } else if (ctx.strName != null) {
+                return new UnboundAlias(expression, ctx.strName.getText()
+                        .substring(1, ctx.strName.getText().length() - 1));
             } else {
                 return expression;
             }
@@ -1246,28 +1250,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
-
-            // TODO: natural join, lateral join, using join, union join
-            JoinCriteriaContext joinCriteria = join.joinCriteria();
-            Optional<Expression> condition = Optional.empty();
-            if (joinCriteria != null) {
-                if (joinCriteria.booleanExpression() != null) {
-                    condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
-                }
-                if (joinCriteria.USING() != null) {
-                    List<UnboundSlot> ids =
-                            visitIdentifierList(joinCriteria.identifierList())
-                                    .stream().map(UnboundSlot::quoted).collect(
-                                            Collectors.toList());
-                    return new LogicalJoin(JoinType.USING_JOIN, ids, last, plan(join.relationPrimary()));
-                }
-            } else {
-                // keep same with original planner, allow cross/inner join
-                if (!joinType.isInnerOrCrossJoin()) {
-                    throw new ParseException("on mustn't be empty except for cross/inner join", join);
-                }
-            }
-
             JoinHint joinHint = Optional.ofNullable(join.joinHint()).map(hintCtx -> {
                 String hint = typedVisit(join.joinHint());
                 if (JoinHint.JoinHintType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
@@ -1278,13 +1260,35 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Invalid join hint: " + hint, hintCtx);
                 }
             }).orElse(JoinHint.NONE);
-
-            last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
-                    condition.map(ExpressionUtils::extractConjunction)
-                            .orElse(ExpressionUtils.EMPTY_CONDITION),
-                    joinHint,
-                    last,
-                    plan(join.relationPrimary()));
+            // TODO: natural join, lateral join, using join, union join
+            JoinCriteriaContext joinCriteria = join.joinCriteria();
+            Optional<Expression> condition = Optional.empty();
+            List<UnboundSlot> ids = null;
+            if (joinCriteria != null) {
+                if (joinCriteria.booleanExpression() != null) {
+                    condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
+                } else if (joinCriteria.USING() != null) {
+                    ids = visitIdentifierList(joinCriteria.identifierList())
+                                    .stream().map(UnboundSlot::quoted).collect(
+                                            Collectors.toList());
+                }
+            } else {
+                // keep same with original planner, allow cross/inner join
+                if (!joinType.isInnerOrCrossJoin()) {
+                    throw new ParseException("on mustn't be empty except for cross/inner join", join);
+                }
+            }
+            if (ids == null) {
+                last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
+                        condition.map(ExpressionUtils::extractConjunction)
+                                .orElse(ExpressionUtils.EMPTY_CONDITION),
+                        joinHint,
+                        last,
+                        plan(join.relationPrimary()));
+            } else {
+                last = new UsingJoin(joinType, last,
+                        plan(join.relationPrimary()), Collections.emptyList(), ids, joinHint);
+            }
         }
         return last;
     }

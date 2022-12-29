@@ -115,4 +115,4 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive bitmap 导入 doris
 
- 详见: [Spark Load](../../../data-operate/import/import-way/spark-load-manual) -> 基本操作  -> 创建导入 (示例3：上游数据源是hive binary类型情况)
+ 详见: [Spark Load](../../data-operate/import/import-way/spark-load-manual) -> 基本操作  -> 创建导入 (示例3：上游数据源是hive binary类型情况)

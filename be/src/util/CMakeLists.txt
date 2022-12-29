@@ -106,6 +106,7 @@ set(UTIL_FILES
   hdfs_util.cpp
   time_lut.cpp
   topn_counter.cpp
+  cityhash102/city.cc
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp

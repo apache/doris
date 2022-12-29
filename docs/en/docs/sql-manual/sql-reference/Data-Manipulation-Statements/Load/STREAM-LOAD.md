@@ -431,11 +431,11 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 4. Label, import transaction, multi-table atomicity
 
-   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../../data-operate/import/import-scenes/load-atomicity) documentation.
+   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../data-operate/import/import-scenes/load-atomicity) documentation.
 
 5. Column mapping, derived columns and filtering
 
-   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
+   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert) document.
 
 6. Error data filtering
 

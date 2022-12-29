@@ -489,7 +489,7 @@ WITH BROKER broker_name
 
 2. Cancel the import task
 
-   Import tasks that have been submitted but not yet completed can be canceled by the [CANCEL LOAD](./CANCEL-LOAD.md) command. After cancellation, the written data will also be rolled back and will not take effect.
+   Import tasks that have been submitted but not yet completed can be canceled by the [CANCEL LOAD](./CANCEL-LOAD) command. After cancellation, the written data will also be rolled back and will not take effect.
 
 3. Label, import transaction, multi-table atomicity
 

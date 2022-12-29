@@ -23,6 +23,8 @@
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "olap/itoken_extractor.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 
@@ -38,7 +40,7 @@ struct BloomFilterOptions;
 
 class BloomFilterIndexWriter {
 public:
-    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* type_info,
+    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
                          std::unique_ptr<BloomFilterIndexWriter>* res);
 
     BloomFilterIndexWriter() = default;
@@ -56,6 +58,31 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(BloomFilterIndexWriter);
+};
+
+class NGramBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
+public:
+    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
+                         uint8_t gram_size, uint16_t gram_bf_size,
+                         std::unique_ptr<BloomFilterIndexWriter>* res);
+
+    NGramBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options, uint8_t gram_size,
+                                    uint16_t bf_size);
+    void add_values(const void* values, size_t count) override;
+    void add_nulls(uint32_t) override {}
+    Status flush() override;
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
+    uint64_t size() override;
+
+private:
+    BloomFilterOptions _bf_options;
+    uint8_t _gram_size;
+    uint16_t _bf_size;
+    MemPool _pool;
+    uint64_t _bf_buffer_size;
+    NgramTokenExtractor _token_extractor;
+    std::unique_ptr<BloomFilter> _bf;
+    std::vector<std::unique_ptr<BloomFilter>> _bfs;
 };
 
 } // namespace segment_v2

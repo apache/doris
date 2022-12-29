@@ -2949,7 +2949,7 @@ public class Env {
             }
 
             // unique key table with merge on write
-            if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }

@@ -22,6 +22,11 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "olap/bloom_filter_predicate.h"
+#include "olap/comparison_predicate.h"
+#include "olap/in_list_predicate.h"
+#include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
@@ -83,6 +88,9 @@ TabletReader::~TabletReader() {
         delete pred;
     }
     for (auto pred : _value_col_predicates) {
+        delete pred;
+    }
+    for (auto pred : _col_preds_except_leafnode_of_andnode) {
         delete pred;
     }
 }
@@ -200,6 +208,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
+    _reader_context.predicates_except_leafnode_of_andnode = &_col_preds_except_leafnode_of_andnode;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
@@ -216,6 +225,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
+    _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
 
     *valid_rs_readers = *rs_readers;
 
@@ -234,6 +244,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_context.runtime_state = read_params.runtime_state;
 
     _init_conditions_param(read_params);
+    _init_conditions_param_except_leafnode_of_andnode(read_params);
 
     Status res = _init_delete_condition(read_params);
     if (!res.ok()) {
@@ -463,8 +474,52 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 
     // Function filter push down to storage engine
+    auto is_like_predicate = [](ColumnPredicate* _pred) {
+        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
+            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
+            return true;
+        }
+
+        return false;
+    };
+
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
+        auto* pred = _col_predicates.back();
+        const auto& col = _tablet->tablet_schema()->column(pred->column_id());
+        auto is_like = is_like_predicate(pred);
+        auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
+
+        if (is_like && tablet_index && config::enable_query_like_bloom_filter) {
+            std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+            std::string pattern = pred->get_search_str();
+            auto gram_bf_size = tablet_index->get_gram_bf_size();
+            auto gram_size = tablet_index->get_gram_size();
+
+            segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+            NgramTokenExtractor _token_extractor(gram_size);
+
+            if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
+                                                             *ng_bf)) {
+                pred->set_page_ng_bf(std::move(ng_bf));
+            }
+        }
+    }
+}
+
+void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
+        const ReaderParams& read_params) {
+    for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
+        TCondition tmp_cond = condition;
+        auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
+        tmp_cond.__set_column_unique_id(condition_col_uid);
+        ColumnPredicate* predicate =
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+        if (predicate != nullptr) {
+            auto predicate_params = predicate->predicate_params();
+            predicate_params->value = condition.condition_values[0];
+            _col_preds_except_leafnode_of_andnode.push_back(predicate);
+        }
     }
 }
 

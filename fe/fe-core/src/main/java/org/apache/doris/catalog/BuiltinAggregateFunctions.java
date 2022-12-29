@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -59,8 +60,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
             agg(GroupBitXor.class, "group_bit_xor"),
-            agg(Ndv.class)
-
+            agg(Ndv.class),
+            agg(ApproxCountDistinct.class, "approx_count_distinct")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();

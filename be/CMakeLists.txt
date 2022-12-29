@@ -510,6 +510,8 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
     if (USE_AVX2)
         set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
     endif()
+    # set -mlzcnt for leading zero count used by simdjson
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 

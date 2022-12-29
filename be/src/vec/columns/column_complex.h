@@ -47,6 +47,7 @@ public:
     bool is_numeric() const override { return false; }
 
     bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
+    bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
 
     size_t size() const override { return data.size(); }
 
