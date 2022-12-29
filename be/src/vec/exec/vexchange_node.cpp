@@ -119,6 +119,7 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             *eos = true;
             auto limit = _limit - _num_rows_returned;
             block->set_num_rows(limit);
+            _num_rows_returned = _limit;
         }
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }

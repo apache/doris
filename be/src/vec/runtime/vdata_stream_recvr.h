@@ -261,6 +261,7 @@ public:
         _data_arrival_cv.notify_one();
 
         _recvr->_num_buffered_bytes += block_size;
+        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
     }
 };
 } // namespace vectorized
