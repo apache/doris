@@ -564,6 +564,8 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
 }
 
 Status SegmentIterator::_apply_inverted_index() {
+    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
+    size_t input_rows = _row_bitmap.cardinality();
     std::vector<ColumnPredicate*> remaining_predicates;
 
     for (auto pred : _col_predicates) {
@@ -597,6 +599,7 @@ Status SegmentIterator::_apply_inverted_index() {
         }
     }
     _col_predicates = std::move(remaining_predicates);
+    _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
 }
 
@@ -1350,6 +1353,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
 void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
                                                   vectorized::Block* block) {
+    SCOPED_RAW_TIMER(&_opts.stats->output_index_result_column_timer);
     if (block->rows() == 0) {
         return;
     }
