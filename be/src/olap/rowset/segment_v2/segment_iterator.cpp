@@ -485,7 +485,7 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
-        if (!_check_apply_by_bitmap_index(pred)) {
+        if (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred)) {
             return false;
         }
     }
@@ -502,10 +502,31 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
     return true;
 }
 
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
+    bool handle_by_fulltext = _is_handle_predicate_by_fulltext(pred);
+    int32_t unique_id = _schema.unique_id(pred->column_id());
+    if (_inverted_index_iterators.count(unique_id) < 1 ||
+        _inverted_index_iterators[unique_id] == nullptr ||
+        (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
+        // 1. this column without inverted index
+        // 2. equal or range qeury for fulltext index
+        return false;
+    }
+    return true;
+}
+
 Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
     RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
+                                   output_result));
+    return Status::OK();
+}
+
+Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
+        ColumnPredicate* pred, roaring::Roaring* output_result) {
+    int32_t unique_id = _schema.unique_id(pred->column_id());
+    RETURN_IF_ERROR(pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(),
                                    output_result));
     return Status::OK();
 }
@@ -521,10 +542,13 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         bool can_apply_by_bitmap_index = _check_apply_by_bitmap_index(pred);
+        bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred);
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
         if (can_apply_by_bitmap_index) {
             res = _apply_bitmap_index_except_leafnode_of_andnode(pred, &bitmap);
+        } else if (can_apply_by_inverted_index) {
+            res = _apply_inverted_index_except_leafnode_of_andnode(pred, &bitmap);
         } else {
             continue;
         }
