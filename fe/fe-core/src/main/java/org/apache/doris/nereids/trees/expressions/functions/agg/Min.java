@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -31,7 +32,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** min agg function. */
-public class Min extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
+public class Min extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature,
+        ForbiddenMetricTypeArguments {
 
     public Min(Expression child) {
         super("min", child);

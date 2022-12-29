@@ -23,11 +23,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -109,9 +106,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             if (((LogicalAggregate<?>) plan).getGroupByExpressions().stream()
                     .anyMatch(expression -> expression.getDataType().isOnlyMetricType())
                     || ((LogicalAggregate<?>) plan).getAggregateFunctions().stream()
-                    .filter(aggregateFunction -> aggregateFunction instanceof Max
-                            || aggregateFunction instanceof Min || aggregateFunction instanceof Count
-                            || aggregateFunction instanceof Ndv).anyMatch(
+                    .filter(aggregateFunction -> aggregateFunction instanceof ForbiddenMetricTypeArguments).anyMatch(
                                 aggregateFunction -> aggregateFunction.getArgumentsTypes().stream()
                                     .anyMatch(dataType -> dataType.isOnlyMetricType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);

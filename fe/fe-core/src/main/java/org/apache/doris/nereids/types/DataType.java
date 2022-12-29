@@ -500,6 +500,11 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof ArrayType;
     }
 
+    // only metric types have the following constraint:
+    // 1. don't support as key column
+    // 2. don't support filter
+    // 3. don't support group by
+    // 4. don't support index
     public boolean isOnlyMetricType() {
         return isHll() || isBitmap() || isQuantileState() || isArray();
     }
