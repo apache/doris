@@ -25,4 +25,8 @@ suite("agg_with_empty_set") {
     qt_select2 "select count(c_custkey), max(c_custkey), min(c_custkey), avg(c_custkey), sum(c_custkey) from customer where 1=1"
     qt_select3 "select count(c_custkey), max(c_custkey), min(c_custkey), avg(c_custkey), sum(c_custkey) from customer where 1=2 group by c_custkey"
     qt_select4 "select count(c_custkey), max(c_custkey), min(c_custkey), avg(c_custkey), sum(c_custkey) from customer where 1=1 group by c_custkey"
+    qt_select5 """select count(c_custkey), max(c_custkey), min(c_custkey), avg(c_custkey), sum(c_custkey) from customer where c_custkey < 
+        (select min(c_custkey) from customer)"""
+    qt_select6 """select count(c_custkey), max(c_custkey), min(c_custkey), avg(c_custkey), sum(c_custkey) from customer where c_custkey < 
+        (select min(c_custkey) from customer) having min(c_custkey) is null"""
 }
