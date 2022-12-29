@@ -260,6 +260,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(slot -> slot.getId().asInt())
                     .collect(ImmutableList.toImmutableList());
         }
+
         boolean isPartial = aggregate.getAggregateParam().aggMode.productAggregateBuffer;
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
                 aggFunOutputIds, isPartial, outputTupleDesc, outputTupleDesc, aggregate.getAggPhase().toExec());
@@ -978,9 +979,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         continue;
                     }
                     SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
-                    if (sf == null) {
-                        continue;
-                    }
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     leftIntermediateSlotDescriptor.add(sd);
                 }
@@ -989,9 +987,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         continue;
                     }
                     SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
-                    if (sf == null) {
-                        continue;
-                    }
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     rightIntermediateSlotDescriptor.add(sd);
                 }
