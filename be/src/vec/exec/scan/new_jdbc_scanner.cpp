@@ -125,7 +125,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, state->batch_size()));
+        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, block, state->batch_size()));
 
         if (_jdbc_eos == true) {
             if (block->rows() == 0) {
