@@ -492,6 +492,18 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof HllType;
     }
 
+    public boolean isQuantileState() {
+        return this instanceof QuantileStateType;
+    }
+
+    public boolean isArray() {
+        return this instanceof ArrayType;
+    }
+
+    public boolean isOnlyMetricType() {
+        return isHll() || isBitmap() || isQuantileState() || isArray();
+    }
+
     public DataType promotion() {
         if (PROMOTION_MAP.containsKey(this.getClass())) {
             return PROMOTION_MAP.get(this.getClass()).get();

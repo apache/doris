@@ -36,10 +36,12 @@ public class ApproxCountDistinct extends AggregateFunction
         implements AlwaysNotNullable, ExplicitlyCastableSignature {
     public ApproxCountDistinct(Expression arg0, Expression... varArgs) {
         super("approx_count_distinct", false, ExpressionUtils.mergeArguments(arg0, varArgs));
+        checkNoMetricTypeArguments();
     }
 
     public ApproxCountDistinct(boolean isDistinct, Expression arg0, Expression... varArgs) {
         super("approx_count_distinct", false, ExpressionUtils.mergeArguments(arg0, varArgs));
+        checkNoMetricTypeArguments();
     }
 
     @Override

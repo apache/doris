@@ -35,10 +35,12 @@ public class Min extends AggregateFunction implements UnaryExpression, Propagate
 
     public Min(Expression child) {
         super("min", child);
+        checkNoMetricTypeArguments();
     }
 
     public Min(boolean isDistinct, Expression arg) {
         super("min", false, arg);
+        checkNoMetricTypeArguments();
     }
 
     @Override

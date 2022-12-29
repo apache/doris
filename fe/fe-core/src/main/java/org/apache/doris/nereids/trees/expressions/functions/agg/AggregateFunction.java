@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -56,6 +59,13 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     public AggregateFunction(String name, boolean isDistinct, List<Expression> children) {
         super(name, children);
         this.isDistinct = isDistinct;
+    }
+
+    protected void checkNoMetricTypeArguments() {
+        if (this.children.stream().anyMatch(
+                expression -> !(expression instanceof Unbound) && expression.getDataType().isOnlyMetricType())) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
     }
 
     @Override

@@ -93,6 +93,7 @@ public class Ndv extends AggregateFunction
      */
     public Ndv(Expression arg) {
         super("ndv", arg);
+        checkNoMetricTypeArguments();
     }
 
     /**

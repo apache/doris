@@ -44,14 +44,17 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     public Count(Expression child) {
         super("count", child);
         this.isStar = false;
+        checkNoMetricTypeArguments();
     }
 
+    /** create a Count expr */
     public Count(boolean isDistinct, Expression arg0, Expression... varArgs) {
         super("count", isDistinct, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
         if (!isDistinct && arity() > 1) {
             throw new AnalysisException("COUNT must have DISTINCT for multiple arguments" + this.toSql());
         }
+        checkNoMetricTypeArguments();
     }
 
     public boolean isStar() {
