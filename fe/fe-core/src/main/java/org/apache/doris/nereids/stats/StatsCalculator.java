@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -172,6 +174,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
+        fileScan.getExpressions();
+        return computeScan(fileScan);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
         return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
     }
@@ -254,6 +262,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
         return new StatsDeriveResult(1);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
+        return computeScan(fileScan);
     }
 
     @Override
@@ -359,7 +372,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
-        Table table = scan.getTable();
+        TableIf table = scan.getTable();
         double rowCount = scan.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
@@ -370,7 +383,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
             if (!colStats.isUnKnown) {
                 rowCount = colStats.count;
-
             }
             columnStatisticMap.put(slotReference.getExprId(), colStats);
         }
