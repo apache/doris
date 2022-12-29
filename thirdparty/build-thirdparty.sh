@@ -49,6 +49,7 @@ usage() {
 Usage: $0 <options>
   Optional options:
      -j                 build thirdparty parallel
+     --clean            clean the extracted data
   "
     exit 1
 }
@@ -58,6 +59,7 @@ if ! OPTS="$(getopt \
     -o '' \
     -o 'h' \
     -l 'help' \
+    -l 'clean' \
     -o 'j:' \
     -- "$@")"; then
     usage
@@ -88,6 +90,10 @@ if [[ "$#" -ne 1 ]]; then
             HELP=1
             shift
             ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
         --)
             shift
             break
@@ -102,11 +108,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
+    CLEAN               -- ${CLEAN}
 "
 
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
@@ -122,6 +128,12 @@ fi
 . "${TP_DIR}/vars.sh"
 
 cd "${TP_DIR}"
+
+if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
+    echo 'Clean the extracted data ...'
+    find "${TP_SOURCE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} \;
+    echo 'Success!'
+fi
 
 # Download thirdparties.
 "${TP_DIR}/download-thirdparty.sh"

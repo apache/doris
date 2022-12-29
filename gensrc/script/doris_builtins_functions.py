@@ -2424,8 +2424,8 @@ visible_functions = [
     [['running_difference'], 'DECIMAL128', ['DECIMAL128'], '', '', '', 'vec', ''],
     [['running_difference'], 'INT', ['DATE'], '', '', '', 'vec', ''],
     [['running_difference'], 'INT', ['DATEV2'], '', '', '', 'vec', ''],
-    [['running_difference'], 'DOUBLE', ['DATETIME'], '', '', '', 'vec', ''],
-    [['running_difference'], 'DOUBLE', ['DATETIMEV2'], '', '', '', 'vec', ''],
+    [['running_difference'], 'TIME', ['DATETIME'], '', '', '', 'vec', ''],
+    [['running_difference'], 'TIMEV2', ['DATETIMEV2'], '', '', '', 'vec', ''],
 
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],

@@ -83,8 +83,8 @@ suite("add_table_policy_by_alter_table") {
     def alter_table_when_table_has_storage_policy_result = try_sql """
         ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
     """
-    // errCode = 2, detailMessage = Do not support alter table's storage policy , this table [create_table_not_have_policy] has storage policy created_create_table_alter_policy
-    assertEquals(alter_table_when_table_has_storage_policy_result, null);
+    // OK
+    assertEquals(alter_table_when_table_has_storage_policy_result.size(), 1);
 
     if (!storage_exist.call("created_create_table_alter_policy_1")) {
         def create_s3_resource = try_sql """
@@ -113,8 +113,8 @@ suite("add_table_policy_by_alter_table") {
     def cannot_modify_exist_storage_policy_table_result = try_sql """
         ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy_1");
     """
-    //  errCode = 2, detailMessage = Do not support alter table's storage policy , this table [create_table_not_have_policy] has storage policy created_create_table_alter_policy
-    assertEquals(cannot_modify_exist_storage_policy_table_result, null);
+    // OK
+    assertEquals(cannot_modify_exist_storage_policy_table_result.size(), 1);
 
     // you can change created_create_table_alter_policy's policy cooldown time, cooldown ttl property,
     // by alter storage policy

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -312,14 +313,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
 
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "Aggregate functions in having clause can't be nested: sum((a1 + avg(a2))).",
+                "Aggregate functions in having clause can't be nested:"
+                        + " sum(cast((cast(a1 as DOUBLE) + avg(cast(a2 as DOUBLE))) as SMALLINT)).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + AVG(a2)) > 0"
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "Aggregate functions in having clause can't be nested: sum(((a1 + a2) + avg(a2))).",
+                "Aggregate functions in having clause can't be nested:"
+                        + " sum(cast((cast((a1 + a2) as DOUBLE) + avg(cast(a2 as DOUBLE))) as INT)).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + AVG(a2)) > 0"
                 ));
@@ -530,8 +533,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                                         ImmutableList.of(
                                                 new OrderKey(pk, true, true),
                                                 new OrderKey(countA11.toSlot(), true, true),
-                                                new OrderKey(new Add(sumA1A2.toSlot(), new TinyIntLiteral((byte) 1)), true, true),
-                                                new OrderKey(new Add(v1.toSlot(), new TinyIntLiteral((byte) 1)), true, true),
+                                                new OrderKey(new Add(sumA1A2.toSlot(), new BigIntLiteral((byte) 1)), true, true),
+                                                new OrderKey(new Add(v1.toSlot(), new BigIntLiteral((byte) 1)), true, true),
                                                 new OrderKey(v1.toSlot(), true, true)
                                         )
                                 ))

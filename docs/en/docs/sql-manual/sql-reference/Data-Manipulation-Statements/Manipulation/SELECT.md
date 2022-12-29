@@ -69,7 +69,7 @@ SELECT
 
    6. `INTO OUTFILE 'file_name' ` : save the result to a new file (which did not exist before), the difference lies in the save format.
 
-   7. `Group by having`: Group the result set, and brush the result of group by when having appears. `Grouping Sets`, `Rollup`, `Cube` are extensions of group by, please refer to [GROUPING SETS DESIGN](../../../../../community/design/grouping_sets_design.md) for details.
+   7. `Group by having`: Group the result set, and brush the result of group by when having appears. `Grouping Sets`, `Rollup`, `Cube` are extensions of group by, please refer to [GROUPING SETS DESIGN](https://doris.apache.org/community/design/grouping_sets_design) for details.
 
    8. `Order by`: Sort the final result, Order by sorts the result set by comparing the size of one or more columns.
 

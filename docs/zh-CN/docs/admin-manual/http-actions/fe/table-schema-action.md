@@ -97,7 +97,7 @@ under the License.
 	"count": 0
 }
 ```
-注意：区别为`http`方式比`http v2`方式多返回`aggregation_type`字段，`http v2`开启是通过`enable_http_server_v2`进行设置，具体参数说明详见[fe参数设置](../../../config/fe-config.md)
+注意：区别为`http`方式比`http v2`方式多返回`aggregation_type`字段，`http v2`开启是通过`enable_http_server_v2`进行设置，具体参数说明详见[fe参数设置](../../config/fe-config)
 
 ## Examples
 

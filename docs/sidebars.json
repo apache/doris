@@ -1119,6 +1119,7 @@
                             ]
                         },
                         "admin-manual/http-actions/restore-tablet",
+                        "admin-manual/http-actions/pad-rowset",
                         "admin-manual/http-actions/get-load-state",
                         "admin-manual/http-actions/tablet-migration-action",
                         "admin-manual/http-actions/cancel-label",

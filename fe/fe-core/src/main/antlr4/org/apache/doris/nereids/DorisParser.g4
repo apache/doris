@@ -226,6 +226,7 @@ multipartIdentifier
 // -----------------Expression-----------------
 namedExpression
     : expression (AS? name=errorCapturingIdentifier)?
+    | expression (AS? strName=STRING+)?
     ;
 
 namedExpressionSeq
@@ -296,7 +297,7 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN (DISTINCT? arguments+=expression
+    | identifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference

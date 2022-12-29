@@ -28,10 +28,10 @@ under the License.
 
 <version since="1.2.0">
 
-Ideally, in [Memory Limit Exceeded Analysis](../admin-manual/memory-management/memory-limit-exceeded-analysis.md), we regularly detect the remaining available memory of the operating system and respond in time when the memory is insufficient , such as triggering the memory GC to release the cache or cancel the memory overrun query, but because refreshing process memory statistics and memory GC both have a certain lag, and it is difficult for us to completely catch all large memory applications, there are still OOM risk.
+Ideally, in [Memory Limit Exceeded Analysis](./memory-limit-exceeded-analysis), we regularly detect the remaining available memory of the operating system and respond in time when the memory is insufficient , such as triggering the memory GC to release the cache or cancel the memory overrun query, but because refreshing process memory statistics and memory GC both have a certain lag, and it is difficult for us to completely catch all large memory applications, there are still OOM risk.
 
 ## Solution
-Refer to [BE Configuration Items](../admin-manual/config/be-config.md) to reduce `mem_limit` and increase `max_sys_mem_available_low_water_mark_bytes` in `be.conf`.
+Refer to [BE Configuration Items](../../../admin-manual/config/be-config) to reduce `mem_limit` and increase `max_sys_mem_available_low_water_mark_bytes` in `be.conf`.
 
 ## Memory analysis
 If you want to further understand the memory usage location of the BE process before OOM and reduce the memory usage of the process, you can refer to the following steps to analyze.
@@ -75,8 +75,8 @@ Memory Tracker Summary:
 
 6. `type=load` imports a lot of memory.
 
-7. When the `type=global` memory is used for a long time, continue to check the `type=global` detailed statistics in the second half of the `Memory Tracker Summary` log. When DataPageCache, IndexPageCache, SegmentCache, ChunkAllocator, LastestSuccessChannelCache, etc. use a lot of memory, refer to [BE Configuration Item](../admin-manual/config/be-config.md) to consider modifying the size of the cache; when Orphan memory usage is too large, Continue the analysis as follows.
-  - If the sum of the tracker statistics of `Parent Label=Orphan` only accounts for a small part of the Orphan memory, it means that there is currently a large amount of memory that has no accurate statistics, such as the memory of the brpc process. At this time, you can consider using the heap profile [Memory Tracker]( ../community/developer-guide/debug-tool.md) to further analyze memory locations.
+7. When the `type=global` memory is used for a long time, continue to check the `type=global` detailed statistics in the second half of the `Memory Tracker Summary` log. When DataPageCache, IndexPageCache, SegmentCache, ChunkAllocator, LastestSuccessChannelCache, etc. use a lot of memory, refer to [BE Configuration Item](../../../admin-manual/config/be-config) to consider modifying the size of the cache; when Orphan memory usage is too large, Continue the analysis as follows.
+  - If the sum of the tracker statistics of `Parent Label=Orphan` only accounts for a small part of the Orphan memory, it means that there is currently a large amount of memory that has no accurate statistics, such as the memory of the brpc process. At this time, you can consider using the heap profile [Memory Tracker]( ../../../../community/developer-guide/debug-tool) to further analyze memory locations.
   - If the tracker statistics of `Parent Label=Orphan` account for most of Orphan’s memory, when `Label=TabletManager` uses a lot of memory, further check the number of tablets in the cluster. If there are too many tablets, delete them and they will not be used table or data; when `Label=StorageEngine` uses too much memory, further check the number of segment files in the cluster, and consider manually triggering compaction if the number of segment files is too large;
 
 8. If `be/log/be.INFO` does not print the `Memory Tracker Summary` log before OOM, it means that BE did not detect the memory limit in time, observe Grafana memory monitoring to confirm the memory growth trend of BE before OOM, if OOM is reproducible, consider adding `memory_debug=true` in `be.conf`, after restarting the cluster, the cluster memory statistics will be printed every second, observe the last `Memory Tracker Summary` log before OOM, and continue to step 3 for analysis;

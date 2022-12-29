@@ -219,56 +219,30 @@ private:
 };
 
 template <typename T, typename U>
-typename std::enable_if_t<(sizeof(T) >= sizeof(U)), const DataTypeDecimal<T>> decimal_result_type(
-        const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty, bool is_multiply,
-        bool is_divide) {
+DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty,
+                                bool is_multiply, bool is_divide, bool is_plus_minus) {
+    using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
     if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
+        return std::make_shared<DataTypeDecimal<Type>>((max_decimal_precision<T>(), 9));
     } else {
-        UInt32 scale = (tx.get_scale() > ty.get_scale() ? tx.get_scale() : ty.get_scale());
+        UInt32 scale = std::max(tx.get_scale(), ty.get_scale());
+        auto precision = max_decimal_precision<Type>();
+
+        size_t multiply_precision = tx.get_precision() + ty.get_precision();
+        size_t divide_precision = tx.get_precision() + ty.get_scale();
+        size_t plus_minus_precision =
+                std::max(tx.get_precision() - tx.get_scale(), ty.get_precision() - ty.get_scale()) +
+                scale;
         if (is_multiply) {
             scale = tx.get_scale() + ty.get_scale();
+            precision = std::min(multiply_precision, max_decimal_precision<Decimal128I>());
         } else if (is_divide) {
             scale = tx.get_scale();
+            precision = std::min(divide_precision, max_decimal_precision<Decimal128I>());
+        } else if (is_plus_minus) {
+            precision = std::min(plus_minus_precision, max_decimal_precision<Decimal128I>());
         }
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), scale);
-    }
-}
-
-template <typename T, typename U>
-typename std::enable_if_t<(sizeof(T) < sizeof(U)), const DataTypeDecimal<U>> decimal_result_type(
-        const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty, bool is_multiply,
-        bool is_divide) {
-    if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
-    } else {
-        UInt32 scale = (tx.get_scale() > ty.get_scale() ? tx.get_scale() : ty.get_scale());
-        if (is_multiply) {
-            scale = tx.get_scale() + ty.get_scale();
-        } else if (is_divide) {
-            scale = tx.get_scale();
-        }
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), scale);
-    }
-}
-
-template <typename T, typename U>
-const DataTypeDecimal<T> decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeNumber<U>&,
-                                             bool, bool) {
-    if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
-    } else {
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), tx.get_scale());
-    }
-}
-
-template <typename T, typename U>
-const DataTypeDecimal<U> decimal_result_type(const DataTypeNumber<T>&, const DataTypeDecimal<U>& ty,
-                                             bool, bool) {
-    if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
-    } else {
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), ty.get_scale());
+        return create_decimal(precision, scale, false);
     }
 }
 

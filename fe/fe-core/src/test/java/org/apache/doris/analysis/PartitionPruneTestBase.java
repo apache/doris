@@ -29,6 +29,8 @@ public abstract class PartitionPruneTestBase extends TestWithFeService {
 
     protected void doTest() throws Exception {
         for (RangePartitionPruneTest.TestCase testCase : cases) {
+            connectContext.getSessionVariable().partitionPruneAlgorithmVersion = 1;
+            assertExplainContains(1, testCase.sql, testCase.v1Result);
             connectContext.getSessionVariable().partitionPruneAlgorithmVersion = 2;
             assertExplainContains(2, testCase.sql, testCase.v2Result);
         }

@@ -109,9 +109,9 @@ public class ListPartitionPrunerTest extends PartitionPruneTestBase {
         addCase("select * from test.t4 where k1 >= 2 and k2 = \"shanghai\";", "partitions=2/3", "partitions=1/3");
 
         // Disjunctive predicates
-        addCase("select * from test.t2 where k1=1 or k1=4", "partitions=3/3", "partitions=2/3");
-        addCase("select * from test.t4 where k1=1 or k1=3", "partitions=3/3", "partitions=2/3");
-        addCase("select * from test.t4 where k2=\"tianjin\" or k2=\"shanghai\"", "partitions=3/3", "partitions=2/3");
+        addCase("select * from test.t2 where k1=1 or k1=4", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k1=1 or k1=3", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k2=\"tianjin\" or k2=\"shanghai\"", "partitions=2/3", "partitions=2/3");
         addCase("select * from test.t4 where k1 > 1 or k2 < \"shanghai\"", "partitions=3/3", "partitions=3/3");
     }
 

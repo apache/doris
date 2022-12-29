@@ -391,10 +391,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
     for (int seg_id = _segcompacted_point; seg_id < num; ++seg_id) {
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
-        auto cache_path =
-                BetaRowset::segment_cache_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(),
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
                                            _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();

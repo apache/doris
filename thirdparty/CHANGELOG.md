@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20221228
+- Modified: simdjson 1.0.2 -> 3.0.1
+
 ## v20221213
 - Modified: protobuf 3.14.0 -> 3.15.0
 
