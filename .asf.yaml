@@ -32,7 +32,6 @@ github:
     - elt
     - sql
     - mpp
-    -database
     - snowflake
     - redshift
     - bigquery
@@ -41,13 +40,10 @@ github:
     - hudi
     - delta-lake
     - spark
-    - flink
     - hadoop
     - dbt
     - vectorized
     - database
-    - dbms
-    - datawarehouse
 
   enabled_merge_buttons:
     squash:  true
