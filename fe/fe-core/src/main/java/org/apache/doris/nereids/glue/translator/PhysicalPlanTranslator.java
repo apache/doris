@@ -228,18 +228,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         PlanFragment currentFragment;
         if (inputPlanFragment.getPlanRoot() instanceof ExchangeNode) {
-            Preconditions.checkState(aggregate.child() instanceof PhysicalDistribute,
-                    "When the ExchangeNode is child of PhysicalHashAggregate, "
-                            + "it should be created by PhysicalDistribute, but meet " + aggregate.child());
-            ExchangeNode exchangeNode = (ExchangeNode) inputPlanFragment.getPlanRoot();
-            Optional<List<Expression>> partitionExpressions = aggregate.getPartitionExpressions();
-            PhysicalDistribute physicalDistribute = (PhysicalDistribute) aggregate.child();
-            DataPartition dataPartition = toDataPartition(physicalDistribute, partitionExpressions, context).get();
-            currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
-            inputPlanFragment.setOutputPartition(dataPartition);
-            inputPlanFragment.setPlanRoot(exchangeNode.getChild(0));
-            inputPlanFragment.setDestination(exchangeNode);
-            context.addPlanFragment(currentFragment);
+            //the exchange node is generated in two cases:
+            //  1. some nodes (e.g. sort node) need to gather data from multiple instances, and hence their gather phase
+            //     need an exchange node. For this type of exchange, their data partition is un_partitioned, do not
+            //     create a new plan fragment.
+            //  2. PhysicalDistribute node is translated to exchange node. PhysicalDistribute node means we need to
+            //     shuffle data, and we have to create a new plan fragment.
+            if (inputPlanFragment.getDataPartition() == DataPartition.UNPARTITIONED) {
+                currentFragment = inputPlanFragment;
+            } else {
+                Preconditions.checkState(aggregate.child() instanceof PhysicalDistribute,
+                        "When the ExchangeNode is child of PhysicalHashAggregate, "
+                                + "it should be created by PhysicalDistribute, but meet " + aggregate.child());
+                ExchangeNode exchangeNode = (ExchangeNode) inputPlanFragment.getPlanRoot();
+                Optional<List<Expression>> partitionExpressions = aggregate.getPartitionExpressions();
+                PhysicalDistribute physicalDistribute = (PhysicalDistribute) aggregate.child();
+                DataPartition dataPartition = toDataPartition(physicalDistribute, partitionExpressions, context).get();
+                currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
+                inputPlanFragment.setOutputPartition(dataPartition);
+                inputPlanFragment.setPlanRoot(exchangeNode.getChild(0));
+                inputPlanFragment.setDestination(exchangeNode);
+                context.addPlanFragment(currentFragment);
+            }
         } else {
             currentFragment = inputPlanFragment;
         }
