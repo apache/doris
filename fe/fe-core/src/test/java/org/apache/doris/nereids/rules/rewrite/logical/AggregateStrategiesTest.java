@@ -267,7 +267,7 @@ public class AggregateStrategiesTest implements PatternMatchSupported {
         AggregateParam phaseOneSumAggParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
         AggregateParam phaseTwoSumAggParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         // sum
-        Sum sumId = new Sum(false, id.toSlot());
+        Sum sumId = new Sum(false, false, id.toSlot());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyImplementation(twoPhaseAggregateWithDistinct())
