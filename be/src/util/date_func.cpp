@@ -109,4 +109,25 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
     return buffer - begin;
 }
 
+std::string time_to_buffer_from_double(double time) {
+    fmt::memory_buffer buffer;
+    if (time < 0) {
+        time = -time;
+        fmt::format_to(buffer, "-");
+    }
+    if (time > 3020399) {
+        time = 3020399;
+    }
+    int64_t hour = (int64_t)(time / 3600);
+    int32_t minute = ((int32_t)(time / 60)) % 60;
+    int32_t second = ((int32_t)time) % 60;
+    if (hour >= 100) {
+        fmt::format_to(buffer, fmt::format("{}", hour));
+    } else {
+        fmt::format_to(buffer, fmt::format("{:02d}", hour));
+    }
+    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second));
+    return fmt::to_string(buffer);
+}
+
 } // namespace doris
