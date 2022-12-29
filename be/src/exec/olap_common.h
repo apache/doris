@@ -96,6 +96,10 @@ public:
 
     Status add_range(SQLFilterOp op, CppType value);
 
+    Status add_compound_value(SQLFilterOp op, CppType value);
+
+    bool is_in_compound_value_range() const;
+
     bool is_fixed_value_range() const;
 
     bool is_scope_value_range() const;
@@ -239,6 +243,31 @@ public:
         }
     }
 
+    void to_condition_in_compound(std::vector<TCondition>& filters) {
+        for (const auto& value : _compound_values) {
+            TCondition condition;
+            condition.__set_column_name(_column_name);
+            if (value.first == FILTER_LARGER) {
+                condition.__set_condition_op(">>");
+            } else if (value.first == FILTER_LARGER_OR_EQUAL) {
+                condition.__set_condition_op(">=");
+            } else if (value.first == FILTER_LESS) {
+                condition.__set_condition_op("<<");
+            } else if (value.first == FILTER_LESS_OR_EQUAL) {
+                condition.__set_condition_op("<=");
+            } else if (value.first == FILTER_IN) {
+                condition.__set_condition_op("*=");
+            } else if (value.first == FILTER_NOT_IN) {
+                condition.__set_condition_op("!*=");
+            }
+            condition.condition_values.push_back(
+                    cast_to_string<primitive_type, CppType>(value.second, _scale));
+            if (condition.condition_values.size() != 0) {
+                filters.push_back(condition);
+            }
+        }
+    }
+
     void set_whole_value_range() {
         _fixed_values.clear();
         _low_value = TYPE_MIN;
@@ -284,6 +313,11 @@ public:
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                 CppType* value) {
         range.add_range(op, *value);
+    }
+
+    static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                         CppType* value) {
+        range.add_compound_value(op, *value);
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range() {
@@ -335,6 +369,9 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_BOOLEAN ||
                                                   primitive_type == PrimitiveType::TYPE_DATETIME ||
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
+
+    // range value except leaf node of and node in compound expr tree
+    std::set<std::pair<SQLFilterOp, CppType>> _compound_values;
 };
 
 class OlapScanKeys {
@@ -477,6 +514,18 @@ Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {
 }
 
 template <PrimitiveType primitive_type>
+Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppType value) {
+    std::pair<SQLFilterOp, CppType> val_with_op(op, value);
+    _compound_values.insert(val_with_op);
+    _contain_null = false;
+
+    _high_value = TYPE_MIN;
+    _low_value = TYPE_MAX;
+
+    return Status::OK();
+}
+
+template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::remove_fixed_value(const CppType& value) {
     _fixed_values.erase(value);
 }
@@ -484,6 +533,11 @@ void ColumnValueRange<primitive_type>::remove_fixed_value(const CppType& value) 
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_fixed_value_range() const {
     return _fixed_values.size() != 0;
+}
+
+template <PrimitiveType primitive_type>
+bool ColumnValueRange<primitive_type>::is_in_compound_value_range() const {
+    return _compound_values.size() != 0;
 }
 
 template <PrimitiveType primitive_type>
@@ -497,7 +551,7 @@ bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
         return true;
     }
 
-    return !is_fixed_value_range() && !is_scope_value_range() && !contain_null();
+    return (!is_fixed_value_range() && !is_scope_value_range() && !contain_null());
 }
 
 template <PrimitiveType primitive_type>

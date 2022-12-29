@@ -88,7 +88,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
-    private static String storagePolicy;
+    private String storagePolicy;
 
     private boolean enableUniqueKeyMergeOnWrite;
 

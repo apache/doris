@@ -108,8 +108,6 @@ This topic is about how to compile Doris from source.
     After starting the image, you should be in the container. You can download the Doris source code using the following command (If you have mounted the local Doris source directory, you don't need do this):
 
     ```
-    $ wget https://dist.apache.org/repos/dist/dev/doris/xxx.tar.gz
-    or
     $ git clone https://github.com/apache/doris.git
     ```
 

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
@@ -150,7 +151,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max).setSelectivity(1.0)
                     .setMaxExpr(null).setMinExpr(null).build();
         }
-        if (binaryArithmetic instanceof Divide) {
+        if (binaryArithmetic instanceof Divide || binaryArithmetic instanceof IntegralDivide) {
             double min = Math.min(
                     Math.min(
                             Math.min(leftMin / noneZeroDivisor(rightMin), leftMin / noneZeroDivisor(rightMax)),

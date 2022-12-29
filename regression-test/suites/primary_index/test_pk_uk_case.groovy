@@ -246,7 +246,7 @@ suite("test_pk_uk_case") {
         for (int i = 0; i < result0.size(); ++i) {
             for (j = 0; j < result0[0].size(); j++) {
                 logger.info("result: " + result0[i][j] + "|" + result1[i][j])
-                assertTrue(result0[0]==result1[0])
+                assertTrue(result0[i][j]==result1[i][j])
             }
         }       
 

@@ -127,6 +127,8 @@ public interface TableIf {
 
     BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info);
 
+    long estimatedRowCount();
+
     /**
      * Doris table type.
      */

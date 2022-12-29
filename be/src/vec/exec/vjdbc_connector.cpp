@@ -417,8 +417,19 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
         M(TYPE_FLOAT, float, vectorized::ColumnVector<vectorized::Float32>)
         M(TYPE_DOUBLE, double, vectorized::ColumnVector<vectorized::Float64>)
 #undef M
+    case TYPE_CHAR: {
+        std::string data = _jobject_to_string(env, jobj);
+        // Now have test pg and oracle with char(100), if data='abc'
+        // but read string data length is 100, so need trim extra spaces
+        if ((_conn_param.table_type == TOdbcTableType::POSTGRESQL) ||
+            (_conn_param.table_type == TOdbcTableType::ORACLE)) {
+            data = data.erase(data.find_last_not_of(' ') + 1);
+        }
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),
+                                                                          data.length());
+        break;
+    }
     case TYPE_STRING:
-    case TYPE_CHAR:
     case TYPE_VARCHAR: {
         std::string data = _jobject_to_string(env, jobj);
         reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),

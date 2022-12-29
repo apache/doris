@@ -448,6 +448,8 @@ CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
+// for jeprofile in jemalloc
+CONF_mString(jeprofile_dir, "${DORIS_HOME}/log");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
@@ -826,6 +828,7 @@ CONF_Int32(s3_transfer_executor_pool_size, "2");
 CONF_Bool(enable_time_lut, "true");
 CONF_Bool(enable_simdjson_reader, "false");
 
+CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
@@ -866,6 +869,10 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+
+// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
+// Will remove after fully test.
+CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
 
 #ifdef BE_TEST
 // test s3

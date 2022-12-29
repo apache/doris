@@ -57,10 +57,12 @@ inline const std::string& client_id(const TNetworkAddress& addr) {
 #endif
 
 BrokerFileSystem::BrokerFileSystem(const TNetworkAddress& broker_addr,
-                                   const std::map<std::string, std::string>& broker_prop)
+                                   const std::map<std::string, std::string>& broker_prop,
+                                   size_t file_size)
         : RemoteFileSystem("", "", FileSystemType::BROKER),
           _broker_addr(broker_addr),
-          _broker_prop(broker_prop) {}
+          _broker_prop(broker_prop),
+          _file_size(file_size) {}
 
 Status BrokerFileSystem::connect() {
     Status status = Status::OK();
@@ -110,13 +112,12 @@ Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
     // TODO(cmy): The file size is no longer got from openReader() method.
     // But leave the code here for compatibility.
     // This will be removed later.
-    size_t file_size = 0;
     TBrokerFD fd;
     if (response->__isset.size) {
-        file_size = response->size;
+        _file_size = response->size;
     }
     fd = response->fd;
-    *reader = std::make_shared<BrokerFileReader>(_broker_addr, path, file_size, fd, this);
+    *reader = std::make_shared<BrokerFileReader>(_broker_addr, path, _file_size, fd, this);
     return Status::OK();
 }
 
@@ -196,43 +197,7 @@ Status BrokerFileSystem::exists(const Path& path, bool* res) const {
 }
 
 Status BrokerFileSystem::file_size(const Path& path, size_t* file_size) const {
-    CHECK_BROKER_CLIENT(_client);
-    TBrokerOpenReaderRequest request;
-    request.__set_version(TBrokerVersion::VERSION_ONE);
-    request.__set_path(path);
-    request.__set_startOffset(0);
-    request.__set_clientId(client_id(_broker_addr));
-    request.__set_properties(_broker_prop);
-
-    TBrokerOpenReaderResponse* response = new TBrokerOpenReaderResponse();
-    Defer del_reponse {[&] { delete response; }};
-    try {
-        Status status;
-        try {
-            (*_client)->openReader(*response, request);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            RETURN_IF_ERROR((*_client).reopen());
-            (*_client)->openReader(*response, request);
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "Open broker reader failed, broker: " << _broker_addr << " failed: " << e.what();
-        return Status::RpcError(ss.str());
-    }
-
-    if (response->opStatus.statusCode != TBrokerOperationStatusCode::OK) {
-        std::stringstream ss;
-        ss << "Open broker reader failed, broker: " << _broker_addr
-           << " failed: " << response->opStatus.message;
-        return Status::RpcError(ss.str());
-    }
-    // TODO(cmy): The file size is no longer got from openReader() method.
-    // But leave the code here for compatibility.
-    // This will be removed later.
-    if (response->__isset.size) {
-        *file_size = response->size;
-    }
+    *file_size = _file_size;
     return Status::OK();
 }
 
