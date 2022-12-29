@@ -28,6 +28,12 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
         PropagateNullable, AlwaysNullable {
     protected final boolean isAlwaysNullable;
 
+    protected NullableAggregateFunction(String name, boolean isAlwaysNullable,
+            Expression ...expressions) {
+        super(name, false, expressions);
+        this.isAlwaysNullable = isAlwaysNullable;
+    }
+
     protected NullableAggregateFunction(String name, boolean isAlwaysNullable, boolean isDistinct,
             Expression ...expressions) {
         super(name, isDistinct, expressions);

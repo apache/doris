@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -36,8 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** min agg function. */
-public class GroupBitXor extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExplicitlyCastableSignature {
+public class GroupBitXor extends NullableAggregateFunction implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
@@ -47,8 +45,8 @@ public class GroupBitXor extends AggregateFunction
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
     );
 
-    public GroupBitXor(Expression child) {
-        super("group_bit_xor", child);
+    public GroupBitXor(Expression child, boolean isAlwaysNullable) {
+        super("group_bit_xor", isAlwaysNullable, child);
     }
 
     @Override
@@ -64,12 +62,17 @@ public class GroupBitXor extends AggregateFunction
     @Override
     public GroupBitXor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitXor(children.get(0));
+        return new GroupBitXor(children.get(0), isAlwaysNullable);
     }
 
     @Override
     public GroupBitXor withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         return withChildren(children);
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new GroupBitXor(children.get(0), isAlwaysNullable);
     }
 
     @Override

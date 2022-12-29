@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DataType;
@@ -31,14 +30,13 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** GroupBitmapXor */
-public class GroupBitmapXor extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExplicitlyCastableSignature {
+public class GroupBitmapXor extends NullableAggregateFunction implements UnaryExpression, ExplicitlyCastableSignature {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE)
     );
 
-    public GroupBitmapXor(Expression arg0) {
-        super("group_bitmap_xor", arg0);
+    public GroupBitmapXor(Expression arg0, boolean isAlwaysNullable) {
+        super("group_bitmap_xor", isAlwaysNullable, arg0);
     }
 
     @Override
@@ -54,7 +52,12 @@ public class GroupBitmapXor extends AggregateFunction
     @Override
     public GroupBitmapXor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitmapXor(children.get(0));
+        return new GroupBitmapXor(children.get(0), isAlwaysNullable);
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new GroupBitXor(children.get(0), isAlwaysNullable);
     }
 
     @Override
