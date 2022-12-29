@@ -156,6 +156,14 @@ public class TypeCoercionUtils {
                 || leftType instanceof IntegralType && rightType instanceof DecimalV2Type) {
             return true;
         }
+        if (leftType instanceof FloatType && rightType instanceof DecimalV2Type
+                || leftType instanceof DecimalV2Type && rightType instanceof FloatType) {
+            return true;
+        }
+        if (leftType instanceof DoubleType && rightType instanceof DecimalV2Type
+                || leftType instanceof DecimalV2Type && rightType instanceof DoubleType) {
+            return true;
+        }
         // TODO: add decimal promotion support
         if (!(leftType instanceof DecimalV2Type)
                 && !(rightType instanceof DecimalV2Type)
@@ -230,7 +238,7 @@ public class TypeCoercionUtils {
                     || (right instanceof DateLikeType && left instanceof IntegralType)) {
             tightestCommonType = BigIntType.INSTANCE;
         }
-        return Optional.ofNullable(tightestCommonType);
+        return tightestCommonType == null ? Optional.of(DoubleType.INSTANCE) : Optional.of(tightestCommonType);
     }
 
     /**

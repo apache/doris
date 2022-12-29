@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -217,5 +218,13 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 return child;
             }
         });
+    }
+
+    @Override
+    public Expression visitIntegralDivide(IntegralDivide integralDivide, ExpressionRewriteContext context) {
+        DataType commonType = BigIntType.INSTANCE;
+        Expression newLeft = TypeCoercionUtils.castIfNotSameType(integralDivide.left(), commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameType(integralDivide.right(), commonType);
+        return integralDivide.withChildren(newLeft, newRight);
     }
 }
