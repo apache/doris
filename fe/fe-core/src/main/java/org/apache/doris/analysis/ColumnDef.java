@@ -266,7 +266,7 @@ public class ColumnDef {
             defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
         }
 
-        if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
+        if (type.getPrimitiveType() == PrimitiveType.ARRAY && isOlap) {
             if (isKey()) {
                 throw new AnalysisException("Array can only be used in the non-key column of"
                         + " the duplicate table at present.");
