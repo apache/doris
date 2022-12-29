@@ -131,6 +131,7 @@ private:
     Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                           roaring::Roaring* output_result);
 
+    bool _is_handle_predicate_by_fulltext(ColumnPredicate* predicate);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
     Status _execute_compound_fn(const std::string& function_name);

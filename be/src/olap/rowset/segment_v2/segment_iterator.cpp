@@ -558,9 +558,23 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
-    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" + 
+    pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" +
                        predicate_info->query_op + "_" + predicate_info->query_value;
     return pred_result_sign;
+}
+
+bool SegmentIterator::_is_handle_predicate_by_fulltext(ColumnPredicate* predicate) {
+    auto column_id = predicate->column_id();
+    int32_t unique_id = _schema.unique_id(column_id);
+    bool handle_by_fulltext =
+            (_inverted_index_iterators[unique_id] != nullptr) &&
+            (is_string_type(_schema.column(column_id)->type())) &&
+            ((_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
+              InvertedIndexParserType::PARSER_ENGLISH) ||
+             (_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
+              InvertedIndexParserType::PARSER_STANDARD));
+
+    return handle_by_fulltext;
 }
 
 Status SegmentIterator::_apply_inverted_index() {
@@ -569,10 +583,13 @@ Status SegmentIterator::_apply_inverted_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
 
     for (auto pred : _col_predicates) {
+        bool handle_by_fulltext = _is_handle_predicate_by_fulltext(pred);
         int32_t unique_id = _schema.unique_id(pred->column_id());
         if (_inverted_index_iterators.count(unique_id) < 1 ||
-            _inverted_index_iterators[unique_id] == nullptr) {
+            _inverted_index_iterators[unique_id] == nullptr ||
+            (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
             // 1. this column no inverted index
+            // 2. equal or range for fulltext index
             remaining_predicates.push_back(pred);
         } else {
             roaring::Roaring bitmap = _row_bitmap;
