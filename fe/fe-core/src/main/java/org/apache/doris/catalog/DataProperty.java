@@ -35,9 +35,8 @@ import java.io.IOException;
 import java.util.Objects;
 
 public class DataProperty implements Writable, GsonPostProcessable {
-    public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
-            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD
-    );
+    public static final TStorageMedium DEFAULT_STORAGE_MEDIUM =
+            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD;
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
     @SerializedName(value = "storageMedium")
