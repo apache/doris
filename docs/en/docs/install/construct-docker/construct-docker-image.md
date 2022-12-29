@@ -1,6 +1,6 @@
 ---
 {
-"title": "Construct Docker Image",
+"title": "Build Docker Image",
 "language": "en"
 }
 ---
