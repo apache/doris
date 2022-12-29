@@ -54,7 +54,7 @@ DECIMALV3 has a very complex set of type inference rules. For different expressi
 #### Aggregation functions
 
 * SUM / MULTI_DISTINCT_SUM: SUM(DECIMALV3(a, b)) -> DECIMALV3(38, b).
-* AVG: AVG(DECIMALV3(a, b)) -> DECIMALV3(38, b).
+* AVG: AVG(DECIMALV3(a, b)) -> DECIMALV3(38, max(b, 4)).
 
 #### Default rules
 
