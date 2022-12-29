@@ -124,12 +124,9 @@ std::string time_to_buffer_from_double(double time) {
     if (hour >= 100) {
         fmt::format_to(buffer, fmt::format("{}", hour));
     } else {
-        fmt::format_to(buffer,
-                       fmt::format("{}{}", (char)('0' + (hour / 10)), (char)('0' + (hour % 10))));
+        fmt::format_to(buffer, fmt::format("{:02d}", hour));
     }
-    fmt::format_to(buffer, fmt::format(":{}{}:{}{}", (char)('0' + (minute / 10)),
-                                       (char)('0' + (minute % 10)), (char)('0' + (second / 10)),
-                                       (char)('0' + (second % 10))));
+    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second));
     return fmt::to_string(buffer);
 }
 
