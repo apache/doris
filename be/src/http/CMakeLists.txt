@@ -35,6 +35,7 @@ add_library(Webserver STATIC
   http_client.cpp
   action/download_action.cpp
   action/monitor_action.cpp
+  action/pad_rowset_action.cpp
   action/health_action.cpp
   action/tablet_migration_action.cpp
   action/tablets_info_action.cpp
