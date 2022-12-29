@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -36,7 +35,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -83,12 +81,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     .normalizeToUseSlotRef(aggregate.getOutputExpressions());
             Set<AggregateFunction> normalizedAggregateFunctions =
                     ExpressionUtils.collect(normalizeOutputPhase1, AggregateFunction.class::isInstance);
-            if (aggregate.getGroupByExpressions().isEmpty()) {
-                normalizedAggregateFunctions = normalizedAggregateFunctions.stream().map(fn ->
-                        fn instanceof NullableAggregateFunction
-                        ? ((NullableAggregateFunction) fn).withAlwaysNullable(true)
-                        : fn).collect(Collectors.toSet());
-            }
 
             existsAliases = ExpressionUtils.collect(normalizeOutputPhase1, Alias.class::isInstance);
 
