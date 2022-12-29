@@ -54,10 +54,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -102,6 +104,9 @@ public class StatisticsUtil {
 
     public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
             throws Exception {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return Collections.emptyList();
+        }
         return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
     }
 
