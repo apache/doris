@@ -354,7 +354,7 @@ public abstract class Type {
 
     public boolean isDateType() {
         return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME)
-            || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+                || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
     }
 
     public boolean isDatetime() {
@@ -609,7 +609,7 @@ public abstract class Type {
      * Helper for exceedsMaxNestingDepth(). Recursively computes the max nesting depth,
      * terminating early if MAX_NESTING_DEPTH is reached. Returns true if this type
      * exceeds the MAX_NESTING_DEPTH, false otherwise.
-     *
+     * <p>
      * Examples of types and their nesting depth:
      * INT --> 1
      * STRUCT<f1:INT> --> 2
@@ -1004,7 +1004,7 @@ public abstract class Type {
      * of the assignment-compatible type. For strict compatibility, this can be done
      * without any loss of precision. For non-strict compatibility, there may be loss of
      * precision, e.g. if converting from BIGINT to FLOAT.
-     *
+     * <p>
      * We chose not to follow MySQL's type casting behavior as described here:
      * http://dev.mysql.com/doc/refman/5.0/en/type-conversion.html
      * for the following reasons:
@@ -1567,7 +1567,7 @@ public abstract class Type {
         // int family type and char family type should cast to char family type
         if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily())
                 || (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
-            return t1.isStringType() ?  t1 : t2;
+            return t1.isStringType() ? t1 : t2;
         }
 
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
