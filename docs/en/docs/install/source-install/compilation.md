@@ -107,8 +107,6 @@ This document focuses on how to code Doris through source code.
     After starting the mirror, you should be in the container. The Doris source code can be downloaded from the following command (local source directory mounted is not required):
 
     ```
-    $ wget https://dist.apache.org/repos/dist/dev/doris/xxx.tar.gz
-    or
     $ git clone https://github.com/apache/doris.git
     ```
 
