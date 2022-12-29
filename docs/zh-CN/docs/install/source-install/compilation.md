@@ -106,8 +106,6 @@ under the License.
    启动镜像后，你应该已经处于容器内。可以通过以下命令下载 Doris 源码（已挂载本地源码目录则不用）：
 
     ```
-    $ wget https://dist.apache.org/repos/dist/dev/doris/xxx.tar.gz
-    or
     $ git clone https://github.com/apache/doris.git
     ```
 
