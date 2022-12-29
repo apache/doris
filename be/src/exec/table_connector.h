@@ -18,6 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 
 #include <boost/format.hpp>
 #include <cstdlib>
@@ -54,7 +55,7 @@ public:
     Status append(const std::string& table_name, vectorized::Block* block,
                   const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
                   uint32_t start_send_row, uint32_t* num_rows_sent,
-                  bool need_extra_convert = false);
+                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL);
 
     void init_profile(RuntimeProfile*);
 
@@ -62,7 +63,7 @@ public:
 
     Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
-                               int row, bool need_extra_convert);
+                               int row, TOdbcTableType::type table_type);
 
     virtual Status close() { return Status::OK(); }
 

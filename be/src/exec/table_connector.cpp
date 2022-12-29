@@ -17,6 +17,8 @@
 
 #include "exec/table_connector.h"
 
+#include <gen_cpp/Types_types.h>
+
 #include <codecvt>
 
 #include "exprs/expr.h"
@@ -52,7 +54,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
                               const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
                               uint32_t start_send_row, uint32_t* num_rows_sent,
-                              bool need_extra_convert) {
+                              TOdbcTableType::type table_type) {
     _insert_stmt_buffer.clear();
     std::u16string insert_stmt;
     {
@@ -71,9 +73,8 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
                 }
                 auto& column_ptr = block->get_by_position(j).column;
                 auto& type_ptr = block->get_by_position(j).type;
-                RETURN_IF_ERROR(convert_column_data(column_ptr, type_ptr,
-                                                    output_vexpr_ctxs[j]->root()->type(), i,
-                                                    need_extra_convert));
+                RETURN_IF_ERROR(convert_column_data(
+                        column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
             }
 
             if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
@@ -96,11 +97,12 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                            const vectorized::DataTypePtr& type_ptr,
                                            const TypeDescriptor& type, int row,
-                                           bool need_extra_convert) {
+                                           TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (!need_extra_convert) {
-            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+        if (table_type != TOdbcTableType::ORACLE) {
+            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         } else {
+            //if is ORACLE and date type, insert into need convert
             if (is_date) {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd')", str);
             } else {
@@ -110,13 +112,12 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     };
     const vectorized::IColumn* column = column_ptr;
     if (type_ptr->is_nullable()) {
-        if (column_ptr->is_null_at(row)) {
+        auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+        if (nullable_column->is_null_at(row)) {
             fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
             return Status::OK();
         }
-        column = assert_cast<const vectorized::ColumnNullable*>(column_ptr.get())
-                         ->get_nested_column_ptr()
-                         .get();
+        column = nullable_column->get_nested_column_ptr().get();
     } else {
         column = column_ptr;
     }
@@ -197,8 +198,15 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         auto array_type = remove_nullable(type_ptr);
         auto nested_type =
                 reinterpret_cast<const vectorized::DataTypeArray&>(*array_type).get_nested_type();
-        //insert into doris_test.test_int values(2,'{22,33}');
-        fmt::format_to(_insert_stmt_buffer, "{}", "'{");
+
+        //for doris、CK insert into --->  []
+        //for PG        insert into ---> '{}'
+        if (table_type == TOdbcTableType::POSTGRESQL) {
+            fmt::format_to(_insert_stmt_buffer, "{}", "'{");
+        } else if (table_type == TOdbcTableType::CLICKHOUSE ||
+                   table_type == TOdbcTableType::MYSQL) {
+            fmt::format_to(_insert_stmt_buffer, "{}", "[");
+        }
         bool first_value = true;
         for (auto idx = arr_offset[row - 1]; idx < arr_offset[row]; ++idx) {
             if (first_value == false) {
@@ -208,11 +216,16 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                 fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
             } else {
                 RETURN_IF_ERROR(convert_column_data(arr_nested, nested_type, type.children[0], idx,
-                                                    need_extra_convert));
+                                                    table_type));
             }
             first_value = false;
         }
-        fmt::format_to(_insert_stmt_buffer, "{}", "}'");
+        if (table_type == TOdbcTableType::POSTGRESQL) {
+            fmt::format_to(_insert_stmt_buffer, "{}", "}'");
+        } else if (table_type == TOdbcTableType::CLICKHOUSE ||
+                   table_type == TOdbcTableType::MYSQL) {
+            fmt::format_to(_insert_stmt_buffer, "{}", "]");
+        }
         break;
     }
     case TYPE_DECIMALV2: {
@@ -232,7 +245,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     default: {
-        return Status::InternalError("can't convert this type to mysql type. type = {}", type.type);
+        return Status::InternalError("can't convert this type to mysql type. type = {}",
+                                     type.debug_string());
     }
     }
     return Status::OK();
