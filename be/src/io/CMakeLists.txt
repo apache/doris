@@ -33,6 +33,7 @@ set(IO_FILES
     local_file_writer.cpp
     s3_reader.cpp
     s3_writer.cpp
+    fs/file_reader_options.cpp
     fs/file_system_map.cpp
     fs/local_file_reader.cpp
     fs/local_file_system.cpp
@@ -44,6 +45,7 @@ set(IO_FILES
     fs/hdfs_file_reader.cpp
     fs/broker_file_system.cpp
     fs/broker_file_reader.cpp
+    fs/remote_file_system.cpp
     fs/stream_load_pipe.cpp
     cache/dummy_file_cache.cpp
     cache/file_cache.cpp
