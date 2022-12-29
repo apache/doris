@@ -451,7 +451,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
-        return withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
+        LogicalPlan plan = withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
+        for (LateralViewContext lateralViewContext : ctx.lateralView()) {
+            plan = withGenerate(plan, lateralViewContext);
+        }
+        return plan;
     }
 
     @Override
