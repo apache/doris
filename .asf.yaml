@@ -19,24 +19,35 @@ github:
   description: Apache Doris is an easy-to-use, high performance and unified analytics database. 
   homepage: https://doris.apache.org
   labels:
-    - data-warehousing
-    - mpp
-    - olap
-    - dbms
-    - database
-    - sql
     - big-data
     - real-time
-    - analytics
-    - distributed-database
+    - realtime-analytics
+    - query-engine
+    - olap
+    - ad-hoc
+    - mpp
+    - datalake
+    - lakehouse
+    - etl
+    - elt
+    - sql
+    - mpp
+    -database
+    - snowflake
+    - redshift
+    - bigquery
+    - hive
     - iceberg
     - hudi
-    - datalake
-    - hive
+    - delta-lake
+    - spark
+    - flink
     - hadoop
-    - tpch
-    - ssb
+    - dbt
     - vectorized
+    - database
+    - dbms
+    - datawarehouse
 
   enabled_merge_buttons:
     squash:  true
