@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCou
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 
 /** AggregateFunctionVisitor. */
 public interface AggregateFunctionVisitor<R, C> {
@@ -80,6 +81,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, C context) {
         return visitAggregateFunction(bitmapUnionCount, context);
+    }
+
+    default R visitVariance(Variance variance, C context) {
+        return visitAggregateFunction(variance, context);
     }
 
     default R visitNdv(Ndv ndv, C context) {
