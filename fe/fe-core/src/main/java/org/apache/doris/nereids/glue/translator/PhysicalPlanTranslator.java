@@ -183,13 +183,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
-        if (physicalPlan instanceof PhysicalProject) {
-            PhysicalProject project = (PhysicalProject) physicalPlan;
-            if (isUnnecessaryProject(project) && !projectOnAgg(project)) {
-                List<Slot> slotReferences = removeAlias(project);
-                physicalPlan = (PhysicalPlan) physicalPlan.child(0).withOutput(slotReferences);
-            }
-        }
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
