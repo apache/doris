@@ -179,13 +179,17 @@ public class IcebergScanProvider extends HiveScanProvider {
         TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
-            if (type == TableSnapshot.VersionType.VERSION) {
-                scan = scan.useSnapshot(tableSnapshot.getVersion());
-            } else {
-                LocalDateTime asOfTime = LocalDateTime.parse(tableSnapshot.getTime(), DATE_TIME_FORMATTER);
-                long snapshotId = LocalDateTime.from(asOfTime).atZone(TimeUtils.getTimeZone().toZoneId())
-                        .toInstant().toEpochMilli();
-                scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));
+            try {
+                if (type == TableSnapshot.VersionType.VERSION) {
+                    scan = scan.useSnapshot(tableSnapshot.getVersion());
+                } else {
+                    LocalDateTime asOfTime = LocalDateTime.parse(tableSnapshot.getTime(), DATE_TIME_FORMATTER);
+                    long snapshotId = LocalDateTime.from(asOfTime).atZone(TimeUtils.getTimeZone().toZoneId())
+                            .toInstant().toEpochMilli();
+                    scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));
+                }
+            } catch (IllegalArgumentException e) {
+                throw new UserException(e);
             }
         }
         for (Expression predicate : expressions) {
