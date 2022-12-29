@@ -730,10 +730,9 @@ public:
                     if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {
-                            ResultDataType result_type = decimal_result_type(
-                                    left, right, OpTraits::is_multiply, OpTraits::is_division);
-                            type_res = std::make_shared<ResultDataType>(result_type.get_precision(),
-                                                                        result_type.get_scale());
+                            type_res = decimal_result_type(left, right, OpTraits::is_multiply,
+                                                           OpTraits::is_division,
+                                                           OpTraits::is_plus_minus);
                         } else if constexpr (IsDataTypeDecimal<LeftDataType>) {
                             type_res = std::make_shared<LeftDataType>(left.get_precision(),
                                                                       left.get_scale());
