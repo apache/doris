@@ -390,7 +390,7 @@ public class CreateTableStmt extends DdlStmt {
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
-            if (columnDef.getType().isArrayType()) {
+            if (columnDef.getType().isArrayType() && engineName.equals("olap")) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
                     throw new AnalysisException("Array column can't support aggregation "
                             + columnDef.getAggregateType());
