@@ -33,6 +33,7 @@ struct JdbcConnectorParam {
     std::string user;
     std::string passwd;
     std::string query_string;
+    TOdbcTableType::type table_type;
 
     const TupleDescriptor* tuple_desc;
 };
