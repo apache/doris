@@ -17,9 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -60,11 +57,6 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
-        if (this.orderKeys.stream().anyMatch(
-                orderKey -> !(orderKey.getExpr() instanceof Unbound) && orderKey.getExpr().getDataType()
-                        .isOnlyMetricType())) {
-            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-        }
     }
 
     @Override

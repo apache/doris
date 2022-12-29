@@ -17,9 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -112,11 +109,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
         this.outputExpressions = ImmutableList.copyOf(outputExpressions);
         this.normalized = normalized;
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
-
-        if (this.groupByExpressions.stream().anyMatch(
-                expression -> !(expression instanceof Unbound) && expression.getDataType().isOnlyMetricType())) {
-            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-        }
     }
 
     public List<Expression> getGroupByExpressions() {

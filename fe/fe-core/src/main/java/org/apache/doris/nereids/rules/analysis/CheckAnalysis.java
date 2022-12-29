@@ -17,15 +17,21 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
@@ -47,6 +53,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().then(plan -> {
                     checkBound(plan);
                     checkExpressionInputTypes(plan);
+                    checkMetricTypeIsUsedCorrectly(plan);
                     return null;
                 })
             ),
@@ -94,6 +101,27 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         if (distinctMultiColumns && distinctFunctionNum > 1) {
             throw new AnalysisException(
                     "The query contains multi count distinct or sum distinct, each can't have multi columns");
+        }
+    }
+
+    private void checkMetricTypeIsUsedCorrectly(Plan plan) {
+        if (plan instanceof LogicalAggregate) {
+            if (((LogicalAggregate<?>) plan).getGroupByExpressions().stream()
+                    .anyMatch(expression -> expression.getDataType().isOnlyMetricType())
+                    || ((LogicalAggregate<?>) plan).getAggregateFunctions().stream()
+                    .filter(aggregateFunction -> aggregateFunction instanceof Max
+                            || aggregateFunction instanceof Min || aggregateFunction instanceof Count
+                            || aggregateFunction instanceof Ndv).anyMatch(
+                                aggregateFunction -> aggregateFunction.getArgumentsTypes().stream()
+                                    .anyMatch(dataType -> dataType.isOnlyMetricType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        } else if (plan instanceof LogicalSort) {
+            if (((LogicalSort<?>) plan).getOrderKeys().stream().anyMatch((
+                    orderKey -> orderKey.getExpr().getDataType()
+                            .isOnlyMetricType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         }
     }
 }

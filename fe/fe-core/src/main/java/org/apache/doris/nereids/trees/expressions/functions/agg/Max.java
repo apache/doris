@@ -34,12 +34,10 @@ import java.util.List;
 public class Max extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
     public Max(Expression child) {
         super("max", child);
-        checkNoMetricTypeArguments();
     }
 
     public Max(boolean isDistinct, Expression arg) {
         super("max", false, arg);
-        checkNoMetricTypeArguments();
     }
 
     @Override
