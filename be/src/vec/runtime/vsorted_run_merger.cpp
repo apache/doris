@@ -21,7 +21,6 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
-#include "runtime/sorter.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
@@ -50,7 +49,9 @@ Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs, bool p
     }
 
     for (auto& _cursor : _cursors) {
-        if (!_cursor._is_eof) _priority_queue.push(MergeSortCursor(&_cursor));
+        if (!_cursor._is_eof) {
+            _priority_queue.push(MergeSortCursor(&_cursor));
+        }
     }
 
     for (const auto& cursor : _cursors) {

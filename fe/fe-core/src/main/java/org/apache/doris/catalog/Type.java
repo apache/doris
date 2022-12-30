@@ -65,9 +65,9 @@ public abstract class Type {
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
     public static final ScalarType TIMEV2 = new ScalarType(PrimitiveType.TIMEV2);
     public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
-    public static final ScalarType STRING = new ScalarType(PrimitiveType.STRING);
+    public static final ScalarType STRING = ScalarType.createStringType();
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
-                    ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
+            ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
 
     public static final ScalarType MAX_DECIMALV2_TYPE = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
             ScalarType.MAX_DECIMALV2_PRECISION, ScalarType.MAX_DECIMALV2_SCALE);
@@ -142,6 +142,9 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
+        trivialTypes.add(DECIMAL32);
+        trivialTypes.add(DECIMAL64);
+        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -351,7 +354,7 @@ public abstract class Type {
 
     public boolean isDateType() {
         return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME)
-            || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+                || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
     }
 
     public boolean isDatetime() {
@@ -606,7 +609,7 @@ public abstract class Type {
      * Helper for exceedsMaxNestingDepth(). Recursively computes the max nesting depth,
      * terminating early if MAX_NESTING_DEPTH is reached. Returns true if this type
      * exceeds the MAX_NESTING_DEPTH, false otherwise.
-     *
+     * <p>
      * Examples of types and their nesting depth:
      * INT --> 1
      * STRUCT<f1:INT> --> 2
@@ -1001,7 +1004,7 @@ public abstract class Type {
      * of the assignment-compatible type. For strict compatibility, this can be done
      * without any loss of precision. For non-strict compatibility, there may be loss of
      * precision, e.g. if converting from BIGINT to FLOAT.
-     *
+     * <p>
      * We chose not to follow MySQL's type casting behavior as described here:
      * http://dev.mysql.com/doc/refman/5.0/en/type-conversion.html
      * for the following reasons:
@@ -1564,7 +1567,7 @@ public abstract class Type {
         // int family type and char family type should cast to char family type
         if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily())
                 || (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
-            return t1.isStringType() ?  t1 : t2;
+            return t1.isStringType() ? t1 : t2;
         }
 
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {

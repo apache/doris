@@ -87,10 +87,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
      * for numeric literal (int/long/double/float), directly convert to double
      * for char/varchar/string, we take first 8 chars as a int64, and convert it to double
      * for other literals, getDouble() is not used.
-     *
+     * <p>
      * And hence, we could express the range of a datatype, and used in stats derive.
      * for example:
-     *'abcxxxxxxxxxxx' is between ('abb', 'zzz')
+     * 'abcxxxxxxxxxxx' is between ('abb', 'zzz')
      *
      * @return double representation of literal.
      */
@@ -206,6 +206,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeLiteral(desc);
         } else if (targetType.isDecimalType()) {
             return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
+        } else if (targetType.isDateV2()) {
+            return new DateV2Literal(desc);
+        } else if (targetType.isDateTimeV2()) {
+            return new DateTimeV2Literal(desc);
         }
         throw new AnalysisException("no support cast!");
     }

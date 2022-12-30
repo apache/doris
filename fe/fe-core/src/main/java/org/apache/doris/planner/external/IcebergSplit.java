@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.Analyzer;
+
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
@@ -28,6 +30,7 @@ public class IcebergSplit extends HiveSplit {
         super(file, start, length, hosts);
     }
 
+    private Analyzer analyzer;
     private String dataFilePath;
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;

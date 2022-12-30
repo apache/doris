@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -31,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -691,12 +693,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public Expr trySubstitute(ExprSubstitutionMap smap, Analyzer analyzer,
                               boolean preserveRootType) throws AnalysisException {
+        return trySubstitute(smap, null, analyzer, preserveRootType);
+    }
+
+    public Expr trySubstitute(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer,
+            boolean preserveRootType) throws AnalysisException {
         Expr result = clone();
         // Return clone to avoid removing casts.
         if (smap == null) {
             return result;
         }
-        result = result.substituteImpl(smap, analyzer);
+        result = result.substituteImpl(smap, disjunctsMap, analyzer);
         result.analyze(analyzer);
         if (preserveRootType && !type.equals(result.getType())) {
             result = result.castTo(type);
@@ -717,8 +724,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public Expr substitute(ExprSubstitutionMap smap, Analyzer analyzer, boolean preserveRootType)
             throws AnalysisException {
+        return substitute(smap, null, analyzer, preserveRootType);
+    }
+
+    public Expr substitute(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap,
+            Analyzer analyzer, boolean preserveRootType)
+            throws AnalysisException {
         try {
-            return trySubstitute(smap, analyzer, preserveRootType);
+            return trySubstitute(smap, disjunctsMap, analyzer, preserveRootType);
         } catch (AnalysisException e) {
             throw e;
         } catch (Exception e) {
@@ -755,10 +768,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Exprs that have non-child exprs which should be affected by substitutions must
      * override this method and apply the substitution to such exprs as well.
      */
-    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
-            throws AnalysisException {
+    protected Expr substituteImpl(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer) {
         if (isImplicitCast()) {
-            return getChild(0).substituteImpl(smap, analyzer);
+            return getChild(0).substituteImpl(smap, disjunctsMap, analyzer);
         }
         if (smap != null) {
             Expr substExpr = smap.get(this);
@@ -766,8 +778,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return substExpr.clone();
             }
         }
+        if (Expr.IS_OR_PREDICATE.apply(this) && disjunctsMap != null) {
+            smap = disjunctsMap;
+            disjunctsMap = null;
+        }
         for (int i = 0; i < children.size(); ++i) {
-            children.set(i, children.get(i).substituteImpl(smap, analyzer));
+            children.set(i, children.get(i).substituteImpl(smap, disjunctsMap, analyzer));
         }
         // SlotRefs must remain analyzed to support substitution across query blocks. All
         // other exprs must be analyzed again after the substitution to add implicit casts
@@ -1259,6 +1275,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+    protected void compactForLiteral(Type type) throws AnalysisException {
+        for (Expr expr : children) {
+            expr.compactForLiteral(type);
+        }
+    }
+
     /**
      * Return true if this expr is a scalar subquery.
      */
@@ -1649,7 +1671,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
         Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
@@ -1761,7 +1783,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FUNCTION_CALL(12),
         ARRAY_LITERAL(13),
         CAST_EXPR(14),
-        JSON_LITERAL(15);
+        JSON_LITERAL(15),
+        ARITHMETIC_EXPR(16);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1815,8 +1838,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else if (expr instanceof CastExpr) {
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
+        } else if (expr instanceof ArithmeticExpr) {
+            output.writeInt(ExprSerCode.ARITHMETIC_EXPR.getCode());
         } else {
-            throw new IOException("Unknown class " + expr.getClass().getName());
+            throw new IOException("Unsupported writable expr class: " + expr.getClass().getName());
         }
         expr.write(output);
     }
@@ -1862,8 +1887,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return ArrayLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
+            case ARITHMETIC_EXPR:
+                return ArithmeticExpr.read(in);
             default:
-                throw new IOException("Unknown code: " + code);
+                throw new IOException("Unknown wriable expr code: " + code);
         }
     }
 
@@ -2011,6 +2038,25 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn.functionName().equalsIgnoreCase("concat_ws")) {
             return children.get(0).isNullable();
         }
+        if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
+        if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
+                || fn.functionName().equalsIgnoreCase(Operator.SUBTRACT.getName()))
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
         return true;
     }
 
@@ -2051,6 +2097,25 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else {
             return this instanceof LiteralExpr;
         }
+    }
+
+    protected Type[] getActualArgTypes(Type[] originType) {
+        return Arrays.stream(originType).map(
+                (Type type) -> {
+                    if (type == null) {
+                        return null;
+                    }
+                    if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+                        return Type.DECIMAL32;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+                        return Type.DECIMAL64;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+                        return Type.DECIMAL128;
+                    } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                        return Type.DATETIMEV2;
+                    }
+                    return type;
+                }).toArray(Type[]::new);
     }
 }
 

@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_reader_options.h"
 
 namespace doris {
 namespace io {
@@ -33,7 +34,9 @@ public:
     GCContextPerDisk() : _conf_max_size(0), _used_size(0) {}
     void init(const std::string& path, int64_t max_size);
     bool try_add_file_cache(FileCachePtr cache, int64_t file_size);
-    void get_gc_file_caches(std::list<FileCachePtr>&);
+    FileCachePtr top();
+    Status gc_top();
+    void pop();
 
 private:
     std::string _disk_path;
@@ -57,7 +60,7 @@ public:
 
     FileCachePtr new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
-                                const std::string& file_cache_type);
+                                io::FileCacheType cache_type);
 
     bool exist(const std::string& cache_path);
 

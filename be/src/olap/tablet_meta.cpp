@@ -33,6 +33,7 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                           uint64_t shard_id, uint32_t next_unique_id,
@@ -165,6 +166,13 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         column->set_has_bitmap_index(true);
                         break;
                     }
+                } else if (index.index_type == TIndexType::type::BLOOMFILTER ||
+                           index.index_type == TIndexType::type::NGRAM_BF) {
+                    DCHECK_EQ(index.columns.size(), 1);
+                    if (iequal(tcolumn.column_name, index.columns[0])) {
+                        column->set_is_bf_column(true);
+                        break;
+                    }
                 }
             }
         }
@@ -195,7 +203,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             case TIndexType::BLOOMFILTER:
                 index_pb->set_index_type(IndexType::BLOOMFILTER);
                 break;
+            case TIndexType::NGRAM_BF:
+                index_pb->set_index_type(IndexType::NGRAM_BF);
+                break;
             }
+
             if (index.__isset.properties) {
                 auto properties = index_pb->mutable_properties();
                 for (auto kv : index.properties) {
@@ -285,6 +297,7 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
+
     if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
@@ -297,13 +310,13 @@ Status TabletMeta::create_from_file(const string& file_path) {
 
     if (file_handler.open(file_path, O_RDONLY) != Status::OK()) {
         LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
     if (file_header.unserialize(&file_handler) != Status::OK()) {
         LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
-        return Status::OLAPInternalError(OLAP_ERR_PARSE_PROTOBUF_ERROR);
+        return Status::Error<PARSE_PROTOBUF_ERROR>();
     }
 
     TabletMetaPB tablet_meta_pb;
@@ -311,7 +324,7 @@ Status TabletMeta::create_from_file(const string& file_path) {
         tablet_meta_pb.CopyFrom(file_header.message());
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return Status::OLAPInternalError(OLAP_ERR_PARSE_PROTOBUF_ERROR);
+        return Status::Error<PARSE_PROTOBUF_ERROR>();
     }
 
     init_from_pb(tablet_meta_pb);
@@ -373,20 +386,20 @@ Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta
 
     if (!file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR)) {
         LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
 
     try {
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+        return Status::Error<ErrorCode::INTERNAL_ERROR>();
     }
 
     if (file_header.prepare(&file_handler) != Status::OK() ||
         file_header.serialize(&file_handler) != Status::OK()) {
         LOG(WARNING) << "fail to serialize to file header. file='" << file_path;
-        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
     }
 
     return Status::OK();
@@ -428,7 +441,7 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     bool parsed = tablet_meta_pb.ParseFromString(meta_binary);
     if (!parsed) {
         LOG(WARNING) << "parse tablet meta failed";
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     init_from_pb(tablet_meta_pb);
     return Status::OK();
@@ -646,7 +659,7 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 LOG(WARNING) << "version already exist. rowset_id=" << rs->rowset_id()
                              << " version=" << rs->version() << ", tablet=" << full_name();
-                return Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST);
+                return Status::Error<PUSH_VERSION_ALREADY_EXIST>();
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
                 return Status::OK();

@@ -23,14 +23,15 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/decompressor.h"
-#include "exec/plain_binary_line_reader.h"
-#include "exec/plain_text_line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
+#include "io/file_factory.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/vfile_scanner.h"
+#include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
 
@@ -45,6 +46,8 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
+          _file_system(nullptr),
+          _file_reader(nullptr),
           _line_reader(nullptr),
           _line_reader_eof(false),
           _text_converter(nullptr),
@@ -76,7 +79,7 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _size = _range.size;
 }
 
-CsvReader::~CsvReader() {}
+CsvReader::~CsvReader() = default;
 
 Status CsvReader::init_reader(bool is_load) {
     // set the skip lines and start offset
@@ -102,18 +105,27 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    // create and open file reader
-    FileReader* real_reader = nullptr;
+    FileSystemProperties system_properties;
+    system_properties.system_type = _params.file_type;
+    system_properties.properties = _params.properties;
+    system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                  _params.broker_addresses.end());
+    }
+
+    FileDescription file_description;
+    file_description.path = _range.path;
+    file_description.start_offset = start_offset;
+    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, _file_reader_s));
-        real_reader = _file_reader_s.get();
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _params, _range.path, start_offset, _range.file_size, 0, _file_reader));
-        real_reader = _file_reader.get();
+                _profile, system_properties, file_description, &_file_system, &_file_reader));
     }
-    RETURN_IF_ERROR(real_reader->open());
-    if (real_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
+    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("Empty File");
     }
@@ -123,6 +135,10 @@ Status CsvReader::init_reader(bool is_load) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+
+    if (_params.file_attributes.__isset.trim_double_quotes) {
+        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
+    }
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -135,11 +151,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new PlainTextLineReader(_profile, real_reader, _decompressor.get(),
-                                                   _size, _line_delimiter, _line_delimiter_length));
+        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                      _size, _line_delimiter,
+                                                      _line_delimiter_length, start_offset));
+
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new PlainBinaryLineReader(real_reader));
+        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type));
         break;
     default:
         return Status::InternalError(
@@ -202,8 +220,8 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
-Status CsvReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                      std::vector<TypeDescriptor>* col_types) {
+Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                    std::vector<TypeDescriptor>* col_types) {
     size_t read_line = 0;
     bool is_parse_name = false;
     RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));
@@ -412,6 +430,11 @@ void CsvReader::_split_line(const Slice& line) {
                             non_space--;
                         }
                     }
+                    if (_trim_double_quotes && (non_space - 1) > start &&
+                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
+                        start++;
+                        non_space--;
+                    }
                     _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
                     curpos = start;
@@ -427,6 +450,11 @@ void CsvReader::_split_line(const Slice& line) {
             while (non_space > start && *(value + non_space - 1) == ' ') {
                 non_space--;
             }
+        }
+        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
+            *(value + non_space - 1) == '\"') {
+            start++;
+            non_space--;
         }
         _split_values.emplace_back(value + start, non_space - start);
     }
@@ -495,11 +523,20 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         }
     }
 
-    // create and open file reader
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, _range.path, start_offset,
-                                                    _range.file_size, 0, _file_reader));
-    RETURN_IF_ERROR(_file_reader->open());
-    if (_file_reader->size() == 0) {
+    FileSystemProperties system_properties;
+    system_properties.system_type = _params.file_type;
+    system_properties.properties = _params.properties;
+    system_properties.hdfs_params = _params.hdfs_params;
+
+    FileDescription file_description;
+    file_description.path = _range.path;
+    file_description.start_offset = start_offset;
+    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties, file_description,
+                                                    &_file_system, &_file_reader));
+    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
+        _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("Empty File");
     }
 
@@ -513,8 +550,10 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _line_reader.reset(new PlainTextLineReader(_profile, _file_reader.get(), _decompressor.get(),
-                                               _size, _line_delimiter, _line_delimiter_length));
+    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                  _size, _line_delimiter, _line_delimiter_length,
+                                                  start_offset));
+
     return Status::OK();
 }
 

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -50,6 +51,7 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.CROSS_JOIN
@@ -62,8 +64,8 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> remainingOther = Lists.newArrayList();
-                    List<Expression> leftConjuncts = Lists.newArrayList();
-                    List<Expression> rightConjuncts = Lists.newArrayList();
+                    Set<Expression> leftConjuncts = Sets.newHashSet();
+                    Set<Expression> rightConjuncts = Sets.newHashSet();
 
                     for (Expression otherConjunct : otherJoinConjuncts) {
                         if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
@@ -85,7 +87,7 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
                     Plan right = PlanUtils.filterOrSelf(rightConjuncts, join.right());
 
                     return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                            remainingOther, left, right);
+                            remainingOther, join.getHint(), left, right);
 
                 }).toRule(RuleType.PUSHDOWN_JOIN_OTHER_CONDITION);
     }

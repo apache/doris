@@ -108,18 +108,18 @@ public:
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
-        get_null_map_column().fill(0, num);
+        _get_null_map_column().fill(0, num);
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        get_null_map_column().fill(0, num);
+        _get_null_map_column().fill(0, num);
         get_nested_column().insert_many_raw_data(pos, num);
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num) override {
-        get_null_map_column().fill(0, data_num);
+        _get_null_map_column().fill(0, data_num);
         get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num,
                                                   dict_num);
     }
@@ -129,29 +129,32 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-        get_null_map_column().fill(0, num);
+        _get_null_map_column().fill(0, num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
-        get_null_map_column().fill(0, num);
+        _get_null_map_column().fill(0, num);
         get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
 
     void insert_default() override {
         get_nested_column().insert_default();
-        get_null_map_data().push_back(1);
+        _get_null_map_data().push_back(1);
+        _has_null = true;
     }
 
     void insert_many_defaults(size_t length) override {
         get_nested_column().insert_many_defaults(length);
-        get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
+        _get_null_map_data().resize_fill(_get_null_map_data().size() + length, 1);
+        _has_null = true;
     }
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
-        get_null_map_column().fill(1, num);
+        _get_null_map_column().fill(1, num);
+        _has_null = true;
     }
 
     void pop_back(size_t n) override;
@@ -211,6 +214,7 @@ public:
 
     bool is_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
+    bool is_hll() const override { return get_nested_column().is_hll(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
@@ -311,7 +315,19 @@ public:
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
+    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
+        nested_column->set_rowset_segment_id(rowset_segment_id);
+    }
+
+    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
+        return nested_column->get_rowset_segment_id();
+    }
+
 private:
+    // the two functions will not update `_need_update_has_null`
+    ColumnUInt8& _get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }
+    NullMap& _get_null_map_data() { return _get_null_map_column().get_data(); }
+
     WrappedPtr nested_column;
     WrappedPtr null_map;
 

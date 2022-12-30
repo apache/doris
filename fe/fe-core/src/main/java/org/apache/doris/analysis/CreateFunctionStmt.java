@@ -101,6 +101,7 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
+    private final boolean ifNotExists;
     private final FunctionName functionName;
     private final boolean isAggregate;
     private final boolean isAlias;
@@ -124,8 +125,10 @@ public class CreateFunctionStmt extends DdlStmt {
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
 
-    public CreateFunctionStmt(boolean isAggregate, FunctionName functionName, FunctionArgsDef argsDef,
+    public CreateFunctionStmt(boolean ifNotExists, boolean isAggregate, FunctionName functionName,
+            FunctionArgsDef argsDef,
             TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
         this.functionName = functionName;
         this.isAggregate = isAggregate;
         this.argsDef = argsDef;
@@ -141,8 +144,9 @@ public class CreateFunctionStmt extends DdlStmt {
         this.originFunction = null;
     }
 
-    public CreateFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef,
+    public CreateFunctionStmt(boolean ifNotExists, FunctionName functionName, FunctionArgsDef argsDef,
             List<String> parameters, Expr originFunction) {
+        this.ifNotExists = ifNotExists;
         this.functionName = functionName;
         this.isAlias = true;
         this.argsDef = argsDef;
@@ -155,6 +159,10 @@ public class CreateFunctionStmt extends DdlStmt {
         this.isAggregate = false;
         this.returnType = new TypeDef(Type.VARCHAR);
         this.properties = ImmutableSortedMap.of();
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public FunctionName getFunctionName() {

@@ -79,7 +79,7 @@ public:
                                            BeConsts::MAX_DECIMAL128_PRECISION, 0)},
                     {"Decimal128I", std::make_shared<DataTypeDecimal<Decimal128I>>(
                                             BeConsts::MAX_DECIMAL128_PRECISION, 0)},
-                    {"Json", std::make_shared<DataTypeJsonb>()},
+                    {"Jsonb", std::make_shared<DataTypeJsonb>()},
                     {"BitMap", std::make_shared<DataTypeBitMap>()},
                     {"Hll", std::make_shared<DataTypeHLL>()},
             };

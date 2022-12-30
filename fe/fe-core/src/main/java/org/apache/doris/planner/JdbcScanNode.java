@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -59,6 +60,19 @@ public class JdbcScanNode extends ScanNode {
         tableName = OdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
     }
 
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE);
+        JdbcTable tbl = null;
+        if (isJdbcExternalTable) {
+            JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
+            tbl = jdbcExternalTable.getJdbcTable();
+        } else {
+            tbl = (JdbcTable) (desc.getTable());
+        }
+        jdbcType = tbl.getJdbcTableType();
+        tableName = OdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
+    }
+
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
@@ -88,7 +102,7 @@ public class JdbcScanNode extends ScanNode {
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         for (Expr p : conjunctsList) {
             if (OdbcScanNode.shouldPushDownConjunct(jdbcType, p)) {
-                String filter = p.toMySql();
+                String filter = OdbcScanNode.conjunctExprToString(jdbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
             }
@@ -181,6 +195,7 @@ public class JdbcScanNode extends ScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        msg.jdbc_scan_node.setTableType(jdbcType);
     }
 
     @Override

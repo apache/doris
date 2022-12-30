@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService.h>
+
 #include <unordered_map>
 
 #include "common/config.h"
@@ -29,6 +31,9 @@ namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
 } // namespace vectorized
+namespace pipeline {
+class TaskScheduler;
+}
 class BfdParser;
 class BrokerMgr;
 
@@ -46,6 +51,7 @@ class FragmentMgr;
 class ResultCache;
 class LoadPathMgr;
 class LoadStreamMgr;
+class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
 class StorageEngine;
@@ -64,7 +70,6 @@ class SmallFileMgr;
 class StoragePolicyMgr;
 
 class BackendServiceClient;
-class FrontendServiceClient;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -99,16 +104,17 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    const bool initialized() { return _is_init; }
+    const bool initialized() const { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
-    DataStreamMgr* stream_mgr() { return _stream_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
+
+    pipeline::TaskScheduler* pipeline_task_scheduler() { return _pipeline_task_scheduler; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -137,6 +143,7 @@ public:
     }
     void init_download_cache_buf();
     void init_download_cache_required_components();
+    Status init_pipeline_task_scheduler();
     char* get_download_cache_buf(ThreadPoolToken* token) {
         if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
             return nullptr;
@@ -161,6 +168,7 @@ public:
     BufferPool* buffer_pool() { return _buffer_pool; }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
+    NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
 
@@ -176,6 +184,15 @@ public:
 
     int64_t be_start_time_sec() { return _be_start_time_sec; }
 
+    // only for unit test
+    void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
+    void set_new_load_stream_mgr(NewLoadStreamMgr* new_load_stream_mgr) {
+        this->_new_load_stream_mgr = new_load_stream_mgr;
+    }
+    void set_stream_load_executor(StreamLoadExecutor* stream_load_executor) {
+        this->_stream_load_executor = stream_load_executor;
+    }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -187,14 +204,12 @@ private:
     void _register_metrics();
     void _deregister_metrics();
 
-private:
     bool _is_init;
     std::vector<StorePath> _store_paths;
     // path => store index
     std::map<std::string, size_t> _store_path_map;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
-    DataStreamMgr* _stream_mgr = nullptr;
     doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
     ResultQueueMgr* _result_queue_mgr = nullptr;
@@ -235,6 +250,7 @@ private:
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
+    pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
@@ -245,6 +261,7 @@ private:
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
+    NewLoadStreamMgr* _new_load_stream_mgr = nullptr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 

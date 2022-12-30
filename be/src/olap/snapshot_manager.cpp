@@ -49,6 +49,7 @@ using std::vector;
 using std::list;
 
 namespace doris {
+using namespace ErrorCode;
 
 SnapshotManager* SnapshotManager::_s_instance = nullptr;
 std::mutex SnapshotManager::_mlock;
@@ -69,14 +70,14 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     TabletSharedPtr ref_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (ref_tablet == nullptr) {
         LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
-        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+        return Status::Error<TABLE_NOT_FOUND>();
     }
 
     res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
@@ -98,7 +99,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     for (auto store : stores) {
         std::string abs_path;
         RETURN_WITH_WARN_IF_ERROR(Env::Default()->canonicalize(store->path(), &abs_path),
-                                  Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST),
+                                  Status::Error<DIR_NOT_EXIST>(),
                                   "canonical path " + store->path() + "failed");
 
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0 &&
@@ -112,7 +113,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     }
 
     LOG(WARNING) << "released snapshot path illegal. [path='" << snapshot_path << "']";
-    return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
+    return Status::Error<CE_CMD_PARAMS_ERROR>();
 }
 
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
@@ -121,7 +122,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     Status res = Status::OK();
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
-        res = Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST);
+        res = Status::Error<DIR_NOT_EXIST>();
         LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir;
         return res;
     }
@@ -266,7 +267,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.segments_overlap = rowset_meta->segments_overlap();
 
     std::unique_ptr<RowsetWriter> rs_writer;
-    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &rs_writer));
+    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, false, &rs_writer));
 
     res = rs_writer->add_rowset(org_rowset);
     if (!res.ok()) {
@@ -277,7 +278,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     RowsetSharedPtr new_rowset = rs_writer->build();
     if (new_rowset == nullptr) {
         LOG(WARNING) << "failed to build rowset when rename rowset id";
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     RETURN_NOT_OK(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
@@ -292,7 +293,7 @@ Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, in
     Status res = Status::OK();
     if (out_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     // get current timestamp string
@@ -348,7 +349,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     // snapshot_id_path:
@@ -379,19 +380,19 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     }
 
     RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path),
-                              Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
+                              Status::Error<CANNOT_CREATE_DIR>(),
                               "create path " + schema_full_path + " failed");
 
     string snapshot_id;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(snapshot_id_path, &snapshot_id),
-                              Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
+                              Status::Error<CANNOT_CREATE_DIR>(),
                               "canonicalize path " + snapshot_id_path + " failed");
 
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             LOG(WARNING) << "fail to malloc TabletMeta.";
-            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
         std::vector<RowsetSharedPtr> consistent_rowsets;
@@ -449,7 +450,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         LOG(WARNING) << "invalid make snapshot request. "
                                      << " version=" << last_version->end_version()
                                      << " req_version=" << request.version;
-                        res = Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+                        res = Status::Error<INVALID_ARGUMENT>();
                         break;
                     }
                     version = request.version;
@@ -524,7 +525,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 res = new_tablet_meta->save_as_json(json_header_path, ref_tablet->data_dir());
             }
         } else {
-            res = Status::OLAPInternalError(OLAP_ERR_INVALID_SNAPSHOT_VERSION);
+            res = Status::Error<INVALID_SNAPSHOT_VERSION>();
         }
 
         if (!res.ok()) {

@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -65,8 +65,7 @@ The final result of the import is returned to the user by Coordinator BE.
 
 ## Support data format
 
-Currently Stream Load supports two data formats: CSV (text) and JSON
-
+Stream Load currently supports data formats: CSV (text), JSON, <version since="1.2" type="inline"> PARQUET and ORC</version>.
 ## Basic operations
 ### Create Load
 
@@ -108,7 +107,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 
 + column_separator
-  
+
     Used to specify the column separator in the load file. The default is `\t`. If it is an invisible character, you need to add `\x` as a prefix and hexadecimal to indicate the separator.
 
     For example, the separator `\x01` of the hive file needs to be specified as `-H "column_separator:\x01"`.
@@ -116,7 +115,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
     You can use a combination of multiple characters as the column separator.
 
 + line_delimiter
-  
+
    Used to specify the line delimiter in the load file. The default is `\n`.
 
    You can use a combination of multiple characters as the column separator.
@@ -150,13 +149,13 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
     The function transformation configuration of data to be imported includes the sequence change of columns and the expression transformation, in which the expression transformation method is consistent with the query statement.
 
     ```
-    Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present. 
+    Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present.
     when the first column src_c1 of the original file corresponds to the dst_c1 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c2 column of the target table and the third column src_c3 of the original file corresponds to the dst_c3 column of the target table,which is written as follows:
     columns: dst_c1, dst_c2, dst_c3
-	
+
     when the first column src_c1 of the original file corresponds to the dst_c2 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c3 column of the target table and the third column src_c3 of the original file corresponds to the dst_c1 column of the target table,which is written as follows:
     columns: dst_c2, dst_c3, dst_c1
-	
+
     Example of expression transformation: There are two columns in the original file and two columns in the target table (c1, c2). However, both columns in the original file need to be transformed by functions to correspond to the two columns in the target table.
     columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
     Tmp_* is a placeholder, representing two original columns in the original file.
@@ -201,17 +200,21 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
       "CommitAndPublishTimeMs": 0
   }
   ```
-    2. Trigger the commit operation on the transaction
+    2. Trigger the commit operation on the transaction.
+    Note 1) requesting to fe and be both works
+    Note 2) `{table}` in url can be omit when commit
   ```shell
-  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18036] commit successfully."
   }
   ```
     3. Trigger an abort operation on a transaction
+    Note 1) requesting to fe and be both works
+    Note 2) `{table}` in url can be omit when abort
   ```shell
-  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18037] abort successfully."
@@ -261,7 +264,7 @@ The following main explanations are given for the Stream load import result para
 	"Label Already Exists": Label duplicate, need to be replaced Label.
 
 	"Fail": Import failed.
-	
+
 + ExistingJobStatus: The state of the load job corresponding to the existing Label.
 
     This field is displayed only when the status is "Label Already Exists". The user can know the status of the load job corresponding to Label through this state. "RUNNING" means that the job is still executing, and "FINISHED" means that the job is successful.
@@ -283,7 +286,7 @@ The following main explanations are given for the Stream load import result para
 + BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
 
 + StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
-  
+
 + ReadDataTimeMs: Read data time, Unit milliseconds.
 
 + WriteDataTimeMs: Write data time, Unit milliseconds.
@@ -387,21 +390,21 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination cases in the same Label. If so, the request is submitted repeatedly by the Client side.
 
 		It is recommended that the user calculate the approximate import time based on the amount of data currently requested, and change the request overtime on the client side to a value greater than the import timeout time according to the import timeout time to avoid multiple submissions of the request by the client side.
-		
+
 	3. Connection reset abnormal
-	
+
 	  In the community version 0.14.0 and earlier versions, the connection reset exception occurred after Http V2 was enabled, because the built-in web container is tomcat, and Tomcat has pits in 307 (Temporary Redirect). There is a problem with the implementation of this protocol. All In the case of using Stream load to import a large amount of data, a connect reset exception will occur. This is because tomcat started data transmission before the 307 jump, which resulted in the lack of authentication information when the BE received the data request. Later, changing the built-in container to Jetty solved this problem. If you encounter this problem, please upgrade your Doris or disable Http V2 (`enable_http_server_v2=false`).
-	
+
 	  After the upgrade, also upgrade the http client version of your program to `4.5.13`，Introduce the following dependencies in your pom.xml file
-	
+
 	  ```xml
 	      <dependency>
 	        <groupId>org.apache.httpcomponents</groupId>
 	        <artifactId>httpclient</artifactId>
 	        <version>4.5.13</version>
-	      </dependency>  
+	      </dependency>
 	  ```
-	
+
 
 ## More Help
 

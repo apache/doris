@@ -104,4 +104,20 @@ public class MultiJoinTest extends SqlTestBase {
                     .printlnTree();
         }
     }
+
+    @Test
+    void testOuterJoin() {
+        String sql = "SELECT * FROM T1 LEFT OUTER JOIN T2 ON T1.id = T2.id, T3 WHERE T2.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new ReorderJoin())
+                .printlnTree()
+                .matches(
+                        crossLogicalJoin(
+                                leftOuterLogicalJoin()
+                                        .when(join -> join.getOtherJoinConjuncts().size() == 1),
+                                logicalOlapScan()
+                        )
+                );
+    }
 }

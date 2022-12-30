@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
 import org.junit.Assert;
@@ -27,15 +26,21 @@ import org.junit.Test;
 public class ShowCatalogStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        Config.enable_multi_catalog = true;
         final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
         ShowCatalogStmt stmt = new ShowCatalogStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getCatalogName());
-        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW CATALOGS", stmt.toSql());
 
-        stmt = new ShowCatalogStmt("testCatalog");
+        stmt = new ShowCatalogStmt(null, "%hive%");
+        stmt.analyze(analyzer);
+        Assert.assertNull(stmt.getCatalogName());
+        Assert.assertNotNull(stmt.getPattern());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("SHOW CATALOGS LIKE '%hive%'", stmt.toSql());
+
+        stmt = new ShowCatalogStmt("testCatalog", null);
         stmt.analyze(analyzer);
         Assert.assertNotNull(stmt.getCatalogName());
         Assert.assertEquals(2, stmt.getMetaData().getColumnCount());

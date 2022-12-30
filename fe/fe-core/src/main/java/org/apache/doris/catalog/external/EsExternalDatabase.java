@@ -23,14 +23,14 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -118,14 +118,14 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
 
     @Override
     public Set<String> getTableNamesWithLock() {
-        // Doesn't need to lock because everytime we call the hive metastore api to get table names.
-        return new HashSet<>(extCatalog.listTableNames(null, name));
+        makeSureInitialized();
+        return Sets.newHashSet(tableNameToId.keySet());
     }
 
     @Override
     public List<EsExternalTable> getTables() {
         makeSureInitialized();
-        return new ArrayList<>(idToTbl.values());
+        return Lists.newArrayList(idToTbl.values());
     }
 
     @Override

@@ -49,6 +49,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -67,7 +68,6 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
         return logicalFilter(logicalOlapScan()).when(p -> !p.child().isPartitionPruned()).thenApply(ctx -> {
             LogicalFilter<LogicalOlapScan> filter = ctx.root;
             LogicalOlapScan scan = filter.child();
-            Expression predicate = filter.getPredicates();
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
             PartitionInfo partitionInfo = table.getPartitionInfo();
@@ -76,7 +76,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             if (partitionColumnNameSet.isEmpty() || !partitionInfo.getType().equals(PartitionType.RANGE)) {
                 return ctx.root;
             }
-            List<Expression> expressionList = ExpressionUtils.extractConjunction(predicate);
+            Set<Expression> expressionList = filter.getConjuncts();
             // TODO: Process all partition column for now, better to process required column only.
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (String colName : partitionColumnNameSet) {
@@ -88,13 +88,17 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             PartitionPruner partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
             Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
+            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
+            if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
+                selectedPartitionId.retainAll(manuallySpecifiedPartitions);
+            }
             LogicalOlapScan rewrittenScan =
-                    scan.withSelectedPartitionId(new ArrayList<>(selectedPartitionId));
-            return new LogicalFilter<>(filter.getPredicates(), rewrittenScan);
+                    scan.withSelectedPartitionIds(new ArrayList<>(selectedPartitionId));
+            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }
 
-    private ColumnRange createColumnRange(String colName, List<Expression> expressionList) {
+    private ColumnRange createColumnRange(String colName, Set<Expression> expressionList) {
         ColumnRange result = ColumnRange.create();
         for (Expression expression : expressionList) {
             Set<SlotReference> slotReferences = expression.collect(SlotReference.class::isInstance);

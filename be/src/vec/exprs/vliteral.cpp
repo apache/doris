@@ -168,10 +168,10 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
                                                   node.type.types[0].scalar_type.scale, false);
-            auto val = typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())
+            auto val = typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
                                ->parse_from_string(node.decimal_literal.value);
             auto scale =
-                    typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())->get_scale();
+                    typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())->get_scale();
             field = DecimalField<Decimal128I>(val, scale);
             break;
         }
@@ -191,11 +191,8 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
     return Status::OK();
 }
 
-std::string VLiteral::debug_string() const {
+std::string VLiteral::value() const {
     std::stringstream out;
-    out << "VLiteral (name = " << _expr_name;
-    out << ", type = " << _data_type->get_name();
-    out << ", value = (";
     for (size_t i = 0; i < _column_ptr->size(); i++) {
         if (i != 0) {
             out << ", ";
@@ -283,8 +280,17 @@ std::string VLiteral::debug_string() const {
             }
         }
     }
+    return out.str();
+}
+
+std::string VLiteral::debug_string() const {
+    std::stringstream out;
+    out << "VLiteral (name = " << _expr_name;
+    out << ", type = " << _data_type->get_name();
+    out << ", value = (" << value();
     out << "))";
     return out.str();
 }
+
 } // namespace vectorized
 } // namespace doris

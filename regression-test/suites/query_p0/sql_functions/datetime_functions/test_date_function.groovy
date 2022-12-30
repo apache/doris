@@ -20,7 +20,6 @@ import java.text.SimpleDateFormat
 suite("test_date_function") {
     def tableName = "test_date_function"
 
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -51,6 +50,125 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
 
     sql """ truncate table ${tableName} """
+
+    def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
+    sql """ DROP TABLE IF EXISTS ${timezoneCachedTableName} """
+    sql """
+        CREATE TABLE ${timezoneCachedTableName} (
+            id int,
+            test_datetime datetime NULL COMMENT "",
+            origin_tz VARCHAR(255),
+            target_tz VARCHAR(255)
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+        )
+    """
+
+    sql """
+        INSERT INTO ${timezoneCachedTableName} VALUES
+            (1, "2019-08-01 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
+            (2, "2019-08-01 13:21:03", "Asia/Singapore", "Asia/Shanghai"),
+            (3, "2019-08-01 13:21:03", "Asia/Taipei", "Asia/Shanghai"),
+            (4, "2019-08-02 13:21:03", "Australia/Queensland", "Asia/Shanghai"),
+            (5, "2019-08-02 13:21:03", "Australia/Lindeman", "Asia/Shanghai"),
+            (6, "2019-08-03 13:21:03", "America/Aruba", "Asia/Shanghai"),
+            (7, "2019-08-03 13:21:03", "America/Blanc-Sablon", "Asia/Shanghai"),
+            (8, "2019-08-04 13:21:03", "America/Dawson", "Africa/Lusaka"),
+            (9, "2019-08-04 13:21:03", "America/Creston", "Africa/Lusaka"),
+            (10, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
+            (11, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Singapore"),
+            (12, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Taipei"),
+            (13, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Queensland"),
+            (14, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Lindeman"),
+            (15, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Aruba"),
+            (16, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Blanc-Sablon"),
+            (17, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Dawson"),
+            (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
+    """
+
+    sql "set parallel_fragment_exec_instance_num = 8"
+
+    qt_sql1 """
+        SELECT
+            `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
+        FROM
+            ${timezoneCachedTableName}
+        ORDER BY `id`
+    """
+    qt_sql2 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            ${timezoneCachedTableName}
+        WHERE
+            id = 2;
+    """
+    qt_sql3 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Queensland", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            ${timezoneCachedTableName}
+        WHERE
+            id = 4;
+    """
+    qt_sql4 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
+        FROM
+            ${timezoneCachedTableName}
+        WHERE
+            id = 8;
+    """
+
+    qt_sql_vec1 """
+        SELECT
+            `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
+        FROM
+            ${timezoneCachedTableName}
+        ORDER BY `id`
+    """
+    qt_sql_vec2 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            ${timezoneCachedTableName}
+        WHERE
+            id = 2;
+    """
+    qt_sql_vec3 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Queensland", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            ${timezoneCachedTableName}
+        WHERE
+            id = 4;
+    """
+    qt_sql_vec4 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
+        FROM
+            ${timezoneCachedTableName}
+        WHERE
+            id = 8;
+    """
 
     // curdate,current_date
     String curdate_str = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
@@ -431,7 +549,6 @@ suite("test_date_function") {
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
 
     // test last_day for vec
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -456,8 +573,6 @@ suite("test_date_function") {
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
-    // test last_day for not vec
-    sql """ SET enable_vectorized_engine = FALSE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -479,7 +594,6 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     // test to_monday
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

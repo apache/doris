@@ -90,34 +90,34 @@ CREATE TABLE doris_test.ex_tb7 (
   `id` varchar(32) NULL DEFAULT "",
   `user_name` varchar(32) NULL DEFAULT "",
   `member_list` DECIMAL(10,3)
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb8 (
    `date` date NOT NULL COMMENT "",
    `uid` varchar(64) NOT NULL,
    `stat_type` int(11) NOT NULL COMMENT "",
    `price` varchar(255) NULL COMMENT "price"
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb9 (
    c_date date null
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb10 (
     `aa` varchar(200) NULL,
     `bb` int NULL,
     `cc` bigint NULL
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb11 (
  `aa` varchar(200) PRIMARY KEY,
  `bb` int NULL
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb12 (
  `cc` varchar(200) PRIMARY KEY,
  `dd` int NULL
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb13 (
      name varchar(128),
@@ -129,7 +129,7 @@ CREATE TABLE doris_test.ex_tb13 (
      country varchar(128),
      gender varchar(128),
      covid BOOLEAN
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb14 (
      tid varchar(128),
@@ -137,7 +137,7 @@ CREATE TABLE doris_test.ex_tb14 (
      dt  date,
      cmd varchar(128),
      dp_from varchar(128)
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb15 (
     col1 varchar(10) NULL ,
@@ -152,7 +152,7 @@ CREATE TABLE doris_test.ex_tb15 (
     col10 varchar(10) NULL ,
     col11 varchar(10) NULL ,
     col12 datetime NULL
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb16 (
    `id` bigint(20) NOT NULL COMMENT '',
@@ -162,7 +162,7 @@ CREATE TABLE doris_test.ex_tb16 (
    `modify_uid` bigint(20) NULL,
    `ctime` bigint(20) NULL,
    `mtime` bigint(20) NULL
-);
+) engine=innodb charset=utf8;
 
 CREATE TABLE doris_test.ex_tb17 (
   `id` bigint(20) NULL,
@@ -182,6 +182,45 @@ CREATE TABLE doris_test.ex_tb17 (
   `account_number` varchar(765) NULL,
   `currency_type` tinyint(4) NULL,
   `order_source` tinyint(4) NULL
-);
+) engine=innodb charset=utf8;
+
+create table doris_test.ex_tb18 (
+    num_tinyint tinyint,
+    num_tinyint2 tinyint unsigned,
+    num_smallint SMALLINT,
+    num_smallint2 SMALLINT unsigned,
+    num_mediumint MEDIUMINT,
+    num_mediumint2 MEDIUMINT unsigned,
+    num_bigint BIGINT,
+    num_int int(5),
+    num_int2 int(5) unsigned,
+    num_int3 int(5) unsigned zerofill,
+    num_float float(5, 2),
+    num_double double(10, 3),
+    num_decimal decimal(20, 2),
+    char_value1 char(5),
+    char_value2 char(100),
+    varchar_value1 varchar(5),
+    varchar_value2 varchar(10),
+    varchar_value3 varchar(100),
+    text_value TEXT(123)
+) engine=innodb charset=utf8;
+
+create table doris_test.ex_tb19 (
+    date_value date,
+    time_value time,
+    year_value year,
+    datetime_value datetime,
+    timestamp_value timestamp
+) engine=innodb charset=utf8;
+
+create table doris_test.ex_tb20 (
+    decimal_normal decimal(38, 5),
+    decimal_unsigned decimal(37, 5) unsigned,
+    decimal_out1 decimal(39, 5),
+    decimal_unsigned_out1 decimal(38, 5) unsigned,
+    decimal_long decimal(65, 5),
+    decimal_unsigned_long decimal(65, 5) unsigned
+) engine=innodb charset=utf8;
 
 

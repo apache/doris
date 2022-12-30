@@ -19,7 +19,6 @@
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
-#include "runtime/file_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
@@ -50,6 +49,7 @@ Status VResultSink::prepare_exprs(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return Status::OK();
 }
+
 Status VResultSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     auto fragment_instance_id = state->fragment_instance_id();
@@ -61,8 +61,8 @@ Status VResultSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(prepare_exprs(state));
 
     // create sender
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->fragment_instance_id(),
-                                                                   _buf_size, &_sender));
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec()));
 
     // create writer based on sink type
     switch (_sink_type) {
@@ -83,11 +83,7 @@ Status VResultSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented Result Sink::send scalar");
-}
-
-Status VResultSink::send(RuntimeState* state, Block* block) {
+Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
     // The memory consumption in the process of sending the results is not check query memory limit.
     // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
@@ -119,7 +115,7 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
-            time(NULL) + config::result_buffer_cancelled_interval_time,
+            time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
 
     VExpr::close(_output_vexpr_ctxs, state);

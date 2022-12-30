@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -33,12 +34,10 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -46,16 +45,8 @@ import java.util.regex.Pattern;
 public abstract class DataType implements AbstractDataType {
     public static final int DEFAULT_SCALE = 0;
     public static final int DEFAULT_PRECISION = 9;
-    public static final int DATETIME_PRECISION = 18;
 
-    private static final Pattern CHAR_PATTERN = Pattern.compile("char(\\s*\\(\\s*(\\d+)\\s*\\))?");
-    private static final Pattern VARCHAR_PATTERN = Pattern.compile("varchar(\\s*\\(\\s*(\\d+)\\s*\\))?");
-    private static final Pattern DATETIME_PATTERN = Pattern.compile("datetime(\\s*\\(\\s*(\\d+)\\s*\\))?");
-    private static final Pattern DATETIME_V2_PATTERN = Pattern.compile("datetimev2(\\s*\\(\\s*(\\d+)\\s*\\))?");
-    private static final Pattern DECIMAL_PATTERN =
-            Pattern.compile("decimal(\\s*\\(\\s*(\\d+)(\\s*,\\s*(\\d+))?\\s*\\))?");
-    private static final Pattern DECIMAL_V3_PATTERN =
-            Pattern.compile("decimalv3(\\s*\\(\\s*(\\d+)(\\s*,\\s*(\\d+))?\\s*\\))?");
+    protected static final NereidsParser PARSER = new NereidsParser();
 
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
@@ -166,41 +157,74 @@ public abstract class DataType implements AbstractDataType {
      * Convert to data type in Nereids.
      * throw exception when cannot convert to Nereids type
      *
-     * @param type data type in string representation
+     * @param types data type in string representation
      * @return data type in Nereids
      */
-    public static DataType convertFromString(String type) {
-        // TODO: use a better way to resolve types
-        // TODO: support varchar, char, decimal
-        type = type.toLowerCase().trim();
+    public static DataType convertPrimitiveFromStrings(List<String> types) {
+        String type = types.get(0).toLowerCase().trim();
         switch (type) {
             case "bool":
             case "boolean":
                 return BooleanType.INSTANCE;
             case "tinyint":
-            case "tinyint(4)":
                 return TinyIntType.INSTANCE;
             case "smallint":
-            case "smallint(6)":
                 return SmallIntType.INSTANCE;
             case "int":
-            case "int(11)":
                 return IntegerType.INSTANCE;
             case "bigint":
-            case "bigint(20)":
                 return BigIntType.INSTANCE;
             case "largeint":
-            case "largeint(40)":
                 return LargeIntType.INSTANCE;
             case "float":
                 return FloatType.INSTANCE;
             case "double":
                 return DoubleType.INSTANCE;
             case "decimal":
-                return fromCatalogType(ScalarType.createDecimalType());
+                switch (types.size()) {
+                    case 1:
+                        return DecimalV2Type.SYSTEM_DEFAULT;
+                    case 2:
+                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)), 0);
+                    case 3:
+                        return DecimalV2Type.createDecimalV2Type(
+                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+            case "decimalv3":
+                switch (types.size()) {
+                    case 1:
+                        return DecimalV3Type.SYSTEM_DEFAULT;
+                    case 2:
+                        return DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)));
+                    case 3:
+                        return DecimalV3Type.createDecimalV3Type(
+                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
             case "text":
             case "string":
                 return StringType.INSTANCE;
+            case "varchar":
+                switch (types.size()) {
+                    case 1:
+                        return VarcharType.SYSTEM_DEFAULT;
+                    case 2:
+                        return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+            case "char":
+                switch (types.size()) {
+                    case 1:
+                        return CharType.SYSTEM_DEFAULT;
+                    case 2:
+                        return CharType.createCharType(Integer.parseInt(types.get(1)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
             case "null":
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
@@ -210,6 +234,24 @@ public abstract class DataType implements AbstractDataType {
                 return DateV2Type.INSTANCE;
             case "time":
                 return TimeType.INSTANCE;
+            case "datetime":
+                switch (types.size()) {
+                    case 1:
+                        return DateTimeType.INSTANCE;
+                    case 2:
+                        return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+            case "datetimev2":
+                switch (types.size()) {
+                    case 1:
+                        return DateTimeV2Type.SYSTEM_DEFAULT;
+                    case 2:
+                        return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
             case "hll":
                 return HllType.INSTANCE;
             case "bitmap":
@@ -219,29 +261,26 @@ public abstract class DataType implements AbstractDataType {
             case "json":
                 return JsonType.INSTANCE;
             default:
-                Optional<DataType> newType = matchVarchar(type);
-                if (newType.isPresent()) {
-                    return newType.get();
-                }
-
-                newType = matchChar(type);
-                if (newType.isPresent()) {
-                    return newType.get();
-                }
-
-                newType = matchDateTime(type);
-                if (newType.isPresent()) {
-                    return newType.get();
-                }
-
-                newType = matchDecimalType(type);
-                if (newType.isPresent()) {
-                    return newType.get();
-                }
-                if (type.startsWith("array")) {
-                    return resolveArrayType(type);
-                }
                 throw new AnalysisException("Nereids do not support type: " + type);
+        }
+    }
+
+    /**
+     * Convert to data type in Nereids.
+     * throw exception when cannot convert to Nereids type
+     *
+     * @param type data type in string representation
+     * @return data type in Nereids
+     */
+    public static DataType convertFromString(String type) {
+        try {
+            return PARSER.parseDataType(type);
+        } catch (Exception e) {
+            // TODO: remove it when Nereids parser support array
+            if (type.startsWith("array")) {
+                return resolveArrayType(type);
+            }
+            throw e;
         }
     }
 
@@ -410,7 +449,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isDateType() {
-        return isDate() || isDateTime();
+        return isDate() || isDateTime() || isDateV2() || isDateTimeV2();
     }
 
     public boolean isNullType() {
@@ -437,6 +476,39 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof PrimitiveType;
     }
 
+    public boolean isDateV2() {
+        return this instanceof DateV2Type;
+    }
+
+    public boolean isDateTimeV2() {
+        return this instanceof DateTimeV2Type;
+    }
+
+    public boolean isBitmap() {
+        return this instanceof BitmapType;
+    }
+
+    public boolean isHll() {
+        return this instanceof HllType;
+    }
+
+    public boolean isQuantileState() {
+        return this instanceof QuantileStateType;
+    }
+
+    public boolean isArray() {
+        return this instanceof ArrayType;
+    }
+
+    // only metric types have the following constraint:
+    // 1. don't support as key column
+    // 2. don't support filter
+    // 3. don't support group by
+    // 4. don't support index
+    public boolean isOnlyMetricType() {
+        return isHll() || isBitmap() || isQuantileState() || isArray();
+    }
+
     public DataType promotion() {
         if (PROMOTION_MAP.containsKey(this.getClass())) {
             return PROMOTION_MAP.get(this.getClass()).get();
@@ -446,85 +518,6 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public abstract int width();
-
-    private static Optional<DataType> matchChar(String type) {
-        Matcher matcher = CHAR_PATTERN.matcher(type);
-        if (matcher.find() && matcher.group().equals(type)) {
-            String len = matcher.group(2);
-            CharType charType = len != null
-                    ? CharType.createCharType(Integer.parseInt(len))
-                    : CharType.SYSTEM_DEFAULT;
-            return Optional.of(charType);
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<DataType> matchVarchar(String type) {
-        Matcher matcher = VARCHAR_PATTERN.matcher(type);
-        if (matcher.find() && matcher.group().equals(type)) {
-            String scale = matcher.group(2);
-            VarcharType varcharType = scale != null
-                    ? VarcharType.createVarcharType(Integer.parseInt(scale))
-                    : VarcharType.SYSTEM_DEFAULT;
-            return Optional.of(varcharType);
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<DataType> matchDateTime(String type) {
-        Matcher matcher = DATETIME_PATTERN.matcher(type);
-        if (matcher.find() && matcher.group().equals(type)) {
-            String scale = matcher.group(2);
-            return Optional.of(
-                    fromCatalogType(scale != null
-                        ? ScalarType.createDatetimeV2Type(Integer.parseInt(scale))
-                        : ScalarType.createDatetimeType())
-            );
-        }
-        matcher = DATETIME_V2_PATTERN.matcher(type);
-        if (matcher.find()) {
-            String scale = matcher.group(2);
-            return Optional.of(
-                    fromCatalogType(scale != null
-                            ? ScalarType.createDatetimeV2Type(Integer.parseInt(scale))
-                            : ScalarType.createDatetimeV2Type(0))
-            );
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<DataType> matchDecimalType(String type) {
-        Matcher matcher = DECIMAL_PATTERN.matcher(type);
-        if (matcher.find() && matcher.group().equals(type)) {
-            String precision = matcher.group(2);
-            String scale = matcher.group(4);
-            if (scale != null) {
-                return Optional.of(fromCatalogType(
-                        ScalarType.createDecimalType(Integer.parseInt(precision), Integer.parseInt(scale))));
-            }
-
-            if (precision != null) {
-                return Optional.of(fromCatalogType(ScalarType.createDecimalType(Integer.parseInt(precision))));
-            }
-            return Optional.of(fromCatalogType(ScalarType.createDecimalType()));
-        }
-
-        matcher = DECIMAL_V3_PATTERN.matcher(type);
-        if (matcher.find() && matcher.group().equals(type)) {
-            String precision = matcher.group(2);
-            String scale = matcher.group(4);
-            if (scale != null) {
-                return Optional.of(fromCatalogType(
-                        ScalarType.createDecimalV3Type(Integer.parseInt(precision), Integer.parseInt(scale))));
-            }
-
-            if (precision != null) {
-                return Optional.of(fromCatalogType(ScalarType.createDecimalV3Type(Integer.parseInt(precision))));
-            }
-            return Optional.of(fromCatalogType(ScalarType.createDecimalV3Type()));
-        }
-        return Optional.empty();
-    }
 
     private static ArrayType resolveArrayType(String type) {
         if (!type.startsWith("array")) {

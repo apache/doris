@@ -77,6 +77,11 @@ public class BitmapFilterPredicate extends Predicate {
                     + "Please `set runtime_filter_type = 'xxx, bitmap_filter'` first.");
         }
 
+        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isEnableProjection()) {
+            throw new AnalysisException(
+                    "Please enable the session variable 'enable_projection' through `set enable_projection = true;`");
+        }
+
         if (!VectorizedUtil.isVectorized()) {
             throw new AnalysisException("In bitmap syntax is currently only supported in the vectorization engine.");
         }
@@ -90,7 +95,7 @@ public class BitmapFilterPredicate extends Predicate {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        // Unreachable
+        Preconditions.checkArgument(false, "`toThrift` in BitmapFilterPredicate should not be reached!");
     }
 
     @Override

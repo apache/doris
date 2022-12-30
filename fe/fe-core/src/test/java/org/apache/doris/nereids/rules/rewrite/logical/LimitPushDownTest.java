@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -48,8 +49,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class LimitPushDownTest extends TestWithFeService implements PatternMatchSupported {
-    private Plan scanScore = new LogicalOlapScan(new RelationId(0), PlanConstructor.score);
-    private Plan scanStudent = new LogicalOlapScan(new RelationId(1), PlanConstructor.student);
+    private Plan scanScore = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
+    private Plan scanStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -58,7 +59,8 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
         connectContext.setDatabase("default_cluster:test");
 
         createTable("CREATE TABLE `t1` (\n"
-                + "  `k1` int(11) NULL\n"
+                + "  `k1` int(11) NULL,\n"
+                + "  `k2` int(11) NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
@@ -70,7 +72,21 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
                 + ");");
 
         createTable("CREATE TABLE `t2` (\n"
-                + "  `k1` int(11) NULL\n"
+                + "  `k1` int(11) NULL,\n"
+                + "  `k2` int(11) NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "COMMENT 'OLAP'\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\",\n"
+                + "\"disable_auto_compaction\" = \"false\"\n"
+                + ");");
+
+        createTable("CREATE TABLE `t3` (\n"
+                + "  `k1` int(11) NULL,\n"
+                + "  `k2` int(11) NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
@@ -106,6 +122,7 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
 
     @Test
     public void testPushLimitThroughRightJoin() {
+        // after use RelationUtil to allocate relation id, the id will increase when getNextId() called.
         test(JoinType.RIGHT_OUTER_JOIN, true,
                 logicalLimit(
                         logicalProject(
@@ -193,6 +210,35 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
                     Assertions.assertEquals(5, nameToScan.get("t1").getLimit());
                 }
         );
+    }
+
+    @Test
+    public void testLimitPushUnion() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1 from t1 "
+                        + "union all select k2 from t2 "
+                        + "union all select k1 from t3 "
+                        + "limit 10")
+                .rewrite()
+                .matches(logicalLimit(
+                        logicalUnion(
+                                logicalLimit(
+                                        logicalProject(
+                                                logicalOlapScan().when(scan -> "t1".equals(scan.getTable().getName()))
+                                        )
+                                ),
+                                logicalLimit(
+                                        logicalProject(
+                                                logicalOlapScan().when(scan -> "t2".equals(scan.getTable().getName()))
+                                        )
+                                ),
+                                logicalLimit(
+                                        logicalProject(
+                                                logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
+                                        )
+                                )
+                        )
+                ));
     }
 
     private void test(JoinType joinType, boolean hasProject, PatternDescriptor<? extends Plan> pattern) {

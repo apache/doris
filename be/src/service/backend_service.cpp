@@ -35,7 +35,6 @@
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "olap/storage_engine.h"
-#include "runtime/data_stream_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/export_task_mgr.h"
@@ -103,7 +102,7 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
-    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id).set_t_status(&return_val);
+    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id);
 }
 
 void BackendService::transmit_data(TTransmitDataResult& return_val,
@@ -142,7 +141,7 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
         //        params.sender_id,
         //        params.be_number);
         //VLOG_ROW << "params.eos: " << (params.eos ? "true" : "false")
-        //        << " close_sender status: " << status.get_error_msg();
+        //        << " close_sender status: " << status;
         //status.set_t_status(&return_val);
     }
 }
@@ -164,7 +163,7 @@ void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequ
     //    } else {
     //        VLOG_RPC << "start export task failed id="
     //            << request.params.params.fragment_instance_id
-    //            << " and err_msg=" << status.get_error_msg();
+    //            << " and err_msg=" << status;
     //    }
     //    status.to_thrift(&t_status);
 }
@@ -193,7 +192,7 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
     //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
     //    if (!status.ok()) {
     //        LOG(WARNING) << "delete export task failed. because "
-    //            << status.get_error_msg() << " with task_id " << task_id;
+    //            << status << " with task_id " << task_id;
     //    } else {
     //        VLOG_RPC << "delete export task successful with task_id " << task_id;
     //    }

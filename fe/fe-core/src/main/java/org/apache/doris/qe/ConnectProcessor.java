@@ -36,11 +36,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -60,7 +61,6 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
@@ -150,6 +150,9 @@ public class ConnectProcessor {
         } catch (DdlException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
+        } catch (Throwable t) {
+            ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t));
+            return;
         }
 
         ctx.getState().setOk();
@@ -167,12 +170,14 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+        origStmt = origStmt.replace("\n", " ");
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString()).setQueryTime(elapseMs)
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
@@ -250,94 +255,117 @@ public class ConnectProcessor {
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
-        StatementBase parsedStmt = null;
-        List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
-        boolean alreadyAddedToAuditInfoList = false;
-        try {
-            List<StatementBase> stmts = null;
-            Exception nereidsParseException = null;
-            // ctx could be null in some unit tests
-            if (ctx != null && ctx.getSessionVariable().isEnableNereidsPlanner()) {
-                NereidsParser nereidsParser = new NereidsParser();
-                try {
-                    stmts = nereidsParser.parseSQL(originStmt);
-                } catch (Exception e) {
-                    // TODO: We should catch all exception here until we support all query syntax.
-                    nereidsParseException = e;
-                    LOG.info(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt);
-                }
-            }
-            // stmts == null when Nereids cannot planner this query or Nereids is disabled.
-            if (stmts == null) {
-                stmts = parse(originStmt);
-            }
-            for (int i = 0; i < stmts.size(); ++i) {
-                alreadyAddedToAuditInfoList = false;
-                ctx.getState().reset();
-                if (i > 0) {
-                    ctx.resetReturnRows();
-                }
-                parsedStmt = stmts.get(i);
-                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                        && ctx.getSessionVariable().isEnableNereidsPlanner()
-                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                    throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
-                                parsedStmt.toSql()), nereidsParseException);
-                }
-                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
-                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                executor = new StmtExecutor(ctx, parsedStmt);
-                ctx.setExecutor(executor);
-                executor.execute();
 
+        Exception nereidsParseException = null;
+        List<StatementBase> stmts = null;
+
+        if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+            try {
+                stmts = new NereidsParser().parseSQL(originStmt);
+            } catch (Exception e) {
+                // TODO: We should catch all exception here until we support all query syntax.
+                nereidsParseException = e;
+                LOG.info(" Fallback to stale planner."
+                        + " Nereids cannot process this statement: \"{}\".", originStmt);
+            }
+        }
+
+        // stmts == null when Nereids cannot planner this query or Nereids is disabled.
+        if (stmts == null) {
+            try {
+                stmts = parse(originStmt);
+            } catch (Throwable throwable) {
+                // Parse sql failed, audit it and return
+                handleQueryException(throwable, originStmt, null, null);
+                return;
+            }
+        }
+
+        List<String> origSingleStmtList = null;
+        // if stmts.size() > 1, split originStmt to multi singleStmts
+        if (stmts.size() > 1) {
+            try {
+                origSingleStmtList = SqlUtils.splitMultiStmts(originStmt);
+            } catch (Exception ignore) {
+                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
+            }
+        }
+
+        boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+        for (int i = 0; i < stmts.size(); ++i) {
+            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
+
+            ctx.getState().reset();
+            if (i > 0) {
+                ctx.resetReturnRows();
+            }
+
+            StatementBase parsedStmt = stmts.get(i);
+            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                    && ctx.getSessionVariable().isEnableNereidsPlanner()
+                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                Exception exception = new Exception(
+                        String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                        parsedStmt.toSql()), nereidsParseException);
+                // audit it and break
+                handleQueryException(exception, auditStmt, null, null);
+                break;
+            }
+
+            parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            executor = new StmtExecutor(ctx, parsedStmt);
+            ctx.setExecutor(executor);
+
+            try {
+                executor.execute();
                 if (i != stmts.size() - 1) {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                     finalizeCommand();
                 }
-                auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
-                alreadyAddedToAuditInfoList = true;
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+                // execute failed, skip remaining stmts
+                if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                    break;
+                }
+            } catch (Throwable throwable) {
+                handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
+                        executor.getQueryStatisticsForAuditLog());
+                // execute failed, skip remaining stmts
+                break;
+            } finally {
+                executor.addProfileToSpan();
             }
-        } catch (IOException e) {
+
+        }
+
+    }
+
+    // Use a handler for exception to avoid big try catch block which is a little hard to understand
+    private void handleQueryException(Throwable throwable, String origStmt,
+                                      StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+        if (throwable instanceof IOException) {
             // Client failed.
-            LOG.warn("Process one query failed because IOException: ", e);
+            LOG.warn("Process one query failed because IOException: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
-        } catch (UserException e) {
-            LOG.warn("Process one query failed because.", e);
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
+        } else if (throwable instanceof UserException) {
+            LOG.warn("Process one query failed because.", throwable);
+            ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
+            // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-        } catch (Throwable e) {
+        } else {
             // Catch all throwable.
             // If reach here, maybe palo bug.
-            LOG.warn("Process one query failed because unknown reason: ", e);
+            LOG.warn("Process one query failed because unknown reason: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+                    throwable.getClass().getSimpleName() + ", msg: " + throwable.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
-
-        // that means execute some statement failed
-        if (!alreadyAddedToAuditInfoList && executor != null) {
-            auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
-        }
-
-        // audit after exec, analysis query would not be recorded
-        if (!auditInfoList.isEmpty()) {
-            for (Pair<StatementBase, Data.PQueryStatistics> audit : auditInfoList) {
-                auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
-            }
-        } else if (QueryState.ErrType.ANALYSIS_ERR != ctx.getState().getErrType()) {
-            // auditInfoList can be empty if we encounter error.
-            auditAfterExec(originStmt.replace("\n", " "), null, null);
-        }
-        if (executor != null) {
-            executor.addProfileToSpan();
-        }
+        auditAfterExec(origStmt, parsedStmt, statistics);
     }
 
     // analyze the origin stmt and return multi-statements
@@ -363,7 +391,7 @@ public class ConnectProcessor {
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
-            throw new AnalysisException("Internal Error, maybe syntax error or this is a bug");
+            throw new AnalysisException("Internal Error, maybe syntax error or this is a bug: " + e.getMessage(), e);
         }
     }
 
@@ -401,6 +429,8 @@ public class ConnectProcessor {
                 channel.sendOnePacket(serializer.toByteBuffer());
             }
 
+        } catch (Throwable throwable) {
+            handleQueryException(throwable, "", null, null);
         } finally {
             table.readUnlock();
         }
@@ -677,3 +707,4 @@ public class ConnectProcessor {
         }
     }
 }
+

@@ -59,7 +59,7 @@ Status VBrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VBrokerScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "VBrokerScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // get tuple desc
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -85,7 +85,7 @@ Status VBrokerScanNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBrokerScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(start_scanners());
@@ -109,7 +109,7 @@ Status VBrokerScanNode::start_scanners() {
 Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VBrokerScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // check if CANCELLED.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
@@ -211,8 +211,6 @@ Status VBrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Close
-    _batch_queue.clear();
     return ExecNode::close(state);
 }
 
@@ -273,7 +271,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
 void VBrokerScanNode::scanner_worker(int start_idx, int length) {
     START_AND_SCOPE_SPAN(_runtime_state->get_tracer(), span, "VBrokerScanNode::scanner_worker");
     SCOPED_ATTACH_TASK(_runtime_state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     Thread::set_self_name("vbroker_scanner");
     Status status = Status::OK();
     ScannerCounter counter;
@@ -282,8 +280,7 @@ void VBrokerScanNode::scanner_worker(int start_idx, int length) {
                 _scan_ranges[start_idx + i].scan_range.broker_scan_range;
         status = scanner_scan(scan_range, &counter);
         if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i
-                         << "] process failed. status=" << status.get_error_msg();
+            LOG(WARNING) << "Scanner[" << start_idx + i << "] process failed. status=" << status;
         }
     }
 

@@ -24,13 +24,13 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
@@ -105,13 +105,13 @@ public class LoadScanProvider implements FileScanProviderIf {
         params.setStrictMode(fileGroupInfo.isStrictMode());
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
             params.setHdfsParams(tHdfsParams);
         }
         TFileAttributes fileAttributes = new TFileAttributes();
         setFileAttributes(ctx.fileGroup, fileAttributes);
         params.setFileAttributes(fileAttributes);
-        params.setFileType(fileGroupInfo.getBrokerDesc().getFileType());
+        params.setFileType(fileGroupInfo.getFileType());
         ctx.params = params;
 
         initColumns(ctx, analyzer);
@@ -131,6 +131,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileAttributes.setReadJsonByLine(fileGroup.isReadJsonByLine());
         fileAttributes.setReadByColumnDef(true);
         fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
+        fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
     }
 
     private String getHeaderType(String formatType) {
@@ -252,3 +253,4 @@ public class LoadScanProvider implements FileScanProviderIf {
         return fileGroupInfo.getTargetTable();
     }
 }
+

@@ -26,6 +26,10 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vin_predicate.h"
 
+namespace doris::pipeline {
+class ScanOperator;
+}
+
 namespace doris::vectorized {
 
 class VScanner;
@@ -45,10 +49,13 @@ class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+    virtual ~VScanNode() = default;
+
     friend class VScanner;
     friend class NewOlapScanner;
     friend class VFileScanner;
     friend class ScannerContext;
+    friend class doris::pipeline::ScanOperator;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
@@ -57,10 +64,6 @@ public:
     Status open(RuntimeState* state) override;
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
-
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not implement");
-    }
 
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
@@ -83,6 +86,10 @@ public:
     TupleId output_tuple_id() const { return _output_tuple_id; }
     const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    bool runtime_filters_are_ready_or_timeout();
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -127,18 +134,21 @@ protected:
     //      2. in/not in predicate
     //      3. function predicate
     //  TODO: these interfaces should be change to become more common.
-    virtual PushDownType _should_push_down_binary_predicate(
+    virtual Status _should_push_down_binary_predicate(
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
+            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker,
+            PushDownType& pdt);
 
     virtual PushDownType _should_push_down_in_predicate(VInPredicate* in_pred,
                                                         VExprContext* expr_ctx, bool is_not_in);
 
-    virtual PushDownType _should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                           VExprContext* expr_ctx,
-                                                           StringVal* constant_str,
-                                                           doris_udf::FunctionContext** fn_ctx) {
-        return PushDownType::UNACCEPTABLE;
+    virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                     VExprContext* expr_ctx,
+                                                     StringVal* constant_str,
+                                                     doris_udf::FunctionContext** fn_ctx,
+                                                     PushDownType& pdt) {
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
     }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
@@ -169,6 +179,7 @@ protected:
     // For runtime filters
     struct RuntimeFilterContext {
         RuntimeFilterContext() : apply_mark(false), runtime_filter(nullptr) {}
+        RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark;
         IRuntimeFilter* runtime_filter;
@@ -192,6 +203,7 @@ protected:
 
     // indicate this scan node has no more data to return
     bool _eos = false;
+    bool _opened = false;
 
     FilterPredicates _filter_predicates {};
 
@@ -203,8 +215,21 @@ protected:
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
     // column -> ColumnValueRange
+    // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
-    // We use _colname_to_value_range to store a column and its corresponding value ranges.
+    /**
+     * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
+     * we use _compound_value_ranges to store conresponding value ranges 
+     * in the one compound relationship except the leaf of and node,
+     * such as `where a > 1 or b > 10 and c < 200`, the expr tree like: 
+     *     or
+     *   /   \ 
+     *  a     and
+     *       /   \
+     *      b     c
+     * the value ranges of column a,b,c will all store into _compound_value_ranges
+     */
+    std::vector<ColumnValueRangeType> _compound_value_ranges;
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
@@ -213,6 +238,7 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
+    bool _blocked_by_rf = false;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -234,6 +260,7 @@ protected:
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
+    RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     // time of prefilter input block from scanner
     RuntimeProfile::Counter* _prefilter_timer = nullptr;
     // time of convert input block to output block from scanner
@@ -245,7 +272,6 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-
     // Num of pre allocated free blocks
     RuntimeProfile::Counter* _pre_alloc_free_blocks_num = nullptr;
     // Num of newly created free blocks when running query
@@ -253,17 +279,20 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter();
+    Status _acquire_runtime_filter(bool wait = true);
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 
     Status _normalize_conjuncts();
-    VExpr* _normalize_predicate(VExpr* conjunct_expr_root);
-    void _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
+    Status _normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr);
+    Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                    PushDownType* pdt);
@@ -292,6 +321,18 @@ private:
     Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              PushDownType* pdt);
+
+    Status _normalize_compound_predicate(
+            vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
+            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+                    in_predicate_checker,
+            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+                    eq_predicate_checker);
+
+    template <PrimitiveType T>
+    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                   PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,

@@ -41,11 +41,19 @@ namespace doris::vectorized {
 using level_t = int16_t;
 
 struct RowRange {
-    RowRange() {}
+    RowRange() = default;
     RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
 
     int64_t first_row;
     int64_t last_row;
+
+    bool operator<(const RowRange& range) const { return first_row < range.first_row; }
+
+    std::string debug_string() const {
+        std::stringstream ss;
+        ss << "[" << first_row << "," << last_row << ")";
+        return ss.str();
+    }
 };
 
 struct ParquetReadColumn {
@@ -170,11 +178,23 @@ public:
     }
 
 protected:
+    /**
+     * Decode dictionary-coded values into doris_column, ensure that doris_column is ColumnDictI32 type,
+     * and the coded values must be read into _indexes previously.
+     */
+    Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
+
     int32_t _type_length;
     Slice* _data = nullptr;
     uint32_t _offset = 0;
     FieldSchema* _field_schema = nullptr;
     std::unique_ptr<DecodeParams> _decode_params = nullptr;
+
+    // For dictionary encoding
+    bool _has_dict = false;
+    std::unique_ptr<uint8_t[]> _dict = nullptr;
+    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
+    std::vector<uint32_t> _indexes;
 };
 
 template <typename DecimalPrimitiveType>
@@ -245,12 +265,9 @@ protected:
     if (!_has_dict) _offset += _type_length
 
     tparquet::Type::type _physical_type;
+
     // For dictionary encoding
-    bool _has_dict = false;
-    std::unique_ptr<uint8_t[]> _dict = nullptr;
     std::vector<char*> _dict_items;
-    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
-    std::vector<uint32_t> _indexes;
 };
 
 template <typename Numeric>
@@ -559,11 +576,7 @@ protected:
                                   ColumnSelectVector& select_vector);
 
     // For dictionary encoding
-    bool _has_dict = false;
-    std::unique_ptr<uint8_t[]> _dict = nullptr;
     std::vector<StringRef> _dict_items;
-    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
-    std::vector<uint32_t> _indexes;
 };
 
 template <typename DecimalPrimitiveType>

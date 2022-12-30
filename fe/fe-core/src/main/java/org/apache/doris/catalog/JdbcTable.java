@@ -29,7 +29,9 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,10 +39,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Setter
 public class JdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(JdbcTable.class);
 
@@ -66,7 +68,7 @@ public class JdbcTable extends Table {
     private String checkSum;
 
     static {
-        Map<String, TOdbcTableType> tempMap = new HashMap<>();
+        Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -85,6 +87,10 @@ public class JdbcTable extends Table {
         validate(properties);
     }
 
+    public JdbcTable(long id, String name, List<Column> schema, TableType type) {
+        super(id, name, type, schema);
+    }
+
     public String getCheckSum() {
         return checkSum;
     }
@@ -98,37 +104,47 @@ public class JdbcTable extends Table {
     }
 
     public String getJdbcUrl() {
-        return jdbcUrl;
+        return getFromJdbcResourceOrDefault(JdbcResource.JDBC_URL, jdbcUrl);
     }
 
     public String getJdbcUser() {
-        return jdbcUser;
+        return getFromJdbcResourceOrDefault(JdbcResource.USER, jdbcUser);
     }
 
     public String getJdbcPasswd() {
-        return jdbcPasswd;
+        return getFromJdbcResourceOrDefault(JdbcResource.PASSWORD, jdbcPasswd);
     }
 
     public String getDriverClass() {
-        return driverClass;
+        return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_CLASS, driverClass);
     }
 
     public String getDriverUrl() {
-        return driverUrl;
+        return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_URL, driverUrl);
+    }
+
+    private String getFromJdbcResourceOrDefault(String key, String defaultVal) {
+        if (Strings.isNullOrEmpty(resourceName)) {
+            return defaultVal;
+        }
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (resource instanceof JdbcResource) {
+            return ((JdbcResource) resource).getProperty(key);
+        }
+        return defaultVal;
     }
 
     @Override
     public TTableDescriptor toThrift() {
         TJdbcTable tJdbcTable = new TJdbcTable();
-        tJdbcTable.setJdbcUrl(jdbcUrl);
-        tJdbcTable.setJdbcUser(jdbcUser);
-        tJdbcTable.setJdbcPassword(jdbcPasswd);
+        tJdbcTable.setJdbcUrl(getJdbcUrl());
+        tJdbcTable.setJdbcUser(getJdbcUser());
+        tJdbcTable.setJdbcPassword(getJdbcPasswd());
         tJdbcTable.setJdbcTableName(externalTableName);
-        tJdbcTable.setJdbcDriverClass(driverClass);
-        tJdbcTable.setJdbcDriverUrl(driverUrl);
+        tJdbcTable.setJdbcDriverClass(getDriverClass());
+        tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
-
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
         tTableDescriptor.setJdbcTable(tJdbcTable);

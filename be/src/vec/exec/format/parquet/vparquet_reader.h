@@ -26,7 +26,8 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/file_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exprs/vexpr_context.h"
@@ -61,7 +62,7 @@ public:
 
     ~ParquetReader() override;
     // for test
-    void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
+    void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
     Status init_reader(const std::vector<std::string>& column_names, bool filter_groups = true) {
         // without predicate
@@ -77,9 +78,10 @@ public:
 
     void close();
 
-    Status file_metadata(FileMetaData** metadata);
+    RowRange get_whole_range() { return _whole_range; }
 
-    void merge_delete_row_ranges(const std::vector<RowRange>& delete_row_ranges);
+    // set the delete rows in current parquet file
+    void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
 
     int64_t size() const { return _file_reader->size(); }
 
@@ -87,8 +89,8 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    Status get_parsered_schema(std::vector<std::string>* col_names,
-                               std::vector<TypeDescriptor>* col_types) override;
+    Status get_parsed_schema(std::vector<std::string>* col_names,
+                             std::vector<TypeDescriptor>* col_types) override;
 
     Statistics& statistics() { return _statistics; }
 
@@ -125,12 +127,16 @@ private:
 
     Status _open_file();
     void _init_profile();
-    bool _next_row_group_reader();
+    Status _next_row_group_reader();
+    RowGroupReader::PositionDeleteContext _get_position_delete_ctx(
+            const tparquet::RowGroup& row_group,
+            const RowGroupReader::RowGroupIndex& row_group_index);
     Status _init_read_columns();
-    Status _init_row_group_readers(const bool& filter_groups);
+    Status _init_row_groups(const bool& is_filter_groups);
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
-    Status _process_page_index(const tparquet::RowGroup& row_group);
+    Status _process_page_index(const tparquet::RowGroup& row_group,
+                               std::vector<RowRange>& candidate_row_ranges);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
@@ -141,29 +147,30 @@ private:
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
-    Status _filter_row_groups(const bool& enabled, std::vector<RowGroupIndex>& group_indexes);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
 
-private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    std::unique_ptr<FileReader> _file_reader = nullptr;
-    std::vector<RowRange> _delete_row_ranges;
-    std::vector<RowRange> _row_ranges;
+    std::unique_ptr<io::FileSystem> _file_system = nullptr;
+    io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
-    std::list<std::shared_ptr<RowGroupReader>> _row_group_readers;
-    std::shared_ptr<RowGroupReader> _current_group_reader;
+    std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
+    // read to the end of current reader
+    bool _row_group_eof = true;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
+    RowRange _whole_range = RowRange(0, 0);
+    const std::vector<int64_t>* _delete_rows = nullptr;
+    int64_t _delete_rows_index = 0;
 
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
 
-    std::list<int32_t> _read_row_groups;
+    std::list<RowGroupReader::RowGroupIndex> _read_row_groups;
     // parquet file reader object
     size_t _batch_size;
     int64_t _range_start_offset;

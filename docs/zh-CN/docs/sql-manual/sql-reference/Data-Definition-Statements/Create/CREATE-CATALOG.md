@@ -42,34 +42,109 @@ CREATE CATALOG
 
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
-    [PROPERTIES ("key"="value", ...)];
+	[WITH RESOURCE resource_name]
+	| [PROPERTIES ("key"="value", ...)];
 ```
 
-`PROPERTIES` 为 catalog 的连接信息。其中 "type" 属性必须指定，目前支持：
+`RESOURCE` 可以通过 [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md) 创建，目前支持三种 Resource，分别连接三种外部数据源：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
+* jdbc：数据库访问的标准接口(JDBC), 当前只支持`jdbc:mysql`
+
+### 创建 catalog
+
+**通过 resource 创建 catalog**
+
+`1.2.0` 以后的版本推荐通过 resource 创建 catalog，多个使用场景可以复用相同的 resource。
+```sql
+CREATE RESOURCE catalog_resource PROPERTIES (
+    'type'='hms|es|jdbc',
+    ...
+);
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+```
+
+**通过 properties 创建 catalog**
+
+`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+```sql
+CREATE CATALOG catalog_name PROPERTIES (
+    'type'='hms|es|jdbc',
+    ...
+);
+```
 
 ### Example
 
 1. 新建数据目录 hive
 
-   ```sql
-   CREATE CATALOG hive PROPERTIES (
-		"type"="hms",
-		'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-		'dfs.nameservices'='service1',
-		'dfs.ha.namenodes. service1'='nn1,nn2',
-		'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
-		'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
-		'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+	```sql
+	-- 1.2.0+ 版本
+	CREATE RESOURCE hms_resource PROPERTIES (
+		'type'='hms',
+		'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
+		'dfs.nameservices'='HANN',
+		'dfs.ha.namenodes.HANN'='nn1,nn2',
+		'dfs.namenode.rpc-address.HANN.nn1'='nn1_host:rpc_port',
+		'dfs.namenode.rpc-address.HANN.nn2'='nn2_host:rpc_port',
+		'dfs.client.failover.proxy.provider.HANN'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+	);
+	CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+	-- 1.2.0 版本
+	CREATE CATALOG hive PROPERTIES (
+		'type'='hms',
+		'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
+		'dfs.nameservices'='HANN',
+		'dfs.ha.namenodes.HANN'='nn1,nn2',
+		'dfs.namenode.rpc-address.HANN.nn1'='nn1_host:rpc_port',
+		'dfs.namenode.rpc-address.HANN.nn2'='nn2_host:rpc_port',
+		'dfs.client.failover.proxy.provider.HANN'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 	);
 	```
 
 2. 新建数据目录 es
 
-   ```sql
-   ```
+	```sql
+	-- 1.2.0+ 版本
+	CREATE RESOURCE es_resource PROPERTIES (
+		"type"="es",
+		"hosts"="http://127.0.0.1:9200"
+	);
+	CREATE CATALOG es WITH RESOURCE es_resource;
+
+	-- 1.2.0 版本
+	CREATE CATALOG es PROPERTIES (
+		"type"="es",
+		"hosts"="http://127.0.0.1:9200"
+	);
+	```
+
+3. 新建数据目录 jdbc
+
+	```sql
+	-- 1.2.0+ 版本
+	CREATE RESOURCE mysql_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="root",
+		"password"="123456",
+		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"driver_class" = "com.mysql.cj.jdbc.Driver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE msyql_resource;
+
+	-- 1.2.0 版本
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"user"="root",
+		"password"="123456",
+		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"driver_class" = "com.mysql.cj.jdbc.Driver"
+	);
+	```
 
 ### Keywords
 

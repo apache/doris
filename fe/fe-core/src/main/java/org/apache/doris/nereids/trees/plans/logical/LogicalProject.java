@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,9 +42,38 @@ import java.util.Optional;
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
 
     private final ImmutableList<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> excepts;
+
+    // For project nodes under union, erasure cannot be configured, so add this flag.
+    private final boolean canEliminate;
+
+    private final boolean isDistinct;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, Optional.empty(), Optional.empty(), child);
+        this(projects, Collections.emptyList(), true, child, false);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child) {
+        this(projects, excepts, true, child, false);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
+                          boolean canEliminate, CHILD_TYPE child) {
+        this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, false);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, boolean isDistinct) {
+        this(projects, Collections.emptyList(), true, child, isDistinct);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, CHILD_TYPE child,
+                            boolean isDistinct) {
+        this(projects, excepts, true, child, isDistinct);
+    }
+
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
+                          boolean canEliminate, CHILD_TYPE child, boolean isDistinct) {
+        this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
 
     /**
@@ -51,10 +81,14 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      *
      * @param projects project list
      */
-    public LogicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean canEliminate,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child, boolean isDistinct) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.excepts = ImmutableList.copyOf(excepts);
+        this.canEliminate = canEliminate;
+        this.isDistinct = isDistinct;
     }
 
     /**
@@ -67,6 +101,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return projects;
     }
 
+    public List<NamedExpression> getExcepts() {
+        return excepts;
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return projects.stream()
@@ -77,7 +115,9 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalProject",
-                "projects", projects
+                "projects", projects,
+                "excepts", excepts,
+                "canEliminate", canEliminate
         );
     }
 
@@ -100,27 +140,44 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             return false;
         }
         LogicalProject that = (LogicalProject) o;
-        return projects.equals(that.projects);
+        return projects.equals(that.projects)
+                && excepts.equals(that.excepts)
+                && canEliminate == that.canEliminate
+                && isDistinct == that.isDistinct;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects);
+        return Objects.hash(projects, canEliminate);
     }
 
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, children.get(0));
+        return new LogicalProject<>(projects, excepts, canEliminate, children.get(0), isDistinct);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalProject<>(projects, excepts, canEliminate,
+                groupExpression, Optional.of(getLogicalProperties()), child(), isDistinct);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalProject<>(projects, Optional.empty(), logicalProperties, child());
+        return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child(),
+                isDistinct);
+    }
+
+    public boolean canEliminate() {
+        return canEliminate;
+    }
+
+    public Plan withEliminate(boolean isEliminate) {
+        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
+    }
+
+    public boolean isDistinct() {
+        return isDistinct;
     }
 }

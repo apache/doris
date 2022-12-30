@@ -23,10 +23,10 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 #include <sstream>
 
 #include "common/config.h"
-#include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 #include "libjvm_loader.h"
 
@@ -36,7 +36,7 @@ namespace doris {
 
 namespace {
 JavaVM* g_vm;
-GoogleOnceType g_vm_once = GOOGLE_ONCE_INIT;
+std::once_flag g_vm_once;
 
 const std::string GetDorisJNIClasspath() {
     const auto* classpath = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
@@ -71,10 +71,11 @@ void FindOrCreateJavaVM() {
     if (rv == 0) {
         auto classpath = GetDorisJNIClasspath();
         std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
-
+        std::string log_path = fmt::format("-DlogPath={}/log/udf-jdbc.log", getenv("DORIS_HOME"));
         JavaVMOption options[] = {
                 {const_cast<char*>(classpath.c_str()), nullptr},
                 {const_cast<char*>(heap_size.c_str()), nullptr},
+                {const_cast<char*>(log_path.c_str()), nullptr},
 #ifdef __APPLE__
                 // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
                 // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
@@ -146,7 +147,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
-    GoogleOnceInit(&g_vm_once, &FindOrCreateJavaVM);
+    std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);

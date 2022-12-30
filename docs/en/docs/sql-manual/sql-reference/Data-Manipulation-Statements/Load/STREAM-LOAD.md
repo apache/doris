@@ -99,7 +99,7 @@ Parameter introduction:
 
 11. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
 
-12. format: Specify the import data format, the default is csv, and csv_with_names(filter out the first row of your csv file), csv_with_names_and_types(filter out the first two lines of your csv file), json format are supported.
+12. format: Specify load data format, support csv, json, <version since="1.2" type="inline"> csv_with_names(support csv file line header filter), csv_with_names_and_types(support csv file first two lines filter), parquet, orc</version>, default is csv.
 
 13. jsonpaths: The way of importing json is divided into: simple mode and matching mode.
 
@@ -177,9 +177,11 @@ ERRORS:
 
     where url is the url given by ErrorURL.
 
-23: compress_type
+24. compress_type
 
     Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
+
+25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
 ### Example
 
@@ -429,11 +431,11 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 4. Label, import transaction, multi-table atomicity
 
-   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../../data-operate/import/import-scenes/load-atomicity) documentation.
+   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../data-operate/import/import-scenes/load-atomicity) documentation.
 
 5. Column mapping, derived columns and filtering
 
-   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
+   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert) document.
 
 6. Error data filtering
 

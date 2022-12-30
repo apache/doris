@@ -43,16 +43,14 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** BoundFunction. */
-public abstract class BoundFunction extends Expression implements FunctionTrait, ComputeSignature {
+public abstract class BoundFunction extends Function implements FunctionTrait, ComputeSignature {
     private final String name;
 
     private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
         // first step: find the candidate signature in the signature list
-        List<Expression> originArguments = getOriginArguments();
-        FunctionSignature matchedSignature = searchSignature(
-                getOriginArgumentTypes(), originArguments, getSignatures());
+        FunctionSignature matchedSignature = searchSignature(getSignatures());
         // second step: change the signature, e.g. fill precision for decimal v2
-        return computeSignature(matchedSignature, originArguments);
+        return computeSignature(matchedSignature);
     });
 
     public BoundFunction(String name, Expression... arguments) {
@@ -65,14 +63,14 @@ public abstract class BoundFunction extends Expression implements FunctionTrait,
         this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
-    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
+    protected FunctionSignature computeSignature(FunctionSignature signature) {
         // NOTE:
         // this computed chain only process the common cases.
         // If you want to add some common cases to here, please separate the process code
         // to the other methods and add to this chain.
         // If you want to add some special cases, please override this method in the special
         // function class, like 'If' function and 'Substring' function.
-        return ComputeSignatureChain.from(signature, arguments)
+        return ComputeSignatureChain.from(signature, getArguments())
                 .then(this::computePrecisionForDatetimeV2)
                 .then(this::upgradeDateOrDateTimeToV2)
                 .then(this::upgradeDecimalV2ToV3)
@@ -199,7 +197,7 @@ public abstract class BoundFunction extends Expression implements FunctionTrait,
             FunctionSignature signature, List<Expression> arguments) {
         DataType returnType = signature.returnType;
         Type type = returnType.toCatalogDataType();
-        if (type.isDecimalV2() && Config.enable_decimal_conversion && Config.enable_decimalv3) {
+        if (type.isDecimalV2() && Config.enable_decimal_conversion) {
             Type v3Type = ScalarType.createDecimalV3Type(type.getPrecision(), ((ScalarType) type).getScalarScale());
             signature = signature.withReturnType(DataType.fromCatalogType(v3Type));
         }

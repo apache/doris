@@ -117,31 +117,130 @@ illustrate:
    CREATE RESOURCE "remote_s3"
    PROPERTIES
    (
-   "type" = "s3",
-   "s3_endpoint" = "bj.s3.com",
-   "s3_region" = "bj",
-   "s3_bucket" = "test-bucket",
-   "s3_root_path" = "/path/to/root",
-   "s3_access_key" = "bbb",
-   "s3_secret_key" = "aaaa",
-   "s3_max_connections" = "50",
-   "s3_request_timeout_ms" = "3000",
-   "s3_connection_timeout_ms" = "1000"
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- the followings are optional
+      "AWS_MAX_CONNECTIONS" = "50",
+      "AWS_REQUEST_TIMEOUT_MS" = "3000",
+      "AWS_CONNECTION_TIMEOUT_MS" = "1000"
    );
-   ````
+   ```
+
+   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold_hot_separation.md), we should add more required fields.
+   ```sql
+   CREATE RESOURCE "remote_s3"
+   PROPERTIES
+   (
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- required by cooldown
+      "AWS_ROOT_PATH" = "/path/to/root",
+      "AWS_BUCKET" = "test-bucket",
+   );
+   ```
 
    S3 related parameters are as follows:
    - Required parameters
-       - `s3_endpoint`: s3 endpoint
-       - `s3_region`: s3 region
-       - `s3_root_path`: s3 root directory
-       - `s3_access_key`: s3 access key
-       - `s3_secret_key`: s3 secret key
-       - `s3_bucket`: s3 bucket
+       - `AWS_ENDPOINT`: s3 endpoint
+       - `AWS_REGION`: s3 region
+       - `AWS_ROOT_PATH`: s3 root directory
+       - `AWS_ACCESS_KEY`: s3 access key
+       - `AWS_SECRET_KEY`: s3 secret key
+       - `AWS_BUCKET`: s3 bucket
    - optional parameter
-       - `s3_max_connections`: the maximum number of s3 connections, the default is 50
-       - `s3_request_timeout_ms`: s3 request timeout, in milliseconds, the default is 3000
-       - `s3_connection_timeout_ms`: s3 connection timeout, in milliseconds, the default is 1000
+       - `AWS_MAX_CONNECTIONS`: the maximum number of s3 connections, the default is 50
+       - `AWS_REQUEST_TIMEOUT_MS`: s3 request timeout, in milliseconds, the default is 3000
+       - `AWS_CONNECTION_TIMEOUT_MS`: s3 connection timeout, in milliseconds, the default is 1000
+
+4. Create JDBC resource
+
+   ```sql
+   CREATE RESOURCE mysql_resource PROPERTIES (
+      "type"="jdbc",
+      "user"="root",
+      "password"="123456",
+      "jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+      "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+   "driver_class" = "com.mysql.cj.jdbc.Driver"
+   );
+   ```
+
+   JDBC related parameters are as follows:
+   - user：The username used to connect to the database
+   - password：The password used to connect to the database
+   - jdbc_url: The identifier used to connect to the specified database
+   - driver_url: The url of JDBC driver package
+   - driver_class: The class of JDBC driver
+
+5. Create HDFS resource
+
+   ```sql
+   CREATE RESOURCE hdfs_resource PROPERTIES (
+      "type"="hdfs",
+      "username"="user",
+      "password"="passwd",
+      "dfs.nameservices" = "my_ha",
+      "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+      "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+      "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
+      "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+   );
+   ```
+
+   HDFS related parameters are as follows:
+   - fs.defaultFS: namenode address and port
+   - username: hdfs username
+   - dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
+   - dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+   - dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
+   - dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+
+6. Create HMS resource
+
+   HMS resource is used to create [hms catalog](../../../../ecosystem/external-table/multi-catalog.md)
+   ```sql
+   CREATE RESOURCE hms_resource PROPERTIES (
+      'type'='hms',
+      'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
+      'dfs.nameservices'='HANN',
+      'dfs.ha.namenodes.HANN'='nn1,nn2',
+      'dfs.namenode.rpc-address.HANN.nn1'='nn1_host:rpc_port',
+      'dfs.namenode.rpc-address.HANN.nn2'='nn2_host:rpc_port',
+      'dfs.client.failover.proxy.provider.HANN'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+   );
+   ```
+
+   HMS related parameters are as follows:
+   - hive.metastore.uris: hive metastore server address
+   Optional:
+   - dfs.*: If hive data is on hdfs, HDFS resource parameters should be added, or copy hive-site.xml into fe/conf.
+   - AWS_*: If hive data is on s3, S3 resource parameters should be added. If using [Aliyun Data Lake Formation](https://www.aliyun.com/product/bigdata/dlf), copy hive-site.xml into fe/conf.
+
+7. Create ES resource
+
+   ```sql
+   CREATE RESOURCE es_resource PROPERTIES (
+      "type"="es",
+      "hosts"="http://127.0.0.1:29200",
+      "nodes_discovery"="false",
+      "enable_keyword_sniff"="true"
+   );
+   ```
+
+   ES related parameters are as follows:
+   - hosts: ES Connection Address, maybe one or more node, load-balance is also accepted
+   - user: username for ES
+   - password: password for the user
+   - enable_docvalue_scan: whether to enable ES/Lucene column storage to get the value of the query field, the default is true
+   - enable_keyword_sniff: Whether to probe the string segmentation type text.fields in ES, query by keyword (the default is true, false matches the content after the segmentation)
+   - nodes_discovery: Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected
+   - http_ssl_enabled: Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
 
 ### Keywords
 

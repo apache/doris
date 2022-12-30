@@ -17,6 +17,9 @@
 
 #include "vec/exec/vexchange_node.h"
 
+#include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -28,12 +31,14 @@ VExchangeNode::VExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const Des
         : ExecNode(pool, tnode, descs),
           _num_senders(0),
           _is_merging(tnode.exchange_node.__isset.sort_info),
+          _is_ready(false),
           _stream_recvr(nullptr),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
                                                     tnode.exchange_node.input_row_tuples.size())),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
+          _num_rows_skipped(0) {}
 
 Status VExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -49,7 +54,7 @@ Status VExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     DCHECK_GT(_num_senders, 0);
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
@@ -62,41 +67,78 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     }
     return Status::OK();
 }
+
+Status VExchangeNode::alloc_resource(RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    if (_is_merging) {
+        RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+        if (!state->enable_pipeline_exec()) {
+            RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
+                                                         _is_asc_order, _nulls_first,
+                                                         state->batch_size(), _limit, _offset));
+        }
+    }
+    return Status::OK();
+}
+
 Status VExchangeNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-
-    if (_is_merging) {
-        RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
-        RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
-                                                     _is_asc_order, _nulls_first,
-                                                     state->batch_size(), _limit, _offset));
-    }
 
     return Status::OK();
-}
-Status VExchangeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VExchange Node::get_next scalar");
 }
 
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExchangeNode::get_next");
     SCOPED_TIMER(runtime_profile()->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    if (_is_merging && state->enable_pipeline_exec() && !_is_ready) {
+        RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
+                                                     _is_asc_order, _nulls_first,
+                                                     state->batch_size(), _limit, _offset));
+        _is_ready = true;
+        return Status::OK();
+    }
     auto status = _stream_recvr->get_next(block, eos);
     if (block != nullptr) {
+        if (!_is_merging) {
+            if (_num_rows_skipped + block->rows() < _offset) {
+                _num_rows_skipped += block->rows();
+                block->set_num_rows(0);
+            } else if (_num_rows_skipped < _offset) {
+                auto offset = _offset - _num_rows_skipped;
+                _num_rows_skipped = _offset;
+                block->set_num_rows(block->rows() - offset);
+            }
+        }
         if (_num_rows_returned + block->rows() < _limit) {
             _num_rows_returned += block->rows();
         } else {
             *eos = true;
             auto limit = _limit - _num_rows_returned;
             block->set_num_rows(limit);
+            _num_rows_returned = _limit;
         }
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
     return status;
+}
+
+void VExchangeNode::release_resource(RuntimeState* state) {
+    if (_stream_recvr != nullptr) {
+        _stream_recvr->close();
+    }
+    if (_is_merging) {
+        _vsort_exec_exprs.close(state);
+    }
+}
+
+Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->merge(_sub_plan_query_statistics_recvr.get());
+    return Status::OK();
 }
 
 Status VExchangeNode::close(RuntimeState* state) {
@@ -104,11 +146,6 @@ Status VExchangeNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::close");
-
-    if (_stream_recvr != nullptr) {
-        _stream_recvr->close();
-    }
-    if (_is_merging) _vsort_exec_exprs.close(state);
 
     return ExecNode::close(state);
 }

@@ -42,6 +42,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class JdbcExecutor {
@@ -53,6 +54,8 @@ public class JdbcExecutor {
     private ResultSetMetaData resultSetMetaData = null;
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
+    private List<String> resultColumnTypeNames = null;
+    private int baseTypeInt = 0;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -108,6 +111,33 @@ public class JdbcExecutor {
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
+    }
+
+    public List<String> getResultColumnTypeNames() throws UdfRuntimeException {
+        try {
+            int count = resultSetMetaData.getColumnCount();
+            resultColumnTypeNames = new ArrayList<>(count);
+            for (int i = 0; i < count; ++i) {
+                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            }
+            return resultColumnTypeNames;
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getResultColumnTypeNames has error: ", e);
+        }
+    }
+
+    public List<Object> getArrayColumnData(Object object) throws UdfRuntimeException {
+        try {
+            java.sql.Array obj = (java.sql.Array) object;
+            baseTypeInt = obj.getBaseType();
+            return Arrays.asList((Object[]) obj.getArray());
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getArrayColumnData has error: ", e);
+        }
+    }
+
+    public int getBaseTypeInt() {
+        return baseTypeInt;
     }
 
     public void openTrans() throws UdfRuntimeException {
@@ -204,7 +234,6 @@ public class JdbcExecutor {
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-            Class.forName(driverClass, true, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(driverClass);
@@ -226,8 +255,6 @@ public class JdbcExecutor {
             throw new UdfRuntimeException("Can not find driver file:  " + driverUrl, e);
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
-        } catch (ClassNotFoundException e) {
-            throw new UdfRuntimeException("Loading JDBC class error ClassNotFoundException about " + driverClass, e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }

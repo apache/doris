@@ -18,6 +18,7 @@
 #pragma once
 
 #include "exprs/expr_context.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -43,6 +44,7 @@ class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
 class BloomFilterFuncBase;
+class BitmapFilterFuncBase;
 
 namespace vectorized {
 class VExpr;
@@ -119,6 +121,12 @@ struct MergeRuntimeFilterParams {
     butil::IOBufAsZeroCopyInputStream* data;
 };
 
+enum RuntimeFilterState {
+    READY,
+    NOT_READY,
+    TIME_OUT,
+};
+
 /// The runtimefilter is built in the join node.
 /// The main purpose is to reduce the scanning amount of the
 /// left table data according to the scanning results of the right table during the join process.
@@ -134,7 +142,8 @@ public:
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
-              _is_ready(false),
+              _rf_state(RuntimeFilterState::NOT_READY),
+              _rf_state_atomic(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               _always_true(false),
@@ -187,7 +196,16 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
-    bool is_ready() const { return _is_ready; }
+    bool is_ready() const {
+        return (!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
+               (_state->enable_pipeline_exec() &&
+                _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
+    }
+    RuntimeFilterState current_state() const {
+        return _state->enable_pipeline_exec() ? _rf_state_atomic.load(std::memory_order_acquire)
+                                              : _rf_state;
+    }
+    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
@@ -252,6 +270,8 @@ public:
 
     void ready_for_publish();
 
+    std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const;
+
     static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
         return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
     }
@@ -274,9 +294,25 @@ protected:
 
     std::string _format_status() {
         return fmt::format(
-                "[IsPushDown = {}, IsEffective = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+                "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
                 "HasLocalTarget = {}]",
-                _is_push_down, _is_ready, _is_ignored, _has_remote_target, _has_local_target);
+                _is_push_down, _get_explain_state_string(), _is_ignored, _has_remote_target,
+                _has_local_target);
+    }
+
+    std::string _get_explain_state_string() {
+        if (_state->enable_pipeline_exec()) {
+            return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
+                           ? "READY"
+                   : _rf_state_atomic.load(std::memory_order_acquire) ==
+                                   RuntimeFilterState::TIME_OUT
+                           ? "TIME_OUT"
+                           : "NOT_READY";
+        } else {
+            return _rf_state == RuntimeFilterState::READY      ? "READY"
+                   : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
+                                                               : "NOT_READY";
+        }
     }
 
     RuntimeState* _state;
@@ -295,7 +331,8 @@ protected:
     // will apply to local node
     bool _has_local_target;
     // filter is ready for consumer
-    bool _is_ready;
+    RuntimeFilterState _rf_state;
+    std::atomic<RuntimeFilterState> _rf_state_atomic;
     // role consumer or producer
     RuntimeFilterRole _role;
     // expr index

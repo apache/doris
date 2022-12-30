@@ -20,6 +20,8 @@
 #include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -35,14 +37,22 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
+    statistics->add_scan_rows(_raw_rows_counter->value());
+    statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
+    return Status::OK();
+}
+
 Status NewOlapScanNode::prepare(RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     return Status::OK();
 }
 
 Status NewOlapScanNode::_init_profile() {
-    VScanNode::_init_profile();
+    RETURN_IF_ERROR(VScanNode::_init_profile());
 
     _num_disks_accessed_counter = ADD_COUNTER(_runtime_profile, "NumDiskAccess", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
@@ -66,6 +76,7 @@ Status NewOlapScanNode::_init_profile() {
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
+    _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
 
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
@@ -222,6 +233,20 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             }
         }
 
+        for (auto& iter : _compound_value_ranges) {
+            std::vector<TCondition> filters;
+            std::visit(
+                    [&](auto&& range) {
+                        if (range.is_in_compound_value_range()) {
+                            range.to_condition_in_compound(filters);
+                        }
+                    },
+                    iter);
+            for (const auto& filter : filters) {
+                _compound_filters.push_back(filter);
+            }
+        }
+
         // Append value ranges in "_not_in_value_ranges"
         for (auto& range : _not_in_value_ranges) {
             std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
@@ -244,12 +269,15 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
-        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringVal* constant_str,
-        doris_udf::FunctionContext** fn_ctx) {
+Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                          VExprContext* expr_ctx,
+                                                          StringVal* constant_str,
+                                                          doris_udf::FunctionContext** fn_ctx,
+                                                          VScanNode::PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
-        return PushDownType::UNACCEPTABLE;
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
     }
 
     const auto& children = fn_call->children();
@@ -263,19 +291,24 @@ VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
         }
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
-            return PushDownType::UNACCEPTABLE;
+            pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
+            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
+            if (const ColumnConst* const_column =
+                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
-                return PushDownType::UNACCEPTABLE;
+                pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
             }
         }
     }
     *fn_ctx = func_cxt;
-    return PushDownType::ACCEPTABLE;
+    pdt = PushDownType::ACCEPTABLE;
+    return Status::OK();
 }
 
 // PlanFragmentExecutor will call this method to set scan range
@@ -366,6 +399,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
                     _need_agg_finalize, *scan_range, _scanner_profile.get());
+
+            scanner->set_compound_filters(_compound_filters);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

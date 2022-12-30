@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -164,6 +165,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
+    protected boolean toSQLWithSelectList;
+
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
@@ -185,8 +188,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
-        // TODO chenhao
-        if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
+        if (!VectorizedUtil.isVectorized() && limitElement.getOffset() > 0 && !hasOrderByClause()) {
             throw new AnalysisException("OFFSET requires an ORDER BY clause: "
                     + limitElement.toSql().trim());
         }
@@ -619,10 +621,11 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return limitElement.getLimit();
     }
 
-    public void setLimit(long limit) throws AnalysisException {
+    public void setLimit(long limit) {
         Preconditions.checkState(limit >= 0);
         long newLimit = hasLimitClause() ? Math.min(limit, getLimit()) : limit;
-        limitElement = new LimitElement(newLimit);
+        long offset = hasLimitClause() ? getOffset() : 0;
+        limitElement = new LimitElement(offset, newLimit);
     }
 
     public void removeLimitElement() {
@@ -805,4 +808,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     public boolean hasOutFileClause() {
         return outFileClause != null;
     }
+
+    public String toSqlWithSelectList() {
+        toSQLWithSelectList = true;
+        return toSql();
+    }
+
 }

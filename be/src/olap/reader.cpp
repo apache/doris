@@ -22,6 +22,11 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "olap/bloom_filter_predicate.h"
+#include "olap/comparison_predicate.h"
+#include "olap/in_list_predicate.h"
+#include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
@@ -32,6 +37,7 @@
 #include "runtime/mem_pool.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1)) {
@@ -82,6 +88,9 @@ TabletReader::~TabletReader() {
         delete pred;
     }
     for (auto pred : _value_col_predicates) {
+        delete pred;
+    }
+    for (auto pred : _col_preds_except_leafnode_of_andnode) {
         delete pred;
     }
 }
@@ -199,6 +208,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
+    _reader_context.predicates_except_leafnode_of_andnode = &_col_preds_except_leafnode_of_andnode;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
@@ -214,6 +224,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.is_key_column_group = read_params.is_key_column_group;
+    _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
 
     *valid_rs_readers = *rs_readers;
 
@@ -232,6 +244,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_context.runtime_state = read_params.runtime_state;
 
     _init_conditions_param(read_params);
+    _init_conditions_param_except_leafnode_of_andnode(read_params);
 
     Status res = _init_delete_condition(read_params);
     if (!res.ok()) {
@@ -315,7 +328,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     } else {
         LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
                      << " return_columns_size=" << read_params.return_columns.size() << "]";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
@@ -341,7 +354,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
                 << ", schema.num_columns=" << _tablet_schema->num_columns();
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -354,7 +367,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "The start_key.at(" << i
                          << ").size == " << read_params.start_key[i].size() << ", not equals the "
                          << scan_key_size;
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
@@ -377,7 +390,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         if (read_params.end_key[i].size() != scan_key_size) {
             LOG(WARNING) << "The end_key.at(" << i << ").size == " << read_params.end_key[i].size()
                          << ", not equals the " << scan_key_size;
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
@@ -420,7 +433,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
                          << read_params.read_orderby_key_num_prefix_columns << " vs. "
                          << _orderby_key_columns.size();
-            return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>();
         }
     }
 
@@ -461,8 +474,52 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 
     // Function filter push down to storage engine
+    auto is_like_predicate = [](ColumnPredicate* _pred) {
+        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
+            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
+            return true;
+        }
+
+        return false;
+    };
+
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
+        auto* pred = _col_predicates.back();
+        const auto& col = _tablet->tablet_schema()->column(pred->column_id());
+        auto is_like = is_like_predicate(pred);
+        auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
+
+        if (is_like && tablet_index && config::enable_query_like_bloom_filter) {
+            std::unique_ptr<segment_v2::BloomFilter> ng_bf;
+            std::string pattern = pred->get_search_str();
+            auto gram_bf_size = tablet_index->get_gram_bf_size();
+            auto gram_size = tablet_index->get_gram_size();
+
+            segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+            NgramTokenExtractor _token_extractor(gram_size);
+
+            if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
+                                                             *ng_bf)) {
+                pred->set_page_ng_bf(std::move(ng_bf));
+            }
+        }
+    }
+}
+
+void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
+        const ReaderParams& read_params) {
+    for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
+        TCondition tmp_cond = condition;
+        auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
+        tmp_cond.__set_column_unique_id(condition_col_uid);
+        ColumnPredicate* predicate =
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+        if (predicate != nullptr) {
+            auto predicate_params = predicate->predicate_params();
+            predicate_params->value = condition.condition_values[0];
+            _col_preds_except_leafnode_of_andnode.push_back(predicate);
+        }
     }
 }
 
@@ -518,12 +575,60 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == READER_BASE_COMPACTION) {
+    if (read_params.reader_type == READER_BASE_COMPACTION ||
+        read_params.reader_type == READER_CHECKSUM) {
         _filter_delete = true;
     }
 
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
                                 read_params.version.second);
+}
+
+Status TabletReader::init_reader_params_and_create_block(
+        TabletSharedPtr tablet, ReaderType reader_type,
+        const std::vector<RowsetSharedPtr>& input_rowsets,
+        TabletReader::ReaderParams* reader_params, vectorized::Block* block) {
+    reader_params->tablet = tablet;
+    reader_params->reader_type = reader_type;
+    reader_params->version =
+            Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
+
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        reader_params->rs_readers.push_back(std::move(rs_reader));
+    }
+
+    std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());
+    std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    TabletSchemaSPtr read_tablet_schema =
+            tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
+    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
+    merge_tablet_schema->copy_from(*read_tablet_schema);
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        auto& delete_preds = tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
+                  std::inserter(reader_params->delete_predicates,
+                                reader_params->delete_predicates.begin()));
+    }
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_pb : reader_params->delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_pb->version()));
+    }
+    reader_params->tablet_schema = merge_tablet_schema;
+    if (tablet->enable_unique_key_merge_on_write()) {
+        reader_params->delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
+
+    reader_params->return_columns.resize(read_tablet_schema->num_columns());
+    std::iota(reader_params->return_columns.begin(), reader_params->return_columns.end(), 0);
+    reader_params->origin_return_columns = &reader_params->return_columns;
+
+    *block = read_tablet_schema->create_block();
+
+    return Status::OK();
 }
 
 } // namespace doris

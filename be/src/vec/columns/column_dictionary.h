@@ -111,10 +111,7 @@ public:
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
     }
 
-    void reserve(size_t n) override {
-        _reserve_size = n;
-        _codes.reserve(n);
-    }
+    void reserve(size_t n) override { _codes.reserve(n); }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
@@ -214,6 +211,17 @@ public:
         LOG(FATAL) << "should not call replace_column_data_default in ColumnDictionary";
     }
 
+    /**
+     * Just insert dictionary data items, the items will append into _dict.
+     */
+    void insert_many_dict_data(const StringRef* dict_array, uint32_t dict_num) {
+        _dict.reserve(_dict.size() + dict_num);
+        for (uint32_t i = 0; i < dict_num; ++i) {
+            auto value = StringValue(dict_array[i].data, dict_array[i].size);
+            _dict.insert_value(value);
+        }
+    }
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                const StringRef* dict_array, size_t data_num,
                                uint32_t dict_num) override {
@@ -279,7 +287,7 @@ public:
             convert_dict_codes_if_necessary();
         }
         auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
-        res->reserve(_reserve_size);
+        res->reserve(_codes.size());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
             auto value = _dict.get_value(code);
@@ -299,6 +307,10 @@ public:
         }
         return result;
     }
+
+    size_t dict_size() const { return _dict.size(); }
+
+    std::string dict_debug_string() const { return _dict.debug_string(); }
 
     class Dictionary {
     public:
@@ -435,6 +447,27 @@ public:
         bool empty() { return _dict_data->empty(); }
 
         size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
+
+        size_t size() const {
+            if (!_dict_data) {
+                return 0;
+            }
+            return _dict_data->size();
+        }
+
+        std::string debug_string() const {
+            std::string str = "[";
+            if (_dict_data) {
+                for (size_t i = 0; i < _dict_data->size(); i++) {
+                    if (i) {
+                        str += ',';
+                    }
+                    str += (*_dict_data)[i].to_string();
+                }
+            }
+            str += ']';
+            return str;
+        }
 
     private:
         StringValue _null_value = StringValue();

@@ -16,9 +16,6 @@
 // under the License.
 
 suite("explode") {
-    // vectorized
-    sql """ set enable_vectorized_engine = true """
-
     qt_explode """ select e1 from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1; """
     qt_explode_outer """ select e1 from (select 1 k1) as t lateral view explode_outer([1,2,3]) tmp1 as e1; """
 

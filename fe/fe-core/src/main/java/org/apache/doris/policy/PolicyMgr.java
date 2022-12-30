@@ -23,7 +23,10 @@ import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -137,6 +140,20 @@ public class PolicyMgr implements Writable {
      **/
     public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
         DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
+        if (dropPolicyLog.getType() == PolicyTypeEnum.STORAGE) {
+            List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
+            for (Database db : databases) {
+                List<Table> tables = db.getTables();
+                for (Table table : tables) {
+                    if (table instanceof OlapTable) {
+                        if (((OlapTable) table).getStoragePolicy().equals(dropPolicyLog.getPolicyName())) {
+                            throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " is used by table: "
+                                    + table.getName());
+                        }
+                    }
+                }
+            }
+        }
         writeLock();
         try {
             if (!existPolicy(dropPolicyLog)) {
@@ -233,6 +250,9 @@ public class PolicyMgr implements Writable {
 
     public void replayCreate(Policy policy) {
         unprotectedAdd(policy);
+        if (policy instanceof StoragePolicy) {
+            ((StoragePolicy) policy).addResourceReference();
+        }
         LOG.info("replay create policy: {}", policy);
     }
 
@@ -261,7 +281,15 @@ public class PolicyMgr implements Writable {
 
     private void unprotectedDrop(DropPolicyLog log) {
         List<Policy> policies = getPoliciesByType(log.getType());
-        policies.removeIf(policy -> policy.matchPolicy(log));
+        policies.removeIf(policy -> {
+            if (policy.matchPolicy(log)) {
+                if (policy instanceof StoragePolicy) {
+                    ((StoragePolicy) policy).removeResourceReference();
+                }
+                return true;
+            }
+            return false;
+        });
         typeToPolicyMap.put(log.getType(), policies);
         updateMergeTablePolicyMap();
     }

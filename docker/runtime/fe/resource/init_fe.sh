@@ -116,14 +116,11 @@ if [[ "${FE_ID}" != 1 ]]; then
             echo "The resutl of run registerShell command, [ res = $? ]"
         fi
         sleep 5
-
     done
 
 else
-
     registerShell="/opt/apache-doris/fe/bin/start_fe.sh"
     eval "${registerShell}"
     echo "DEBUG >>>>>> FE is master, fe_id = ${FE_ID}"
     echo "DEBUG >>>>>> registerShell = ${registerShell}"
-
 fi

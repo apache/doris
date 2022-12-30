@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/iterators.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
@@ -32,7 +33,6 @@ namespace vectorized {
 class Block;
 }
 
-class RowBlock;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
@@ -43,12 +43,9 @@ public:
     // reader init
     virtual Status init(RowsetReaderContext* read_context) = 0;
 
-    // read next block data into *block.
-    // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *block to null when there is no more block.
-    //      Others when error happens.
-    virtual Status next_block(RowBlock** block) = 0;
+    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
+                                         std::vector<RowwiseIterator*>* out_iters) = 0;
+    virtual void reset_read_options() = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;
 

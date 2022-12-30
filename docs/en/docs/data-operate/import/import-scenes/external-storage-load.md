@@ -82,7 +82,7 @@ Hdfs load creates an import statement. The import method is basically the same a
 
 3. Check import status
 
-   Broker load is an asynchronous import method. The specific import results can be accessed through [SHOW LOAD](../../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD) command to view
+   Broker load is an asynchronous import method. The specific import results can be accessed through [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD) command to view
    
    ```
    mysql> show load order by createtime desc limit 1\G;
@@ -162,7 +162,7 @@ example:
 
 ### FAQ
 
-S3 SDK uses virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the `use_path_style` parameter to force the use of path style:
+1. S3 SDK uses virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the `use_path_style` parameter to force the use of path style:
 
 ```
    WITH S3
@@ -174,3 +174,20 @@ S3 SDK uses virtual-hosted style by default. However, some object storage system
          "use_path_style" = "true"
    )
 ```
+
+<version since="1.2">
+
+2. Support using temporary security credentials to access object stores that support the S3 protocol:
+
+```
+  WITH S3
+  (
+        "AWS_ENDPOINT" = "AWS_ENDPOINT",
+        "AWS_ACCESS_KEY" = "AWS_TEMP_ACCESS_KEY",
+        "AWS_SECRET_KEY" = "AWS_TEMP_SECRET_KEY",
+        "AWS_TOKEN" = "AWS_TEMP_TOKEN",
+        "AWS_REGION" = "AWS_REGION"
+  )
+```
+
+</version>

@@ -74,7 +74,17 @@ public class OdbcTable extends Table {
 
     // For different databases, special characters need to be escaped
     private static String mysqlProperName(String name) {
-        return "`" + name + "`";
+        // In JdbcExternalTable, the name contains databaseName, like: db.table
+        // So, we should split db and table, then switch to `db`.`table`.
+        String[] fields = name.split("\\.");
+        String result = "";
+        for (int i = 0; i < fields.length; ++i) {
+            if (i != 0) {
+                result += ".";
+            }
+            result += ("`" + fields[i] + "`");
+        }
+        return result;
     }
 
     private static String mssqlProperName(String name) {

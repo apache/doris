@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.util;
 
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
@@ -46,7 +45,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
@@ -54,10 +53,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -90,18 +91,19 @@ public class StatisticsUtil {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
-        } finally {
-            ConnectContext.remove();
         }
     }
 
     // TODO: finish this.
-    public static List<AnalysisJobInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
+    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
         return new ArrayList<>();
     }
 
     public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
             throws Exception {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return Collections.emptyList();
+        }
         return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
     }
 

@@ -22,6 +22,7 @@
 
 #include <fmt/format.h>
 
+#include "udf/udf_internal.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -72,7 +73,7 @@ struct ConvertImpl {
 
     template <typename Additions = void*>
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/,
+                          size_t /*input_rows_count*/, bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -96,37 +97,50 @@ struct ConvertImpl {
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
                 col_to = ColVecTo::create(0, scale);
-            } else
+            } else {
                 col_to = ColVecTo::create();
+            }
 
             const auto& vec_from = col_from->get_data();
             auto& vec_to = col_to->get_data();
             size_t size = vec_from.size();
             vec_to.resize(size);
 
-            for (size_t i = 0; i < size; ++i) {
-                if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-                    if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>)
+            if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
+                ColumnUInt8::MutablePtr col_null_map_to = nullptr;
+                UInt8* vec_null_map_to = nullptr;
+                if (check_overflow) {
+                    col_null_map_to = ColumnUInt8::create(size, 0);
+                    vec_null_map_to = col_null_map_to->get_data().data();
+                }
+                for (size_t i = 0; i < size; ++i) {
+                    if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                  IsDataTypeDecimal<ToDataType>) {
                         vec_to[i] = convert_decimals<FromDataType, ToDataType>(
-                                vec_from[i], vec_from.get_scale(), vec_to.get_scale());
-                    else if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                       IsDataTypeNumber<ToDataType>)
+                                vec_from[i], vec_from.get_scale(), vec_to.get_scale(),
+                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                    } else if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                         IsDataTypeNumber<ToDataType>) {
                         vec_to[i] = convert_from_decimal<FromDataType, ToDataType>(
                                 vec_from[i], vec_from.get_scale());
-                    else if constexpr (IsDataTypeNumber<FromDataType> &&
-                                       IsDataTypeDecimal<ToDataType>)
+                    } else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                         IsDataTypeDecimal<ToDataType>) {
                         vec_to[i] = convert_to_decimal<FromDataType, ToDataType>(
-                                vec_from[i], vec_to.get_scale());
-                    else if constexpr (IsTimeType<FromDataType> && IsDataTypeDecimal<ToDataType>) {
+                                vec_from[i], vec_to.get_scale(),
+                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
+                    } else if constexpr (IsTimeType<FromDataType> &&
+                                         IsDataTypeDecimal<ToDataType>) {
                         vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64(),
-                                vec_to.get_scale());
+                                vec_to.get_scale(),
+                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
                     } else if constexpr (IsDateV2Type<FromDataType> &&
                                          IsDataTypeDecimal<ToDataType>) {
                         vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
                                 reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
                                         .to_date_int_val(),
-                                vec_to.get_scale());
+                                vec_to.get_scale(),
+                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
                     } else if constexpr (IsDateTimeV2Type<FromDataType> &&
                                          IsDataTypeDecimal<ToDataType>) {
                         // TODO: should we consider the scale of datetimev2?
@@ -134,9 +148,21 @@ struct ConvertImpl {
                                 reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
                                         vec_from[i])
                                         .to_date_int_val(),
-                                vec_to.get_scale());
+                                vec_to.get_scale(),
+                                vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
                     }
-                } else if constexpr (IsTimeType<FromDataType>) {
+                }
+                if (check_overflow) {
+                    block.replace_by_position(
+                            result,
+                            ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+                } else {
+                    block.replace_by_position(result, std::move(col_to));
+                }
+
+                return Status::OK();
+            } else if constexpr (IsTimeType<FromDataType>) {
+                for (size_t i = 0; i < size; ++i) {
                     if constexpr (IsTimeType<ToDataType>) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
                         if constexpr (IsDateTimeType<ToDataType>) {
@@ -152,7 +178,9 @@ struct ConvertImpl {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
                     }
-                } else if constexpr (IsTimeV2Type<FromDataType>) {
+                }
+            } else if constexpr (IsTimeV2Type<FromDataType>) {
+                for (size_t i = 0; i < size; ++i) {
                     if constexpr (IsTimeV2Type<ToDataType>) {
                         if constexpr (IsDateTimeV2Type<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date_time_v2(vec_from[i], vec_to[i]);
@@ -189,7 +217,9 @@ struct ConvertImpl {
                                                 .to_int64();
                         }
                     }
-                } else {
+                }
+            } else {
+                for (size_t i = 0; i < size; ++i) {
                     vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
                 }
             }
@@ -547,7 +577,7 @@ struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/,
+                          size_t /*input_rows_count*/, bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -832,19 +862,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return executeInternal(block, arguments, result, input_rows_count);
-    }
-
-    bool has_information_about_monotonicity() const override { return Monotonic::has(); }
-
-    Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
-                                            const Field& right) const override {
-        return Monotonic::get(type, left, right);
-    }
-
-private:
-    Status executeInternal(Block& block, const ColumnNumbers& arguments, size_t result,
-                           size_t input_rows_count) {
         if (!arguments.size()) {
             return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
@@ -873,13 +890,15 @@ private:
                     UInt32 scale = extract_to_decimal_scale(scale_column);
 
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count, scale);
+                            block, arguments, result, input_rows_count,
+                            context->impl()->check_overflow_for_decimal(), scale);
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     auto type =
                             check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count, type->get_scale());
+                            block, arguments, result, input_rows_count,
+                            context->impl()->check_overflow_for_decimal(), type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count);
@@ -895,6 +914,13 @@ private:
             }
             return ret_status;
         }
+    }
+
+    bool has_information_about_monotonicity() const override { return Monotonic::has(); }
+
+    Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
+                                            const Field& right) const override {
+        return Monotonic::get(type, left, right);
     }
 };
 
@@ -1055,7 +1081,7 @@ struct ConvertThroughParsing {
 
     template <typename Additions = void*>
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t input_rows_count,
+                          size_t input_rows_count, bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
@@ -1254,7 +1280,8 @@ public:
                                 const ColumnNumbers& /*arguments*/,
                                 size_t /*result*/) const override {
         return std::make_shared<PreparedFunctionCast>(
-                prepare_unpack_dictionaries(get_argument_types()[0], get_return_type()), name);
+                prepare_unpack_dictionaries(context, get_argument_types()[0], get_return_type()),
+                name);
     }
 
     String get_name() const override { return name; }
@@ -1347,7 +1374,8 @@ private:
                         using RightDataType = typename Types::RightType;
 
                         ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
-                                block, arguments, result, input_rows_count, scale);
+                                block, arguments, result, input_rows_count,
+                                context->impl()->check_overflow_for_decimal(), scale);
                         return true;
                     });
 
@@ -1396,7 +1424,7 @@ private:
         return create_unsupport_wrapper(error_msg);
     }
 
-    WrapperType create_array_wrapper(const DataTypePtr& from_type_untyped,
+    WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                      const DataTypeArray& to_type) const {
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
@@ -1425,7 +1453,8 @@ private:
         const DataTypePtr& to_nested_type = to_type.get_nested_type();
 
         /// Prepare nested type conversion
-        const auto nested_function = prepare_unpack_dictionaries(from_nested_type, to_nested_type);
+        const auto nested_function =
+                prepare_unpack_dictionaries(context, from_nested_type, to_nested_type);
 
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1513,7 +1542,7 @@ private:
         }
     }
 
-    WrapperType prepare_unpack_dictionaries(const DataTypePtr& from_type,
+    WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
                                             const DataTypePtr& to_type) const {
         const auto& from_nested = from_type;
         const auto& to_nested = to_type;
@@ -1534,18 +1563,20 @@ private:
 
         constexpr bool skip_not_null_check = false;
 
-        auto wrapper = prepare_remove_nullable(from_nested, to_nested, skip_not_null_check);
+        auto wrapper =
+                prepare_remove_nullable(context, from_nested, to_nested, skip_not_null_check);
 
         return wrapper;
     }
 
-    WrapperType prepare_remove_nullable(const DataTypePtr& from_type, const DataTypePtr& to_type,
+    WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
+                                        const DataTypePtr& to_type,
                                         bool skip_not_null_check) const {
         /// Determine whether pre-processing and/or post-processing must take place during conversion.
         bool source_is_nullable = from_type->is_nullable();
         bool result_is_nullable = to_type->is_nullable();
 
-        auto wrapper = prepare_impl(remove_nullable(from_type), remove_nullable(to_type),
+        auto wrapper = prepare_impl(context, remove_nullable(from_type), remove_nullable(to_type),
                                     result_is_nullable);
 
         if (result_is_nullable) {
@@ -1620,8 +1651,8 @@ private:
 
     /// 'from_type' and 'to_type' are nested types in case of Nullable.
     /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
-    WrapperType prepare_impl(const DataTypePtr& from_type, const DataTypePtr& to_type,
-                             bool requested_result_is_nullable) const {
+    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
+                             const DataTypePtr& to_type, bool requested_result_is_nullable) const {
         if (from_type->equals(*to_type))
             return create_identity_wrapper(from_type);
         else if (WhichDataType(from_type).is_nothing())
@@ -1679,7 +1710,8 @@ private:
         case TypeIndex::String:
             return create_string_wrapper(from_type);
         case TypeIndex::Array:
-            return create_array_wrapper(from_type, static_cast<const DataTypeArray&>(*to_type));
+            return create_array_wrapper(context, from_type,
+                                        static_cast<const DataTypeArray&>(*to_type));
         default:
             break;
         }
@@ -1730,8 +1762,7 @@ protected:
         need_to_be_nullable |= arguments[0].type->is_nullable();
         // 2. from_type is string, to_type is not string
         need_to_be_nullable |= (arguments[0].type->get_type_id() == TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::JSONB);
+                               (type->get_type_id() != TypeIndex::String);
         // 3. from_type is not DateTime/Date, to_type is DateTime/Date
         need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::Date &&
                                 arguments[0].type->get_type_id() != TypeIndex::DateTime) &&

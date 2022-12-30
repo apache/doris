@@ -23,26 +23,31 @@
 
 namespace doris::vectorized {
 
-RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
+const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
+
+RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
-                               const RowGroupIndex& row_group_idx,
-                               const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
+                               const int32_t row_group_id, const tparquet::RowGroup& row_group,
+                               cctz::time_zone* ctz,
+                               const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx)
         : _file_reader(file_reader),
           _read_columns(read_columns),
-          _row_group_idx(row_group_idx),
+          _row_group_id(row_group_id),
           _row_group_meta(row_group),
           _remaining_rows(row_group.num_rows),
           _ctz(ctz),
+          _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
 }
 
-Status RowGroupReader::init(const FieldDescriptor& schema,
+Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
                             std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
-    if (_read_columns.size() == 0) {
+    _merge_read_ranges(row_ranges);
+    if (_read_columns.empty()) {
         // Query task that only select columns in path.
         return Status::OK();
     }
@@ -52,15 +57,15 @@ Status RowGroupReader::init(const FieldDescriptor& schema,
     for (auto& read_col : _read_columns) {
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta, _ctz,
-                                                    reader, max_buf_size));
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
+                                                    _read_ranges, _ctz, reader, max_buf_size));
         auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
             tparquet::OffsetIndex oi = col_iter->second;
             reader->add_offset_index(&oi);
         }
         if (reader == nullptr) {
-            VLOG_DEBUG << "Init row group(" << _row_group_idx.row_group_id << ") reader failed";
+            VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
         }
         _column_readers[read_col._file_slot_name] = std::move(reader);
@@ -68,17 +73,11 @@ Status RowGroupReader::init(const FieldDescriptor& schema,
     return Status::OK();
 }
 
-void RowGroupReader::set_row_ranges(const std::vector<doris::vectorized::RowRange>& row_ranges) {
-    for (auto& read_col : _read_columns) {
-        _column_readers[read_col._file_slot_name]->set_row_ranges(&row_ranges);
-    }
-}
-
 Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_rows,
-                                  bool* _batch_eof) {
+                                  bool* batch_eof) {
     // Process external table query task that select columns are all from path.
     if (_read_columns.empty()) {
-        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, _batch_eof));
+        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -90,11 +89,11 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     }
     if (_lazy_read_ctx.can_lazy_read) {
         // call _do_lazy_read recursively when current batch is skipped
-        return _do_lazy_read(block, batch_size, read_rows, _batch_eof);
+        return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
         ColumnSelectVector run_length_vector;
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
-                                          read_rows, _batch_eof, run_length_vector));
+                                          read_rows, batch_eof, run_length_vector));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -106,8 +105,39 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     }
 }
 
+void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
+    // row_ranges is generated from page index, and the row index begins with 0 in each row group.
+    // _position_delete_ctx is generated from delete file, and the row index begins with 0 in parquet file
+    for (auto& range : row_ranges) {
+        int64_t start_row_id = range.first_row;
+        while (_position_delete_ctx.index < _position_delete_ctx.end_index) {
+            const int64_t& delete_row_id =
+                    _position_delete_ctx.delete_rows[_position_delete_ctx.index] -
+                    _position_delete_ctx.first_row_id;
+            if (delete_row_id < range.first_row) {
+                _position_delete_ctx.index++;
+            } else if (delete_row_id < range.last_row) {
+                if (start_row_id < delete_row_id) {
+                    _read_ranges.emplace_back(start_row_id, delete_row_id);
+                }
+                start_row_id = delete_row_id + 1;
+                _position_delete_ctx.index++;
+            } else { // delete_row_id >= range.last_row
+                if (start_row_id < range.last_row) {
+                    _read_ranges.emplace_back(start_row_id, range.last_row);
+                    start_row_id = range.last_row + 1;
+                }
+                break;
+            }
+        }
+        if (start_row_id < range.last_row) {
+            _read_ranges.emplace_back(start_row_id, range.last_row);
+        }
+    }
+}
+
 Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::string>& columns,
-                                         size_t batch_size, size_t* read_rows, bool* _batch_eof,
+                                         size_t batch_size, size_t* read_rows, bool* batch_eof,
                                          ColumnSelectVector& select_vector) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
@@ -138,57 +168,75 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
         col_idx++;
     }
     *read_rows = batch_read_rows;
-    *_batch_eof = has_eof;
+    *batch_eof = has_eof;
     return Status::OK();
 }
 
 Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* read_rows,
                                      bool* batch_eof) {
-    // read predicate columns
+    std::unique_ptr<ColumnSelectVector> select_vector_ptr = nullptr;
     size_t pre_read_rows;
     bool pre_eof;
-    ColumnSelectVector run_length_vector;
-    RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns, batch_size,
-                                      &pre_read_rows, &pre_eof, run_length_vector));
-    RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
-                                            _lazy_read_ctx.predicate_partition_columns));
-    RETURN_IF_ERROR(
-            _fill_missing_columns(block, pre_read_rows, _lazy_read_ctx.predicate_missing_columns));
-    // generate filter vector
-    if (_lazy_read_ctx.resize_first_column) {
-        // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
-        // The following process may be tricky and time-consuming, but we have no other way.
-        block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
-    }
     size_t origin_column_num = block->columns();
     int filter_column_id = -1;
-    RETURN_IF_ERROR(_lazy_read_ctx.vconjunct_ctx->execute(block, &filter_column_id));
-    ColumnPtr& sv = block->get_by_position(filter_column_id).column;
-    if (_lazy_read_ctx.resize_first_column) {
-        // We have to clean the first column to insert right data.
-        block->get_by_position(0).column->assume_mutable()->clear();
+    while (true) {
+        // read predicate columns
+        pre_read_rows = 0;
+        pre_eof = false;
+        ColumnSelectVector run_length_vector;
+        RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns, batch_size,
+                                          &pre_read_rows, &pre_eof, run_length_vector));
+        if (pre_read_rows == 0) {
+            DCHECK_EQ(pre_eof, true);
+            break;
+        }
+        RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
+                                                _lazy_read_ctx.predicate_partition_columns));
+        RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
+                                              _lazy_read_ctx.predicate_missing_columns));
+        // generate filter vector
+        if (_lazy_read_ctx.resize_first_column) {
+            // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
+            // The following process may be tricky and time-consuming, but we have no other way.
+            block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
+        }
+        RETURN_IF_ERROR(_lazy_read_ctx.vconjunct_ctx->execute(block, &filter_column_id));
+        ColumnPtr& sv = block->get_by_position(filter_column_id).column;
+        if (_lazy_read_ctx.resize_first_column) {
+            // We have to clean the first column to insert right data.
+            block->get_by_position(0).column->assume_mutable()->clear();
+        }
+
+        // build filter map
+        bool can_filter_all = false;
+        const uint8_t* filter_map = _build_filter_map(sv, pre_read_rows, &can_filter_all);
+        select_vector_ptr.reset(new ColumnSelectVector(filter_map, pre_read_rows, can_filter_all));
+        if (select_vector_ptr->filter_all() && !pre_eof) {
+            // If continuous batches are skipped, we can cache them to skip a whole page
+            _cached_filtered_rows += pre_read_rows;
+            for (auto& col : _lazy_read_ctx.predicate_columns) {
+                // clean block to read predicate columns
+                block->get_by_name(col).column->assume_mutable()->clear();
+            }
+            for (auto& col : _lazy_read_ctx.predicate_partition_columns) {
+                block->get_by_name(col.first).column->assume_mutable()->clear();
+            }
+            for (auto& col : _lazy_read_ctx.predicate_missing_columns) {
+                block->get_by_name(col.first).column->assume_mutable()->clear();
+            }
+            Block::erase_useless_column(block, origin_column_num);
+        } else {
+            break;
+        }
+    }
+    if (select_vector_ptr == nullptr) {
+        DCHECK_EQ(pre_read_rows + _cached_filtered_rows, 0);
+        *read_rows = 0;
+        *batch_eof = true;
+        return Status::OK();
     }
 
-    // build filter map
-    bool can_filter_all = false;
-    const uint8_t* filter_map = _build_filter_map(sv, pre_read_rows, &can_filter_all);
-    ColumnSelectVector select_vector(filter_map, pre_read_rows, can_filter_all);
-    if (select_vector.filter_all() && !pre_eof) {
-        // If continuous batches are skipped, we can cache them to skip a whole page
-        _cached_filtered_rows += pre_read_rows;
-        for (auto& col : _lazy_read_ctx.predicate_columns) {
-            // clean block to read predicate columns
-            block->get_by_name(col).column->assume_mutable()->clear();
-        }
-        for (auto& col : _lazy_read_ctx.predicate_partition_columns) {
-            block->get_by_name(col.first).column->assume_mutable()->clear();
-        }
-        for (auto& col : _lazy_read_ctx.predicate_missing_columns) {
-            block->get_by_name(col.first).column->assume_mutable()->clear();
-        }
-        Block::erase_useless_column(block, origin_column_num);
-        return _do_lazy_read(block, batch_size, read_rows, batch_eof);
-    }
+    ColumnSelectVector& select_vector = *select_vector_ptr;
     std::unique_ptr<uint8_t[]> rebuild_filter_map = nullptr;
     if (_cached_filtered_rows != 0) {
         _rebuild_select_vector(select_vector, rebuild_filter_map, pre_read_rows);
@@ -209,8 +257,14 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
     // filter data in predicate columns, and remove filter column
     if (select_vector.has_filter()) {
-        Block::filter_block(block, _lazy_read_ctx.all_predicate_col_ids, filter_column_id,
-                            origin_column_num);
+        if (block->columns() == origin_column_num) {
+            // the whole row group has been filtered by _lazy_read_ctx.vconjunct_ctx, and batch_eof is
+            // generated from next batch, so the filter column is removed ahead.
+            DCHECK_EQ(block->rows(), 0);
+        } else {
+            Block::filter_block(block, _lazy_read_ctx.all_predicate_col_ids, filter_column_id,
+                                origin_column_num);
+        }
     } else {
         Block::erase_useless_column(block, origin_column_num);
     }
@@ -345,15 +399,37 @@ Status RowGroupReader::_fill_missing_columns(
     return Status::OK();
 }
 
-Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* _batch_eof) {
-    if (batch_size < _remaining_rows) {
-        *read_rows = batch_size;
-        _remaining_rows -= batch_size;
-        *_batch_eof = false;
+Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof) {
+    if (_position_delete_ctx.has_filter) {
+        int64_t start_row_id = _position_delete_ctx.current_row_id;
+        int64_t end_row_id = std::min(_position_delete_ctx.current_row_id + (int64_t)batch_size,
+                                      _position_delete_ctx.last_row_id);
+        int64_t num_delete_rows = 0;
+        while (_position_delete_ctx.index < _position_delete_ctx.end_index) {
+            const int64_t& delete_row_id =
+                    _position_delete_ctx.delete_rows[_position_delete_ctx.index];
+            if (delete_row_id < start_row_id) {
+                _position_delete_ctx.index++;
+            } else if (delete_row_id < end_row_id) {
+                num_delete_rows++;
+                _position_delete_ctx.index++;
+            } else { // delete_row_id >= end_row_id
+                break;
+            }
+        }
+        *read_rows = end_row_id - start_row_id - num_delete_rows;
+        _position_delete_ctx.current_row_id = end_row_id;
+        *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
     } else {
-        *read_rows = _remaining_rows;
-        _remaining_rows = 0;
-        *_batch_eof = true;
+        if (batch_size < _remaining_rows) {
+            *read_rows = batch_size;
+            _remaining_rows -= batch_size;
+            *batch_eof = false;
+        } else {
+            *read_rows = _remaining_rows;
+            _remaining_rows = 0;
+            *batch_eof = true;
+        }
     }
     return Status::OK();
 }

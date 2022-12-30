@@ -1,6 +1,6 @@
 ---
 {
-    "title": "源码编译（macOS x86_64/arm64）",
+    "title": "在macOS平台上编译",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 源码编译（macOS x86_64/arm64）
+# 在macOS平台上编译
 
 本文介绍如何在macOS平台上编译源码。
 
@@ -51,8 +51,7 @@ under the License.
 
 1. [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面有所有第三方库的源码，可以直接下载[doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz)获得。
 
-2. 如果平台使用的是 _**Intel**_ 芯片，也可以在[Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面直接下载预编译好的第三方库[doris-thirdparty-prebuilt-darwin-x86_64.tar.xz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz)
-省去编译第三方库的过程，参考下面的命令。
+2. 如果平台使用的是 _**Intel**_ 芯片，也可以在[Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面直接下载预编译好的第三方库[doris-thirdparty-prebuilt-darwin-x86_64.tar.xz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz)，省去编译第三方库的过程，参考下面的命令。
     ```shell
     cd thirdparty
     curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \

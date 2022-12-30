@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
+#include <mutex>
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -63,6 +65,8 @@ public:
         }
     }
 
+    virtual ~ScannerContext() = default;
+
     Status init();
 
     vectorized::Block* get_free_block(bool* get_free_block);
@@ -74,7 +78,7 @@ public:
     // Get next block from blocks queue. Called by ScanNode
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
-    Status get_block_from_queue(vectorized::Block** block, bool* eos);
+    Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
@@ -96,8 +100,8 @@ public:
     }
 
     // Return true if this ScannerContext need no more process
-    bool done() {
-        std::lock_guard<std::mutex> l(_transfer_lock);
+    virtual bool done() {
+        std::unique_lock<std::mutex> l(_transfer_lock);
         return _is_finished || _should_stop || !_process_status.ok();
     }
 
@@ -114,6 +118,8 @@ public:
 
     void clear_and_join();
 
+    virtual bool can_finish();
+
     std::string debug_string();
 
     RuntimeState* state() { return _state; }
@@ -123,7 +129,8 @@ public:
 
     VScanNode* parent() { return _parent; }
 
-public:
+    virtual bool empty_in_queue();
+
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
@@ -132,11 +139,14 @@ public:
 private:
     Status _close_and_clear_scanners();
 
-    inline bool _has_enough_space_in_blocks_queue() {
+    inline bool _has_enough_space_in_blocks_queue() const {
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
     }
 
-private:
+    // do nothing here, we only do update on pip_scanner_context
+    virtual void _update_block_queue_empty() {}
+
+protected:
     RuntimeState* _state;
     VScanNode* _parent;
 
@@ -154,7 +164,7 @@ private:
     // The blocks got from scanners will be added to the "blocks_queue".
     // And the upper scan node will be as a consumer to fetch blocks from this queue.
     // Should be protected by "_transfer_lock"
-    std::list<vectorized::Block*> blocks_queue;
+    std::list<vectorized::Block*> _blocks_queue;
     // Wait in get_block_from_queue(), by ScanNode.
     std::condition_variable _blocks_queue_added_cv;
     // Wait in clear_and_join(), by ScanNode.
@@ -174,8 +184,9 @@ private:
     //      Always be set by ScannerScheduler.
     //      True means all scanners are finished to scan.
     Status _process_status;
-    bool _should_stop = false;
-    bool _is_finished = false;
+    std::atomic_bool _status_error = false;
+    std::atomic_bool _should_stop = false;
+    std::atomic_bool _is_finished = false;
 
     // Pre-allocated blocks for all scanners to share, for memory reuse.
     std::mutex _free_blocks_lock;
@@ -185,13 +196,13 @@ private:
     int64_t limit;
 
     // Current number of running scanners.
-    int32_t _num_running_scanners = 0;
+    std::atomic_int32_t _num_running_scanners = 0;
     // Current number of ctx being scheduled.
     // After each Scanner finishes a task, it will put the corresponding ctx
     // back into the scheduling queue.
     // Therefore, there will be multiple pointer of same ctx in the scheduling queue.
     // Here we record the number of ctx in the scheduling  queue to clean up at the end.
-    int32_t _num_scheduling_ctx = 0;
+    std::atomic_int32_t _num_scheduling_ctx = 0;
     // Num of unfinished scanners. Should be set in init()
     int32_t _num_unfinished_scanners = 0;
     // Max number of scan thread for this scanner context.
@@ -210,6 +221,8 @@ private:
     // Not need to protect by lock, because only one scheduler thread will access to it.
     std::mutex _scanners_lock;
     std::list<VScanner*> _scanners;
+    std::vector<int64_t> _finished_scanner_runtime;
+    std::vector<int64_t> _finished_scanner_rows_read;
 
     int64_t _num_ctx_scheduling = 0;
     int64_t _num_scanner_scheduling = 0;

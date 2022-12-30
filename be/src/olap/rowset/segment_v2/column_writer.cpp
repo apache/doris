@@ -22,10 +22,12 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_writer.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -96,6 +98,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             item_options.need_zone_map = false;
             item_options.need_bloom_filter = item_column.is_bf_column();
             item_options.need_bitmap_index = item_column.has_bitmap_index();
+            item_options.inverted_index = nullptr;
             if (item_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 if (item_options.need_bloom_filter) {
                     return Status::NotSupported("Do not support bloom filter for array type");
@@ -296,9 +299,23 @@ Status ScalarColumnWriter::init() {
         RETURN_IF_ERROR(
                 BitmapIndexWriter::create(get_field()->type_info(), &_bitmap_index_builder));
     }
+
+    if (_opts.inverted_index) {
+        RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
+                get_field(), &_inverted_index_builder, _opts.meta->unique_id(),
+                _file_writer->path().filename().native(),
+                _file_writer->path().parent_path().native(), _opts.inverted_index,
+                _file_writer->fs()));
+    }
     if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(BloomFilterIndexWriter::create(
-                BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
+        if (_opts.is_ngram_bf_index) {
+            RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
+                    BloomFilterOptions(), get_field()->type_info(), _opts.gram_size,
+                    _opts.gram_bf_size, &_bloom_filter_index_builder));
+        } else {
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
+                    BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
+        }
     }
     return Status::OK();
 }
@@ -311,6 +328,9 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     }
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_nulls(num_rows);
+    }
+    if (_opts.inverted_index) {
+        _inverted_index_builder->add_nulls(num_rows);
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(num_rows);
@@ -343,6 +363,9 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
     }
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_values(data, *num_written);
+    }
+    if (_opts.inverted_index) {
+        _inverted_index_builder->add_values(get_field()->name(), data, *num_written);
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_values(data, *num_written);
@@ -428,6 +451,13 @@ Status ScalarColumnWriter::write_zone_map() {
 Status ScalarColumnWriter::write_bitmap_index() {
     if (_opts.need_bitmap_index) {
         return _bitmap_index_builder->finish(_file_writer, _opts.meta->add_indexes());
+    }
+    return Status::OK();
+}
+
+Status ScalarColumnWriter::write_inverted_index() {
+    if (_opts.inverted_index) {
+        return _inverted_index_builder->finish();
     }
     return Status::OK();
 }
@@ -532,12 +562,28 @@ Status ArrayColumnWriter::init() {
     }
     RETURN_IF_ERROR(_item_writer->init());
     _offset_writer->register_flush_page_callback(this);
-
+    if (_opts.inverted_index) {
+        auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        if (writer != nullptr) {
+            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
+                    get_field(), &_inverted_index_builder, _opts.meta->unique_id(),
+                    writer->_file_writer->path().filename().native(),
+                    writer->_file_writer->path().parent_path().native(), _opts.inverted_index,
+                    writer->_file_writer->fs()));
+        }
+    }
     return Status::OK();
 }
 
 Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_item_writer->get_next_rowid());
+    return Status::OK();
+}
+
+Status ArrayColumnWriter::write_inverted_index() {
+    if (_opts.inverted_index) {
+        return _inverted_index_builder->finish();
+    }
     return Status::OK();
 }
 
@@ -566,6 +612,14 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                 const void* data = col_cursor->data();
                 RETURN_IF_ERROR(_item_writer->append_data(reinterpret_cast<const uint8_t**>(&data),
                                                           col_cursor->length()));
+            }
+            if (_opts.inverted_index) {
+                auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+                if (writer != nullptr) {
+                    //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+                    _inverted_index_builder->add_array_values(_item_writer->get_field()->size(),
+                                                              col_cursor, 1);
+                }
             }
         }
         remaining -= num_written;

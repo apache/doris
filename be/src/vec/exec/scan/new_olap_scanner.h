@@ -18,10 +18,7 @@
 #pragma once
 
 #include "exec/olap_utils.h"
-#include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
-#include "exprs/hybrid_set.h"
 #include "olap/reader.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/vscanner.h"
@@ -45,13 +42,14 @@ public:
 
     Status close(RuntimeState* state) override;
 
-public:
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
                    const FilterPredicates& filter_predicates,
                    const std::vector<FunctionFilter>& function_filters);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
+
+    void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -67,7 +65,6 @@ private:
 
     Status _init_return_columns();
 
-private:
     bool _aggregation;
     bool _need_agg_finalize;
 
@@ -80,6 +77,7 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
+    std::vector<TCondition> _compound_filters;
 
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;

@@ -17,9 +17,14 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "exprs/bitmapfilter_predicate.h"
+#include "exprs/cast_functions.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
+#include "olap/wrapper_field.h"
+#include "util/bitmap_value.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -44,12 +49,25 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (_specific_filter->is_not_in()) {
+            return true;
+        }
 
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                     bool* flags) const override {};
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {};
+        CppType max_value;
+        if (statistic.second->is_null()) {
+            // no non-null values
+            return false;
+        } else {
+            max_value = *reinterpret_cast<const CppType*>(statistic.second->cell_ptr());
+        }
+
+        CppType min_value =
+                statistic.first->is_null() /* contains null values */
+                        ? 0
+                        : *reinterpret_cast<const CppType*>(statistic.first->cell_ptr());
+        return _specific_filter->contains_any(min_value, max_value);
+    }
 
     Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
         return Status::OK();
@@ -68,41 +86,21 @@ private:
 
         uint16_t new_size = 0;
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                (char*)reinterpret_cast<
+                        const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
                         ->get_data()
                         .data(),
                 null_map, sel, size);
         return new_size;
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         return "BitmapFilterColumnPredicate(" + type_to_string(T) + ")";
     }
 
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
 };
-
-template <PrimitiveType T>
-void BitmapFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
-                                              uint16_t* size) const {
-    uint16_t new_size = 0;
-    if (block->is_nullable()) {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            new_size += (!block->cell(idx).is_null() &&
-                         _specific_filter->find(*block->cell(idx).cell_ptr()));
-        }
-    } else {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            new_size += _specific_filter->find(*block->cell(idx).cell_ptr());
-        }
-    }
-    *size = new_size;
-}
 
 template <PrimitiveType T>
 uint16_t BitmapFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,

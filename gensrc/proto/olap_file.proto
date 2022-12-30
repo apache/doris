@@ -109,8 +109,8 @@ message RowsetMetaPB {
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaPB tablet_schema = 28;
-    // spare field id for future use
-    optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
+    // alpha_rowset_extra_meta_pb is deleted
+    reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
@@ -120,21 +120,6 @@ message RemoteRowsetGcPB {
     required string resource_id = 1;
     required int64 tablet_id = 2;
     required int64 num_segments = 3;
-}
-
-message AlphaRowsetExtraMetaPB {
-    repeated SegmentGroupPB segment_groups = 1;
-}
-
-message SegmentGroupPB {
-    required int32 segment_group_id = 1;
-    required int32 num_segments = 2;
-    required int64 index_size = 3;
-    required int64 data_size = 4;
-    required int64 num_rows = 5;
-    repeated ZoneMap zone_maps = 6;
-    optional bool empty = 7;
-    optional PUniqueId load_id = 8;
 }
 
 enum DataFileType {
@@ -205,6 +190,7 @@ enum IndexType {
     BITMAP = 0;
     INVERTED = 1;
     BLOOMFILTER = 2;
+    NGRAM_BF = 3;
 }
 
 message TabletIndexPB {

@@ -26,9 +26,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
-import org.apache.doris.statistics.AnalysisJob;
-import org.apache.doris.statistics.AnalysisJobInfo;
-import org.apache.doris.statistics.AnalysisJobScheduler;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -508,7 +508,25 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
         throw new NotImplementedException();
+    }
+
+    /**
+     * for NOT-ANALYZED Olap table, return estimated row count,
+     * for other table, return 1
+     * @return estimated row count
+     */
+    public long estimatedRowCount() {
+        long cardinality = 0;
+        if (this instanceof OlapTable) {
+            OlapTable table = (OlapTable) this;
+            for (long selectedPartitionId : table.getPartitionIds()) {
+                final Partition partition = table.getPartition(selectedPartitionId);
+                final MaterializedIndex baseIndex = partition.getBaseIndex();
+                cardinality += baseIndex.getRowCount();
+            }
+        }
+        return Math.max(cardinality, 1);
     }
 }

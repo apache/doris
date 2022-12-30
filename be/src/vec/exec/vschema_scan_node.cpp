@@ -97,6 +97,10 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _scanner_param.table_structure = _pool->add(
                 new std::vector<TSchemaTableStructure>(tnode.schema_scan_node.table_structure));
     }
+
+    if (tnode.schema_scan_node.__isset.catalog) {
+        _scanner_param.catalog = _pool->add(new std::string(tnode.schema_scan_node.catalog));
+    }
     return Status::OK();
 }
 
@@ -115,7 +119,7 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_scanner_param.user) {
         TSetSessionParams param;
@@ -138,7 +142,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
@@ -500,7 +504,6 @@ Status VSchemaScanNode::close(RuntimeState* state) {
 
     _tuple_pool.reset();
     return ExecNode::close(state);
-    ;
 }
 
 void VSchemaScanNode::debug_string(int indentation_level, std::stringstream* out) const {

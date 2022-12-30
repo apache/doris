@@ -32,15 +32,13 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status send(RuntimeState* state, vectorized::Block* block) override;
+    Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     JdbcConnectorParam _jdbc_param;
     std::unique_ptr<JdbcConnector> _writer;
-    //if is ORACLE and date type, insert into need convert
-    bool _need_extra_convert = false;
 };
 } // namespace vectorized
 } // namespace doris

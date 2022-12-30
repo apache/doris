@@ -38,10 +38,6 @@ Status VSelectNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VSelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VSelectNode::get_next.");
-}
-
 Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -49,7 +45,12 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
     do {
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(state, block, &_child_eos),
+                _children[0]->get_next_after_projects(
+                        state, block, &_child_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _children[0]->get_next_span(), _child_eos);
         if (_child_eos) {
             *eos = true;
@@ -57,8 +58,15 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
         }
     } while (block->rows() == 0);
 
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
-    reached_limit(block, eos);
+    return pull(state, block, eos);
+}
+
+Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::pull");
+    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    reached_limit(output_block, eos);
 
     return Status::OK();
 }

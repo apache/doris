@@ -402,6 +402,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
+
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
         TabletColumn child_column;
@@ -441,18 +442,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
 }
 
-uint32_t TabletColumn::mem_size() const {
-    auto size = sizeof(TabletColumn);
-    size += _col_name.size();
-    if (_has_default_value) {
-        size += _default_value.size();
-    }
-    for (auto& sub_column : _sub_columns) {
-        size += sub_column.mem_size();
-    }
-    return size;
-}
-
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_columns.push_back(sub_column);
     sub_column._parent = this;
@@ -490,6 +479,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         break;
     case TIndexType::BLOOMFILTER:
         _index_type = IndexType::BLOOMFILTER;
+        break;
+    case TIndexType::NGRAM_BF:
+        _index_type = IndexType::NGRAM_BF;
         break;
     }
     if (index.__isset.properties) {
@@ -557,6 +549,7 @@ void TabletSchema::clear_columns() {
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+    SCOPED_MEM_COUNT(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_key_columns = 0;
@@ -729,19 +722,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_compression_type(_compression_type);
 }
 
-uint32_t TabletSchema::mem_size() const {
-    auto size = sizeof(TabletSchema);
-    for (auto& col : _cols) {
-        size += col.mem_size();
-    }
-
-    for (auto& pair : _field_name_to_index) {
-        size += pair.first.size();
-        size += sizeof(pair.second);
-    }
-    return size;
-}
-
 size_t TabletSchema::row_size() const {
     size_t size = 0;
     for (auto& column : _cols) {
@@ -824,6 +804,36 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id) const
     // TODO use more efficient impl
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED) {
+            for (int32_t id : _indexes[i].col_unique_ids()) {
+                if (id == col_unique_id) {
+                    return &(_indexes[i]);
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
+    // TODO use more efficient impl
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::NGRAM_BF) {
+            for (int32_t id : _indexes[i].col_unique_ids()) {
+                if (id == col_unique_id) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const {
+    // TODO use more efficient impl
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::NGRAM_BF) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
                 if (id == col_unique_id) {
                     return &(_indexes[i]);

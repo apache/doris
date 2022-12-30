@@ -84,9 +84,6 @@ public:
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
-    // Gets/Creates the query wide block mgr.
-    Status create_block_mgr();
-
     Status create_load_dir();
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -138,6 +135,11 @@ public:
                _query_options.enable_function_pushdown;
     }
 
+    bool check_overflow_for_decimal() const {
+        return _query_options.__isset.check_overflow_for_decimal &&
+               _query_options.check_overflow_for_decimal;
+    }
+
     // Create a codegen object in _codegen. No-op if it has already been called.
     // If codegen is enabled for the query, this is created when the runtime
     // state is created. If codegen is disabled for the query, this is created
@@ -157,9 +159,6 @@ public:
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 
-    // If !status.ok(), appends the error to the _error_log
-    void log_error(const Status& status);
-
     // Returns true if the error log has not reached _max_errors.
     bool log_has_space() {
         std::lock_guard<std::mutex> l(_error_log_lock);
@@ -176,9 +175,9 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    bool is_cancelled() const { return _is_cancelled; }
+    bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) { _is_cancelled = v; }
+    void set_is_cancelled(bool v) { _is_cancelled.store(v); }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
     int64_t backend_id() const { return _backend_id; }
@@ -326,6 +325,10 @@ public:
         }
         return _query_options.be_exec_version;
     }
+    bool enable_pipeline_exec() const {
+        return _query_options.__isset.enable_pipeline_engine &&
+               _query_options.enable_pipeline_engine;
+    }
 
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
@@ -402,6 +405,17 @@ public:
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
 
+    int repeat_max_num() const {
+#ifndef BE_TEST
+        if (!_query_options.__isset.repeat_max_num) {
+            return 10000;
+        }
+        return _query_options.repeat_max_num;
+#else
+        return 10;
+#endif
+    }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
@@ -464,7 +478,7 @@ private:
     ThreadResourceMgr::ResourcePool* _resource_pool;
 
     // if true, execution should stop with a CANCELLED status
-    bool _is_cancelled;
+    std::atomic<bool> _is_cancelled;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;

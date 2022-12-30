@@ -320,6 +320,18 @@ size_t Block::rows() const {
     return 0;
 }
 
+std::string Block::each_col_size() {
+    std::stringstream ss;
+    for (const auto& elem : data) {
+        if (elem.column) {
+            ss << elem.column->size() << " | ";
+        } else {
+            ss << "-1 | ";
+        }
+    }
+    return ss.str();
+}
+
 void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
@@ -479,7 +491,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+        columns[i] = data[i].column ? (*std::move(data[i].column)).assume_mutable()
                                     : data[i].type->create_column();
     }
     return columns;
@@ -592,7 +604,7 @@ void Block::clear_column_data(int column_size) noexcept {
         }
     }
     for (auto& d : data) {
-        DCHECK(d.column->use_count() == 1);
+        DCHECK_EQ(d.column->use_count(), 1);
         (*std::move(d.column)).assume_mutable()->clear();
     }
 }
@@ -779,46 +791,6 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
                                      *compressed_bytes);
     }
     return Status::OK();
-}
-
-void Block::serialize(RowBatch* output_batch, const RowDescriptor& row_desc) {
-    auto num_rows = rows();
-    auto mem_pool = output_batch->tuple_data_pool();
-
-    for (int i = 0; i < num_rows; ++i) {
-        auto tuple_row = output_batch->get_row(i);
-        const auto& tuple_descs = row_desc.tuple_descriptors();
-        auto column_offset = 0;
-
-        for (int j = 0; j < tuple_descs.size(); ++j) {
-            auto tuple_desc = tuple_descs[j];
-            tuple_row->set_tuple(j, deep_copy_tuple(*tuple_desc, mem_pool, i, column_offset));
-            column_offset += tuple_desc->slots().size();
-        }
-        output_batch->commit_last_row();
-    }
-}
-
-doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool* pool, int row,
-                                     int column_offset, bool padding_char) {
-    auto dst = reinterpret_cast<doris::Tuple*>(pool->allocate(desc.byte_size()));
-
-    for (int i = 0; i < desc.slots().size(); ++i) {
-        auto slot_desc = desc.slots()[i];
-        auto& type_desc = slot_desc->type();
-        const auto& column = get_by_position(column_offset + i).column;
-        const auto& data_ref =
-                type_desc.type != TYPE_ARRAY ? column->get_data_at(row) : StringRef();
-        bool is_null = is_column_data_null(slot_desc->type(), data_ref, column, row);
-        if (is_null) {
-            dst->set_null(slot_desc->null_indicator_offset());
-        } else {
-            dst->set_not_null(slot_desc->null_indicator_offset());
-            deep_copy_slot(dst->get_slot(slot_desc->tuple_offset()), pool, type_desc, data_ref,
-                           column.get(), row, padding_char);
-        }
-    }
-    return dst;
 }
 
 inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,

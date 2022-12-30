@@ -1394,33 +1394,64 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
+    // CAST Nullable(X) to Nullable(JSONB)
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
-            {{{BOOLEAN(1), STRING("Json")}, STRING("true")}});
+            {{{BOOLEAN(1), STRING("Jsonb")}, STRING("true")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
-            {{{BOOLEAN(0), STRING("Json")}, STRING("false")}});
+            {{{BOOLEAN(0), STRING("Jsonb")}, STRING("false")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int8}, ConstedNotnull {TypeIndex::String}},
-            {{{TINYINT(100), STRING("Json")}, STRING("100")}});
+            {{{TINYINT(100), STRING("Jsonb")}, STRING("100")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int16}, ConstedNotnull {TypeIndex::String}},
-            {{{SMALLINT(10000), STRING("Json")}, STRING("10000")}});
+            {{{SMALLINT(10000), STRING("Jsonb")}, STRING("10000")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int32}, ConstedNotnull {TypeIndex::String}},
-            {{{INT(1000000000), STRING("Json")}, STRING("1000000000")}});
+            {{{INT(1000000000), STRING("Jsonb")}, STRING("1000000000")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int64}, ConstedNotnull {TypeIndex::String}},
-            {{{BIGINT(1152921504606846976), STRING("Json")}, STRING("1152921504606846976")}});
+            {{{BIGINT(1152921504606846976), STRING("Jsonb")}, STRING("1152921504606846976")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Float64}, ConstedNotnull {TypeIndex::String}},
-            {{{DOUBLE(6.18), STRING("Json")}, STRING("6.18")}});
+            {{{DOUBLE(6.18), STRING("Jsonb")}, STRING("6.18")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"(abcd)"), STRING("Json")}, Null()}}); // should fail
+            {{{STRING(R"(abcd)"), STRING("Jsonb")}, Null()}}); // should fail
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("abcd")")}});
+            {{{STRING(R"("abcd")"), STRING("Jsonb")}, STRING(R"("abcd")")}});
+
+    // CAST X to JSONB
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
+            {{{BOOLEAN(1), STRING("Jsonb")}, STRING("true")}});
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
+            {{{BOOLEAN(0), STRING("Jsonb")}, STRING("false")}});
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::Int8}, ConstedNotnull {TypeIndex::String}},
+            {{{TINYINT(100), STRING("Jsonb")}, STRING("100")}});
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::Int16}, ConstedNotnull {TypeIndex::String}},
+            {{{SMALLINT(10000), STRING("Jsonb")}, STRING("10000")}});
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::Int32}, ConstedNotnull {TypeIndex::String}},
+            {{{INT(1000000000), STRING("Jsonb")}, STRING("1000000000")}});
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::Int64}, ConstedNotnull {TypeIndex::String}},
+            {{{BIGINT(1152921504606846976), STRING("Jsonb")}, STRING("1152921504606846976")}});
+    check_function<DataTypeJsonb, false>(
+            "CAST", {Notnull {TypeIndex::Float64}, ConstedNotnull {TypeIndex::String}},
+            {{{DOUBLE(6.18), STRING("Jsonb")}, STRING("6.18")}});
+    // String to JSONB should always be Nullable
+    check_function<DataTypeJsonb, true>(
+            "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
+            {{{STRING(R"(abcd)"), STRING("Jsonb")}, Null()}}); // should fail
+    check_function<DataTypeJsonb, true>(
+            "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
+            {{{STRING(R"("abcd")"), STRING("Jsonb")}, STRING(R"("abcd")")}});
 }
 
 } // namespace doris::vectorized

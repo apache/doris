@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_options.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 
@@ -37,6 +38,8 @@ using ResourceId = std::string;
 enum class FileSystemType : uint8_t {
     LOCAL,
     S3,
+    HDFS,
+    BROKER,
 };
 
 class FileSystem {
@@ -49,6 +52,9 @@ public:
     DISALLOW_COPY_AND_ASSIGN(FileSystem);
 
     virtual Status create_file(const Path& path, FileWriterPtr* writer) = 0;
+
+    virtual Status open_file(const Path& path, const FileReaderOptions& reader_options,
+                             FileReaderSPtr* reader) = 0;
 
     virtual Status open_file(const Path& path, FileReaderSPtr* reader) = 0;
 

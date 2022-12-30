@@ -27,10 +27,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -52,8 +52,8 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student,
-                ImmutableList.of(""));
+        rStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
+                ImmutableList.of());
     }
 
     /*-
@@ -79,23 +79,25 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                 .matchesFromRoot(
                         logicalProject(
                                 logicalAggregate(
-                                        logicalOlapScan()
-                                ).when(FieldChecker.check("groupByExpressions", ImmutableList.of(key)))
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(0).equals(key))
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(1).child(0)
-                                                .equals(aggregateFunction.child(0)))
-                                        .when(FieldChecker.check("normalized", true))
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                ).when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of(key)))
+                                    .when(aggregate -> aggregate.getOutputExpressions().get(0).equals(key))
+                                    .when(aggregate -> aggregate.getOutputExpressions().get(1).child(0)
+                                            .equals(aggregateFunction.child(0)))
+                                    .when(FieldChecker.check("normalized", true))
                         ).when(project -> project.getProjects().get(0).equals(key))
-                                .when(project -> project.getProjects().get(1) instanceof Alias)
-                                .when(project -> (project.getProjects().get(1)).getExprId()
-                                        .equals(aggregateFunction.getExprId()))
-                                .when(project -> project.getProjects().get(1).child(0) instanceof SlotReference)
+                        .when(project -> project.getProjects().get(1) instanceof Alias)
+                        .when(project -> (project.getProjects().get(1)).getExprId()
+                                .equals(aggregateFunction.getExprId()))
+                        .when(project -> project.getProjects().get(1).child(0) instanceof SlotReference)
                 );
     }
 
     /*-
      * original plan:
-     * LogicalAggregate (phase: [GLOBAL], output: [(sum((id#0 * 1)) + 2) AS `(sum((id * 1)) + 2)`#4], groupBy: [name#2])
+     * LogicalAggregate (output: [(sum((id#0 * 1)) + 2) AS `(sum((id * 1)) + 2)`#4], groupBy: [name#2])
      * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
      *
      * after rewrite:
@@ -126,11 +128,12 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                                         ).when(project -> project.getProjects().size() == 2)
                                                 .when(project -> project.getProjects().get(0) instanceof SlotReference)
                                                 .when(project -> project.getProjects().get(1).child(0).equals(multiply))
-                                ).when(FieldChecker.check("groupByExpressions",
-                                                ImmutableList.of(rStudent.getOutput().get(2))))
-                                        .when(aggregate -> aggregate.getOutputExpressions().size() == 1)
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(0)
-                                                .child(0) instanceof AggregateFunction)
+                                ).when(agg -> agg.getGroupByExpressions().equals(
+                                        ImmutableList.of(rStudent.getOutput().get(2)))
+                                )
+                                .when(aggregate -> aggregate.getOutputExpressions().size() == 2)
+                                .when(aggregate -> aggregate.getOutputExpressions().get(1)
+                                        .child(0) instanceof AggregateFunction)
                         ).when(project -> project.getProjects().size() == 1)
                                 .when(project -> project.getProjects().get(0) instanceof Alias)
                                 .when(project -> project.getProjects().get(0).getExprId().equals(output.getExprId()))

@@ -135,7 +135,7 @@ public class TypeCoercionUtils {
 
         if (returnType == null && input instanceof PrimitiveType
                 && expected instanceof CharacterType) {
-            returnType = StringType.INSTANCE;
+            returnType = expected.defaultConcreteType();
         }
 
         // could not do implicit cast, just return null. Throw exception in check analysis.
@@ -154,6 +154,14 @@ public class TypeCoercionUtils {
         }
         if (leftType instanceof DecimalV2Type && rightType instanceof IntegralType
                 || leftType instanceof IntegralType && rightType instanceof DecimalV2Type) {
+            return true;
+        }
+        if (leftType instanceof FloatType && rightType instanceof DecimalV2Type
+                || leftType instanceof DecimalV2Type && rightType instanceof FloatType) {
+            return true;
+        }
+        if (leftType instanceof DoubleType && rightType instanceof DecimalV2Type
+                || leftType instanceof DecimalV2Type && rightType instanceof DoubleType) {
             return true;
         }
         // TODO: add decimal promotion support
@@ -226,8 +234,11 @@ public class TypeCoercionUtils {
             } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
                 tightestCommonType = DateV2Type.INSTANCE;
             }
+        } else if ((left instanceof DateLikeType && right instanceof IntegralType)
+                    || (right instanceof DateLikeType && left instanceof IntegralType)) {
+            tightestCommonType = BigIntType.INSTANCE;
         }
-        return Optional.ofNullable(tightestCommonType);
+        return tightestCommonType == null ? Optional.of(DoubleType.INSTANCE) : Optional.of(tightestCommonType);
     }
 
     /**

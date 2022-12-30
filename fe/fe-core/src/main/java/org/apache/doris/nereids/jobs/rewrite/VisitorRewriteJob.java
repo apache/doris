@@ -23,15 +23,21 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
  * Use visitor to rewrite the plan.
  */
 public class VisitorRewriteJob extends Job {
+    private final RuleType ruleType;
     private final Group group;
 
     private final DefaultPlanRewriter<JobContext> planRewriter;
@@ -39,16 +45,23 @@ public class VisitorRewriteJob extends Job {
     /**
      * Constructor.
      */
-    public VisitorRewriteJob(CascadesContext cascadesContext, DefaultPlanRewriter<JobContext> rewriter, boolean once) {
-        super(JobType.VISITOR_REWRITE, cascadesContext.getCurrentJobContext(), once);
+    public VisitorRewriteJob(CascadesContext cascadesContext,
+            DefaultPlanRewriter<JobContext> rewriter, RuleType ruleType) {
+        super(JobType.VISITOR_REWRITE, cascadesContext.getCurrentJobContext(), true);
+        this.ruleType = Objects.requireNonNull(ruleType, "ruleType cannot be null");
         this.group = Objects.requireNonNull(cascadesContext.getMemo().getRoot(), "group cannot be null");
         this.planRewriter = Objects.requireNonNull(rewriter, "planRewriter cannot be null");
     }
 
     @Override
     public void execute() {
+        if (disableRules.contains(ruleType.name().toUpperCase(Locale.ROOT))) {
+            return;
+        }
         GroupExpression logicalExpression = group.getLogicalExpression();
         Plan root = context.getCascadesContext().getMemo().copyOut(logicalExpression, true);
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
+                root));
         Plan rewrittenRoot = root.accept(planRewriter, context);
         context.getCascadesContext().getMemo().copyIn(rewrittenRoot, group, true);
     }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.Config;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
@@ -149,8 +149,8 @@ public class PooledHiveMetaStoreClient {
         private final IMetaStoreClient client;
 
         private CachedClient(HiveConf hiveConf) throws MetaException {
-            String type = hiveConf.get(HiveMetaStoreClientHelper.HIVE_METASTORE_TYPE);
-            if (HiveMetaStoreClientHelper.DLF_TYPE.equalsIgnoreCase(type)) {
+            String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
+            if (HMSResource.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
             } else {
@@ -172,12 +172,19 @@ public class PooledHiveMetaStoreClient {
     }
 
     private CachedClient getClient() throws MetaException {
-        synchronized (clientPool) {
-            CachedClient client = clientPool.poll();
-            if (client == null) {
-                return new CachedClient(hiveConf);
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+            synchronized (clientPool) {
+                CachedClient client = clientPool.poll();
+                if (client == null) {
+                    return new CachedClient(hiveConf);
+                }
+                return client;
             }
-            return client;
+        } finally {
+            Thread.currentThread().setContextClassLoader(classLoader);
         }
     }
 }
+

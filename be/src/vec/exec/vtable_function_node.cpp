@@ -25,7 +25,7 @@ namespace doris::vectorized {
 
 VTableFunctionNode::VTableFunctionNode(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
-        : TableFunctionNode(pool, tnode, descs) {}
+        : ExecNode(pool, tnode, descs) {}
 
 Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -51,9 +51,46 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
+Status VTableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
+    // Prepare output slot ids
+    if (tnode.table_function_node.outputSlotIds.empty()) {
+        return Status::InternalError("Output slots of table function node is empty");
+    }
+    SlotId max_id = -1;
+    for (auto slot_id : tnode.table_function_node.outputSlotIds) {
+        if (slot_id > max_id) {
+            max_id = slot_id;
+        }
+    }
+    _output_slot_ids = std::vector<bool>(max_id + 1, false);
+    for (auto slot_id : tnode.table_function_node.outputSlotIds) {
+        _output_slot_ids[slot_id] = true;
+    }
+
+    return Status::OK();
+}
+
+bool VTableFunctionNode::_is_inner_and_empty() {
+    for (int i = 0; i < _fn_num; i++) {
+        // if any table function is not outer and has empty result, go to next child row
+        if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Status VTableFunctionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(TableFunctionNode::prepare(state));
+    RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
+    _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
+
+    RETURN_IF_ERROR(Expr::prepare(_fn_ctxs, state, _row_descriptor));
+    for (auto fn : _fns) {
+        RETURN_IF_ERROR(fn->prepare());
+    }
     RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, _row_descriptor));
 
     // get current all output slots
@@ -70,7 +107,6 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
         }
     }
 
-    _child_block.reset(new Block());
     _cur_child_offset = -1;
 
     return Status::OK();
@@ -83,18 +119,24 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
 
     RETURN_IF_CANCELLED(state);
 
-    RETURN_IF_ERROR(get_expanded_block(state, block, eos));
+    // if child_block is empty, get data from child.
+    while (need_more_input_data()) {
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(
+                        state, &_child_block, &_child_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
+                child(0)->get_next_span(), _child_eos);
 
-    reached_limit(block, eos);
+        push(state, &_child_block, _child_eos);
+    }
 
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-
-    return Status::OK();
+    return pull(state, block, eos);
 }
 
 Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output_block, bool* eos) {
-    DCHECK(_child_block != nullptr);
-
     size_t column_size = _output_slots.size();
     bool mem_reuse = output_block->mem_reuse();
 
@@ -111,23 +153,8 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
-        // if child_block is empty, get data from child.
-        if (_child_block->rows() == 0) {
-            while (_child_block->rows() == 0 && !_child_eos) {
-                RETURN_IF_ERROR_AND_CHECK_SPAN(
-                        child(0)->get_next_after_projects(state, _child_block.get(), &_child_eos),
-                        child(0)->get_next_span(), _child_eos);
-            }
-            if (_child_eos && _child_block->rows() == 0) {
-                *eos = true;
-                break;
-            }
-
-            for (TableFunction* fn : _fns) {
-                RETURN_IF_ERROR(fn->process_init(_child_block.get()));
-            }
-
-            RETURN_IF_ERROR(_process_next_child_row());
+        if (_child_block.rows() == 0) {
+            break;
         }
 
         bool skip_child_row = false;
@@ -168,7 +195,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
                     columns[i]->insert_default();
                     continue;
                 }
-                auto src_column = _child_block->get_by_position(i).column;
+                auto src_column = _child_block.get_by_position(i).column;
                 columns[i]->insert_from(*src_column, _cur_child_offset);
             }
 
@@ -205,19 +232,20 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
     RETURN_IF_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
 
+    *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 
 Status VTableFunctionNode::_process_next_child_row() {
     _cur_child_offset++;
 
-    if (_cur_child_offset >= _child_block->rows()) {
+    if (_cur_child_offset >= _child_block.rows()) {
         // release block use count.
         for (TableFunction* fn : _fns) {
             RETURN_IF_ERROR(fn->process_close());
         }
 
-        release_block_memory(*_child_block);
+        release_block_memory(_child_block);
         _cur_child_offset = -1;
         return Status::OK();
     }
@@ -227,6 +255,65 @@ Status VTableFunctionNode::_process_next_child_row() {
     }
 
     return Status::OK();
+}
+
+// Returns the index of fn of the last eos counted from back to front
+// eg: there are 3 functions in `_fns`
+//      eos:    false, true, true
+//      return: 1
+//
+//      eos:    false, false, true
+//      return: 2
+//
+//      eos:    false, false, false
+//      return: -1
+//
+//      eos:    true, true, true
+//      return: 0
+//
+// return:
+//  0: all fns are eos
+// -1: all fns are not eos
+// >0: some of fns are eos
+int VTableFunctionNode::_find_last_fn_eos_idx() {
+    for (int i = _fn_num - 1; i >= 0; --i) {
+        if (!_fns[i]->eos()) {
+            if (i == _fn_num - 1) {
+                return -1;
+            } else {
+                return i + 1;
+            }
+        }
+    }
+    // all eos
+    return 0;
+}
+
+// Roll to reset the table function.
+// Eg:
+//  There are 3 functions f1, f2 and f3 in `_fns`.
+//  If `last_eos_idx` is 1, which means f2 and f3 are eos.
+//  So we need to forward f1, and reset f2 and f3.
+bool VTableFunctionNode::_roll_table_functions(int last_eos_idx) {
+    bool fn_eos = false;
+    int i = last_eos_idx - 1;
+    for (; i >= 0; --i) {
+        _fns[i]->forward(&fn_eos);
+        if (!fn_eos) {
+            break;
+        }
+    }
+    if (i == -1) {
+        // after forward, all functions are eos.
+        // we should process next child row to get more table function results.
+        return false;
+    }
+
+    for (int j = i + 1; j < _fn_num; ++j) {
+        _fns[j]->reset();
+    }
+
+    return true;
 }
 
 } // namespace doris::vectorized

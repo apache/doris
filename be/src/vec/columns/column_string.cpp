@@ -83,6 +83,7 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
 
     size_t old_chars_size = chars.size();
+    check_chars_length(old_chars_size + nested_length);
     chars.resize(old_chars_size + nested_length);
     memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
 
@@ -218,6 +219,7 @@ const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
 
     const size_t old_size = chars.size();
     const size_t new_size = old_size + string_size;
+    check_chars_length(new_size);
     chars.resize(new_size);
     memcpy(chars.data() + old_size, pos, string_size);
 
@@ -300,6 +302,7 @@ ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t l
     for (size_t i = 0; i < limit; ++i) {
         new_chars_size += size_at(indexes[i]);
     }
+    check_chars_length(new_chars_size);
     res_chars.resize(new_chars_size);
 
     res_offsets.resize(limit);
@@ -399,6 +402,7 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
         prev_string_offset = offsets[i];
     }
 
+    check_chars_length(res_chars.size());
     return res;
 }
 
@@ -436,6 +440,8 @@ void ColumnString::replicate(const uint32_t* counts, size_t target_size, IColumn
 
         prev_string_offset = offsets[i];
     }
+
+    check_chars_length(res_chars.size());
 }
 
 void ColumnString::reserve(size_t n) {

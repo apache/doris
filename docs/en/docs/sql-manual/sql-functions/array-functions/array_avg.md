@@ -26,6 +26,12 @@ under the License.
 
 ## array_avg
 
+<version since="1.2.0">
+
+array_avg
+
+</version>
+
 ### description
 
 Get the average of all elements in an array (`NULL` values are skipped).

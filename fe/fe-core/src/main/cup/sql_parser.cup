@@ -267,6 +267,7 @@ terminal String
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
+    KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
     KW_BROKER,
@@ -456,6 +457,7 @@ terminal String
     KW_NULL,
     KW_NULLS,
     KW_OBSERVER,
+    KW_OF,
     KW_OFFSET,
     KW_ON,
     KW_ONLY,
@@ -592,6 +594,7 @@ terminal String
     KW_VARCHAR,
     KW_VARIABLES,
     KW_VERBOSE,
+    KW_VERSION,
     KW_VIEW,
     KW_WARNINGS,
     KW_WEEK,
@@ -602,7 +605,8 @@ terminal String
     KW_WORK,
     KW_WRITE,
     KW_YEAR,
-    KW_MTMV;
+    KW_MTMV,
+    KW_TYPECAST;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -683,6 +687,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
+nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -718,6 +723,7 @@ nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
 nonterminal SlotRef column_ref;
+nonterminal ArrayList<SlotRef> column_ref_list;
 nonterminal FunctionCallExpr column_subscript;
 nonterminal FunctionCallExpr column_slice;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
@@ -878,6 +884,7 @@ nonterminal MVRefreshInfo.BuildMode build_mv;
 nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
+nonterminal PartitionDesc opt_mv_partition;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1137,13 +1144,13 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshTableStmt(tbl);
     :}
-    | KW_REFRESH KW_DATABASE ident:db
+    | KW_REFRESH KW_DATABASE ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(db);
+        RESULT = new RefreshDbStmt(db, properties);
     :}
-    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(ctl, db);
+        RESULT = new RefreshDbStmt(ctl, db, properties);
     :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
@@ -1153,9 +1160,9 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
     :}
-    | KW_REFRESH KW_CATALOG ident:catalogName
+    | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:
-        RESULT = new RefreshCatalogStmt(catalogName);
+        RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
     ;
 
@@ -1267,10 +1274,6 @@ alter_stmt ::=
     opt_properties:properties
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterTableStatsStmt(tbl, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
@@ -1692,11 +1695,23 @@ opt_mv_refersh_info ::=
 
 opt_mv_keys ::=
     {:
-        RESULT = new KeysDesc(KeysType.DUP_KEYS, Lists.newArrayList());
+        RESULT = null;
     :}
     | KW_KEY LPAREN ident_list:keys RPAREN
     {:
         RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    ;
+
+opt_mv_partition ::=
+    /* Empty: no partition */
+    {:
+        RESULT = null;
+    :}
+    /* Column partition */
+    | KW_PARTITION KW_BY LPAREN column_ref_list:columns RPAREN
+    {:
+        RESULT = new ColumnPartitionDesc(columns);
     :}
     ;
 
@@ -1716,21 +1731,25 @@ create_stmt ::=
     {:
          RESULT = new CreateCatalogStmt(ifNotExists, catalogName, properties);
     :}
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName
+    {:
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName);
+    :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
     {:
         RESULT = new CreateClusterStmt(name, properties, password);
     :}*/
     /* Function */
-    | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, returnType, intermediateType, properties);
+        RESULT = new CreateFunctionStmt(ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
-    | KW_CREATE KW_ALIAS KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_CREATE KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
     {:
-        RESULT = new CreateFunctionStmt(functionName, args, parameters, func);
+        RESULT = new CreateFunctionStmt(ifNotExists, functionName, args, parameters, func);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
@@ -1829,7 +1848,7 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
-         opt_partition:partitionDesc
+         opt_mv_partition:partitionDesc
          opt_distribution:distributionDesc
          opt_properties:properties
          KW_AS query_stmt:query
@@ -2128,7 +2147,7 @@ opt_password_lock_time ::=
     | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
     {:
         RESULT = opt;
-    :} 
+    :}
     ;
 
 passwd_lock_time_opt ::=
@@ -2619,7 +2638,7 @@ show_create_routine_load_stmt ::=
 
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    KW_ANALYZE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
     :}
@@ -2724,9 +2743,9 @@ drop_stmt ::=
         RESULT = new DropClusterStmt(ifExists, cluster);
     :}
     /* Function */
-    | KW_DROP KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_DROP KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
     {:
-        RESULT = new DropFunctionStmt(functionName, args);
+        RESULT = new DropFunctionStmt(ifExists, functionName, args);
     :}
     /* Table */
     | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
@@ -3255,6 +3274,10 @@ opt_index_type ::=
     {:
         RESULT = IndexDef.IndexType.BITMAP;
     :}
+    | KW_USING KW_NGRAM_BF
+    {:
+        RESULT = IndexDef.IndexType.NGRAM_BF;
+    :}
     | KW_USING KW_INVERTED
     {:
         RESULT = IndexDef.IndexType.INVERTED;
@@ -3349,12 +3372,22 @@ show_param ::=
     /* show table status */
     | KW_TABLE KW_STATUS opt_db:db opt_wild_where
     {:
-        RESULT = new ShowTableStatusStmt(db, parser.wild, parser.where);
+        RESULT = new ShowTableStatusStmt(db, null, parser.wild, parser.where);
     :}
     /* show table status */
+    | KW_TABLE KW_STATUS from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStatusStmt(db, ctl, parser.wild, parser.where);
+    :}
+    /* show tables */
     | opt_full KW_TABLES opt_db:db opt_wild_where
     {:
-        RESULT = new ShowTableStmt(db, parser.isVerbose, parser.wild, parser.where);
+        RESULT = new ShowTableStmt(db, null, parser.isVerbose, parser.wild, parser.where);
+    :}
+    /* show tables */
+    | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
     :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
@@ -3419,6 +3452,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
+    | KW_CREATE KW_CATALOG ident:catalogName
+        {:
+            RESULT = new ShowCreateCatalogStmt(catalogName);
+        :}
     /* Create Function */
     | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
@@ -3456,14 +3493,14 @@ show_param ::=
         RESULT = new ShowDbStmt(null, null, catalogName);
     :}
     /* Catalog */
-    | KW_CATALOGS
+    | KW_CATALOGS opt_wild_where
     {:
-        RESULT = new ShowCatalogStmt();
+        RESULT = new ShowCatalogStmt(null, parser.wild);
     :}
     /* show Catalog name */
     | KW_CATALOG ident:catalogName
     {:
-        RESULT = new ShowCatalogStmt(catalogName);
+        RESULT = new ShowCatalogStmt(catalogName, null);
     :}
     /* Dynamic Partition */
     | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
@@ -3639,6 +3676,10 @@ show_param ::=
     {:
         RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
     :}
+    | KW_TYPECAST opt_db:dbName
+    {:
+        RESULT = new ShowTypeCastStmt(dbName, parser.where);
+    :}
     | KW_FILE opt_db:dbName
     {:
         RESULT = new ShowSmallFilesStmt(dbName);
@@ -3671,11 +3712,6 @@ show_param ::=
     | KW_SYNC KW_JOB opt_db:dbName
     {:
         RESULT = new ShowSyncJobStmt(dbName);
-    :}
-    /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
     | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
@@ -5067,9 +5103,31 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
+    table_name:name opt_table_snapshot:tableSnapshot opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, tableSnapshot);
+    :}
+    ;
+
+opt_table_snapshot ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | table_snapshot:tableSnapshot
+    {:
+        RESULT = tableSnapshot;
+    :}
+    ;
+
+table_snapshot ::=
+    KW_FOR KW_VERSION KW_AS KW_OF INTEGER_LITERAL:version
+    {:
+        RESULT = new TableSnapshot(version);
+    :}
+    | KW_FOR KW_TIME KW_AS KW_OF STRING_LITERAL:time
+    {:
+        RESULT = new TableSnapshot(time);
     :}
     ;
 
@@ -5634,10 +5692,10 @@ func_args_def ::=
 
 cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
-  {: 
-    CastExpr castExpr = new CastExpr(targetType, e); 
+  {:
+    CastExpr castExpr = new CastExpr(targetType, e);
     if (targetType.getType().getLength() != -1
-        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR 
+        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
         || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
         // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)
         // this is just a workaround to make the result correct
@@ -5861,6 +5919,13 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(new StringLiteral(character));
+    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
+  :}
   ;
 
 expr_pipe_list ::=
@@ -6178,6 +6243,20 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;
 
+column_ref_list ::=
+  column_ref:ref
+  {:
+    ArrayList<SlotRef> refs = new ArrayList<SlotRef>();
+    refs.add(ref);
+    RESULT = refs;
+  :}
+  | column_ref_list:list COMMA column_ref:ref
+  {:
+    list.add(ref);
+    RESULT = list;
+  :}
+  ;
+
 column_subscript ::=
   expr:e LBRACKET expr:index RBRACKET
   {: ArrayList<Expr> list = new ArrayList<Expr>();
@@ -6455,6 +6534,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BITMAP_UNION:id
     {: RESULT = id; :}
+    | KW_NGRAM_BF:id
+    {: RESULT = id; :}
     | KW_QUANTILE_UNION:id
     {: RESULT = id; :}
     | KW_BLOB:id
@@ -6637,6 +6718,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_NULLS:id
     {: RESULT = id; :}
+    | KW_OF:id
+    {: RESULT = id; :}
     | KW_OFFSET:id
     {: RESULT = id; :}
     | KW_ONLY:id
@@ -6760,6 +6843,8 @@ keyword ::=
     | KW_VALUE:id
     {: RESULT = id; :}
     | KW_VERBOSE:id
+    {: RESULT = id; :}
+    | KW_VERSION:id
     {: RESULT = id; :}
     | KW_VIEW:id
     {: RESULT = id; :}

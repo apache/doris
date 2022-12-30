@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("test_jsonb_load_and_function", "p0") {
     // define a sql table
     def testTable = "tbl_test_jsonb"
     def dataFile = "test_jsonb.csv"
-
-    sql """ set enable_vectorized_engine = true """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -35,12 +35,12 @@ suite("test_jsonb_load_and_function", "p0") {
         """
 
     // load the jsonb data from csv file
-    // fail by default for invalid data rows
     streamLoad {
         table testTable
         
         file dataFile // import csv file
         time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition
@@ -50,12 +50,23 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
+
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals("too many filtered rows", json.Message)
+            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
+            log.info("url: " + json.ErrorURL)
         }
     }
 
@@ -68,6 +79,7 @@ suite("test_jsonb_load_and_function", "p0") {
         set 'max_filter_ratio', '0.3'
         file dataFile // import csv file
         time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition
@@ -77,6 +89,16 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
+
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)
@@ -88,8 +110,50 @@ suite("test_jsonb_load_and_function", "p0") {
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
-    // insert into 1 row and then check result
-    sql """INSERT INTO ${testTable} VALUES(26, '{"k1":"v1", "k2": 200}')"""
+    // insert into valid json rows
+    sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
+    sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
+
+    // insert into invalid json rows with enable_insert_strict=true
+    // expect excepiton and no rows not changed
+    sql """ set enable_insert_strict = true """
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(false, success)
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(false, success)
+
+    // insert into invalid json rows with enable_insert_strict=false
+    // expect no excepiton but no rows not changed
+    sql """ set enable_insert_strict = false """
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(true, success)
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(true, success)
+
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // jsonb_extract
@@ -308,4 +372,48 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT id, j, jsonb_type(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_type(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_type(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+
+    // CAST from JSONB
+    qt_select "SELECT id, j, CAST(j AS BOOLEAN) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS SMALLINT) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS INT) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS BIGINT) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS DOUBLE) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS STRING) FROM ${testTable} ORDER BY id"
+
+    // CAST to JSONB
+    qt_select "SELECT id, j, CAST(CAST(j AS BOOLEAN) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS SMALLINT) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS INT) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS BIGINT) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS DOUBLE) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS STRING) AS JSONB) FROM ${testTable} ORDER BY id"
+
+    qt_select """SELECT CAST(NULL AS JSONB)"""
+    qt_select """SELECT CAST('null' AS JSONB)"""
+    qt_select """SELECT CAST('true' AS JSONB)"""
+    qt_select """SELECT CAST('false' AS JSONB)"""
+    qt_select """SELECT CAST('100' AS JSONB)"""
+    qt_select """SELECT CAST('10000' AS JSONB)"""
+    qt_select """SELECT CAST('1000000000' AS JSONB)"""
+    qt_select """SELECT CAST('1152921504606846976' AS JSONB)"""
+    qt_select """SELECT CAST('6.18' AS JSONB)"""
+    qt_select """SELECT CAST('"abcd"' AS JSONB)"""
+    qt_select """SELECT CAST('{}' AS JSONB)"""
+    qt_select """SELECT CAST('{"k1":"v31", "k2": 300}' AS JSONB)"""
+    qt_select """SELECT CAST('[]' AS JSONB)"""
+    qt_select """SELECT CAST('[123, 456]' AS JSONB)"""
+    qt_select """SELECT CAST('["abc", "def"]' AS JSONB)"""
+    qt_select """SELECT CAST('[null, true, false, 100, 6.18, "abc"]' AS JSONB)"""
+    qt_select """SELECT CAST('[{"k1":"v41", "k2": 400}, 1, "a", 3.14]' AS JSONB)"""
+    qt_select """SELECT CAST('{"k1":"v31", "k2": 300, "a1": [{"k1":"v41", "k2": 400}, 1, "a", 3.14]}' AS JSONB)"""
+    qt_select """SELECT CAST("''" AS JSONB)"""
+    qt_select """SELECT CAST("'abc'" AS JSONB)"""
+    qt_select """SELECT CAST('abc' AS JSONB)"""
+    qt_select """SELECT CAST('100x' AS JSONB)"""
+    qt_select """SELECT CAST('6.a8' AS JSONB)"""
+    qt_select """SELECT CAST('{x' AS JSONB)"""
+    qt_select """SELECT CAST('[123, abc]' AS JSONB)"""
+
 }

@@ -88,7 +88,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
-    private static String storagePolicy;
+    private String storagePolicy;
 
     private boolean enableUniqueKeyMergeOnWrite;
 
@@ -202,8 +202,8 @@ public class CreateReplicaTask extends AgentTask {
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
+            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
             }
             tColumn.setVisible(column.isVisible());
             tColumns.add(tColumn);

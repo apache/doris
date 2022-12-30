@@ -21,13 +21,19 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BitNot;
+import org.apache.doris.nereids.trees.expressions.BitOr;
+import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -40,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -58,11 +65,15 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.UnaryOperator;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -75,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -87,7 +99,8 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
  * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
 public abstract class ExpressionVisitor<R, C>
-        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>, TableValuedFunctionVisitor<R, C> {
+        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>,
+        TableValuedFunctionVisitor<R, C>, TableGeneratingFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
 
@@ -106,8 +119,17 @@ public abstract class ExpressionVisitor<R, C>
         return visitBoundFunction(tableValuedFunction, context);
     }
 
+    @Override
+    public R visitTableGeneratingFunction(TableGeneratingFunction tableGeneratingFunction, C context) {
+        return visitBoundFunction(tableGeneratingFunction, context);
+    }
+
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
         return visit(boundFunction, context);
+    }
+
+    public R visitAggregateExpression(AggregateExpression aggregateExpression, C context) {
+        return visit(aggregateExpression, context);
     }
 
     public R visitAlias(Alias alias, C context) {
@@ -116,6 +138,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitBinaryOperator(BinaryOperator binaryOperator, C context) {
         return visit(binaryOperator, context);
+    }
+
+    public R visitUinaryOperator(UnaryOperator unaryOperator, C context) {
+        return visit(unaryOperator, context);
     }
 
     public R visitComparisonPredicate(ComparisonPredicate cp, C context) {
@@ -258,6 +284,10 @@ public abstract class ExpressionVisitor<R, C>
         return visit(cast, context);
     }
 
+    public R visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, C context) {
+        return visitUinaryOperator(unaryArithmetic, context);
+    }
+
     public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {
         return visitBinaryOperator(binaryArithmetic, context);
     }
@@ -276,6 +306,22 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitDivide(Divide divide, C context) {
         return visitBinaryArithmetic(divide, context);
+    }
+
+    public R visitBitXor(BitXor bitXor, C context) {
+        return visitBinaryArithmetic(bitXor, context);
+    }
+
+    public R visitBitOr(BitOr bitOr, C context) {
+        return visitBinaryArithmetic(bitOr, context);
+    }
+
+    public R visitBitAnd(BitAnd bitAnd, C context) {
+        return visitBinaryArithmetic(bitAnd, context);
+    }
+
+    public R visitBitNot(BitNot bitNot, C context) {
+        return visitUnaryArithmetic(bitNot, context);
     }
 
     public R visitMod(Mod mod, C context) {
@@ -332,6 +378,22 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
         return visit(virtualSlotReference, context);
+    }
+
+    public R visitTVFProperties(TVFProperties tvfProperties, C context) {
+        return visit(tvfProperties, context);
+    }
+
+    public R visitInterval(Interval interval, C context) {
+        return visit(interval, context);
+    }
+
+    public R visitBoundStar(BoundStar boundStar, C context) {
+        return visit(boundStar, context);
+    }
+
+    public R visitIntegralDivide(IntegralDivide integralDivide, C context) {
+        return visitBinaryArithmetic(integralDivide, context);
     }
 
     /* ********************************************************************************************

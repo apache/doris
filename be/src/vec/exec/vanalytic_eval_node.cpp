@@ -17,19 +17,17 @@
 
 #include "vec/exec/vanalytic_eval_node.h"
 
-#include "exprs/agg_fn_evaluator.h"
-#include "exprs/anyval_util.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
-#include "vec/utils/util.hpp"
+#include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
 VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
+          _fn_place_ptr(nullptr),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
           _window(tnode.analytic_node.window) {
@@ -41,8 +39,7 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
     if (!tnode.analytic_node.__isset
                  .window) { //haven't set window, Unbounded:  [unbounded preceding,unbounded following]
         _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_partition, this,
-                                               std::placeholders::_1, std::placeholders::_2,
-                                               std::placeholders::_3);
+                                               std::placeholders::_1);
 
     } else if (tnode.analytic_node.window.type == TAnalyticWindowType::RANGE) {
         DCHECK(!_window.__isset.window_start) << "RANGE windows must have UNBOUNDED PRECEDING";
@@ -53,21 +50,20 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
         if (!_window.__isset
                      .window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
             _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_partition,
-                                                   this, std::placeholders::_1,
-                                                   std::placeholders::_2, std::placeholders::_3);
+                                                   this, std::placeholders::_1);
+
         } else {
             _fn_scope = AnalyticFnScope::RANGE; //range:  [unbounded preceding,current row]
             _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_range, this,
-                                                   std::placeholders::_1, std::placeholders::_2,
-                                                   std::placeholders::_3);
+                                                   std::placeholders::_1);
         }
 
     } else {
         if (!_window.__isset.window_start &&
             !_window.__isset.window_end) { //haven't set start and end, same as PARTITION
             _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_partition,
-                                                   this, std::placeholders::_1,
-                                                   std::placeholders::_2, std::placeholders::_3);
+                                                   this, std::placeholders::_1);
+
         } else {
             if (_window.__isset.window_start) { //calculate start boundary
                 TAnalyticWindowBoundary b = _window.window_start;
@@ -97,8 +93,7 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
 
             _fn_scope = AnalyticFnScope::ROWS;
             _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_rows, this,
-                                                   std::placeholders::_1, std::placeholders::_2,
-                                                   std::placeholders::_3);
+                                                   std::placeholders::_1);
         }
     }
     _agg_arena_pool = std::make_unique<Arena>();
@@ -146,11 +141,14 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VAnalyticEvalNode::prepare(RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
-    _mem_pool.reset(new MemPool(mem_tracker()));
+
+    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    runtime_profile()->add_child(memory_usage, false, nullptr);
+    _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     SCOPED_TIMER(_evaluation_timer);
 
@@ -159,7 +157,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, child(0)->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
                                             !_agg_functions[i]->data_type()->is_nullable());
@@ -213,12 +211,29 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
 }
 
 Status VAnalyticEvalNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(alloc_resource(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(child(0)->open(state));
+    return Status::OK();
+}
+
+Status VAnalyticEvalNode::close(RuntimeState* state) {
+    if (is_closed()) {
+        return Status::OK();
+    }
+    release_resource(state);
+    return ExecNode::close(state);
+}
+
+Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
+    {
+        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+        START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
+        SCOPED_TIMER(_runtime_profile->total_time_counter());
+        RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+        RETURN_IF_CANCELLED(state);
+    }
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -230,124 +245,142 @@ Status VAnalyticEvalNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::close(RuntimeState* state) {
-    if (is_closed()) {
+Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
+                               bool* eos) {
+    if (_input_eos && (_output_block_index == _input_blocks.size() || _input_total_rows == 0)) {
+        *eos = true;
         return Status::OK();
+    }
+
+    while (!_input_eos || _output_block_index < _input_blocks.size()) {
+        _found_partition_end = _get_partition_by_end();
+        _need_more_input = whether_need_next_partition(_found_partition_end);
+        if (_need_more_input) {
+            return Status::OK();
+        }
+        _next_partition = _init_next_partition(_found_partition_end);
+        _init_result_columns();
+        size_t current_block_rows = _input_blocks[_output_block_index].rows();
+        _executor.get_next(current_block_rows);
+        if (_window_end_position == current_block_rows) {
+            break;
+        }
+    }
+    RETURN_IF_ERROR(_output_current_block(output_block));
+    RETURN_IF_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    reached_limit(output_block, eos);
+    return Status::OK();
+}
+
+void VAnalyticEvalNode::release_resource(RuntimeState* state) {
+    if (is_closed()) {
+        return;
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::close");
 
     VExpr::close(_partition_by_eq_expr_ctxs, state);
     VExpr::close(_order_by_eq_expr_ctxs, state);
-    for (size_t i = 0; i < _agg_functions_size; ++i) VExpr::close(_agg_expr_ctxs[i], state);
-    for (auto* agg_function : _agg_functions) agg_function->close(state);
+    for (size_t i = 0; i < _agg_functions_size; ++i) {
+        VExpr::close(_agg_expr_ctxs[i], state);
+    }
+    for (auto* agg_function : _agg_functions) {
+        agg_function->close(state);
+    }
 
     _destroy_agg_status();
     _release_mem();
-    return ExecNode::close(state);
+    return ExecNode::release_resource(state);
 }
 
-Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VAnalyticEvalNode::get_next.");
+//TODO: maybe could have better strategy, not noly when need data to sink data
+//even could get some resources in advance as soon as possible
+bool VAnalyticEvalNode::can_write() {
+    return _need_more_input;
+}
+
+bool VAnalyticEvalNode::can_read() {
+    if (_need_more_input) {
+        return false;
+    }
+    return true;
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
                                  "VAnalyticEvalNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     if (_input_eos && _output_block_index == _input_blocks.size()) {
         *eos = true;
         return Status::OK();
     }
-    RETURN_IF_ERROR(_executor.get_next(state, block, eos));
 
+    while (!_input_eos || _output_block_index < _input_blocks.size()) {
+        RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &_next_partition, eos));
+        if (*eos) {
+            return Status::OK();
+        }
+        size_t current_block_rows = _input_blocks[_output_block_index].rows();
+        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+        RETURN_IF_ERROR(_executor.get_next(current_block_rows));
+        if (_window_end_position == current_block_rows) {
+            break;
+        }
+    }
+    RETURN_IF_ERROR(_output_current_block(block));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_get_next_for_partition(RuntimeState* state, Block* block, bool* eos) {
-    while (!_input_eos || _output_block_index < _input_blocks.size()) {
-        bool next_partition = false;
-        RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &next_partition, eos));
-        if (*eos) {
-            break;
-        }
+Status VAnalyticEvalNode::_get_next_for_partition(size_t current_block_rows) {
+    if (_next_partition) {
+        _executor.execute(_partition_by_start.pos, _partition_by_end.pos, _partition_by_start.pos,
+                          _partition_by_end.pos);
+    }
+    _executor.insert_result(current_block_rows);
+    return Status::OK();
+}
 
-        size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        if (next_partition) {
-            _executor.execute(_partition_by_start, _partition_by_end, _partition_by_start,
-                              _partition_by_end);
+Status VAnalyticEvalNode::_get_next_for_range(size_t current_block_rows) {
+    while (_current_row_position < _partition_by_end.pos &&
+           _window_end_position < current_block_rows) {
+        if (_current_row_position >= _order_by_end.pos) {
+            _update_order_by_range();
+            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
+                              _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);
-        if (_window_end_position == current_block_rows) {
-            return _output_current_block(block);
-        }
     }
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_get_next_for_range(RuntimeState* state, Block* block, bool* eos) {
-    while (!_input_eos || _output_block_index < _input_blocks.size()) {
-        bool next_partition = false;
-        RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &next_partition, eos));
-        if (*eos) {
-            break;
-        }
-
-        size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        while (_current_row_position < _partition_by_end.pos &&
-               _window_end_position < current_block_rows) {
-            if (_current_row_position >= _order_by_end.pos) {
-                _update_order_by_range();
-                _executor.execute(_order_by_start, _order_by_end, _order_by_start, _order_by_end);
-            }
-            _executor.insert_result(current_block_rows);
-        }
-        if (_window_end_position == current_block_rows) {
-            return _output_current_block(block);
-        }
-    }
-    return Status::OK();
-}
-
-Status VAnalyticEvalNode::_get_next_for_rows(RuntimeState* state, Block* block, bool* eos) {
-    while (!_input_eos || _output_block_index < _input_blocks.size()) {
-        bool next_partition = false;
-        RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &next_partition, eos));
-        if (*eos) {
-            break;
-        }
-
-        size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        while (_current_row_position < _partition_by_end.pos &&
-               _window_end_position < current_block_rows) {
-            BlockRowPos range_start, range_end;
-            if (!_window.__isset.window_start &&
-                _window.window_end.type ==
-                        TAnalyticWindowBoundaryType::
-                                CURRENT_ROW) { //[preceding, current_row],[current_row, following]
-                range_start.pos = _current_row_position;
-                range_end.pos = _current_row_position +
-                                1; //going on calculate,add up data, no need to reset state
+Status VAnalyticEvalNode::_get_next_for_rows(size_t current_block_rows) {
+    while (_current_row_position < _partition_by_end.pos &&
+           _window_end_position < current_block_rows) {
+        int64_t range_start, range_end;
+        if (!_window.__isset.window_start &&
+            _window.window_end.type ==
+                    TAnalyticWindowBoundaryType::
+                            CURRENT_ROW) { //[preceding, current_row],[current_row, following]
+            range_start = _current_row_position;
+            range_end = _current_row_position +
+                        1; //going on calculate,add up data, no need to reset state
+        } else {
+            _reset_agg_status();
+            if (!_window.__isset
+                         .window_start) { //[preceding, offset]        --unbound: [preceding, following]
+                range_start = _partition_by_start.pos;
             } else {
-                _reset_agg_status();
-                if (!_window.__isset
-                             .window_start) { //[preceding, offset]        --unbound: [preceding, following]
-                    range_start.pos = _partition_by_start.pos;
-                } else {
-                    range_start.pos = _current_row_position + _rows_start_offset;
-                }
-                range_end.pos = _current_row_position + _rows_end_offset + 1;
+                range_start = _current_row_position + _rows_start_offset;
             }
-            _executor.execute(_partition_by_start, _partition_by_end, range_start, range_end);
-            _executor.insert_result(current_block_rows);
+            range_end = _current_row_position + _rows_end_offset + 1;
         }
-        if (_window_end_position == current_block_rows) {
-            return _output_current_block(block);
-        }
+        _executor.execute(_partition_by_start.pos, _partition_by_end.pos, range_start, range_end);
+        _executor.insert_result(current_block_rows);
     }
     return Status::OK();
 }
@@ -360,6 +393,9 @@ Status VAnalyticEvalNode::_consumed_block_and_init_partition(RuntimeState* state
         RETURN_IF_ERROR(_fetch_next_block_data(state)); //return true, fetch next block
         found_partition_end = _get_partition_by_end();  //claculate new partition end
     }
+
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
     if (_input_eos && _input_total_rows == 0) {
         *eos = true;
         return Status::OK();
@@ -472,16 +508,31 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(state, &block, &_input_eos),
+                _children[0]->get_next_after_projects(
+                        state, &block, &_input_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _children[0]->get_next_span(), _input_eos);
     } while (!_input_eos && block.rows() == 0);
 
-    if (_input_eos && block.rows() == 0) {
+    RETURN_IF_ERROR(sink(state, &block, _input_eos));
+    return Status::OK();
+}
+
+Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block* input_block,
+                               bool eos) {
+    _input_eos = eos;
+    if (_input_eos && input_block->rows() == 0) {
+        _need_more_input = false;
         return Status::OK();
     }
 
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
     input_block_first_row_positions.emplace_back(_input_total_rows);
-    size_t block_rows = block.rows();
+    size_t block_rows = input_block->rows();
     _input_total_rows += block_rows;
     _all_block_end.block_num = _input_blocks.size();
     _all_block_end.row_num = block_rows;
@@ -489,7 +540,7 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
 
     if (_origin_cols
                 .empty()) { //record origin columns, maybe be after this, could cast some column but no need to save
-        for (int c = 0; c < block.columns(); ++c) {
+        for (int c = 0; c < input_block->columns(); ++c) {
             _origin_cols.emplace_back(c);
         }
     }
@@ -497,27 +548,33 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size;
          ++i) { //insert _agg_intput_columns, execute calculate for its
         for (size_t j = 0; j < _agg_expr_ctxs[i].size(); ++j) {
-            RETURN_IF_ERROR(_insert_range_column(&block, _agg_expr_ctxs[i][j],
+            RETURN_IF_ERROR(_insert_range_column(input_block, _agg_expr_ctxs[i][j],
                                                  _agg_intput_columns[i][j].get(), block_rows));
         }
     }
     //record column idx in block
     for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size(); ++i) {
         int result_col_id = -1;
-        RETURN_IF_ERROR(_partition_by_eq_expr_ctxs[i]->execute(&block, &result_col_id));
+        RETURN_IF_ERROR(_partition_by_eq_expr_ctxs[i]->execute(input_block, &result_col_id));
         DCHECK_GE(result_col_id, 0);
         _partition_by_column_idxs[i] = result_col_id;
     }
 
     for (size_t i = 0; i < _order_by_eq_expr_ctxs.size(); ++i) {
         int result_col_id = -1;
-        RETURN_IF_ERROR(_order_by_eq_expr_ctxs[i]->execute(&block, &result_col_id));
+        RETURN_IF_ERROR(_order_by_eq_expr_ctxs[i]->execute(input_block, &result_col_id));
         DCHECK_GE(result_col_id, 0);
         _ordey_by_column_idxs[i] = result_col_id;
     }
+
+    mem_tracker_held()->consume(input_block->allocated_bytes());
+    _blocks_memory_usage->add(input_block->allocated_bytes());
+
     //TODO: if need improvement, the is a tips to maintain a free queue,
     //so the memory could reuse, no need to new/delete again;
-    _input_blocks.emplace_back(std::move(block));
+    _input_blocks.emplace_back(std::move(*input_block));
+    _found_partition_end = _get_partition_by_end();
+    _need_more_input = whether_need_next_partition(_found_partition_end);
     return Status::OK();
 }
 
@@ -571,7 +628,11 @@ void VAnalyticEvalNode::_insert_result_info(int64_t current_block_rows) {
 }
 
 Status VAnalyticEvalNode::_output_current_block(Block* block) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
     block->swap(std::move(_input_blocks[_output_block_index]));
+    _blocks_memory_usage->add(-block->allocated_bytes());
+    mem_tracker_held()->consume(-block->allocated_bytes());
     if (_origin_cols.size() < block->columns()) {
         block->erase_not_in(_origin_cols);
     }
@@ -595,16 +656,15 @@ Status VAnalyticEvalNode::_output_current_block(Block* block) {
 
 //now is execute for lead/lag row_number/rank/dense_rank/ntile functions
 //sum min max count avg first_value last_value functions
-void VAnalyticEvalNode::_execute_for_win_func(BlockRowPos partition_start,
-                                              BlockRowPos partition_end, BlockRowPos frame_start,
-                                              BlockRowPos frame_end) {
+void VAnalyticEvalNode::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
+                                              int64_t frame_start, int64_t frame_end) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const IColumn*> _agg_columns;
         for (int j = 0; j < _agg_intput_columns[i].size(); ++j) {
             _agg_columns.push_back(_agg_intput_columns[i][j].get());
         }
         _agg_functions[i]->function()->add_range_single_place(
-                partition_start.pos, partition_end.pos, frame_start.pos, frame_end.pos,
+                partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr + _offsets_of_aggregate_states[i], _agg_columns.data(), nullptr);
     }
 }
@@ -649,6 +709,9 @@ Status VAnalyticEvalNode::_create_agg_status() {
 }
 
 Status VAnalyticEvalNode::_destroy_agg_status() {
+    if (UNLIKELY(_fn_place_ptr == nullptr)) {
+        return Status::OK();
+    }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
@@ -705,7 +768,6 @@ std::string VAnalyticEvalNode::debug_window_bound_string(TAnalyticWindowBoundary
 
 void VAnalyticEvalNode::_release_mem() {
     _agg_arena_pool = nullptr;
-    _mem_pool = nullptr;
 
     std::vector<Block> tmp_input_blocks;
     _input_blocks.swap(tmp_input_blocks);

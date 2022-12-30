@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -140,6 +139,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -173,9 +173,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Env env = Env.getCurrentEnv();
-        List<CatalogIf> catalogIfs = env.getCatalogMgr().listCatalogs();
+        List<CatalogIf> catalogIfs = Lists.newArrayList();
+        if (Strings.isNullOrEmpty(params.catalog)) {
+            catalogIfs = env.getCatalogMgr().listCatalogs();
+        } else {
+            catalogIfs.add(env.getCatalogMgr()
+                    .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
+        }
         for (CatalogIf catalog : catalogIfs) {
-            List<String> dbNames = catalog.getDbNames();
+            List<String> dbNames = catalog.getDbNamesOrEmpty();
             LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
 
             UserIdentity currentUser = null;
@@ -229,11 +235,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
+
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
+
         if (db != null) {
-            for (String tableName : db.getTableNamesWithLock()) {
+            Set<String> tableNames = db.getTableNamesOrEmptyWithLock();
+            for (String tableName : tableNames) {
                 LOG.debug("get table: {}, wait to check", tableName);
                 if (!Env.getCurrentEnv().getAuth()
                         .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
@@ -281,16 +290,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (catalog != null) {
             DatabaseIf db = catalog.getDbNullable(params.db);
             if (db != null) {
-                List<TableIf> tables = null;
+                List<TableIf> tables = Lists.newArrayList();
                 if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                    tables = db.getTables();
+                    tables = db.getTablesOrEmpty();
                 } else {
                     switch (params.getType()) {
                         case "VIEW":
-                            tables = db.getViews();
+                            tables = db.getViewsOrEmpty();
                             break;
                         default:
-                            tables = db.getTables();
+                            tables = db.getTablesOrEmpty();
                     }
                 }
                 for (TableIf table : tables) {
@@ -308,21 +317,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (matcher != null && !matcher.match(table.getName())) {
                             continue;
                         }
-                        long lastCheckTime = 0;
-                        if (table instanceof Table) {
-                            lastCheckTime = ((Table) table).getLastCheckTime();
-                        } else {
-                            lastCheckTime = ((ExternalTable) table).getLastCheckTime();
-                        }
+                        long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                         TTableStatus status = new TTableStatus();
                         status.setName(table.getName());
                         status.setType(table.getMysqlType());
                         status.setEngine(table.getEngine());
                         status.setComment(table.getComment());
                         status.setCreateTime(table.getCreateTime());
-                        status.setLastCheckTime(lastCheckTime);
+                        status.setLastCheckTime(lastCheckTime / 1000);
                         status.setUpdateTime(table.getUpdateTime() / 1000);
-                        status.setCheckTime(lastCheckTime);
+                        status.setCheckTime(lastCheckTime / 1000);
                         status.setCollation("utf-8");
                         status.setRows(table.getRowCount());
                         status.setDataLength(table.getDataLength());
@@ -421,11 +425,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
         if (db != null) {
-            TableIf table = db.getTableNullable(params.getTableName());
+            TableIf table = db.getTableNullableIfException(params.getTableName());
             if (table != null) {
                 table.readLock();
                 try {
-                    for (Column column : table.getBaseSchema()) {
+                    List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                    for (Column column : baseSchema) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
                         final Integer precision = column.getOriginType().getPrecision();
                         if (precision != null) {
@@ -899,7 +904,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
         }
         return result;
@@ -1170,10 +1175,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
                         s3Info.setS3MaxConn(
                                 Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
-                        s3Info.setS3RequestTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
-                        s3Info.setS3ConnTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+                        s3Info.setS3RequestTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                        s3Info.setS3ConnTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
                     });
 
                     rEntry.setS3StorageParam(s3Info);
@@ -1230,3 +1235,4 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 }
+

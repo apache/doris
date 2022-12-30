@@ -124,7 +124,7 @@ public:
     // @param [in] root_path specify root path of new tablet
     // @param [in] request specify new tablet info
     // @param [in] restore whether we're restoring a tablet from trash
-    // @return OLAP_SUCCESS if load tablet success
+    // @return OK if load tablet success
     Status load_header(const std::string& shard_path, const TCloneReq& request,
                        bool restore = false);
 
@@ -186,13 +186,13 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-    Status submit_quick_compaction_task(TabletSharedPtr tablet);
     Status submit_seg_compaction_task(BetaRowsetWriter* writer,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
     }
+    bool stopped() { return _stopped; }
 
 private:
     // Instance should be inited from `static open()`
@@ -267,8 +267,6 @@ private:
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
-    Status _handle_quick_compaction(TabletSharedPtr);
-
     void _adjust_compaction_thread_num();
 
     void _cooldown_tasks_producer_callback();
@@ -318,6 +316,7 @@ private:
     bool _is_all_cluster_id_exist;
 
     static StorageEngine* _s_instance;
+    bool _stopped;
 
     std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
@@ -366,7 +365,6 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;

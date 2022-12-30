@@ -1635,6 +1635,8 @@ public enum ErrorCode {
     ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[]{'4', '2', '0', '0', '0'},
             "Table %s is not a colocated table"),
     ERR_INVALID_OPERATION(5065, new byte[]{'4', '2', '0', '0', '0'}, "Operation %s is invalid"),
+    ERR_DYNAMIC_PARTITION_MUST_HAS_SAME_BUCKET_NUM_WITH_COLOCATE_TABLE(5063, new byte[]{'4', '2', '0', '0', '0'},
+        "Dynamic partition buckets must equal the distribution buckets if creating a colocate table: %s"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[]{'4', '2', '0', '0', '0'},
             "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH."),
     ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[]{'4', '2', '0', '0', '0'},
@@ -1697,7 +1699,10 @@ public enum ErrorCode {
     ERR_NONSUPPORT_HMS_TABLE(5088, new byte[]{'4', '2', '0', '0', '0'},
             "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'."),
     ERR_TABLE_NAME_LENGTH_LIMIT(5089, new byte[]{'4', '2', '0', '0', '0'}, "Table name length exceeds limit, "
-     + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d).");
+     + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
+
+    ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg external"
+     + " table supports time travel in current version");
 
     // This is error code
     private final int code;

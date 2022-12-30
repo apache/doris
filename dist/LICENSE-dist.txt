@@ -683,22 +683,17 @@ The Apache Software License, Version 2.0
         - org.apache.hadoop:hadoop-aws:2.7.3 (no url defined)
         - org.apache.hadoop:hadoop-aws:2.8.0 (no url defined)
     * Apache Hadoop Annotations:
-        - org.apache.hadoop:hadoop-annotations:2.6.5 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-annotations:2.10.2 (no url defined)
     * Apache Hadoop Auth:
-        - org.apache.hadoop:hadoop-auth:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-auth:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-auth:2.10.2 (no url defined)
     * Apache Hadoop Client:
-        - org.apache.hadoop:hadoop-client:2.6.5 (no url defined)
+        - org.apache.hadoop:hadoop-client:2.10.2 (no url defined)
     * Apache Hadoop Common:
-        - org.apache.hadoop:hadoop-common:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-common:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-common:2.10.2 (no url defined)
     * Apache Hadoop HDFS:
-        - org.apache.hadoop:hadoop-hdfs:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-hdfs:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs:2.10.2 (no url defined)
     * Apache Hadoop HDFS Client:
-        - org.apache.hadoop:hadoop-hdfs-client:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs-client:2.10.2 (no url defined)
     * Apache HttpClient:
         - org.apache.httpcomponents:httpclient:4.5.13 (http://hc.apache.org/httpcomponents-client)
     * Apache HttpCore:
@@ -883,6 +878,8 @@ The Apache Software License, Version 2.0
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
         - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
+    * velocity:
+        - org.apache.velocity:velocity-engine-core:2.3 (https://velocity.apache.org/engine/2.3/)        
     * Hive Common:
         - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
@@ -983,6 +980,14 @@ The Apache Software License, Version 2.0
         - org.lz4:lz4-java:1.4.0 (https://github.com/lz4/lz4-java)
     * Metrics Core:
         - io.dropwizard.metrics:metrics-core:4.0.2 (http://metrics.dropwizard.io/metrics-core)
+    * avatica:
+        - org.apache.calcite.avatica:avatica:1.22.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-core:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-linq4j:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite.:calcite-druid:1.32.0 (https://calcite.apache.org/avatica/)        
     * Netty:
         - io.netty:netty:3.9.9.Final (http://netty.io/)
     * Netty Reactive Streams HTTP support:
@@ -990,8 +995,7 @@ The Apache Software License, Version 2.0
     * Netty Reactive Streams Implementation:
         - com.typesafe.netty:netty-reactive-streams:2.0.4 (https://github.com/playframework/netty-reactive-streams/netty-reactive-streams)
     * Netty/All-in-One:
-        - io.netty:netty-all:4.0.23.Final (http://netty.io/netty-all/)
-        - io.netty:netty-all:4.1.42.Final (https://netty.io/netty-all/)
+        - io.netty:netty-all:4.1.65.Final (https://netty.io/netty-all/)
     * Netty/Buffer:
         - io.netty:netty-buffer:4.1.72.Final (https://netty.io/netty-buffer/)
     * Netty/Codec:
@@ -1188,7 +1192,7 @@ The Apache Software License, Version 2.0
     * io.grpc:grpc-stub:
         - io.grpc:grpc-stub:1.30.0 (https://github.com/grpc/grpc-java)
     * jackson-databind:
-        - com.fasterxml.jackson.core:jackson-databind:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-databind:2.14.1 (http://github.com/FasterXML/jackson)
     * jackson-module-scala:
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1 (http://wiki.fasterxml.com/JacksonModuleScala)
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.6.7.1 (http://wiki.fasterxml.com/JacksonModuleScala)
@@ -1449,7 +1453,7 @@ The 3-Clause BSD License
     * MinLog -- licenses/LICENSE-minlog.txt
         - com.esotericsoftware:minlog:1.3.0 (https://github.com/EsotericSoftware/minlog)
     * Protocol Buffers [Core] -- licenses/LICENSE-protobuf.txt
-        - com.google.protobuf:protobuf-java:3.14.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
+        - com.google.protobuf:protobuf-java:3.15.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
     * Py4J -- licenses/LICENSE-py4j.txt
         - net.sf.py4j:py4j:0.10.7 (http://nexus.sonatype.org/oss-repository-hosting.html/py4j)
     * asm -- licenses/LICENSE-asm.txt
@@ -1518,14 +1522,15 @@ The Apache Software License, Version 2.0
     * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
-    * S2: 0.9.0
+    * S2: 0.10.0
     * croaringbitmap: 0.4.0
-    * parallel-hashmap: 1.33
+    * Abseil LTS 20220623
+    * parallel-hashmap: 1.3.8
     * orc: 1.7.2
     * cctz: 2.3
     * aws sdk: 1.9.211
     * benchmark: 1.5.6
-    * simdjson: 1.0.2
+    * simdjson: 3.0.1
     * libhdfs3: 2.3.0
     * libhdfs3: commit 5fccd36
     * opentelemetry-proto: 0.18.0

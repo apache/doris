@@ -26,9 +26,15 @@ under the License.
 
 ## ARRAY
 
+<version since="1.2.0">
+
+ARRAY
+
+</version>
+
 ### description
 
-ARRAY\<T\>
+`ARRAY\<T\>`
 
 An array of T-type items, it cannot be used as a key column. Now ARRAY can only used in Duplicate Model Tables.
 

@@ -18,7 +18,6 @@
 #pragma once
 
 #include "olap/iterators.h"
-#include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
@@ -35,8 +34,9 @@ public:
 
     Status init(RowsetReaderContext* read_context) override;
 
-    // It's ok, because we only get ref here, the block's owner is this reader.
-    Status next_block(RowBlock** block) override;
+    Status get_segment_iterators(RowsetReaderContext* read_context,
+                                 std::vector<RowwiseIterator*>* out_iters) override;
+    void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
     bool support_return_data_by_ref() override { return _iterator->support_return_data_by_ref(); }
@@ -84,13 +84,11 @@ private:
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
-    std::shared_ptr<RowBlockV2> _input_block;
-    std::unique_ptr<RowBlock> _output_block;
-    std::unique_ptr<RowCursor> _row;
-
     // make sure this handle is initialized and valid before
     // reading data.
     SegmentCacheHandle _segment_cache_handle;
+
+    StorageReadOptions _read_options;
 };
 
 } // namespace doris

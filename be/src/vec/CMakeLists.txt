@@ -46,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
+  aggregate_functions/aggregate_function_histogram.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -88,14 +89,13 @@ set(VEC_FILES
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
+  data_types/data_type_time.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
-  exec/vintersect_node.cpp
-  exec/vexcept_node.cpp
   exec/vselect_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
@@ -231,6 +231,8 @@ set(VEC_FILES
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
   olap/olap_data_convertor.cpp
+  olap/vertical_merge_iterator.cpp
+  olap/vertical_block_reader.cpp
   sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
@@ -279,7 +281,17 @@ set(VEC_FILES
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
-  exec/format/table/iceberg_reader.cpp)
+  exec/format/table/iceberg_reader.cpp
+  exec/format/file_reader/new_plain_text_line_reader.cpp
+  exec/format/file_reader/new_plain_binary_line_reader.cpp
+  )
+
+if (WITH_MYSQL)
+    set(VEC_FILES
+            ${VEC_FILES}
+            exec/scan/mysql_scanner.cpp
+            )
+endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}

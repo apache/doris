@@ -118,7 +118,18 @@ Status TabletsChannel::close(
                 if (!st.ok()) {
                     LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
                                  << ", transaction_id=" << _txn_id << ", err=" << st;
+                    PTabletError* tablet_error = tablet_errors->Add();
+                    tablet_error->set_tablet_id(it.first);
+                    tablet_error->set_msg(st.to_string());
                     // just skip this tablet(writer) and continue to close others
+                    continue;
+                }
+                // to make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
+                // `close_wait` might create the rowset and commit txn directly, and the subsequent
+                // publish version task will success, which can cause the replica inconsistency.
+                if (_broken_tablets.find(it.second->tablet_id()) != _broken_tablets.end()) {
+                    LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
+                                 << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
                     continue;
                 }
                 need_wait_writers.insert(it.second);
@@ -130,6 +141,8 @@ Status TabletsChannel::close(
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
+                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
+                              << ", transaction_id=" << _txn_id;
             }
         }
 
@@ -180,15 +193,15 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
                                  const bool write_single_replica) {
     Status st = writer->close_wait(slave_tablet_nodes, write_single_replica);
     if (st.ok()) {
-        if (_broken_tablets.find(writer->tablet_id()) == _broken_tablets.end()) {
-            PTabletInfo* tablet_info = tablet_vec->Add();
-            tablet_info->set_tablet_id(writer->tablet_id());
-            tablet_info->set_schema_hash(writer->schema_hash());
-        }
+        PTabletInfo* tablet_info = tablet_vec->Add();
+        tablet_info->set_tablet_id(writer->tablet_id());
+        tablet_info->set_schema_hash(writer->schema_hash());
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
-        tablet_error->set_msg(st.get_error_msg());
+        tablet_error->set_msg(st.to_string());
+        VLOG_PROGRESS << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
+                      << _txn_id << "err msg " << st;
     }
 }
 
@@ -280,12 +293,11 @@ void TabletsChannel::reduce_mem_usage() {
             for (int i = 0; i < counter; i++) {
                 Status st = writers[i]->flush_memtable_and_wait(false);
                 if (!st.ok()) {
-                    auto err_msg = strings::Substitute(
-                            "tablet writer failed to reduce mem consumption by flushing memtable, "
-                            "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
-                            writers[i]->tablet_id(), _txn_id, st.code(), st.precise_code(),
-                            st.get_error_msg());
-                    LOG(WARNING) << err_msg;
+                    LOG_WARNING(
+                            "tablet writer failed to reduce mem consumption by flushing memtable")
+                            .tag("tablet_id", writers[i]->tablet_id())
+                            .tag("txn_id", _txn_id)
+                            .error(st);
                     writers[i]->cancel_with_status(st);
                     _broken_tablets.insert(writers[i]->tablet_id());
                 }
@@ -308,11 +320,11 @@ void TabletsChannel::reduce_mem_usage() {
     for (auto writer : writers_to_wait_flush) {
         Status st = writer->wait_flush();
         if (!st.ok()) {
-            auto err_msg = strings::Substitute(
-                    "tablet writer failed to reduce mem consumption by waiting flush memtable, "
-                    "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
-                    writer->tablet_id(), _txn_id, st.code(), st.precise_code(), st.get_error_msg());
-            LOG(WARNING) << err_msg;
+            LOG_WARNING(
+                    "tablet writer failed to reduce mem consumption by waiting flushing memtable")
+                    .tag("tablet_id", writer->tablet_id())
+                    .tag("txn_id", _txn_id)
+                    .error(st);
             writer->cancel_with_status(st);
             _broken_tablets.insert(writer->tablet_id());
         }
@@ -443,6 +455,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         int64_t tablet_id = request.tablet_ids(i);
         if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
             // skip broken tablets
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
         }
         auto it = tablet_to_rowidxs.find(tablet_id);
@@ -453,13 +466,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         }
     }
 
-    auto get_send_data = [&]() {
-        if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
-            return RowBatch(*_row_desc, request.row_batch());
-        } else {
-            return vectorized::Block(request.block());
-        }
-    };
+    auto get_send_data = [&]() { return vectorized::Block(request.block()); };
 
     auto send_data = get_send_data();
     google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
@@ -473,15 +480,14 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
 
         Status st = tablet_writer_it->second->write(&send_data, tablet_to_rowidxs_it.second);
         if (!st.ok()) {
-            auto err_msg = strings::Substitute(
-                    "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2"
-                    ", errcode=$3, msg:$4",
-                    tablet_to_rowidxs_it.first, _txn_id, st.code(), st.precise_code(),
-                    st.get_error_msg());
+            auto err_msg =
+                    fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
+                                tablet_to_rowidxs_it.first, _txn_id, st);
             LOG(WARNING) << err_msg;
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_to_rowidxs_it.first);
             error->set_msg(err_msg);
+            tablet_writer_it->second->cancel_with_status(st);
             _broken_tablets.insert(tablet_to_rowidxs_it.first);
             // continue write to other tablet.
             // the error will return back to sender.
@@ -495,9 +501,6 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     return Status::OK();
 }
 
-template Status
-TabletsChannel::add_batch<PTabletWriterAddBatchRequest, PTabletWriterAddBatchResult>(
-        PTabletWriterAddBatchRequest const&, PTabletWriterAddBatchResult*);
 template Status
 TabletsChannel::add_batch<PTabletWriterAddBlockRequest, PTabletWriterAddBlockResult>(
         PTabletWriterAddBlockRequest const&, PTabletWriterAddBlockResult*);

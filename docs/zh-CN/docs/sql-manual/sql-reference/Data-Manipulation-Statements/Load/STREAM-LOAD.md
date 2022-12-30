@@ -99,7 +99,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 11. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
-12. format: 指定导入数据格式，默认是csv，也支持：<version since="1.2" type="inline"> csv_with_names(支持csv文件行首过滤)，csv_with_names_and_types(支持csv文件前两行过滤) </version> 或 json格式。
+12. format: 指定导入数据格式，支持csv、json、<version since="1.2" type="inline"> csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、parquet、orc</version>，默认是csv。
 
 13. jsonpaths: 导入json方式分为：简单模式和匹配模式。
     
@@ -174,9 +174,11 @@ ERRORS:
 
     其中 url 为 ErrorURL 给出的 url。
 
-23: compress_type
+24. compress_type
 
     指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
+
+25. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
 
 ### Example
 
@@ -403,11 +405,11 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 4. Label、导入事务、多表原子性
 
-   Doris 中所有导入任务都是原子生效的。并且在同一个导入任务中对多张表的导入也能够保证原子性。同时，Doris 还可以通过 Label 的机制来保证数据导入的不丢不重。具体说明可以参阅 [导入事务和原子性](../../../../data-operate/import/import-scenes/load-atomicity.md) 文档。
+   Doris 中所有导入任务都是原子生效的。并且在同一个导入任务中对多张表的导入也能够保证原子性。同时，Doris 还可以通过 Label 的机制来保证数据导入的不丢不重。具体说明可以参阅 [导入事务和原子性](../../../../data-operate/import/import-scenes/load-atomicity) 文档。
 
 5. 列映射、衍生列和过滤
 
-   Doris 可以在导入语句中支持非常丰富的列转换和过滤操作。支持绝大多数内置函数和 UDF。关于如何正确的使用这个功能，可参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
+   Doris 可以在导入语句中支持非常丰富的列转换和过滤操作。支持绝大多数内置函数和 UDF。关于如何正确的使用这个功能，可参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
 6. 错误数据过滤
 

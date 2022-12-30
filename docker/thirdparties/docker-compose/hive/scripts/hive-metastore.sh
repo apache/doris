@@ -24,31 +24,25 @@ if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
 fi
 
 # put data file
+## put tpch1
 echo "hadoop fs -mkdir /user/doris/"
 hadoop fs -mkdir -p /user/doris/
 echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
-echo "hadoop fs -put /mnt/scripts/json_format_test /user/doris/"
-hadoop fs -put /mnt/scripts/json_format_test /user/doris/
-echo "hadoop fs -put /mnt/scripts/parquet /user/doris/"
-hadoop fs -put /mnt/scripts/parquet /user/doris/
-echo "hadoop fs -put /mnt/scripts/orc /user/doris/"
-hadoop fs -put /mnt/scripts/orc /user/doris/
-echo "hadoop fs -put /mnt/scripts/csv_format_test /user/doris/"
-hadoop fs -put /mnt/scripts/csv_format_test /user/doris/
-echo "hadoop fs -put /mnt/scripts/data_case /user/doris/"
-hadoop fs -put /mnt/scripts/data_case /user/doris/
 
-echo "hadoop fs -mkdir -p /user/doris/csv_partition_table"
-hadoop fs -mkdir -p /user/doris/csv_partition_table
-echo "hadoop fs -put /mnt/scripts/csv_partition_table/table_with_vertical_line/ /user/doris/csv_partition_table/"
-hadoop fs -put /mnt/scripts/csv_partition_table/table_with_vertical_line/ /user/doris/csv_partition_table/
-echo "hadoop fs -put /mnt/scripts/csv_partition_table/table_with_x01/ /user/doris/csv_partition_table/"
-hadoop fs -put /mnt/scripts/csv_partition_table/table_with_x01/ /user/doris/csv_partition_table/
+## put other preinstalled data
+echo "hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/"
+hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
 
 # create table
-echo "hive -f /mnt/scripts/create.hql"
-hive -f /mnt/scripts/create.hql
+echo "hive -f /mnt/scripts/create_tpch1_orc.hql"
+hive -f /mnt/scripts/create_tpch1_orc.hql
+
+echo "hive -f /mnt/scripts/create_tpch1_parquet.hql"
+hive -f /mnt/scripts/create_tpch1_parquet.hql
+
+echo "hive -f /mnt/scripts/create_preinstalled_table.hql"
+hive -f /mnt/scripts/create_preinstalled_table.hql
 
 echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS

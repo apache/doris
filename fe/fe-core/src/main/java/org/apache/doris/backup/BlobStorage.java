@@ -19,11 +19,15 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.RemoteIterator;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -46,8 +50,15 @@ public abstract class BlobStorage implements Writable {
     public static BlobStorage create(String name, StorageBackend.StorageType type, Map<String, String> properties) {
         if (type == StorageBackend.StorageType.S3) {
             return new S3Storage(properties);
-        } else if (type == StorageBackend.StorageType.HDFS) {
-            return new HdfsStorage(properties);
+        } else if (type == StorageBackend.StorageType.HDFS || type == StorageBackend.StorageType.OFS) {
+            BlobStorage storage = new HdfsStorage(properties);
+            // as of ofs files, use hdfs storage, but it's type should be ofs
+            if (type == StorageBackend.StorageType.OFS) {
+                storage.setType(type);
+                storage.setName(type.name());
+            }
+
+            return storage;
         } else if (type == StorageBackend.StorageType.BROKER) {
             return new BrokerStorage(name, properties);
         } else {
@@ -104,6 +115,10 @@ public abstract class BlobStorage implements Writable {
         this.properties = properties;
     }
 
+    public FileSystem getFileSystem(String remotePath) throws UserException {
+        throw new UserException("Not support to getFileSystem.");
+    }
+
     public abstract Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);
 
     // directly upload the content to remote file
@@ -115,9 +130,16 @@ public abstract class BlobStorage implements Writable {
 
     public abstract Status delete(String remotePath);
 
+    // only for hdfs and s3
+    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
+        throw new UserException("Not support to listLocatedStatus.");
+    }
+
     // List files in remotePath
     // The remote file name will only contains file name only(Not full path)
     public abstract Status list(String remotePath, List<RemoteFile> result);
+
+    public abstract Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
     public abstract Status makeDir(String remotePath);
 

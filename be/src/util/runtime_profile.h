@@ -48,10 +48,15 @@ namespace doris {
 #define ADD_CHILD_COUNTER(profile, name, type, parent) (profile)->add_counter(name, type, parent)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
+#define SCOPED_TIMER_ATOMIC(c) \
+    ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define SCOPED_CPU_TIMER(c) \
     ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
+#define CANCEL_SAFE_SCOPED_TIMER_ATOMIC(c, is_cancelled)                                       \
+    ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)( \
+            c, is_cancelled)
 #define SCOPED_RAW_TIMER(c)                                                                  \
     doris::ScopedRawTimer<doris::MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, \
                                                                            __COUNTER__)(c)
@@ -115,9 +120,9 @@ public:
         HighWaterMarkCounter(TUnit::type unit) : Counter(unit), current_value_(0) {}
 
         virtual void add(int64_t delta) {
-            int64_t new_val = current_value_.fetch_add(delta, std::memory_order_relaxed);
+            current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
-                UpdateMax(new_val);
+                UpdateMax(current_value_);
             }
         }
 
@@ -232,6 +237,8 @@ public:
     // If location is non-null, child will be inserted after location.  Location must
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location);
+
+    void insert_child_head(RuntimeProfile* child, bool indent);
 
     void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
 
@@ -383,6 +390,8 @@ public:
     // This function updates _local_time_percent for each profile.
     void compute_time_in_profile();
 
+    void clear_children();
+
 private:
     // Pool for allocated counters. Usually owned by the creator of this
     // object, but occasionally allocated in the constructor.
@@ -531,15 +540,15 @@ private:
 // Utility class to update time elapsed when the object goes out of scope.
 // 'T' must implement the stopWatch "interface" (start,stop,elapsed_time) but
 // we use templates not to pay for virtual function overhead.
-template <class T>
+template <class T, typename Bool = bool>
 class ScopedTimer {
 public:
-    ScopedTimer(RuntimeProfile::Counter* counter, const bool* is_cancelled = nullptr)
+    ScopedTimer(RuntimeProfile::Counter* counter, const Bool* is_cancelled = nullptr)
             : _counter(counter), _is_cancelled(is_cancelled) {
         if (counter == nullptr) {
             return;
         }
-        DCHECK(counter->type() == TUnit::TIME_NS);
+        DCHECK_EQ(counter->type(), TUnit::TIME_NS);
         _sw.start();
     }
 
@@ -557,7 +566,9 @@ public:
 
     // Update counter when object is destroyed
     ~ScopedTimer() {
-        if (_counter == nullptr) return;
+        if (_counter == nullptr) {
+            return;
+        }
         _sw.stop();
         UpdateCounter();
     }
@@ -569,7 +580,7 @@ public:
 private:
     T _sw;
     RuntimeProfile::Counter* _counter;
-    const bool* _is_cancelled;
+    const Bool* _is_cancelled;
 };
 
 // Utility class to update time elapsed when the object goes out of scope.

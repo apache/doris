@@ -413,6 +413,10 @@ inline constexpr bool IsDecimal128I<Decimal128I> = true;
 template <typename T>
 constexpr bool IsDecimalV2 = IsDecimal128<T> && !IsDecimal128I<T>;
 
+template <typename T, typename U>
+using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128,
+                                          std::conditional_t<IsDecimalNumber<T>, Decimal128I, U>>;
+
 template <typename T>
 constexpr bool IsFloatNumber = false;
 template <>

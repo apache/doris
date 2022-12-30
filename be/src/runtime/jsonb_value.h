@@ -22,7 +22,7 @@
 #include "util/cpu_info.h"
 #include "util/hash_util.hpp"
 #include "util/jsonb_error.h"
-#include "util/jsonb_parser.h"
+#include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "vec/common/string_ref.h"
 
@@ -35,9 +35,10 @@ namespace doris {
 struct JsonBinaryValue {
     static const int MAX_LENGTH = (1 << 30);
 
-    const char* ptr;
-    size_t len;
-    JsonbParser parser;
+    // default nullprt and size 0 for invalid or NULL value
+    const char* ptr = nullptr;
+    size_t len = 0;
+    JsonbParserSIMD parser;
 
     JsonBinaryValue() : ptr(nullptr), len(0) {}
     JsonBinaryValue(char* ptr, int len) { from_json_string(const_cast<const char*>(ptr), len); }

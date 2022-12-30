@@ -26,7 +26,7 @@ under the License.
 
 # Java UDF
 
-<version since="1.2">
+<version since="1.2.0">
 
 Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言进行自定义函数的执行。相比于 Native 的 UDF 实现，Java UDF 有如下优势和限制：
 1. 优势
@@ -92,6 +92,7 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 ```
 * "file"="http://IP:port/udf-code.jar", 当在多机环境时，也可以使用http的方式下载jar包
 * "always_nullable"可选属性, 如果在计算中对出现的NULL值有特殊处理，确定结果中不会返回NULL，可以设为false，这样在整个查询计算过程中性能可能更好些。
+* 如果你是**本地路径**方式，这里数据库驱动依赖的jar包，**FE、BE节点都要放置**
 
 ## 编写 UDAF 函数
 <br/>

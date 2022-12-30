@@ -65,11 +65,22 @@ jobs:
 
       - name: Setup thrift
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.13.0-2build2
+          pushd thirdparty
+          branch="${{ github.base_ref }}"
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          else
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-linux-x86_64.tar.xz" \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          fi
+          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          popd
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+          
           thrift --version
-          mkdir -p thirdparty/installed/bin/
-          cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+          # mkdir -p thirdparty/installed/bin/
+          # cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
       - name: Build broker
         run: |
           cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
@@ -105,7 +116,7 @@ jobs:
           sed '2,3d' website/versions.json > website/versions.json1
           rm -rf website/versions.json
           mv website/versions.json1 website/versions.json
-          sed '123,128d' website/docusaurus.config.js > website/docusaurus.config.js1
+          sed '123,131d' website/docusaurus.config.js > website/docusaurus.config.js1
           rm -rf website/docusaurus.config.js
           mv website/docusaurus.config.js1 website/docusaurus.config.js
           cd website

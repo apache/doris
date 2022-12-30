@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
@@ -42,30 +43,26 @@ namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystemSPtr fs, const std::string& path, const std::string& cache_path,
-                     uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                     RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
+    io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+                                         io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
     }
 #endif
-    if (fs->type() != io::FileSystemType::LOCAL && !config::file_cache_type.empty()) {
-        io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
-                cache_path, config::file_cache_alive_time_sec, file_reader,
-                config::file_cache_type);
-        segment->_file_reader = cache_reader;
-        FileCacheManager::instance()->add_file_cache(cache_path, cache_reader);
-    } else {
-        segment->_file_reader = std::move(file_reader);
-    }
+
+    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
+    segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
     return Status::OK();

@@ -24,10 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -59,7 +59,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     // Physical plans
     // *******************************
     @Override
-    public PhysicalAggregate visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, CascadesContext context) {
+    public PhysicalHashAggregate visitPhysicalHashAggregate(
+            PhysicalHashAggregate<? extends Plan> agg, CascadesContext context) {
         agg.child().accept(this, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(agg);
         return agg;
@@ -194,15 +195,19 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         Slot leftSlot = leftSlots.iterator().next();
         Slot rightSlot = rightSlots.iterator().next();
-        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlotId(leftSlot.getExprId());
-        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlotId(rightSlot.getExprId());
+        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
+        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
         //TODO remove these code when we ensure left child if from probe side
         if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.getColumnStatsBySlotId(rightSlot.getExprId());
-            buildColumnStat = rightStats.getColumnStatsBySlotId(leftSlot.getExprId());
+            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
+            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
             if (probeColumnStat == null || buildColumnStat == null) {
                 return false;
             }
+        }
+        //without column statistics, we can not judge if the rf is effective.
+        if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
+            return true;
         }
         return buildColumnStat.selectivity < 1
                 || probeColumnStat.coverage(buildColumnStat) < 1

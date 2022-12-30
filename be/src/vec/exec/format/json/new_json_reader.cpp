@@ -18,14 +18,17 @@
 #include "vec/exec/format/json/new_json_reader.h"
 
 #include "common/compiler_util.h"
-#include "exec/plain_text_line_reader.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
+#include "io/fs/stream_load_pipe.h"
+#include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -37,9 +40,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
+          _file_system(nullptr),
           _file_reader(nullptr),
-          _file_reader_s(nullptr),
-          _real_file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
           _skip_first_line(false),
@@ -48,7 +50,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
-          _scanner_eof(scanner_eof) {
+          _scanner_eof(scanner_eof),
+          _current_offset(0) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
@@ -63,9 +66,6 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_reader(nullptr),
-          _file_reader_s(nullptr),
-          _real_file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
           _skip_first_line(false),
@@ -139,8 +139,8 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-Status NewJsonReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                          std::vector<TypeDescriptor>* col_types) {
+Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                        std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_get_range_params());
 
     RETURN_IF_ERROR(_open_file_reader());
@@ -158,11 +158,11 @@ Status NewJsonReader::get_parsered_schema(std::vector<std::string>* col_names,
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, &eof));
     } else {
-        int64_t length = 0;
-        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
+        size_t read_size = 0;
+        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &read_size));
         json_str = json_str_ptr.get();
-        size = length;
-        if (length == 0) {
+        size = read_size;
+        if (read_size == 0) {
             eof = true;
         }
     }
@@ -285,30 +285,43 @@ Status NewJsonReader::_open_file_reader() {
         start_offset -= 1;
     }
 
+    _current_offset = start_offset;
+
+    FileSystemProperties system_properties;
+    system_properties.system_type = _params.file_type;
+    system_properties.properties = _params.properties;
+    system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                  _params.broker_addresses.end());
+    }
+
+    FileDescription file_description;
+    file_description.path = _range.path;
+    file_description.start_offset = start_offset;
+    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, _file_reader_s));
-        _real_file_reader = _file_reader_s.get();
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _params, _range.path, start_offset, _range.file_size, 0, _file_reader));
-        _real_file_reader = _file_reader.get();
+                _profile, system_properties, file_description, &_file_system, &_file_reader));
     }
-    return _real_file_reader->open();
+    return Status::OK();
 }
 
 Status NewJsonReader::_open_line_reader() {
     int64_t size = _range.size;
     if (_range.start_offset != 0) {
         // When we fetch range doesn't start from 0, size will += 1.
-
-        // TODO(ftw): check what if file_reader is stream_pipe? Is `size+=1` is correct?
         size += 1;
         _skip_first_line = true;
     } else {
         _skip_first_line = false;
     }
-    _line_reader.reset(new PlainTextLineReader(_profile, _real_file_reader, nullptr, size,
-                                               _line_delimiter, _line_delimiter_length));
+    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, nullptr, size,
+                                                  _line_delimiter, _line_delimiter_length,
+                                                  _current_offset));
     return Status::OK();
 }
 
@@ -355,7 +368,7 @@ Status NewJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& column
         bool valid = false;
         if (_next_row >= _total_rows) { // parse json and generic document
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -426,7 +439,7 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
     do {
         if (_next_row >= _total_rows) {
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -456,7 +469,7 @@ Status NewJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>
                                                    bool* is_empty_row, bool* eof) {
     while (true) {
         Status st = _parse_json(is_empty_row, eof);
-        if (st.is_data_quality_error()) {
+        if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
@@ -510,13 +523,12 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof));
     } else {
-        int64_t length = 0;
-        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
-        json_str = json_str_ptr.get();
-        *size = length;
-        if (length == 0) {
+        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, size));
+        json_str = json_str_ptr.release();
+        if (*size == 0) {
             *eof = true;
         }
+        _current_offset += *size;
     }
 
     _bytes_read_counter += *size;
@@ -767,7 +779,8 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
 
     // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
     // we need use a function to support these types to insert data in columns.
-    DCHECK(slot_desc->type().type == TYPE_VARCHAR);
+    DCHECK(slot_desc->type().type == TYPE_VARCHAR || slot_desc->type().type == TYPE_STRING)
+            << slot_desc->type().type << ", query id: " << print_id(_state->query_id());
     assert_cast<ColumnString*>(column_ptr)->insert_data(str_value, wbytes);
 
     *valid = true;
@@ -877,4 +890,28 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
     return std::string(buffer.GetString());
 }
 
+Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
+    IOContext io_ctx;
+    io_ctx.reader_type = READER_QUERY;
+    switch (_params.file_type) {
+    case TFileType::FILE_LOCAL:
+    case TFileType::FILE_HDFS:
+    case TFileType::FILE_S3: {
+        size_t file_size = _file_reader->size();
+        file_buf->reset(new uint8_t[file_size]);
+        Slice result(file_buf->get(), file_size);
+        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, io_ctx, read_size));
+        break;
+    }
+    case TFileType::FILE_STREAM: {
+        RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
+                                ->read_one_message(file_buf, read_size));
+        break;
+    }
+    default: {
+        return Status::NotSupported("no supported file reader type: {}", _params.file_type);
+    }
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

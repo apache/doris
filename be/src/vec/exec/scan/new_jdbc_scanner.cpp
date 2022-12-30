@@ -19,16 +19,23 @@
 
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                               const TupleId& tuple_id, const std::string& query_string)
+                               const TupleId& tuple_id, const std::string& query_string,
+                               TOdbcTableType::type table_type)
         : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _table_type(table_type) {}
 
-Status NewJdbcScanner::prepare(RuntimeState* state) {
+Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
     VLOG_CRITICAL << "NewJdbcScanner::Prepare";
+    if (vconjunct_ctx_ptr != nullptr) {
+        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
+        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(state, &_vconjunct_ctx));
+    }
+
     if (_is_init) {
         return Status::OK();
     }
@@ -58,6 +65,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state) {
     _jdbc_param.passwd = jdbc_table->jdbc_passwd();
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
+    _jdbc_param.table_type = _table_type;
 
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {
@@ -117,7 +125,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, state->batch_size()));
+        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, block, state->batch_size()));
 
         if (_jdbc_eos == true) {
             if (block->rows() == 0) {

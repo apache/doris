@@ -17,6 +17,7 @@
 
 #include "runtime/thread_context.h"
 
+#include "common/signal_handler.h"
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 
@@ -44,6 +45,8 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
+    doris::signal::query_id_hi = runtime_state->query_id().hi;
+    doris::signal::query_id_lo = runtime_state->query_id().lo;
     thread_context()->attach_task(print_id(runtime_state->query_id()),
                                   runtime_state->fragment_instance_id(),
                                   runtime_state->query_mem_tracker());
@@ -67,13 +70,16 @@ SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+    if (mem_tracker)
+        _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+    if (_mem_tracker)
+        _need_pop =
+                thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {

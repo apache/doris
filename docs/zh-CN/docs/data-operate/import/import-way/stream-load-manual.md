@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -65,7 +65,7 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 ## 支持数据格式
 
-目前 Stream Load 支持两个数据格式：CSV（文本） 和 JSON
+目前 Stream Load 支持数据格式：CSV（文本）、JSON、<version since="1.2" type="inline"> PARQUET 和 ORC</version>。
 
 ## 基本操作
 
@@ -78,7 +78,7 @@ Stream Load 通过 HTTP 协议提交和传输数据。这里通过 `curl` 命令
 ```shell
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-# Header 中支持属性见下面的 ‘导入任务参数’ 说明 
+# Header 中支持属性见下面的 ‘导入任务参数’ 说明
 # 格式为: -H "key1:value1"
 ```
 
@@ -152,13 +152,13 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
-  
+
   如果原始表的src_c1列对应目标表dst_c1列，原始表的src_c2列对应目标表dst_c2列，原始表的src_c3列对应目标表dst_c3列，则写法如下：
   columns: dst_c1, dst_c2, dst_c3
-  
+
   如果原始表的src_c1列对应目标表dst_c2列，原始表的src_c2列对应目标表dst_c3列，原始表的src_c3列对应目标表dst_c1列，则写法如下：
   columns: dst_c2, dst_c3, dst_c1
-  
+
   表达式变换例子：原始文件有两列，目标表也有两列（c1,c2）但是原始文件的两列均需要经过函数变换才能对应目标表的两列，则写法如下：
   columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = month(tmp_c2)
   其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
@@ -186,10 +186,10 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   默认的两阶段批量事务提交为关闭。
 
-  > **开启方式：** 在be.conf中配置`disable_stream_load_2pc=false` 并且 在 HEADER 中声明 `two_phase_commit=true` 。 
-  
+  > **开启方式：** 在be.conf中配置`disable_stream_load_2pc=false` 并且 在 HEADER 中声明 `two_phase_commit=true` 。
+
   示例：
-  
+
   1. 发起stream load预提交操作
   ```shell
   curl  --location-trusted -u user:passwd -H "two_phase_commit:true" -T test.txt http://fe_host:http_port/api/{db}/{table}/_stream_load
@@ -213,16 +213,20 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   }
   ```
   2. 对事务触发commit操作
+  注意1) 请求发往fe或be均可
+  注意2) commit 的时候可以省略 url 中的 `{table}`
   ```shell
-  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18036] commit successfully."
   }
   ```
   3. 对事务触发abort操作
+  注意1) 请求发往fe或be均可
+  注意2) abort 的时候可以省略 url 中的 `{table}`
   ```shell
-  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18037] abort successfully."

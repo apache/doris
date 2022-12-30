@@ -17,6 +17,8 @@
 
 #include "scanner_context.h"
 
+#include <mutex>
+
 #include "common/config.h"
 #include "runtime/runtime_state.h"
 #include "util/threadpool.h"
@@ -51,10 +53,13 @@ Status ScannerContext::init() {
 
     // The free blocks is used for final output block of scanners.
     // So use _output_tuple_desc;
+    int64_t free_blocks_memory_usage = 0;
     for (int i = 0; i < pre_alloc_block_count; ++i) {
         auto block = new vectorized::Block(_output_tuple_desc->slots(), real_block_size);
+        free_blocks_memory_usage += block->allocated_bytes();
         _free_blocks.emplace_back(block);
     }
+    _parent->_free_blocks_memory_usage->add(free_blocks_memory_usage);
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -69,6 +74,8 @@ Status ScannerContext::init() {
 
     COUNTER_SET(_parent->_pre_alloc_free_blocks_num, (int64_t)pre_alloc_block_count);
     COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
+    _parent->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                               thread_token == nullptr ? "False" : "True");
 
     return Status::OK();
 }
@@ -79,6 +86,7 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
         if (!_free_blocks.empty()) {
             auto block = _free_blocks.back();
             _free_blocks.pop_back();
+            _parent->_free_blocks_memory_usage->add(-block->allocated_bytes());
             return block;
         }
     }
@@ -90,20 +98,29 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
 
 void ScannerContext::return_free_block(vectorized::Block* block) {
     block->clear_column_data();
+    _parent->_free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard<std::mutex> l(_free_blocks_lock);
     _free_blocks.emplace_back(block);
 }
 
 void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::Block*>& blocks) {
     std::lock_guard<std::mutex> l(_transfer_lock);
-    blocks_queue.insert(blocks_queue.end(), blocks.begin(), blocks.end());
+    auto old_bytes_in_queue = _cur_bytes_in_queue;
+    _blocks_queue.insert(_blocks_queue.end(), blocks.begin(), blocks.end());
+    _update_block_queue_empty();
     for (auto b : blocks) {
         _cur_bytes_in_queue += b->allocated_bytes();
     }
     _blocks_queue_added_cv.notify_one();
+    _parent->_queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);
 }
 
-Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos) {
+bool ScannerContext::empty_in_queue() {
+    std::unique_lock<std::mutex> l(_transfer_lock);
+    return _blocks_queue.empty();
+}
+
+Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos, bool wait) {
     std::unique_lock<std::mutex> l(_transfer_lock);
     // Normally, the scanner scheduler will schedule ctx.
     // But when the amount of data in the blocks queue exceeds the upper limit,
@@ -119,7 +136,7 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
     {
         SCOPED_TIMER(_parent->_scanner_wait_batch_timer);
         _blocks_queue_added_cv.wait(l, [this]() {
-            return !blocks_queue.empty() || _is_finished || !_process_status.ok() ||
+            return !_blocks_queue.empty() || _is_finished || !_process_status.ok() ||
                    _state->is_cancelled();
         });
     }
@@ -132,10 +149,13 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
         return _process_status;
     }
 
-    if (!blocks_queue.empty()) {
-        *block = blocks_queue.front();
-        blocks_queue.pop_front();
-        _cur_bytes_in_queue -= (*block)->allocated_bytes();
+    if (!_blocks_queue.empty()) {
+        *block = _blocks_queue.front();
+        _blocks_queue.pop_front();
+        _update_block_queue_empty();
+        auto block_bytes = (*block)->allocated_bytes();
+        _cur_bytes_in_queue -= block_bytes;
+        _parent->_queued_blocks_memory_usage->add(-block_bytes);
         return Status::OK();
     } else {
         *eos = _is_finished;
@@ -147,6 +167,7 @@ bool ScannerContext::set_status_on_error(const Status& status) {
     std::lock_guard<std::mutex> l(_transfer_lock);
     if (_process_status.ok()) {
         _process_status = status;
+        _status_error = true;
         _blocks_queue_added_cv.notify_one();
         return true;
     }
@@ -155,6 +176,35 @@ bool ScannerContext::set_status_on_error(const Status& status) {
 
 Status ScannerContext::_close_and_clear_scanners() {
     std::unique_lock<std::mutex> l(_scanners_lock);
+    if (_state->enable_profile()) {
+        std::stringstream scanner_statistics;
+        std::stringstream scanner_rows_read;
+        scanner_statistics << "[";
+        scanner_rows_read << "[";
+        for (auto finished_scanner_time : _finished_scanner_runtime) {
+            scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS)
+                               << ", ";
+        }
+        for (auto finished_scanner_rows : _finished_scanner_rows_read) {
+            scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
+        }
+        // Only unfinished scanners here
+        for (auto scanner : _scanners) {
+            // Scanners are in ObjPool in ScanNode,
+            // so no need to delete them here.
+            // Add per scanner running time before close them
+            scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS)
+                               << ", ";
+            scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT)
+                              << ", ";
+        }
+        scanner_statistics << "]";
+        scanner_rows_read << "]";
+        _parent->_scanner_profile->add_info_string("PerScannerRunningTime",
+                                                   scanner_statistics.str());
+        _parent->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
+    }
+    // Only unfinished scanners here
     for (auto scanner : _scanners) {
         scanner->close(_state);
         // Scanners are in ObjPool in ScanNode,
@@ -175,7 +225,6 @@ void ScannerContext::clear_and_join() {
             break;
         }
     } while (false);
-
     // Must wait all running scanners stop running.
     // So that we can make sure to close all scanners.
     _close_and_clear_scanners();
@@ -183,7 +232,7 @@ void ScannerContext::clear_and_join() {
     COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
     COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
 
-    std::for_each(blocks_queue.begin(), blocks_queue.end(),
+    std::for_each(_blocks_queue.begin(), _blocks_queue.end(),
                   std::default_delete<vectorized::Block>());
     std::for_each(_free_blocks.begin(), _free_blocks.end(),
                   std::default_delete<vectorized::Block>());
@@ -191,13 +240,18 @@ void ScannerContext::clear_and_join() {
     return;
 }
 
+bool ScannerContext::can_finish() {
+    std::unique_lock<std::mutex> l(_transfer_lock);
+    return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
+}
+
 std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, sacnners: {}, blocks in queue: {},"
             " status: {}, _should_stop: {}, _is_finished: {}, free blocks: {},"
             " limit: {}, _num_running_scanners: {}, _num_scheduling_ctx: {}, _max_thread_num: {},"
-            " _block_per_scanner: {}, _cur_bytes_in_queue: {}, _max_bytes_in_queue: {}",
-            ctx_id, _scanners.size(), blocks_queue.size(), _process_status.ok(), _should_stop,
+            " _block_per_scanner: {}, _cur_bytes_in_queue: {}, MAX_BYTE_OF_QUEUE: {}",
+            ctx_id, _scanners.size(), _blocks_queue.size(), _process_status.ok(), _should_stop,
             _is_finished, _free_blocks.size(), limit, _num_running_scanners, _num_scheduling_ctx,
             _max_thread_num, _block_per_scanner, _cur_bytes_in_queue, _max_bytes_in_queue);
 }
@@ -264,6 +318,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             auto scanner = _scanners.front();
             _scanners.pop_front();
             if (scanner->need_to_close()) {
+                _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
+                _finished_scanner_rows_read.push_back(scanner->get_rows_read());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);

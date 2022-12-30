@@ -143,6 +143,14 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+if [[ -z "${JAVA_HOME}" ]]; then
+    echo "The JAVA_HOME environment variable is not defined correctly"
+    echo "This environment variable is needed to run this program"
+    echo "NB: JAVA_HOME should point to a JDK not a JRE"
+    echo "You can set it in be.conf"
+    exit 1
+fi
+
 if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"
 fi
@@ -225,7 +233,8 @@ set_tcmalloc_heap_limit() {
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 
-export MALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16"
+# see https://github.com/jemalloc/jemalloc/issues/2366
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof:true,prof_prefix:jeprof.out"
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &

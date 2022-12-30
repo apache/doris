@@ -57,8 +57,6 @@ suite("test_in_expr", "query") {
 
     sql """ insert into ${notNullTableName} values(100,1,'a'),(101,2,'b'),(102,3,'c'),(103,4,'d') """
 
-    sql """ set enable_vectorized_engine = true """
-
     // 1 in expr
     // 1.1 nullable
     // 1.1.1 string + set_not_null

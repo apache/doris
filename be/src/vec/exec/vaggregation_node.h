@@ -34,6 +34,13 @@ class TPlanNode;
 class DescriptorTbl;
 class MemPool;
 
+namespace pipeline {
+class AggSinkOperator;
+class AggSourceOperator;
+class StreamingAggSinkOperator;
+class StreamingAggSourceOperator;
+} // namespace pipeline
+
 namespace vectorized {
 class VExprContext;
 
@@ -53,6 +60,7 @@ struct AggregationMethodSerialized {
     Iterator iterator;
     bool inited = false;
     std::vector<StringRef> keys;
+    size_t keys_memory_usage = 0;
     AggregationMethodSerialized()
             : _serialized_key_buffer_size(0),
               _serialized_key_buffer(nullptr),
@@ -82,6 +90,7 @@ struct AggregationMethodSerialized {
             for (size_t i = 0; i < num_rows; ++i) {
                 keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
             }
+            keys_memory_usage = _arena->size();
         } else {
             _arena.reset();
             if (total_bytes > _serialized_key_buffer_size) {
@@ -99,6 +108,7 @@ struct AggregationMethodSerialized {
             for (const auto& column : key_columns) {
                 column->serialize_vec(keys, num_rows, max_one_row_byte_size);
             }
+            keys_memory_usage = _serialized_key_buffer_size;
         }
         return max_one_row_byte_size;
     }
@@ -641,6 +651,8 @@ public:
         _expand();
     }
 
+    int64_t memory_usage() const { return _arena_pool.size(); }
+
     template <typename KeyType>
     AggregateDataPtr append_data(const KeyType& key) {
         assert(sizeof(KeyType) == _size_of_key);
@@ -754,20 +766,30 @@ private:
 };
 
 // not support spill
-class AggregationNode : public ::doris::ExecNode {
+class AggregationNode final : public ::doris::ExecNode {
 public:
     using Sizes = std::vector<size_t>;
 
     AggregationNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~AggregationNode();
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare_profile(RuntimeState* state);
+    virtual Status prepare(RuntimeState* state) override;
+    virtual Status open(RuntimeState* state) override;
+    virtual Status alloc_resource(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    virtual Status close(RuntimeState* state) override;
+    virtual void release_resource(RuntimeState* state) override;
+    Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+    bool is_streaming_preagg() { return _is_streaming_preagg; }
 
 private:
+    friend class pipeline::AggSinkOperator;
+    friend class pipeline::StreamingAggSinkOperator;
+    friend class pipeline::AggSourceOperator;
+    friend class pipeline::StreamingAggSourceOperator;
     // group by k1,k2
     std::vector<VExprContext*> _probe_expr_ctxs;
     // left / full join will change the key nullable make output/input solt
@@ -789,8 +811,6 @@ private:
     bool _is_first_phase;
     bool _use_fixed_length_serialization_opt;
     std::unique_ptr<MemPool> _mem_pool;
-
-    std::unique_ptr<MemTracker> _data_mem_tracker;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -819,6 +839,9 @@ private:
     RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _max_row_size_counter;
 
+    RuntimeProfile::Counter* _hash_table_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
+
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
@@ -834,6 +857,7 @@ private:
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
 private:
+    void _release_self_resource(RuntimeState* state);
     /// Return true if we should keep expanding hash tables in the preagg. If false,
     /// the preagg should pass through any rows it can't fit in its tables.
     bool _should_expand_preagg_hash_tables();
@@ -865,10 +889,13 @@ private:
     void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
+            auto old_keys_memory = agg_method.keys_memory_usage;
             SCOPED_TIMER(_serialize_key_timer);
             int64_t row_size = (int64_t)(agg_method.serialize_keys(key_columns, num_rows));
             COUNTER_SET(_max_row_size_counter, std::max(_max_row_size_counter->value(), row_size));
             state.set_serialized_keys(agg_method.keys.data());
+
+            _serialize_key_arena_memory_usage->add(agg_method.keys_memory_usage - old_keys_memory);
         }
     }
 

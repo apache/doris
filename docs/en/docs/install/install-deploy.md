@@ -81,10 +81,10 @@ Here we recommend using the ext4 file system. When installing the operating syst
 
 #### Production environment
 
-| Module | CPU | Memory | Disk | Network | Number of Instances (Minimum Requirements)|
-|---|---|---|---|---|---|
-| Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-5*|
-| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 10-100 * |
+| Module | CPU | Memory | Disk | Network | Number of Instances (Minimum Requirements) |
+|---|---|---|---|---|--------------------------------------------|
+| Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-3*                                       |
+| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 3 *                                        |
 
 > Note 1:
 > 
@@ -221,6 +221,16 @@ See the section on `lower_case_table_names` variables in [Variables](../../advan
 * BE webserver_port configuration
 
 	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
+
+* Set JAVA_HOME environment variable
+
+  <version since="1.2.0"></version>  
+  Java UDF are supported since version 1.2, so BE are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to set the variable.
+
+* Install Java UDF functions 
+
+  <version since="1.2.0">Install Java UDF functions</version>
+  Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
 	
 * Add all BE nodes to FE
 

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/status.h"
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -26,12 +27,9 @@ class VAssertNumRowsNode : public ExecNode {
 public:
     VAssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VAnalyticEvalNode::get_next.");
-    }
-
-    virtual Status open(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
 
 private:
     int64_t _desired_num_rows;

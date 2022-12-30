@@ -22,17 +22,32 @@
 namespace doris {
 namespace vectorized {
 
-class VUnionNode : public ExecNode {
+class VUnionNode final : public ExecNode {
 public:
     VUnionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-        return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status close(RuntimeState* state) override;
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    Status materialize_child_block(RuntimeState* state, int child_id,
+                                   vectorized::Block* input_block, vectorized::Block* output_block);
+
+    size_t children_count() const { return _children.size(); }
+
+    int get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
+
+    /// Returns true if there are still rows to be returned from constant expressions.
+    bool has_more_const(const RuntimeState* state) const {
+        return state->per_fragment_instance_idx() == 0 &&
+               _const_expr_list_idx < _const_expr_lists.size();
     }
-    virtual Status close(RuntimeState* state);
+
+    /// GetNext() for the constant expression case.
+    Status get_next_const(RuntimeState* state, Block* block);
 
 private:
     /// Const exprs materialized by this node. These exprs don't refer to any children.
@@ -71,13 +86,10 @@ private:
     /// non-passthrough child.
     Status get_next_materialized(RuntimeState* state, Block* block);
 
-    /// GetNext() for the constant expression case.
-    Status get_next_const(RuntimeState* state, Block* block);
-
     /// Evaluates exprs for the current child and materializes the results into 'tuple_buf',
     /// which is attached to 'dst_block'. Runs until 'dst_block' is at capacity, or all rows
     /// have been consumed from the current child block. Updates '_child_row_idx'.
-    Block materialize_block(Block* dst_block);
+    Block materialize_block(Block* dst_block, int child_idx);
 
     Status get_error_msg(const std::vector<VExprContext*>& exprs);
 
@@ -96,13 +108,7 @@ private:
         return _first_materialized_child_idx != _children.size() && _child_idx < _children.size();
     }
 
-    /// Returns true if there are still rows to be returned from constant expressions.
-    bool has_more_const(const RuntimeState* state) const {
-        return state->per_fragment_instance_idx() == 0 &&
-               _const_expr_list_idx < _const_expr_lists.size();
-    }
-
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 };
 
 } // namespace vectorized

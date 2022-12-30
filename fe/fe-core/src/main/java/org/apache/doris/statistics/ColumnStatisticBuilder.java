@@ -27,11 +27,12 @@ public class ColumnStatisticBuilder {
     private double dataSize;
     private double minValue;
     private double maxValue;
-    private double selectivity;
+    private Histogram histogram;
+    private double selectivity = 1.0;
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
 
-    private boolean buildOnUnknown;
+    private boolean isUnknown;
 
     public ColumnStatisticBuilder() {
     }
@@ -44,10 +45,11 @@ public class ColumnStatisticBuilder {
         this.dataSize = columnStatistic.dataSize;
         this.minValue = columnStatistic.minValue;
         this.maxValue = columnStatistic.maxValue;
+        this.histogram = columnStatistic.histogram;
         this.selectivity = columnStatistic.selectivity;
         this.minExpr = columnStatistic.minExpr;
         this.maxExpr = columnStatistic.maxExpr;
-        this.buildOnUnknown = columnStatistic == ColumnStatistic.DEFAULT;
+        this.isUnknown = columnStatistic.isUnKnown;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -85,6 +87,11 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public ColumnStatisticBuilder setHistogram(Histogram histogram) {
+        this.histogram = histogram;
+        return this;
+    }
+
     public ColumnStatisticBuilder setSelectivity(double selectivity) {
         this.selectivity = selectivity;
         return this;
@@ -97,6 +104,11 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatisticBuilder setMaxExpr(LiteralExpr maxExpr) {
         this.maxExpr = maxExpr;
+        return this;
+    }
+
+    public ColumnStatisticBuilder setIsUnknown(boolean isUnknown) {
+        this.isUnknown = isUnknown;
         return this;
     }
 
@@ -128,6 +140,10 @@ public class ColumnStatisticBuilder {
         return maxValue;
     }
 
+    public Histogram getHistogram() {
+        return histogram;
+    }
+
     public double getSelectivity() {
         return selectivity;
     }
@@ -140,12 +156,12 @@ public class ColumnStatisticBuilder {
         return maxExpr;
     }
 
-    public ColumnStatistic build() {
-        return new ColumnStatistic(count, ndv, avgSizeByte, numNulls, dataSize, minValue, maxValue, selectivity,
-                minExpr, maxExpr);
+    public boolean isUnknown() {
+        return isUnknown;
     }
 
-    public boolean isBuildOnUnknown() {
-        return buildOnUnknown;
+    public ColumnStatistic build() {
+        return new ColumnStatistic(count, ndv, avgSizeByte, numNulls,
+            dataSize, minValue, maxValue, histogram, selectivity, minExpr, maxExpr, isUnknown);
     }
 }

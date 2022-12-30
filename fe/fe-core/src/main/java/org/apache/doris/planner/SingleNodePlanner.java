@@ -55,7 +55,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
@@ -306,7 +305,7 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            root.setLimit(stmt.getLimit());
+            root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
             root.computeStats(analyzer);
         }
 
@@ -739,10 +738,15 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (functionName.equalsIgnoreCase("HLL_UNION_AGG")) {
-                        // do nothing
-                    } else if (functionName.equalsIgnoreCase("HLL_RAW_AGG")) {
-                        // do nothing
+                    } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)
+                            || functionName.equalsIgnoreCase(FunctionSet.HLL_RAW_AGG)
+                            || functionName.equalsIgnoreCase(FunctionSet.HLL_UNION)) {
+                        if (col.getAggregationType() != AggregateType.HLL_UNION) {
+                            turnOffReason =
+                                    "Aggregate Operator not match: HLL_UNION <--> " + col.getAggregationType();
+                            returnColumnValidate = false;
+                            break;
+                        }
                     } else if (functionName.equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();
@@ -932,8 +936,7 @@ public class SingleNodePlanner {
      * subplan ref are materialized by a join node added during plan generation.
      */
     // (ML): change the function name
-    private PlanNode createJoinPlan(Analyzer analyzer,
-                                    TableRef leftmostRef, List<Pair<TableRef, PlanNode>> refPlans)
+    private PlanNode createJoinPlan(Analyzer analyzer, TableRef leftmostRef, List<Pair<TableRef, PlanNode>> refPlans)
             throws UserException {
         LOG.debug("Try to create a query plan starting with " + leftmostRef.getUniqueAlias());
 
@@ -1609,7 +1612,9 @@ public class SingleNodePlanner {
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);
-
+        if (rootNode instanceof UnionNode && ((UnionNode) rootNode).isConstantUnion()) {
+            rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
+        }
         // rootNode.setOutputSmap(ExprSubstitutionMap.compose(inlineViewRef.getBaseTblSmap(),
         //         rootNode.getOutputSmap(), analyzer));
         // Expr.substituteList(inlineViewRef.getViewStmt().getResultExprs(), analyzer.getChangeResSmap());
@@ -1942,7 +1947,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case JDBC:
-                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (JdbcTable) tblRef.getTable());
+                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
             case TABLE_VALUED_FUNCTION:
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
@@ -1952,6 +1957,9 @@ public class SingleNodePlanner {
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
+                break;
+            case JDBC_EXTERNAL_TABLE:
+                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             default:
                 break;
@@ -2064,23 +2072,21 @@ public class SingleNodePlanner {
             ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
-        if (eqJoinConjuncts.isEmpty()) {
-            // construct cross join node
-            // LOG.debug("Join between {} and {} requires at least one conjunctive"
-            //        + " equality predicate between the two tables",
-            //        outerRef.getAliasAsName(), innerRef.getAliasAsName());
-            // TODO If there are eq join predicates then we should construct a hash join
+        if (eqJoinConjuncts.isEmpty() || innerRef.isMark()) {
             NestedLoopJoinNode result =
                     new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
-            result.addConjuncts(ojConjuncts);
+            List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
+            joinConjuncts.addAll(ojConjuncts);
+            result.setJoinConjuncts(joinConjuncts);
+            result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
             result.init(analyzer);
             return result;
         }
 
-        HashJoinNode result =
-                new HashJoinNode(ctx.getNextNodeId(), outer, inner, innerRef, eqJoinConjuncts,
-                        ojConjuncts);
+        HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
+                innerRef, eqJoinConjuncts, ojConjuncts);
         result.init(analyzer);
+        result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
         return result;
     }
 

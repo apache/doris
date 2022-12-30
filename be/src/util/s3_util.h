@@ -23,6 +23,8 @@
 #include <memory>
 #include <string>
 
+#include "common/status.h"
+
 namespace Aws {
 namespace S3 {
 class S3Client;
@@ -31,10 +33,13 @@ class S3Client;
 
 namespace doris {
 
+class S3URI;
+
 const static std::string S3_AK = "AWS_ACCESS_KEY";
 const static std::string S3_SK = "AWS_SECRET_KEY";
 const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
 const static std::string S3_REGION = "AWS_REGION";
+const static std::string S3_TOKEN = "AWS_TOKEN";
 const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
 const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
 const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
@@ -49,6 +54,7 @@ struct S3Conf {
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
+    bool use_virtual_addressing = true;
 
     std::string to_string() const;
 };
@@ -58,7 +64,8 @@ inline std::string S3Conf::to_string() const {
     ss << "ak: " << ak << ", sk: " << sk << ", endpoint: " << endpoint << ", region: " << region
        << ", bucket: " << bucket << ", prefix: " << prefix
        << ", max_connections: " << max_connections << ", request_timeout_ms: " << request_timeout_ms
-       << ", connect_timeout_ms: " << connect_timeout_ms;
+       << ", connect_timeout_ms: " << connect_timeout_ms
+       << ", use_virtual_addressing: " << use_virtual_addressing;
     return ss.str();
 }
 
@@ -75,6 +82,9 @@ public:
     static bool is_s3_conf_valid(const std::map<std::string, std::string>& prop);
 
     static bool is_s3_conf_valid(const S3Conf& s3_conf);
+
+    static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
+                                                const S3URI& s3_uri, S3Conf* s3_conf);
 
 private:
     ClientFactory();

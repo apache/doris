@@ -17,20 +17,46 @@
 
 #include "iceberg_reader.h"
 
-#include <vec/core/column_with_type_and_name.h>
-#include <vec/exec/format/parquet/vparquet_reader.h>
-
-#include <vec/data_types/data_type_factory.hpp>
-
 #include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris::vectorized {
 
 const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
 const std::string ICEBERG_ROW_POS = "pos";
+const std::string ICEBERG_FILE_PATH = "file_path";
+
+IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
+                                       RuntimeState* state, const TFileScanRangeParams& params,
+                                       const TFileRangeDesc& range)
+        : TableFormatReader(file_format_reader),
+          _profile(profile),
+          _state(state),
+          _params(params),
+          _range(range) {
+    static const char* iceberg_profile = "IcebergProfile";
+    ADD_TIMER(_profile, iceberg_profile);
+    _iceberg_profile.num_delete_files =
+            ADD_CHILD_COUNTER(_profile, "NumDeleteFiles", TUnit::UNIT, iceberg_profile);
+    _iceberg_profile.num_delete_rows =
+            ADD_CHILD_COUNTER(_profile, "NumDeleteRows", TUnit::UNIT, iceberg_profile);
+    _iceberg_profile.delete_files_read_time =
+            ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", iceberg_profile);
+    _iceberg_profile.delete_rows_sort_time =
+            ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
+}
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return _file_format_reader->get_next_block(block, read_rows, eof);
+}
+
+Status IcebergTableReader::set_fill_columns(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+    return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
 }
 
 Status IcebergTableReader::get_columns(
@@ -39,130 +65,251 @@ Status IcebergTableReader::get_columns(
     return _file_format_reader->get_columns(name_to_type, missing_cols);
 }
 
-void IcebergTableReader::filter_rows() {
-    if (_cur_delete_file_reader == nullptr) {
-        return;
-    }
-    auto& table_desc = _params.table_format_params.iceberg_params;
+Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
+    auto& table_desc = range.table_format_params.iceberg_params;
     auto& version = table_desc.format_version;
     if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
-        return;
+        return Status::OK();
     }
-    bool eof = false;
-    std::vector<RowRange> delete_row_ranges;
-    while (!eof) {
-        size_t read_rows = 0;
-        Block block = Block();
-        for (const FieldSchema* field : _column_schemas) {
-            DataTypePtr data_type = DataTypeFactory::instance().create_data_type(field->type, true);
-            MutableColumnPtr data_column = data_type->create_column();
-            block.insert(ColumnWithTypeAndName(std::move(data_column), data_type, field->name));
-        }
-        Status st = _cur_delete_file_reader->get_next_block(&block, &read_rows, &eof);
-        if (!st.ok() || eof) {
-            if (!_delete_file_readers.empty()) {
-                _cur_delete_file_reader = std::move(_delete_file_readers.front());
-                _delete_file_readers.pop_front();
+    auto& delete_file_type = table_desc.content;
+    auto files = table_desc.delete_files;
+    if (files.empty()) {
+        return Status::OK();
+    }
+    if (delete_file_type == POSITION_DELETE) {
+        // position delete
+        ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
+        RowRange whole_range = parquet_reader->get_whole_range();
+        bool init_schema = false;
+        std::vector<std::string> delete_file_col_names;
+        std::vector<TypeDescriptor> delete_file_col_types;
+        std::list<std::vector<int64_t>> delete_rows_list;
+        delete_rows_list.resize(files.size());
+        int64_t num_delete_rows = 0;
+        auto delete_rows_iter = delete_rows_list.begin();
+        for (auto& delete_file : files) {
+            if (whole_range.last_row <= delete_file.position_lower_bound ||
+                whole_range.first_row > delete_file.position_upper_bound) {
+                delete_rows_iter++;
+                continue;
             }
-        }
-        if (read_rows != 0) {
-            auto& pos_type_column = block.get_by_name(ICEBERG_ROW_POS);
-            ColumnPtr pos_column = pos_type_column.column;
-            using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
-            if (pos_type_column.type->is_nullable()) {
-                pos_column =
-                        assert_cast<const ColumnNullable&>(*pos_column).get_nested_column_ptr();
+            SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
+            std::vector<int64_t>& delete_rows = *delete_rows_iter;
+            TFileRangeDesc delete_range;
+            delete_range.path = delete_file.path;
+            delete_range.start_offset = 0;
+            delete_range.size = -1;
+            delete_range.file_size = -1;
+            ParquetReader delete_reader(_profile, _params, delete_range, 102400,
+                                        const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+            if (!init_schema) {
+                delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
+                init_schema = true;
             }
-            auto& data = assert_cast<const ColumnType&>(*pos_column).get_data();
-            std::vector<int64_t> delete_row_ids;
-            for (int row_id = 0; row_id < read_rows; row_id++) {
-                delete_row_ids.emplace_back(data[row_id]);
+            std::string data_file_path = _range.path;
+            // the path in _range is remove the namenode prefix,
+            // and the file_path in delete file is full path, so we should add it back.
+            if (_params.__isset.hdfs_params && _params.hdfs_params.__isset.fs_name) {
+                std::string fs_name = _params.hdfs_params.fs_name;
+                if (!starts_with(data_file_path, fs_name)) {
+                    data_file_path = fs_name + data_file_path;
+                }
             }
-            if (delete_row_ids.empty()) {
-                return;
-            }
+            RETURN_IF_ERROR(
+                    delete_reader.init_reader(delete_file_col_names, nullptr, nullptr, false));
+            std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+                    partition_columns;
+            std::unordered_map<std::string, VExprContext*> missing_columns;
+            delete_reader.set_fill_columns(partition_columns, missing_columns);
 
-            int num_deleted_ids = delete_row_ids.size();
-            int i = 0;
-            while (i < num_deleted_ids) {
-                int64_t row_id = delete_row_ids[i];
-                int64_t row_range_start = row_id;
-                int64_t row_range_end = row_id;
-                // todo: add debug info
-                // todo: asure reading delete file data in file_range only
-                while (i + 1 < num_deleted_ids) {
-                    if (delete_row_ids[i + 1] == delete_row_ids[i] + 1) {
-                        row_range_end = delete_row_ids[i + 1];
-                        i++;
-                        continue;
+            bool eof = false;
+            // We can only know whether a parquet file is encoded in dictionary after reading the first block,
+            // so we assume it dictionary encoded first, and reset it false if error thrown.
+            bool dictionary_coded = true;
+            while (!eof) {
+                Block block = Block();
+                for (int i = 0; i < delete_file_col_names.size(); ++i) {
+                    DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
+                            delete_file_col_types[i], false);
+                    if (delete_file_col_names[i] == ICEBERG_FILE_PATH && dictionary_coded) {
+                        // the dictionary data in ColumnDictI32 is referenced by StringValue, it does keep
+                        // the dictionary data in its life circle, so the upper caller should keep the
+                        // dictionary data alive after ColumnDictI32.
+                        MutableColumnPtr dict_column = ColumnDictI32::create();
+                        block.insert(ColumnWithTypeAndName(std::move(dict_column), data_type,
+                                                           delete_file_col_names[i]));
                     } else {
-                        delete_row_ranges.emplace_back(row_range_start, row_range_end);
-                        row_range_start = ++row_range_end;
-                        break;
+                        MutableColumnPtr data_column = data_type->create_column();
+                        block.insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                           delete_file_col_names[i]));
                     }
                 }
-                if (i == num_deleted_ids - 1) {
-                    delete_row_ranges.emplace_back(row_range_start,
-                                                   delete_row_ids[num_deleted_ids - 1]);
+                eof = false;
+                size_t read_rows = 0;
+                Status st = delete_reader.get_next_block(&block, &read_rows, &eof);
+                if (!st.ok()) {
+                    if (st.to_string() == "[IO_ERROR]Not dictionary coded") {
+                        dictionary_coded = false;
+                        continue;
+                    }
+                    return st;
                 }
-                row_range_start = delete_row_ids[i + 1];
-                i++;
+                if (read_rows > 0) {
+                    ColumnPtr path_column = block.get_by_name(ICEBERG_FILE_PATH).column;
+                    DCHECK_EQ(path_column->size(), read_rows);
+                    std::pair<int, int> path_range;
+                    if (dictionary_coded) {
+                        path_range = _binary_search(assert_cast<const ColumnDictI32&>(*path_column),
+                                                    data_file_path);
+                    } else {
+                        path_range = _binary_search(assert_cast<const ColumnString&>(*path_column),
+                                                    data_file_path);
+                    }
+
+                    int skip_count = path_range.first;
+                    int valid_count = path_range.second;
+                    if (valid_count > 0) {
+                        // delete position
+                        ColumnPtr pos_column = block.get_by_name(ICEBERG_ROW_POS).column;
+                        CHECK_EQ(pos_column->size(), read_rows);
+                        using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
+                        const int64_t* src_data =
+                                assert_cast<const ColumnType&>(*pos_column).get_data().data() +
+                                skip_count;
+                        const int64_t* src_data_end = src_data + valid_count;
+                        const int64_t* cpy_start =
+                                std::lower_bound(src_data, src_data_end, whole_range.first_row);
+                        const int64_t* cpy_end =
+                                std::lower_bound(cpy_start, src_data_end, whole_range.last_row);
+                        int64_t cpy_count = cpy_end - cpy_start;
+
+                        if (cpy_count > 0) {
+                            int64_t origin_size = delete_rows.size();
+                            delete_rows.resize(origin_size + cpy_count);
+                            int64_t* dest_position = &delete_rows[origin_size];
+                            memcpy(dest_position, cpy_start, cpy_count * sizeof(int64_t));
+                            num_delete_rows += cpy_count;
+                        }
+                    }
+                }
             }
+            delete_rows_iter++;
         }
-    }
-    ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
-    parquet_reader->merge_delete_row_ranges(delete_row_ranges);
-}
-
-Status IcebergTableReader::init_row_filters() {
-    auto& table_desc = _params.table_format_params.iceberg_params;
-    auto& version = table_desc.format_version;
-    if (version >= MIN_SUPPORT_DELETE_FILES_VERSION) {
-        auto& delete_file_type = table_desc.content;
-        auto files = table_desc.delete_files;
-        if (delete_file_type == POSITON_DELELE) {
-            // position delete
-            for (auto& delete_file : files) {
-                _position_delete_params.low_bound_index = delete_file.position_lower_bound;
-                _position_delete_params.upper_bound_index = delete_file.position_upper_bound;
-
-                TFileRangeDesc delete_range;
-                delete_range.path = delete_file.path;
-                delete_range.start_offset = 0;
-                delete_range.size = -1;
-                delete_range.file_size = -1;
-                ParquetReader* delete_reader = new ParquetReader(
-                        _profile, _params, delete_range, _state->query_options().batch_size,
-                        const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-                FileMetaData* metadata = nullptr;
-                RETURN_IF_ERROR(delete_reader->file_metadata(&metadata));
-
-                auto& delete_file_schema = metadata->schema();
-                vector<std::string> names;
-                for (auto i = 0; i < delete_file_schema.size(); ++i) {
-                    const FieldSchema* field = delete_file_schema.get_column(i);
-                    _column_schemas.emplace_back(field);
-                    names.emplace_back(field->name);
+        if (num_delete_rows > 0) {
+            for (auto iter = delete_rows_list.begin(); iter != delete_rows_list.end();) {
+                if (iter->empty()) {
+                    delete_rows_list.erase(iter++);
+                } else {
+                    iter++;
                 }
-                Status d_st = delete_reader->init_reader(names, false);
-                _delete_file_readers.emplace_back((GenericReader*)delete_reader);
-
-                ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
-                FileMetaData* file_metadata = nullptr;
-                RETURN_IF_ERROR(parquet_reader->file_metadata(&file_metadata));
-                _position_delete_params.total_file_rows = file_metadata->to_thrift().num_rows;
             }
-            if (!_delete_file_readers.empty()) {
-                _cur_delete_file_reader = std::move(_delete_file_readers.front());
-                _delete_file_readers.pop_front();
-            } else {
-                _cur_delete_file_reader = nullptr;
-            }
+            SCOPED_TIMER(_iceberg_profile.delete_rows_sort_time);
+            _merge_sort(delete_rows_list, num_delete_rows);
+            parquet_reader->set_delete_rows(&_delete_rows);
+            COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
         }
     }
     // todo: equality delete
-    filter_rows();
+    COUNTER_UPDATE(_iceberg_profile.num_delete_files, files.size());
     return Status::OK();
+}
+
+std::pair<int, int> IcebergTableReader::_binary_search(const ColumnDictI32& file_path_column,
+                                                       const std::string& data_file_path) {
+    size_t read_rows = file_path_column.get_data().size();
+
+    int data_file_code = file_path_column.find_code(StringValue(data_file_path));
+    if (data_file_code == -2) { // -1 is null code
+        return std::make_pair(read_rows, 0);
+    }
+
+    const int* coded_path = file_path_column.get_data().data();
+    const int* coded_path_end = coded_path + read_rows;
+    const int* path_start = std::lower_bound(coded_path, coded_path_end, data_file_code);
+    const int* path_end = std::lower_bound(path_start, coded_path_end, data_file_code + 1);
+    int skip_count = path_start - coded_path;
+    int valid_count = path_end - path_start;
+
+    return std::make_pair(skip_count, valid_count);
+}
+
+std::pair<int, int> IcebergTableReader::_binary_search(const ColumnString& file_path_column,
+                                                       const std::string& data_file_path) {
+    const int read_rows = file_path_column.size();
+    if (read_rows == 0) {
+        return std::make_pair(0, 0);
+    }
+    StringRef data_file(data_file_path);
+
+    int left = 0;
+    int right = read_rows - 1;
+    if (file_path_column.get_data_at(left) > data_file ||
+        file_path_column.get_data_at(right) < data_file) {
+        return std::make_pair(read_rows, 0);
+    }
+    while (left < right) {
+        int mid = (left + right) / 2;
+        if (file_path_column.get_data_at(mid) < data_file) {
+            left = mid;
+        } else {
+            right = mid;
+        }
+    }
+    if (file_path_column.get_data_at(left) == data_file) {
+        int start = left;
+        int end = read_rows - 1;
+        while (start < end) {
+            int pivot = (start + end) / 2;
+            if (file_path_column.get_data_at(pivot) > data_file) {
+                end = pivot;
+            } else {
+                start = pivot;
+            }
+        }
+        return std::make_pair(left, end - left + 1);
+    } else {
+        return std::make_pair(read_rows, 0);
+    }
+}
+
+void IcebergTableReader::_merge_sort(std::list<std::vector<int64_t>>& delete_rows_list,
+                                     int64_t num_delete_rows) {
+    if (delete_rows_list.empty()) {
+        return;
+    }
+    if (delete_rows_list.size() == 1) {
+        _delete_rows.resize(num_delete_rows);
+        memcpy(&_delete_rows[0], &(delete_rows_list.front()[0]), sizeof(int64_t) * num_delete_rows);
+        return;
+    }
+    if (delete_rows_list.size() == 2) {
+        _delete_rows.resize(num_delete_rows);
+        std::merge(delete_rows_list.front().begin(), delete_rows_list.front().end(),
+                   delete_rows_list.back().begin(), delete_rows_list.back().end(),
+                   _delete_rows.begin());
+        return;
+    }
+
+    // merge sort
+    using vec_pair =
+            std::pair<std::vector<int64_t>::iterator, std::vector<int64_t>::const_iterator>;
+    auto cmp = [](const vec_pair& a, const vec_pair& b) { return *a.first > *b.first; };
+    std::priority_queue<vec_pair, vector<vec_pair>, decltype(cmp)> pq(cmp);
+    for (auto iter = delete_rows_list.begin(); iter != delete_rows_list.end(); ++iter) {
+        if (iter->size() > 0) {
+            pq.push({iter->begin(), iter->end()});
+        }
+    }
+    _delete_rows.reserve(num_delete_rows);
+    while (!pq.empty()) {
+        vec_pair p = pq.top();
+        pq.pop();
+        _delete_rows.emplace_back(*p.first);
+        p.first++;
+        if (p.first != p.second) {
+            pq.push(p);
+        }
+    }
 }
 
 } // namespace doris::vectorized

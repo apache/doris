@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -47,6 +49,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.StringJoiner;
+import java.util.regex.Matcher;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -90,6 +94,8 @@ public class TableRef implements ParseNode, Writable {
     // Indicates whether this table ref is given an explicit alias,
     protected boolean hasExplicitAlias;
     protected JoinOperator joinOp;
+    protected boolean isMark;
+    protected String markTupleName;
     protected List<String> usingColNames;
     protected ArrayList<LateralViewRef> lateralViewRefs;
     protected Expr onClause;
@@ -126,6 +132,8 @@ public class TableRef implements ParseNode, Writable {
     private boolean isPartitionJoin;
     private String sortColumn = null;
 
+    private TableSnapshot tableSnapshot;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
@@ -150,6 +158,11 @@ public class TableRef implements ParseNode, Writable {
      */
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
                     TableSample tableSample, ArrayList<String> commonHints) {
+        this(name, alias, partitionNames, sampleTabletIds, tableSample, commonHints, null);
+    }
+
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
+                    TableSample tableSample, ArrayList<String> commonHints, TableSnapshot tableSnapshot) {
         this.name = name;
         if (alias != null) {
             if (Env.isStoredTableNamesLowerCase()) {
@@ -164,6 +177,7 @@ public class TableRef implements ParseNode, Writable {
         this.sampleTabletIds = sampleTabletIds;
         this.tableSample = tableSample;
         this.commonHints = commonHints;
+        this.tableSnapshot = tableSnapshot;
         isAnalyzed = false;
     }
 
@@ -174,6 +188,8 @@ public class TableRef implements ParseNode, Writable {
         aliases = other.aliases;
         hasExplicitAlias = other.hasExplicitAlias;
         joinOp = other.joinOp;
+        isMark = other.isMark;
+        markTupleName = other.markTupleName;
         // NOTE: joinHints and sortHints maybe changed after clone. so we new one List.
         joinHints =
                 (other.joinHints != null) ? Lists.newArrayList(other.joinHints) : null;
@@ -181,6 +197,7 @@ public class TableRef implements ParseNode, Writable {
                 (other.sortHints != null) ? Lists.newArrayList(other.sortHints) : null;
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
+        tableSnapshot = (other.tableSnapshot != null) ? new TableSnapshot(other.tableSnapshot) : null;
         tableSample = (other.tableSample != null) ? new TableSample(other.tableSample) : null;
         commonHints = other.commonHints;
 
@@ -226,6 +243,13 @@ public class TableRef implements ParseNode, Writable {
             output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
         }
         output.append(tableRefToSql()).append(" ");
+        if (partitionNames != null) {
+            StringJoiner sj = new StringJoiner(",", "", " ");
+            for (String partName : partitionNames.getPartitionNames()) {
+                sj.add(partName);
+            }
+            output.append(sj.toString());
+        }
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
@@ -253,6 +277,23 @@ public class TableRef implements ParseNode, Writable {
         this.joinOp = op;
     }
 
+    public boolean isMark() {
+        return isMark;
+    }
+
+    public String getMarkTupleName() {
+        return markTupleName;
+    }
+
+    public void setMark(TupleDescriptor markTuple) {
+        this.isMark = markTuple != null;
+        if (isMark) {
+            this.markTupleName = markTuple.getAlias();
+        } else {
+            this.markTupleName = null;
+        }
+    }
+
     public Expr getOnClause() {
         return onClause;
     }
@@ -271,6 +312,10 @@ public class TableRef implements ParseNode, Writable {
 
     public TableSample getTableSample() {
         return tableSample;
+    }
+
+    public TableSnapshot getTableSnapshot() {
+        return tableSnapshot;
     }
 
     /**
@@ -470,6 +515,27 @@ public class TableRef implements ParseNode, Writable {
         }
     }
 
+    protected void analyzeTableSnapshot(Analyzer analyzer) throws AnalysisException {
+        if (tableSnapshot == null) {
+            return;
+        }
+        TableIf.TableType tableType = this.getTable().getType();
+        if (tableType != TableIf.TableType.HMS_EXTERNAL_TABLE) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+        }
+        HMSExternalTable extTable = (HMSExternalTable) this.getTable();
+        if (extTable.getDlaType() != HMSExternalTable.DLAType.ICEBERG) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+        }
+        if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+            String asOfTime = tableSnapshot.getTime();
+            Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+            if (!matcher.matches()) {
+                throw new AnalysisException("Invalid datetime string: " + asOfTime);
+            }
+        }
+    }
+
     /**
      * Analyze the join clause.
      * The join clause can only be analyzed after the left table has been analyzed
@@ -643,7 +709,7 @@ public class TableRef implements ParseNode, Writable {
             case NULL_AWARE_LEFT_ANTI_JOIN:
                 return "NULL AWARE LEFT ANTI JOIN";
             default:
-                return "bad join op: " + joinOp.toString();
+                return "bad join op: " + joinOp;
         }
     }
 
@@ -784,6 +850,8 @@ public class TableRef implements ParseNode, Writable {
      */
     protected void setJoinAttrs(TableRef other) {
         this.joinOp = other.joinOp;
+        this.isMark = other.isMark;
+        this.markTupleName = other.markTupleName;
         this.joinHints = other.joinHints;
         // this.tableHints_ = other.tableHints_;
         this.onClause = other.onClause;
@@ -863,5 +931,13 @@ public class TableRef implements ParseNode, Writable {
             String alias = Text.readString(in);
             aliases = new String[]{alias};
         }
+    }
+
+    public void setPartitionNames(PartitionNames partitionNames) {
+        this.partitionNames = partitionNames;
+    }
+
+    public void setName(TableName name) {
+        this.name = name;
     }
 }

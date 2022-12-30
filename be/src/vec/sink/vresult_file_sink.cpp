@@ -20,7 +20,6 @@
 #include "common/config.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
-#include "runtime/file_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -103,7 +102,7 @@ Status VResultFileSink::prepare(RuntimeState* state) {
     if (_is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), _buf_size, &_sender));
+                state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec()));
         // create writer
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
@@ -138,11 +137,7 @@ Status VResultFileSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status VResultFileSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VResultFileSink Node::get_next scalar");
-}
-
-Status VResultFileSink::send(RuntimeState* state, Block* block) {
+Status VResultFileSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultFileSink::send");
     RETURN_IF_ERROR(_writer->append_block(*block));
     return Status::OK();

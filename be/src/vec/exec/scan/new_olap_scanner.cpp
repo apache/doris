@@ -127,6 +127,10 @@ Status NewOlapScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
+void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compound_filters) {
+    _compound_filters = compound_filters;
+}
+
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
@@ -168,11 +172,18 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
+    _tablet_reader_params.remaining_vconjunct_root =
+            (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
 
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
     }
+
+    std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
+              std::inserter(_tablet_reader_params.conditions_except_leafnode_of_andnode,
+                            _tablet_reader_params.conditions_except_leafnode_of_andnode.begin()));
+
     std::copy(filter_predicates.bloom_filters.cbegin(), filter_predicates.bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
@@ -309,13 +320,13 @@ Status NewOlapScanner::_init_return_columns() {
 }
 
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
-    if (!_profile_updated) {
-        _profile_updated = _tablet_reader->update_profile(_profile);
-    }
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
     RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof));
+    if (!_profile_updated) {
+        _profile_updated = _tablet_reader->update_profile(_profile);
+    }
     if (block->rows() > 0) {
         *eof = false;
     }
@@ -386,6 +397,8 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_block_init_timer, stats.block_init_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_counter, stats.block_init_seek_num);
+    COUNTER_UPDATE(olap_parent->_block_conditions_filtered_timer,
+                   stats.block_conditions_filtered_ns);
     COUNTER_UPDATE(olap_parent->_first_read_timer, stats.first_read_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_counter, stats.block_first_read_seek_num);

@@ -31,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend.BackendState;
@@ -74,13 +75,31 @@ public class SystemInfoService {
     private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
-    // last backend id used by round robin for sequential selecting backends for replica creation
-    private Map<Tag, Long> lastBackendIdForReplicaCreation = Maps.newConcurrentMap();
-
-    private long lastBackendIdForCreation = -1;
-    private long lastBackendIdForOther = -1;
-
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef = ImmutableMap.of();
+
+    public static class HostInfo {
+        public String ip;
+        public String hostName;
+        public int port;
+
+        public HostInfo(String ip, String hostName, int port) {
+            this.ip = ip;
+            this.hostName = hostName;
+            this.port = port;
+        }
+
+        public String getIp() {
+            return ip;
+        }
+
+        public String getHostName() {
+            return hostName;
+        }
+
+        public int getPort() {
+            return port;
+        }
+    }
 
     // sort host backends list by num of backends, descending
     private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>>() {
@@ -95,27 +114,33 @@ public class SystemInfoService {
     };
 
     // for deploy manager
-    public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws UserException {
-        addBackends(hostPortPairs, isFree, "", Tag.DEFAULT_BACKEND_TAG.toMap());
+    public void addBackends(List<HostInfo> hostInfos, boolean isFree)
+            throws UserException {
+        addBackends(hostInfos, isFree, "", Tag.DEFAULT_BACKEND_TAG.toMap());
     }
 
     /**
-     * @param hostPortPairs : backend's host and port
+     * @param hostInfos : backend's ip, hostName and port
      * @param isFree : if true the backend is not owned by any cluster
      * @param destCluster : if not null or empty backend will be added to destCluster
      * @throws DdlException
      */
-    public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree, String destCluster,
+    public void addBackends(List<HostInfo> hostInfos, boolean isFree, String destCluster,
             Map<String, String> tagMap) throws UserException {
-        for (Pair<String, Integer> pair : hostPortPairs) {
+        for (HostInfo hostInfo : hostInfos) {
+            if (Config.enable_fqdn_mode && hostInfo.getHostName() == null) {
+                throw new DdlException("backend's hostName should not be null while enable_fqdn_mode is true");
+            }
             // check is already exist
-            if (getBackendWithHeartbeatPort(pair.first, pair.second) != null) {
-                throw new DdlException("Same backend already exists[" + pair.first + ":" + pair.second + "]");
+            if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) != null) {
+                String backendIdentifier = (Config.enable_fqdn_mode ? hostInfo.getHostName() : hostInfo.getIp()) + ":"
+                        + hostInfo.getPort();
+                throw new DdlException("Same backend already exists[" + backendIdentifier + "]");
             }
         }
 
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            addBackend(pair.first, pair.second, isFree, destCluster, tagMap);
+        for (HostInfo hostInfo : hostInfos) {
+            addBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort(), isFree, destCluster, tagMap);
         }
     }
 
@@ -136,9 +161,9 @@ public class SystemInfoService {
     }
 
     // Final entry of adding backend
-    private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster,
+    private void addBackend(String ip, String hostName, int heartbeatPort, boolean isFree, String destCluster,
             Map<String, String> tagMap) {
-        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), host, heartbeatPort);
+        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), ip, hostName, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
@@ -172,16 +197,17 @@ public class SystemInfoService {
         MetricRepo.generateBackendsTabletMetrics();
     }
 
-    public void dropBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
-        for (Pair<String, Integer> pair : hostPortPairs) {
+    public void dropBackends(List<HostInfo> hostInfos) throws DdlException {
+        for (HostInfo hostInfo : hostInfos) {
             // check is already exist
-            if (getBackendWithHeartbeatPort(pair.first, pair.second) == null) {
-                throw new DdlException("backend does not exists[" + pair.first + ":" + pair.second + "]");
+            if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) == null) {
+                String backendIdentifier = Config.enable_fqdn_mode && hostInfo.getHostName() != null
+                        ? hostInfo.getHostName() : hostInfo.getIp() + ":" + hostInfo.getPort();
+                throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
         }
-
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            dropBackend(pair.first, pair.second);
+        for (HostInfo hostInfo : hostInfos) {
+            dropBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
         }
     }
 
@@ -192,17 +218,16 @@ public class SystemInfoService {
             throw new DdlException("Backend[" + backendId + "] does not exist");
         }
 
-        dropBackend(backend.getHost(), backend.getHeartbeatPort());
+        dropBackend(backend.getHost(), backend.getHostName(), backend.getHeartbeatPort());
     }
 
     // final entry of dropping backend
-    public void dropBackend(String host, int heartbeatPort) throws DdlException {
-        if (getBackendWithHeartbeatPort(host, heartbeatPort) == null) {
-            throw new DdlException("backend does not exists[" + host + ":" + heartbeatPort + "]");
+    public void dropBackend(String ip, String hostName, int heartbeatPort) throws DdlException {
+        Backend droppedBackend = getBackendWithHeartbeatPort(ip, hostName, heartbeatPort);
+        if (droppedBackend == null) {
+            throw new DdlException("backend does not exists[" + (ip == null ? hostName : ip)
+                    + ":" + heartbeatPort + "]");
         }
-
-        Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
-
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.remove(droppedBackend.getId());
@@ -274,10 +299,16 @@ public class SystemInfoService {
         return true;
     }
 
-    public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
+    public Backend getBackendWithHeartbeatPort(String ip, String hostName, int heartPort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getHost().equals(host) && backend.getHeartbeatPort() == heartPort) {
+            if (hostName != null) {
+                if (hostName.equals(backend.getHostName()) && backend.getHeartbeatPort() == heartPort) {
+                    return backend;
+                }
+            }
+
+            if (backend.getHost().equals(ip) && backend.getHeartbeatPort() == heartPort) {
                 return backend;
             }
         }
@@ -901,7 +932,8 @@ public class SystemInfoService {
         this.idToReportVersionRef = null;
     }
 
-    public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
+    public static HostInfo getIpHostAndPort(String hostPort, boolean strictCheck)
+            throws AnalysisException {
         hostPort = hostPort.replaceAll("\\s+", "");
         if (hostPort.isEmpty()) {
             throw new AnalysisException("Invalid host port: " + hostPort);
@@ -912,36 +944,48 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String host = pair[0];
-        if (Strings.isNullOrEmpty(host)) {
+        String hostName = pair[0];
+        String ip = hostName;
+        if (Strings.isNullOrEmpty(hostName)) {
             throw new AnalysisException("Host is null");
         }
 
         int heartbeatPort = -1;
         try {
-            // validate host
-            if (!InetAddressValidator.getInstance().isValid(host)) {
-                // maybe this is a hostname
-                // if no IP address for the host could be found, 'getByName'
-                // will throw
-                // UnknownHostException
-                InetAddress inetAddress = InetAddress.getByName(host);
-                host = inetAddress.getHostAddress();
-            }
-
             // validate port
             heartbeatPort = Integer.parseInt(pair[1]);
-
             if (heartbeatPort <= 0 || heartbeatPort >= 65536) {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
             }
 
-            return Pair.of(host, heartbeatPort);
+            // validate host
+            if (!InetAddressValidator.getInstance().isValid(ip)) {
+                // maybe this is a hostname
+                // if no IP address for the host could be found, 'getByName'
+                // will throw UnknownHostException
+                InetAddress inetAddress = InetAddress.getByName(hostName);
+                ip = inetAddress.getHostAddress();
+            } else {
+                hostName = NetUtils.getHostnameByIp(ip);
+                if (hostName.equals(ip)) {
+                    hostName = null;
+                }
+            }
+            return new HostInfo(ip, hostName, heartbeatPort);
         } catch (UnknownHostException e) {
+            if (!strictCheck) {
+                return new HostInfo(null, hostName, heartbeatPort);
+            }
             throw new AnalysisException("Unknown host: " + e.getMessage());
         } catch (Exception e) {
             throw new AnalysisException("Encounter unknown exception: " + e.getMessage());
         }
+    }
+
+
+    public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
+        HostInfo hostInfo = getIpHostAndPort(hostPort, true);
+        return Pair.of(hostInfo.getIp(), hostInfo.getPort());
     }
 
     public void replayAddBackend(Backend newBackend) {
@@ -996,25 +1040,25 @@ public class SystemInfoService {
     public void updateBackendState(Backend be) {
         long id = be.getId();
         Backend memoryBe = getBackend(id);
-        if (memoryBe == null) {
-            // backend may already be dropped. this may happen when
-            // 1. SystemHandler drop the decommission backend
-            // 2. at same time, user try to cancel the decommission of that backend.
-            // These two operations do not guarantee the order.
-            return;
+        // backend may already be dropped. this may happen when
+        // drop and modify operations do not guarantee the order.
+        if (memoryBe != null) {
+            if (be.getHostName() != null && !be.getHost().equalsIgnoreCase(memoryBe.getHost())) {
+                memoryBe.setHost(be.getHost());
+            }
+            memoryBe.setBePort(be.getBePort());
+            memoryBe.setAlive(be.isAlive());
+            memoryBe.setDecommissioned(be.isDecommissioned());
+            memoryBe.setHttpPort(be.getHttpPort());
+            memoryBe.setBeRpcPort(be.getBeRpcPort());
+            memoryBe.setBrpcPort(be.getBrpcPort());
+            memoryBe.setLastUpdateMs(be.getLastUpdateMs());
+            memoryBe.setLastStartTime(be.getLastStartTime());
+            memoryBe.setDisks(be.getDisks());
+            memoryBe.setBackendState(be.getBackendState());
+            memoryBe.setOwnerClusterName(be.getOwnerClusterName());
+            memoryBe.setDecommissionType(be.getDecommissionType());
         }
-        memoryBe.setBePort(be.getBePort());
-        memoryBe.setAlive(be.isAlive());
-        memoryBe.setDecommissioned(be.isDecommissioned());
-        memoryBe.setHttpPort(be.getHttpPort());
-        memoryBe.setBeRpcPort(be.getBeRpcPort());
-        memoryBe.setBrpcPort(be.getBrpcPort());
-        memoryBe.setLastUpdateMs(be.getLastUpdateMs());
-        memoryBe.setLastStartTime(be.getLastStartTime());
-        memoryBe.setDisks(be.getDisks());
-        memoryBe.setBackendState(be.getBackendState());
-        memoryBe.setOwnerClusterName(be.getOwnerClusterName());
-        memoryBe.setDecommissionType(be.getDecommissionType());
     }
 
     private long getClusterAvailableCapacityB(String clusterName) {
@@ -1110,12 +1154,13 @@ public class SystemInfoService {
     }
 
     public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
-        List<Pair<String, Integer>> hostPortPairs = alterClause.getHostPortPairs();
+        List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            Backend be = getBackendWithHeartbeatPort(pair.first, pair.second);
+        for (HostInfo hostInfo : hostInfos) {
+            Backend be = getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
             if (be == null) {
-                throw new DdlException("backend does not exists[" + pair.first + ":" + pair.second + "]");
+                throw new DdlException("backend does not exists[" + (Config.enable_fqdn_mode && hostInfo.getHostName()
+                        != null ? hostInfo.getHostName() : hostInfo.getIp()) + ":" + hostInfo.getPort() + "]");
             }
             backends.add(be);
         }

@@ -17,48 +17,72 @@
 
 #pragma once
 
-#include <vec/exec/format/parquet/parquet_common.h>
-
 #include <queue>
 
 #include "table_format_reader.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
 class IcebergTableReader : public TableFormatReader {
 public:
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
-                       RuntimeState* state, const TFileScanRangeParams& params)
-            : TableFormatReader(file_format_reader),
-              _profile(profile),
-              _state(state),
-              _params(params) {}
-    Status init_row_filters();
-    void filter_rows() override;
+                       RuntimeState* state, const TFileScanRangeParams& params,
+                       const TFileRangeDesc& range);
+    ~IcebergTableReader() override = default;
+
+    Status init_row_filters(const TFileRangeDesc& range) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-public:
-    enum { DATA, POSITON_DELELE, EQULITY_DELELE };
-    struct PositionDeleteParams {
-        int64_t low_bound_index = -1;
-        int64_t upper_bound_index = -1;
-        int64_t last_delete_row_index = -1;
-        int64_t total_file_rows = 0;
-    };
+    enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
 
 private:
+    struct IcebergProfile {
+        RuntimeProfile::Counter* num_delete_files;
+        RuntimeProfile::Counter* num_delete_rows;
+        RuntimeProfile::Counter* delete_files_read_time;
+        RuntimeProfile::Counter* delete_rows_sort_time;
+    };
+
+    /**
+     * https://iceberg.apache.org/spec/#position-delete-files
+     * The rows in the delete file must be sorted by file_path then position to optimize filtering rows while scanning.
+     * Sorting by file_path allows filter pushdown by file in columnar storage formats.
+     * Sorting by position allows filtering rows while scanning, to avoid keeping deletes in memory.
+     *
+     * So, use merge-sort to merge delete rows from different files.
+     */
+    void _merge_sort(std::list<std::vector<int64_t>>& delete_rows_list, int64_t num_delete_rows);
+
+    /**
+     * Delete rows is sorted by file_path, using binary-search to locate the right delete rows for current data file.
+     * @return a pair of \<skip_count, valid_count\>,
+     * and the range of [skip_count, skip_count + valid_count) is the delete rows for current data file.
+     */
+    std::pair<int, int> _binary_search(const ColumnDictI32& file_path_column,
+                                       const std::string& data_file_path);
+
+    std::pair<int, int> _binary_search(const ColumnString& file_path_column,
+                                       const std::string& data_file_path);
+
     RuntimeProfile* _profile;
     RuntimeState* _state;
     const TFileScanRangeParams& _params;
-    std::vector<const FieldSchema*> _column_schemas;
-    std::deque<std::unique_ptr<GenericReader>> _delete_file_readers;
-    std::unique_ptr<GenericReader> _cur_delete_file_reader;
-    PositionDeleteParams _position_delete_params;
+    const TFileRangeDesc& _range;
+    IcebergProfile _iceberg_profile;
+    std::vector<int64_t> _delete_rows;
 };
 
 } // namespace doris::vectorized

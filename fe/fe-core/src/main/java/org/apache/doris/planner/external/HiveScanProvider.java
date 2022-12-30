@@ -33,6 +33,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
@@ -125,6 +126,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 return TFileType.FILE_HDFS;
             } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
                 return TFileType.FILE_LOCAL;
+            }  else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return TFileType.FILE_BROKER;
             }
         }
         throw new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName());
@@ -188,7 +191,9 @@ public class HiveScanProvider extends HMSTableScanProvider {
             return allFiles;
         } catch (Throwable t) {
             LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);
-            throw new UserException("get file split failed for table: " + hmsTable.getName(), t);
+            throw new UserException(
+                    "get file split failed for table: " + hmsTable.getName() + ", err: " + Util.getRootCauseMessage(t),
+                    t);
         }
     }
 
@@ -204,13 +209,9 @@ public class HiveScanProvider extends HMSTableScanProvider {
         allFiles.addAll(files);
     }
 
-    protected Configuration setConfiguration() {
+    protected Configuration getConfiguration() {
         Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : hmsTable.getCatalog().getCatalogProperty().getProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        Map<String, String> s3Properties = hmsTable.getS3Properties();
-        for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
+        for (Map.Entry<String, String> entry : hmsTable.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
@@ -237,14 +238,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
 
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
-        TFileType locationType = getLocationType();
-        if (locationType == TFileType.FILE_S3) {
-            return hmsTable.getS3Properties();
-        } else if (locationType == TFileType.FILE_HDFS) {
-            return hmsTable.getDfsProperties();
-        } else {
-            return Maps.newHashMap();
-        }
+        return hmsTable.getCatalogProperties();
     }
 
     @Override

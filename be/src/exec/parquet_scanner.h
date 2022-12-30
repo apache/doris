@@ -73,7 +73,6 @@ protected:
     // Read next buffer from reader
     Status open_next_reader();
 
-protected:
     // Reader
     ParquetReaderWrap* _cur_file_reader;
     bool _cur_file_eof; // is read over?

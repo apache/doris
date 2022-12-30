@@ -28,7 +28,6 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
-#include "gutil/walltime.h"
 #include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/tablets_channel.h"
@@ -61,9 +60,11 @@ public:
 
     void refresh_mem_tracker() {
         int64_t mem_usage = 0;
-        std::lock_guard<std::mutex> l(_lock);
-        for (auto& kv : _load_channels) {
-            mem_usage += kv.second->mem_consumption();
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            for (auto& kv : _load_channels) {
+                mem_usage += kv.second->mem_consumption();
+            }
         }
         _mem_tracker->set_consumption(mem_usage);
     }

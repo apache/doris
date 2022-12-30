@@ -160,6 +160,11 @@ struct TypeDescriptor {
 
     void to_protobuf(PTypeDesc* ptype) const;
 
+    bool is_integer_type() const {
+        return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT ||
+               type == TYPE_BIGINT;
+    }
+
     bool is_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
                type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;

@@ -205,4 +205,10 @@ suite("order_group", "query,p0") {
         sum(k2) over (partition by k5 + k6)\
         as ss from ${tableName2}  where k5 > 2000 )s order by k1,k2 "
     check2_doris(res7, res8)
+
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    qt_group31 "select count(*) from ${tableName1} where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00')\
+		    and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by count(*)"
+    qt_group1 "select min(k5) from ${tableName1}"
 }

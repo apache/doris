@@ -49,6 +49,7 @@ usage() {
 Usage: $0 <options>
   Optional options:
      -j                 build thirdparty parallel
+     --clean            clean the extracted data
   "
     exit 1
 }
@@ -58,6 +59,7 @@ if ! OPTS="$(getopt \
     -o '' \
     -o 'h' \
     -l 'help' \
+    -l 'clean' \
     -o 'j:' \
     -- "$@")"; then
     usage
@@ -88,6 +90,10 @@ if [[ "$#" -ne 1 ]]; then
             HELP=1
             shift
             ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
         --)
             shift
             break
@@ -102,11 +108,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
+    CLEAN               -- ${CLEAN}
 "
 
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
@@ -122,6 +128,12 @@ fi
 . "${TP_DIR}/vars.sh"
 
 cd "${TP_DIR}"
+
+if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
+    echo 'Clean the extracted data ...'
+    find "${TP_SOURCE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} \;
+    echo 'Success!'
+fi
 
 # Download thirdparties.
 "${TP_DIR}/download-thirdparty.sh"
@@ -147,7 +159,8 @@ elif [[ "${CC}" == *clang ]]; then
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
 
-    if "${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 | grep 'unknown warning option'; then
+    test_warning_result="$("${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 || true)"
+    if echo "${test_warning_result}" | grep 'unknown warning option' >/dev/null; then
         warning_unused_but_set_variable=''
     fi
 fi
@@ -817,7 +830,7 @@ build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
 
-    CFLAGS="-fPIC" \
+    CFLAGS="-fPIC -Wno-implicit-function-declaration" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LIBS="-lcrypto" \
@@ -968,6 +981,23 @@ build_arrow() {
     strip_lib libparquet.a
 }
 
+# abseil
+build_abseil() {
+    check_if_source_exist "${ABSEIL_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+
+    LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DABSL_ENABLE_INSTALL=ON \
+        -DBUILD_DEPS=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CXX_STANDARD=11
+
+    cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
+    cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
+}
+
 # s2
 build_s2() {
     check_if_source_exist "${S2_SOURCE}"
@@ -978,23 +1008,13 @@ build_s2() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
-    else
-        ldflags="-L${TP_LIB_DIR}"
-    fi
-
-    CXXFLAGS="-O3" \
-        LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -DBUILD_SHARED_LIBS=OFF \
-        -DGFLAGS_ROOT_DIR="${TP_INSTALL_DIR}/include" \
         -DWITH_GFLAGS=ON \
-        -DGLOG_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" \
-        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DWITH_GLOG=ON ..
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1320,7 +1340,7 @@ build_gsasl() {
         cflags='-Wno-implicit-function-declaration'
     fi
 
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
+    CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
     make install
@@ -1557,6 +1577,7 @@ build_librdkafka
 build_flatbuffers
 build_orc
 build_arrow
+build_abseil
 build_s2
 build_bitshuffle
 build_croaringbitmap

@@ -23,6 +23,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +37,7 @@ import javax.annotation.Nullable;
  * The interface of Catalog
  */
 public interface CatalogIf<T extends DatabaseIf> {
+    Logger LOG = LogManager.getLogger(CatalogIf.class);
 
     // Type of this catalog
     String getType();
@@ -44,6 +49,15 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    default List<String> getDbNamesOrEmpty() {
+        try {
+            return getDbNames();
+        } catch (Exception e) {
+            LOG.warn("failed to get db names in catalog {}", getName(), e);
+            return Lists.newArrayList();
+        }
+    }
+
     List<Long> getDbIds();
 
     @Nullable
@@ -53,6 +67,12 @@ public interface CatalogIf<T extends DatabaseIf> {
     T getDbNullable(long dbId);
 
     Map<String, String> getProperties();
+
+    default String getResource() {
+        return null;
+    }
+
+    default void notifyPropertiesUpdated() { }
 
     void modifyCatalogName(String name);
 
@@ -110,5 +130,9 @@ public interface CatalogIf<T extends DatabaseIf> {
     default T getDbOrAnalysisException(long dbId) throws AnalysisException {
         return getDbOrException(dbId,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    default void onClose() {
+
     }
 }

@@ -53,6 +53,9 @@ public:
         return *_intermediate_row_desc;
     }
 
+    virtual Status alloc_resource(RuntimeState* state) override;
+    virtual void release_resource(RuntimeState* state) override;
+
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
 protected:
@@ -68,6 +71,11 @@ protected:
     // Initialize the join operation.
     void _init_join_op();
 
+    virtual void _add_tuple_is_null_column(Block* block) = 0;
+
+    // reset the tuple is null flag column for the next call
+    void _reset_tuple_is_null_column();
+
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
@@ -82,6 +90,7 @@ protected:
     const bool _is_right_semi_anti;
     const bool _is_left_semi_anti;
     const bool _is_outer_join;
+    const bool _is_mark_join;
 
     // For null aware left anti join, we apply a short circuit strategy.
     // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.
@@ -97,12 +106,16 @@ protected:
 
     Block _join_block;
 
+    MutableColumnPtr _tuple_is_null_left_flag_column;
+    MutableColumnPtr _tuple_is_null_right_flag_column;
+
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
+    RuntimeProfile::Counter* _join_filter_timer;
 };
 
 } // namespace doris::vectorized

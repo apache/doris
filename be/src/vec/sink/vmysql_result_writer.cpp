@@ -17,11 +17,13 @@
 
 #include "vec/sink/vmysql_result_writer.h"
 
+#include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -46,7 +48,7 @@ Status VMysqlResultWriter::init(RuntimeState* state) {
     if (nullptr == _sinker) {
         return Status::InternalError("sinker is NULL pointer.");
     }
-
+    set_output_object_data(state->return_object_data_as_binary());
     return Status::OK();
 }
 
@@ -91,7 +93,27 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
 
             if constexpr (type == TYPE_OBJECT) {
-                buf_ret = _buffer.push_null();
+                if (column->is_bitmap() && output_object_data()) {
+                    const vectorized::ColumnComplexType<BitmapValue>* pColumnComplexType =
+                            assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(
+                                    column.get());
+                    BitmapValue bitmapValue = pColumnComplexType->get_element(i);
+                    size_t size = bitmapValue.getSizeInBytes();
+                    std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+                    bitmapValue.write(buf.get());
+                    buf_ret = _buffer.push_string(buf.get(), size);
+                } else if (column->is_hll() && output_object_data()) {
+                    const vectorized::ColumnComplexType<HyperLogLog>* pColumnComplexType =
+                            assert_cast<const vectorized::ColumnComplexType<HyperLogLog>*>(
+                                    column.get());
+                    HyperLogLog hyperLogLog = pColumnComplexType->get_element(i);
+                    size_t size = hyperLogLog.max_serialized_size();
+                    std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+                    hyperLogLog.serialize((uint8*)buf.get());
+                    buf_ret = _buffer.push_string(buf.get(), size);
+                } else {
+                    buf_ret = _buffer.push_null();
+                }
             }
             if constexpr (type == TYPE_VARCHAR) {
                 const auto string_val = column->get_data_at(i);
@@ -413,10 +435,6 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
     }
 }
 
-Status VMysqlResultWriter::append_row_batch(const RowBatch* batch) {
-    return Status::RuntimeError("Not Implemented MysqlResultWriter::append_row_batch scalar");
-}
-
 Status VMysqlResultWriter::append_block(Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
@@ -662,6 +680,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
     }
 
     return status;
+}
+
+bool VMysqlResultWriter::can_sink() {
+    return _sinker->can_sink();
 }
 
 Status VMysqlResultWriter::close() {

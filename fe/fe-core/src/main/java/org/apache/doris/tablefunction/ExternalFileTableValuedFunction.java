@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -134,13 +135,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return "";
     }
 
-    protected void parseFile() throws UserException {
+    protected void parseFile() throws AnalysisException {
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
-        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+        try {
+            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+        } catch (UserException e) {
+            throw new AnalysisException("parse file failed, path = " + path, e);
+        }
     }
 
-    protected void parseProperties(Map<String, String> validParams) throws UserException {
+    protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
         String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
         switch (formatString) {
             case "csv":
@@ -279,7 +284,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setProperties(locationProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             String fsNmae = getLocationProperties().get(HdfsTableValuedFunction.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsNmae);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
@@ -295,7 +300,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             break;
         }
         if (firstFile == null) {
-            throw new AnalysisException("Can not get first file, please check s3 uri.");
+            throw new AnalysisException("Can not get first file, please check uri.");
         }
 
         // set TFileRangeDesc

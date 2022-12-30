@@ -16,9 +16,7 @@
 // under the License.
 
 suite("test_nereids_grouping_sets") {
-
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
 
     sql "DROP TABLE IF EXISTS groupingSetsTable"
     sql "DROP TABLE IF EXISTS groupingSetsTableNotNullable"
@@ -158,5 +156,108 @@ suite("test_nereids_grouping_sets") {
 
     order_qt_select """
         select k1, sum(k2) from (select k1, k2, grouping(k1), grouping(k2) from groupingSetsTableNotNullable group by grouping sets((k1), (k2)))a group by k1
+    """
+
+    sql """
+        drop table if exists grouping_subquery_table;
+    """
+
+    sql """
+        create table grouping_subquery_table ( a int not null, b int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        insert into grouping_subquery_table values
+        (1, 1), (1, 2), (1, 3), (1, 4),
+        (2, 1), (2, 2), (2, 3), (2, 4),
+        (3, 1), (3, 2), (3, 3), (3, 4),
+        (4, 1), (4, 2), (4, 3), (4, 4);
+    """
+
+    qt_select7 """
+        SELECT
+        a
+        FROM
+        (
+            with base_table as (
+            SELECT
+                `a`,
+                sum(`b`) as `sum(b)`
+            FROM
+                (
+                SELECT
+                    inv.a,
+                    sum(inv.b) as b
+                FROM
+                    grouping_subquery_table inv
+                group by
+                    inv.a
+                ) T
+            GROUP BY
+                `a`
+            ),
+            grouping_sum_table as (
+            select
+                `a`,
+                sum(`sum(b)`) as `sum(b)`
+            from
+                base_table
+            group by
+                grouping sets (
+                (`base_table`.`a`)
+                )
+            )
+            select
+            *
+            from
+            (
+                select
+                `a`,
+                `sum(b)`
+                from
+                base_table
+                union all
+                select
+                `a`,
+                `sum(b)`
+                from
+                grouping_sum_table
+            ) T
+        ) T2;
+    """
+
+    order_qt_select1 """
+        select coalesce(col1, 'all') as col1, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select2 """
+        select coalesce(col1, 'all') as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select3 """
+        select coalesce(col1, 'all') as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col2),());
+    """
+
+    order_qt_select4 """
+        select if(1 = null, 'all', 2) as col1, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select5 """
+        select if(col1 = null, 'all', 2) as col1, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select6 """
+        select if(1 = null, 'all', 2) as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
+    """
+
+    order_qt_select7 """
+        select if(col1 = null, 'all', 2) as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
     """
 }

@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -29,10 +29,15 @@ public class TableValuedFunctionRef extends TableRef {
 
     private Table table;
     private TableValuedFunctionIf tableFunction;
+    private String funcName;
+    private Map<String, String> params;
 
-    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws UserException {
+    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws AnalysisException {
         super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
+        this.funcName = funcName;
+        this.params = params;
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
+        this.table = tableFunction.getTable();
         if (hasExplicitAlias()) {
             return;
         }
@@ -41,7 +46,10 @@ public class TableValuedFunctionRef extends TableRef {
 
     public TableValuedFunctionRef(TableValuedFunctionRef other) {
         super(other);
+        this.funcName = other.funcName;
+        this.params = other.params;
         this.tableFunction = other.tableFunction;
+        this.table = other.table;
     }
 
     @Override
@@ -60,13 +68,10 @@ public class TableValuedFunctionRef extends TableRef {
      * Register this table ref and then analyze the Join clause.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
-        // Table function could generate a table which will has columns
-        // Maybe will call be during this process
-        this.table = tableFunction.getTable();
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);

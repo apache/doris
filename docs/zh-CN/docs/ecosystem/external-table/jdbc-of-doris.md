@@ -26,7 +26,7 @@ under the License.
 
 # JDBC External Table Of Doris
 
-<version since="1.2">
+<version since="1.2.0">
 
 JDBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(JDBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
 
@@ -67,6 +67,7 @@ PROPERTIES (
 "table_type"="mysql"
 );
 ```
+
 参数说明：
 
 | 参数           | 说明|
@@ -80,6 +81,16 @@ PROPERTIES (
 | **resource**     | 在Doris中建立外表时依赖的资源名，对应上步创建资源时的名字。|
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
 | **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
+
+> **注意：**
+>
+> 如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
+
+<version since="1.2.1">
+
+> 在1.2.1及之后的版本中，可以将 driver 放到 FE/BE 的 `jdbc_drivers` 目录下，并直接指定文件名，如：`"driver_url" = "mysql-connector-java-5.1.47.jar"`。系统会自动在 `jdbc_drivers` 目录寻找文件。
+
+</version>
 
 ### 查询用法
 
@@ -165,16 +176,17 @@ PROPERTIES (
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
-|   CHAR   |   CHAR   |
-| VARCHAR  | VARCHAR  |
-|   DATE   |   DATE   |
-|  FLOAT   |  FLOAT   |
+| BIT(1)   | BOOLEAN  |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
 |  BIGINT  |  BIGINT  |
-|  DOUBLE  |  DOUBLE  |
+|BIGINT UNSIGNED|LARGEINT|
+| VARCHAR  | VARCHAR  |
+|   DATE   |   DATE   |
+|  FLOAT   |  FLOAT   |
 | DATETIME | DATETIME |
+|  DOUBLE  |  DOUBLE  |
 | DECIMAL  | DECIMAL  |
 
 
@@ -183,26 +195,26 @@ PROPERTIES (
 |    PostgreSQL    |  Doris   |
 | :--------------: | :------: |
 |     BOOLEAN      | BOOLEAN  |
-|       CHAR       |   CHAR   |
-|     VARCHAR      | VARCHAR  |
-|       DATE       |   DATE   |
-|       REAL       |  FLOAT   |
 |     SMALLINT     | SMALLINT |
 |       INT        |   INT    |
 |      BIGINT      |  BIGINT  |
-| DOUBLE PRECISION |  DOUBLE  |
+|     VARCHAR      | VARCHAR  |
+|       DATE       |   DATE   |
 |    TIMESTAMP     | DATETIME |
+|       REAL       |  FLOAT   |
+|      FLOAT       |  DOUBLE  |
 |     DECIMAL      | DECIMAL  |
 
 ### Oracle
 
 |  Oracle  |  Doris   |
 | :------: | :------: |
-|   CHAR   |   CHAR   |
 | VARCHAR  | VARCHAR  |
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
+|   REAL   |   DOUBLE |
+|   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 
 
@@ -211,15 +223,15 @@ PROPERTIES (
 | SQLServer |  Doris   |
 | :-------: | :------: |
 |    BIT    | BOOLEAN  |
-|   CHAR    |   CHAR   |
-|  VARCHAR  | VARCHAR  |
-|   DATE    |   DATE   |
-|   REAL    |  FLOAT   |
 |  TINYINT  | TINYINT  |
 | SMALLINT  | SMALLINT |
 |    INT    |   INT    |
 |  BIGINT   |  BIGINT  |
+|  VARCHAR  | VARCHAR  |
+|   DATE    |   DATE   |
 | DATETIME  | DATETIME |
+|   REAL    |  FLOAT   |
+|   FLOAT   |  DOUBLE  |
 |  DECIMAL  | DECIMAL  |
 
 ### ClickHouse

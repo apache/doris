@@ -72,9 +72,6 @@
          ;
      """
 
-     // test_vectorized
-     sql """ set enable_vectorized_engine = true; """
-
-     order_qt_select """  select * from ${colocateTableName} right outer join ${rightTable} on ${colocateTableName}.c1 = ${rightTable}.k1; """
+     order_qt_select """  select * from ${colocateTableName} right outer join ${rightTable} on ${colocateTableName}.c1 = ${rightTable}.k1 order by c1; """
  }
 
