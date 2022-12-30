@@ -163,7 +163,6 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
 
     PUniqueId load_id;
     load_id.set_hi(0);
