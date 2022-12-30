@@ -22,6 +22,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/tablet.h"
 #include "olap/task/engine_checksum_task.h"
 #include "util/time.h"
@@ -357,14 +358,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 }
 
 Status Compaction::construct_output_rowset_writer(bool is_vertical) {
+    RowsetWriterContext ctx;
+    ctx.version = _output_version;
+    ctx.rowset_state = VISIBLE;
+    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.tablet_schema = _cur_tablet_schema;
+    ctx.oldest_write_timestamp = _oldest_write_timestamp;
+    ctx.newest_write_timestamp = _newest_write_timestamp;
     if (is_vertical) {
-        return _tablet->create_vertical_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
-                                                      _cur_tablet_schema, _oldest_write_timestamp,
-                                                      _newest_write_timestamp, &_output_rs_writer);
+        return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);
     }
-    return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
-                                         _cur_tablet_schema, _oldest_write_timestamp,
-                                         _newest_write_timestamp, &_output_rs_writer);
+    return _tablet->create_rowset_writer(ctx, &_output_rs_writer);
 }
 
 Status Compaction::construct_input_rowset_readers() {

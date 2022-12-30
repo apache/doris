@@ -1581,8 +1581,12 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     do {
         // there is no data in init rowset, so overlapping info is unknown.
         std::unique_ptr<RowsetWriter> rs_writer;
-        res = create_rowset_writer(version, VISIBLE, OVERLAP_UNKNOWN, tablet_schema(), -1, -1,
-                                   &rs_writer);
+        RowsetWriterContext context;
+        context.version = version;
+        context.rowset_state = VISIBLE;
+        context.segments_overlap = OVERLAP_UNKNOWN;
+        context.tablet_schema = tablet_schema();
+        res = create_rowset_writer(context, &rs_writer);
 
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
@@ -1612,64 +1616,14 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     return res;
 }
 
-Status Tablet::create_vertical_rowset_writer(
-        const Version& version, const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
-        TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-        int64_t newest_write_timestamp, std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.version = version;
-    context.rowset_state = rowset_state;
-    context.segments_overlap = overlap;
-    context.oldest_write_timestamp = oldest_write_timestamp;
-    context.newest_write_timestamp = newest_write_timestamp;
-    context.tablet_schema = tablet_schema;
-    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+Status Tablet::create_vertical_rowset_writer(RowsetWriterContext& context,
+                                             std::unique_ptr<RowsetWriter>* rowset_writer) {
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, true, rowset_writer);
 }
 
-Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                    const SegmentsOverlapPB& overlap,
-                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-                                    int64_t newest_write_timestamp,
+Status Tablet::create_rowset_writer(RowsetWriterContext& context,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
-    return create_rowset_writer(version, rowset_state, overlap, tablet_schema,
-                                oldest_write_timestamp, newest_write_timestamp, nullptr,
-                                rowset_writer);
-}
-
-Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                    const SegmentsOverlapPB& overlap,
-                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-                                    int64_t newest_write_timestamp, io::FileSystemSPtr fs,
-                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.version = version;
-    context.rowset_state = rowset_state;
-    context.segments_overlap = overlap;
-    context.oldest_write_timestamp = oldest_write_timestamp;
-    context.newest_write_timestamp = newest_write_timestamp;
-    context.tablet_schema = tablet_schema;
-    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
-    context.fs = fs;
-    _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
-}
-
-Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
-                                    const RowsetStatePB& rowset_state,
-                                    const SegmentsOverlapPB& overlap,
-                                    TabletSchemaSPtr tablet_schema,
-                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.txn_id = txn_id;
-    context.load_id = load_id;
-    context.rowset_state = rowset_state;
-    context.segments_overlap = overlap;
-    context.oldest_write_timestamp = -1;
-    context.newest_write_timestamp = -1;
-    context.tablet_schema = tablet_schema;
-    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
@@ -1693,6 +1647,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
         context.rowset_dir = tablet_path();
     }
     context.data_dir = data_dir();
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
 }
 
 Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
