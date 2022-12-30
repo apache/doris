@@ -644,7 +644,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableShareHashTableForBroadcastJoin = true;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
-    public int groupConcatMaxLen = 2147483646;
+    public long groupConcatMaxLen = 2147483646;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
