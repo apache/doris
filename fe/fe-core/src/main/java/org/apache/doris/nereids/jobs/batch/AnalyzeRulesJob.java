@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
+import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
@@ -71,6 +72,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     // please see rule BindSlotReference or BindFunction for example
                     new ProjectWithDistinctToAggregate(),
                     new AvgDistinctToSumDivCount(),
+                    new AdjustAggregateNullableForEmptySet(),
                     new ResolveOrdinalInOrderByAndGroupBy(),
                     new ReplaceExpressionByChildOutput(),
                     new HideOneRowRelationUnderUnion(),
