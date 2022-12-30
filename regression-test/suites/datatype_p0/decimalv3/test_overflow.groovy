@@ -52,6 +52,5 @@ suite("test_overflow") {
     sql " SET check_overflow_for_decimal = false; "
     qt_select_not_check_overflow1 "select k1 * k2, k1 * k3, k1 * k2 * k3, k1 * v4, k1*50 from test_overflow;"
     qt_select_not_check_overflow2 "select v1, k1*10, v1 +k1*10 from test_overflow"
-    qt_select_not_check_overflow3 "select `k1`, cast (`k1` as DECIMALV3(38, 36)) from test_overflow;"
     sql "drop table if exists ${table1}"
 }
