@@ -133,6 +133,7 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     if (_is_merging) {
         _vsort_exec_exprs.close(state);
     }
+    ExecNode::release_resource(state);
 }
 
 Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
