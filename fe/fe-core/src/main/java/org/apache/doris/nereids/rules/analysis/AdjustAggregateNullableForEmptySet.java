@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
@@ -45,14 +44,9 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
                         logicalAggregate()
                                 .when(agg -> agg.getGroupByExpressions().isEmpty())
                                 .then(agg -> {
-                                    List<NamedExpression> output = agg.getOutputExpressions().stream().map(ne -> {
-                                        if (ne.isAlias() && ((Alias) ne).child() instanceof NullableAggregateFunction) {
-                                            Alias alias = ((Alias) ne);
-                                            NullableAggregateFunction fn = ((NullableAggregateFunction) alias.child());
-                                            ne = alias.withChildren(ImmutableList.of(fn.withAlwaysNullable(true)));
-                                        }
-                                        return ne;
-                                    }).collect(Collectors.toList());
+                                    List<NamedExpression> output = agg.getOutputExpressions().stream()
+                                            .map(ne -> ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne)))
+                                            .collect(Collectors.toList());
                                     return agg.withAggOutput(output);
                                 })
                 ),
