@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -107,12 +108,13 @@ public class ArithmeticExpr extends Expr {
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t : Type.getNumericTypes()) {
+            NullableMode mode = t.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t));
+                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t, mode));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.ADD.getName(), Lists.newArrayList(t, t), t));
+                    Operator.ADD.getName(), Lists.newArrayList(t, t), t, mode));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t));
+                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t, mode));
         }
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
@@ -173,15 +175,14 @@ public class ArithmeticExpr extends Expr {
             for (int j = 0; j < Type.getNumericTypes().size(); j++) {
                 Type t2 = Type.getNumericTypes().get(j);
 
+                Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false));
+                NullableMode mode = retType.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                        Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2), retType, mode));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.ADD.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                        Operator.ADD.getName(), Lists.newArrayList(t1, t2), retType, mode));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                        Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2), retType, mode));
             }
         }
 

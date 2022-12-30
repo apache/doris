@@ -23,6 +23,7 @@
 #include <type_traits>
 
 #include "runtime/decimalv2_value.h"
+#include "udf/udf_internal.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -216,7 +217,8 @@ struct BinaryOperationImpl {
 /// *   no agrs scale. ScaleR = Scale1 + Scale2;
 /// /   first arg scale. ScaleR = Scale1 (scale_a = DecimalType<B>::get_scale()).
 template <typename A, typename B, template <typename, typename> typename Operation,
-          typename ResultType, bool is_to_null_type, bool check_overflow = true>
+          typename ResultType, bool is_to_null_type, bool return_nullable_type,
+          bool check_overflow = true>
 struct DecimalBinaryOperation {
     using OpTraits = OperationTraits<Operation>;
 
@@ -249,12 +251,14 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 c[i] = apply(a[i], b[i], null_map[i]);
             }
-        } else {
-            if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
-                for (size_t i = 0; i < size; ++i) {
-                    c[i] = apply_scaled_div(a[i], b[i], null_map[i]);
-                }
-                return;
+        } else if constexpr (OpTraits::is_division && (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply_scaled_div(a[i], b[i], null_map[i]);
+            }
+        } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
+                             (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
+            for (size_t i = 0; i < size; ++i) {
+                null_map[i] = apply_op_safely(a[i], b[i], c[i].value);
             }
         }
     }
@@ -281,21 +285,21 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 c[i] = apply_scaled_div(a[i], b, null_map[i]);
             }
-            return;
-        }
-
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a[i], b, null_map[i]);
+        } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
+                             (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
+            for (size_t i = 0; i < size; ++i) {
+                null_map[i] = apply_op_safely(a[i], b, c[i].value);
+            }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a[i], b, null_map[i]);
+            }
         }
     }
 
     static void constant_vector(A a, const typename Traits::ArrayB& b, ArrayC& c) {
         size_t size = b.size();
-        if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
-            for (size_t i = 0; i < size; ++i) {
-                c[i] = apply_scaled_div(a, b[i]);
-            }
-        } else if constexpr (IsDecimalV2<A> || IsDecimalV2<B>) {
+        if constexpr (IsDecimalV2<A> || IsDecimalV2<B>) {
             DecimalV2Value da(a);
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Op::template apply(da, DecimalV2Value(b[i])).value();
@@ -314,33 +318,43 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 c[i] = apply_scaled_div(a, b[i], null_map[i]);
             }
-            return;
-        }
-
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a, b[i], null_map[i]);
+        } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
+                             (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
+            for (size_t i = 0; i < size; ++i) {
+                null_map[i] = apply_op_safely(a, b[i], c[i].value);
+            }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a, b[i], null_map[i]);
+            }
         }
     }
 
-    static ResultType constant_constant(A a, B b) {
-        if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
-            return apply_scaled_div(a, b);
-        }
-        return apply(a, b);
-    }
+    static ResultType constant_constant(A a, B b) { return apply(a, b); }
 
     static ResultType constant_constant(A a, B b, UInt8& is_null) {
         if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
             return apply_scaled_div(a, b, is_null);
+        } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
+                             (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
+            NativeResultType res;
+            is_null = apply_op_safely(a, b, res);
+            return res;
+        } else {
+            return apply(a, b, is_null);
         }
-        return apply(a, b, is_null);
     }
 
     static ColumnPtr adapt_decimal_constant_constant(A a, B b, DataTypePtr res_data_type) {
         auto column_result = ColumnDecimal<ResultType>::create(
                 1, assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
 
-        if constexpr (is_to_null_type) {
+        if constexpr (return_nullable_type && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
+            LOG(FATAL) << "Invalid function type!";
+            return column_result;
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(1, 0);
             column_result->get_element(0) = constant_constant(a, b, null_map->get_element(0));
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
@@ -358,7 +372,12 @@ struct DecimalBinaryOperation {
                 assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
         DCHECK(column_left_ptr != nullptr);
 
-        if constexpr (is_to_null_type) {
+        if constexpr (return_nullable_type && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
+            LOG(FATAL) << "Invalid function type!";
+            return column_result;
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
             vector_constant(column_left_ptr->get_data(), b, column_result->get_data(),
                             null_map->get_data());
@@ -377,7 +396,12 @@ struct DecimalBinaryOperation {
                 assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
         DCHECK(column_right_ptr != nullptr);
 
-        if constexpr (is_to_null_type) {
+        if constexpr (return_nullable_type && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
+            LOG(FATAL) << "Invalid function type!";
+            return column_result;
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
             constant_vector(a, column_right_ptr->get_data(), column_result->get_data(),
                             null_map->get_data());
@@ -398,7 +422,12 @@ struct DecimalBinaryOperation {
                 assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
-        if constexpr (is_to_null_type) {
+        if constexpr (return_nullable_type && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
+            LOG(FATAL) << "Invalid function type!";
+            return column_result;
+        } else if constexpr (return_nullable_type || is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_result->size(), 0);
             vector_vector(column_left_ptr->get_data(), column_right_ptr->get_data(),
                           column_result->get_data(), null_map->get_data());
@@ -482,6 +511,12 @@ private:
     static NativeResultType apply_scaled_mod(NativeResultType a, NativeResultType b,
                                              UInt8& is_null) {
         return apply(a, b, is_null);
+    }
+
+    static UInt8 apply_op_safely(NativeResultType a, NativeResultType b, NativeResultType& c) {
+        if constexpr (OpTraits::is_multiply || OpTraits::is_plus_minus) {
+            return Op::template apply(a, b, c);
+        }
     }
 };
 
@@ -568,7 +603,8 @@ struct BinaryOperationTraits {
 };
 
 template <typename LeftDataType, typename RightDataType, typename ExpectedResultDataType,
-          template <typename, typename> class Operation, bool is_to_null_type>
+          template <typename, typename> class Operation, bool is_to_null_type,
+          bool return_nullable_type>
 struct ConstOrVectorAdapter {
     static constexpr bool result_is_decimal =
             IsDataTypeDecimal<LeftDataType> || IsDataTypeDecimal<RightDataType>;
@@ -580,7 +616,8 @@ struct ConstOrVectorAdapter {
 
     using OperationImpl = std::conditional_t<
             IsDataTypeDecimal<ResultDataType>,
-            DecimalBinaryOperation<A, B, Operation, ResultType, is_to_null_type>,
+            DecimalBinaryOperation<A, B, Operation, ResultType, is_to_null_type,
+                                   return_nullable_type>,
             BinaryOperationImpl<A, B, Operation<A, B>, is_to_null_type, ResultType>>;
 
     static ColumnPtr execute(ColumnPtr column_left, ColumnPtr column_right,
@@ -774,6 +811,7 @@ public:
             right_generic =
                     static_cast<const DataTypeNullable*>(right_generic)->get_nested_type().get();
         }
+        bool result_is_nullable = context->impl()->check_overflow_for_decimal();
         if (result_generic->is_nullable()) {
             result_generic =
                     static_cast<const DataTypeNullable*>(result_generic)->get_nested_type().get();
@@ -795,15 +833,31 @@ public:
                                      ResultDataType>)&&(IsDataTypeDecimal<ExpectedResultDataType> ==
                                                         (IsDataTypeDecimal<LeftDataType> ||
                                                          IsDataTypeDecimal<RightDataType>))) {
-                        auto column_result = ConstOrVectorAdapter<
-                                LeftDataType, RightDataType,
-                                std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
-                                                   ExpectedResultDataType, ResultDataType>,
-                                Operation, is_to_null_type>::
-                                execute(block.get_by_position(arguments[0]).column,
-                                        block.get_by_position(arguments[1]).column, left, right,
-                                        remove_nullable(block.get_by_position(result).type));
-                        block.replace_by_position(result, std::move(column_result));
+                        if (result_is_nullable) {
+                            auto column_result = ConstOrVectorAdapter<
+                                    LeftDataType, RightDataType,
+                                    std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
+                                                       ExpectedResultDataType, ResultDataType>,
+                                    Operation, is_to_null_type,
+                                    true>::execute(block.get_by_position(arguments[0]).column,
+                                                   block.get_by_position(arguments[1]).column, left,
+                                                   right,
+                                                   remove_nullable(
+                                                           block.get_by_position(result).type));
+                            block.replace_by_position(result, std::move(column_result));
+                        } else {
+                            auto column_result = ConstOrVectorAdapter<
+                                    LeftDataType, RightDataType,
+                                    std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
+                                                       ExpectedResultDataType, ResultDataType>,
+                                    Operation, is_to_null_type,
+                                    false>::execute(block.get_by_position(arguments[0]).column,
+                                                    block.get_by_position(arguments[1]).column,
+                                                    left, right,
+                                                    remove_nullable(
+                                                            block.get_by_position(result).type));
+                            block.replace_by_position(result, std::move(column_result));
+                        }
                         return true;
                     }
                     return false;
