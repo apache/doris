@@ -762,7 +762,14 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
         }
 
         if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
