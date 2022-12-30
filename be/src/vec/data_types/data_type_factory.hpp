@@ -124,6 +124,10 @@ public:
         return create_data_type(TypeDescriptor::from_thrift(raw_type), raw_type.is_nullable);
     }
 
+    DataTypePtr create_data_type(const FieldType& type, int precision, int scale) {
+        return _create_primitive_data_type(type, precision, scale);
+    }
+
 private:
     DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale) const;
 
