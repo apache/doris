@@ -173,7 +173,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
 
     @Override
     public void dropTable(String tableName) {
-        LOG.warn("drop table [{}]", tableName);
+        LOG.debug("drop table [{}]", tableName);
         Long tableId = tableNameToId.remove(tableName);
         if (tableId == null) {
             LOG.warn("drop table [{}] failed", tableName);

@@ -62,7 +62,7 @@ public class MetastoreEventFactory implements EventFactory {
                 .collect(Collectors.toList());
 
         if (tobeProcessEvents.isEmpty()) {
-            LOG.warn("The metastore events to process is empty on catalog {}", hmsExternalCatalog.getName());
+            LOG.info("The metastore events to process is empty on catalog {}", hmsExternalCatalog.getName());
             return Collections.emptyList();
         }
 
@@ -75,6 +75,7 @@ public class MetastoreEventFactory implements EventFactory {
      * For a partition, it is meaningless to process any events before the drop partition.
      */
     List<MetastoreEvent> createBatchEvents(List<MetastoreEvent> events) {
+        // now do nothing
         return events;
     }
 }

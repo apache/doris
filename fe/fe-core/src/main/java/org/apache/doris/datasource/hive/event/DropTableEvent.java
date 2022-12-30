@@ -78,7 +78,7 @@ public class DropTableEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.warn("DropTable event process,catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName,
+            LOG.info("DropTable event process,catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName,
                     tableName);
             Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName);
         } catch (DdlException e) {

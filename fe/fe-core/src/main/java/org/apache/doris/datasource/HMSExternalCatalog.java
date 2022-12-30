@@ -67,8 +67,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             props.putAll(HMSResource.getPropertiesFromDLF());
         }
         catalogProperty = new CatalogProperty(resource, props);
-        //        setLastSyncedEventId(getCurrentEventId());
-        //        LOG.error("new HMSExternalCatalog(),lastSyncedEventId = {}", lastSyncedEventId);
     }
 
     public String getHiveMetastoreUris() {
@@ -193,7 +191,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (lastSyncedEventId <= 0) {
             lastSyncedEventId = getCurrentEventId();
             refreshCatalog(hmsExternalCatalog);
-            LOG.error(
+            LOG.info(
                     "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
                             + "lastSyncedEventId is [{}]",
                     hmsExternalCatalog.getName(), lastSyncedEventId);
@@ -201,9 +199,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         long currentEventId = getCurrentEventId();
-        LOG.error("本次getNextEventResponse的currentEventId为{},lastSyncedEventId为{}", currentEventId, lastSyncedEventId);
+        LOG.debug("Catalog [{}] getNextEventResponse的currentEventId is {},lastSyncedEventId is {}",
+                hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
-            LOG.error("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
+            LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
         return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
@@ -218,13 +217,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public long getCurrentEventId() {
         makeSureInitialized();
-        if (client == null) {
-            LOG.error("client为空====================");
-            return -1;
-        }
         CurrentNotificationEventId currentNotificationEventId = client.getCurrentNotificationEventId();
         if (currentNotificationEventId == null) {
-            LOG.error("获取currentNotificationEventId为null");
+            LOG.warn("Get currentNotificationEventId is null");
             return -1;
         }
         return currentNotificationEventId.getEventId();

@@ -152,7 +152,7 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             return client.client.getCurrentNotificationEventId();
         } catch (Exception e) {
-            LOG.error("Failed to fetch current notification event id", e);
+            LOG.warn("Failed to fetch current notification event id", e);
             throw new MetastoreNotificationFetchException(
                     "Failed to get current notification event id. msg: " + e.getMessage());
         }
@@ -165,7 +165,7 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             return client.client.getNextNotification(lastEventId, maxEvents, filter);
         } catch (Exception e) {
-            LOG.error("Failed to get next notification based on last event id {}", lastEventId, e);
+            LOG.warn("Failed to get next notification based on last event id {}", lastEventId, e);
             throw new MetastoreNotificationFetchException(
                     "Failed to get next notification based on last event id: " + lastEventId + ". msg: " + e
                             .getMessage());

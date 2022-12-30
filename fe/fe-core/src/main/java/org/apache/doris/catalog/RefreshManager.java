@@ -167,25 +167,4 @@ public class RefreshManager {
         log.setTableId(table.getId());
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
-
-    private void dropExternalCtlTable(String dbName, String tableName, CatalogIf catalog) throws DdlException {
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new DdlException("Only support drop ExternalCatalog Tables");
-        }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-        }
-
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setTableId(table.getId());
-        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
-    }
 }

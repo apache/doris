@@ -580,9 +580,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Env.getCurrentEnv().getEditLog().logDropExternalTable(log);
     }
 
-    // TODO: 2022/12/29 check null ?
     public void replayDropExternalTable(ExternalObjectLog log) {
-        LOG.warn("ReplayDropExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(), log.getDbId(),
+        LOG.debug("ReplayDropExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(), log.getDbId(),
                 log.getTableId());
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());

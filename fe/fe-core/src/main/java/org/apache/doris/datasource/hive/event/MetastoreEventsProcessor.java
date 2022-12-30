@@ -76,7 +76,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      * <code>{@link Config#hms_events_batch_size_per_rpc}</code>
      */
     private List<NotificationEvent> getNextHMSEvents(HMSExternalCatalog hmsExternalCatalog) {
-        LOG.error("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
+        LOG.debug("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
         NotificationEventResponse response = hmsExternalCatalog.getNextEventResponse(hmsExternalCatalog);
 
         if (response == null) {
@@ -85,26 +85,14 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         return response.getEvents();
     }
 
-
-    //    private void doExecute(List<MetastoreEvent> events) {
-    //        for (MetastoreEvent event : events) {
-    //            try {
-    //                event.process();
-    //            } catch (Exception e) {
-    //                if (event instanceof BatchEvent) {
-    //                    cacheProcessor.setLastSyncedEventId(((BatchEvent<?>) event).getFirstEventId() - 1);
-    //                } else {
-    //                    cacheProcessor.setLastSyncedEventId(event.getEventId() - 1);
-    //                }
-    //                throw e;
-    //            }
-    //        }
-    //    }
-
-    private void doExecute(List<MetastoreEvent> events) {
+    private void doExecute(List<MetastoreEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         for (MetastoreEvent event : events) {
-            LOG.error("收到hive event消息，event:[{}]", event.toString());
-            event.process();
+            try {
+                event.process();
+            } catch (Exception e) {
+                hmsExternalCatalog.setLastSyncedEventId(event.getEventId() - 1);
+                throw e;
+            }
         }
     }
 
@@ -112,10 +100,9 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      * Process the given list of notification events. Useful for tests which provide a list of events
      */
     private void processEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
-        //转换过滤
+        //transfer
         List<MetastoreEvent> metastoreEvents = metastoreEventFactory.getMetastoreEvents(events, hmsExternalCatalog);
-        doExecute(metastoreEvents);
-
+        doExecute(metastoreEvents, hmsExternalCatalog);
         hmsExternalCatalog.setLastSyncedEventId(events.get(events.size() - 1).getEventId());
     }
 
@@ -129,7 +116,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         try {
             realRun();
         } catch (Exception ex) {
-            LOG.error("Task failed", ex);
+            LOG.warn("Task failed", ex);
         }
         isRunning = false;
     }
@@ -144,14 +131,14 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 try {
                     events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
-                        LOG.error("Events size are {} on catalog [{}]", events.size(),
+                        LOG.info("Events size are {} on catalog [{}]", events.size(),
                                 hmsExternalCatalog.getName());
                         processEvents(events, hmsExternalCatalog);
                     }
                 } catch (MetastoreNotificationFetchException e) {
-                    LOG.error("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
+                    LOG.warn("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
-                    LOG.error("Failed to process hive metastore [{}] events .",
+                    LOG.warn("Failed to process hive metastore [{}] events .",
                             hmsExternalCatalog.getName(), ex);
                 }
             }
