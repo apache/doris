@@ -44,6 +44,10 @@ public class GroupBitOr extends NullableAggregateFunction implements UnaryExpres
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
     );
 
+    public GroupBitOr(Expression child) {
+        this(child, false);
+    }
+
     public GroupBitOr(Expression child, boolean isAlwaysNullable) {
         super("group_bit_or", isAlwaysNullable, child);
     }

@@ -35,6 +35,10 @@ public class GroupBitmapXor extends NullableAggregateFunction implements UnaryEx
             FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE)
     );
 
+    public GroupBitmapXor(Expression child) {
+        this(child, false);
+    }
+
     public GroupBitmapXor(Expression arg0, boolean isAlwaysNullable) {
         super("group_bitmap_xor", isAlwaysNullable, arg0);
     }
