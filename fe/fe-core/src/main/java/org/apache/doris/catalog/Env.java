@@ -1405,8 +1405,10 @@ public class Env {
         if (Config.enable_fqdn_mode) {
             fqdnManager.start();
         }
-        // TODO: 2022/12/27 判断是否开启
-        metastoreEventsProcessor.start();
+        if (Config.enable_hms_events_incremental_sync) {
+            metastoreEventsProcessor.start();
+        }
+
     }
 
     // start threads that should running on all FE

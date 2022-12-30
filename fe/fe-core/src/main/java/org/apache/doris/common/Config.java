@@ -1937,6 +1937,12 @@ public class Config extends ConfigBase {
     public static boolean enable_func_pushdown = true;
 
     /**
+     * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
+     */
+    @ConfField
+    public static boolean enable_hms_events_incremental_sync = false;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true)
