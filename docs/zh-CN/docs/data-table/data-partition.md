@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
     `timestamp` DATETIME NOT NULL COMMENT "数据灌入的时间戳",
-    `city` VARCHAR(20) COMMENT "用户所在城市",
+    `city` VARCHAR(20) NOT NULL COMMENT "用户所在城市",
     `age` SMALLINT COMMENT "用户年龄",
     `sex` TINYINT COMMENT "用户性别",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
