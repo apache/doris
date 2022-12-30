@@ -29,8 +29,10 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -47,6 +49,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.system.SystemInfoService;
@@ -105,6 +108,11 @@ public class StatisticsUtil {
             return Collections.emptyList();
         }
         return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
+    }
+
+    public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches)
+            throws Exception {
+        return resultBatches.stream().map(Histogram::fromResultRow).collect(Collectors.toList());
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
@@ -252,5 +260,27 @@ public class StatisticsUtil {
             throw new IllegalStateException(String.format("Table:%s doesn't exist", tableName.getTbl()));
         }
         return new DBObjects(catalogIf, databaseIf, tableIf);
+    }
+
+    public static Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
+        CatalogIf<DatabaseIf<TableIf>> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (catalogIf == null) {
+            return null;
+        }
+        DatabaseIf<TableIf> db = catalogIf.getDb(dbId).orElse(null);
+        if (db == null) {
+            return null;
+        }
+        TableIf tblIf = db.getTable(tblId).orElse(null);
+        if (tblIf == null) {
+            return null;
+        }
+        if (idxId != -1) {
+            if (tblIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tblIf;
+                return olapTable.getIndexIdToMeta().get(idxId).getColumnByName(columnName);
+            }
+        }
+        return tblIf.getColumn(columnName);
     }
 }

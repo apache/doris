@@ -51,6 +51,7 @@ import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.system.Backend;
@@ -1005,6 +1006,9 @@ public class OlapTable extends Table {
 
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+        if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
+            return new HistogramTask(scheduler, info);
+        }
         if (info.analysisType.equals(AnalysisType.COLUMN)) {
             return new OlapAnalysisTask(scheduler, info);
         }

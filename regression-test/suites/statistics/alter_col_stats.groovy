@@ -33,7 +33,8 @@ suite("alter_column_stats") {
     sql """INSERT INTO statistics_test VALUES(2, 'b', '2012-01-01')"""
     sql """INSERT INTO statistics_test VALUES(3, 'c', '2013-01-01')"""
 
-    sql """ANALYZE statistics_test"""
+    sql """ANALYZE TABLE statistics_test"""
+    sql """ANALYZE TABLE statistics_test UPDATE HISTOGRAM ON col1,col2"""
 
     sleep(9000)
 

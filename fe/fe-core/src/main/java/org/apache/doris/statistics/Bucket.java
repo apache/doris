@@ -18,6 +18,15 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.statistics.util.StatisticsUtil;
+
+import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+
+import java.util.List;
 
 public class Bucket {
     public LiteralExpr lower;
@@ -64,5 +73,21 @@ public class Bucket {
 
     public void setNdv(int ndv) {
         this.ndv = ndv;
+    }
+
+    public static List<Bucket> deserializeFromjson(Type datatype, JsonArray jsonArray)
+            throws AnalysisException {
+        List<Bucket> buckets = Lists.newArrayList();
+        for (int i = 0; i < jsonArray.size(); i++) {
+            JsonObject bucketJson = jsonArray.get(i).getAsJsonObject();
+            Bucket bucket = new Bucket();
+            bucket.lower = StatisticsUtil.readableValue(datatype, bucketJson.get("lower").getAsString());
+            bucket.upper = StatisticsUtil.readableValue(datatype, bucketJson.get("upper").getAsString());
+            bucket.count = bucketJson.get("count").getAsInt();
+            bucket.preSum = bucketJson.get("pre_sum").getAsInt();
+            bucket.ndv = bucketJson.get("ndv").getAsInt();
+            buckets.add(bucket);
+        }
+        return buckets;
     }
 }

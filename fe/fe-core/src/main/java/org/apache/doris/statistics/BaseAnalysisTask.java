@@ -26,8 +26,12 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public abstract class BaseAnalysisTask {
+
+    public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
@@ -119,7 +123,8 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
-        if (info.analysisType != null && info.analysisType.equals(AnalysisType.COLUMN)) {
+        if (info.analysisType != null && (info.analysisType.equals(AnalysisType.COLUMN)
+                || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
                 Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(

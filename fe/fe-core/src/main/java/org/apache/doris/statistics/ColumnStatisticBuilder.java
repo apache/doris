@@ -27,7 +27,6 @@ public class ColumnStatisticBuilder {
     private double dataSize;
     private double minValue;
     private double maxValue;
-    private Histogram histogram;
     private double selectivity = 1.0;
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
@@ -45,7 +44,6 @@ public class ColumnStatisticBuilder {
         this.dataSize = columnStatistic.dataSize;
         this.minValue = columnStatistic.minValue;
         this.maxValue = columnStatistic.maxValue;
-        this.histogram = columnStatistic.histogram;
         this.selectivity = columnStatistic.selectivity;
         this.minExpr = columnStatistic.minExpr;
         this.maxExpr = columnStatistic.maxExpr;
@@ -84,11 +82,6 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatisticBuilder setMaxValue(double maxValue) {
         this.maxValue = maxValue;
-        return this;
-    }
-
-    public ColumnStatisticBuilder setHistogram(Histogram histogram) {
-        this.histogram = histogram;
         return this;
     }
 
@@ -140,10 +133,6 @@ public class ColumnStatisticBuilder {
         return maxValue;
     }
 
-    public Histogram getHistogram() {
-        return histogram;
-    }
-
     public double getSelectivity() {
         return selectivity;
     }
@@ -162,6 +151,6 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatistic build() {
         return new ColumnStatistic(count, ndv, avgSizeByte, numNulls,
-            dataSize, minValue, maxValue, histogram, selectivity, minExpr, maxExpr, isUnknown);
+            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown);
     }
 }
