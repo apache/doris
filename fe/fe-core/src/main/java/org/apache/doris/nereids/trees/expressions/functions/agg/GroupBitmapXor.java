@@ -61,7 +61,7 @@ public class GroupBitmapXor extends NullableAggregateFunction implements UnaryEx
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new GroupBitXor(children.get(0), isAlwaysNullable);
+        return new GroupBitmapXor(children.get(0), isAlwaysNullable);
     }
 
     @Override
