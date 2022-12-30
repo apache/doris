@@ -695,6 +695,8 @@ public class SparkLoadJob extends BulkLoadJob {
             // clear job infos that not persist
             sparkLoadAppHandle = null;
             resourceDesc = null;
+            etlOutputPath = "";
+            appId = "";
             tableToLoadPartitions.clear();
             indexToPushBrokerReaderParams.clear();
             indexToSchemaHash.clear();
@@ -710,6 +712,13 @@ public class SparkLoadJob extends BulkLoadJob {
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         super.afterVisible(txnState, txnOperated);
+        clearJob();
+    }
+
+    @Override
+    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
+            throws UserException {
+        super.afterAborted(txnState, txnOperated, txnStatusChangeReason);
         clearJob();
     }
 
