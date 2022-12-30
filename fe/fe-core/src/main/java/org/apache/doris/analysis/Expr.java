@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -31,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -2035,6 +2037,25 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         if (fn.functionName().equalsIgnoreCase("concat_ws")) {
             return children.get(0).isNullable();
+        }
+        if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
+        if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
+                || fn.functionName().equalsIgnoreCase(Operator.SUBTRACT.getName()))
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
         }
         return true;
     }

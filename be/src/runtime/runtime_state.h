@@ -135,6 +135,11 @@ public:
                _query_options.enable_function_pushdown;
     }
 
+    bool check_overflow_for_decimal() const {
+        return _query_options.__isset.check_overflow_for_decimal &&
+               _query_options.check_overflow_for_decimal;
+    }
+
     // Create a codegen object in _codegen. No-op if it has already been called.
     // If codegen is enabled for the query, this is created when the runtime
     // state is created. If codegen is disabled for the query, this is created

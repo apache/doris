@@ -189,6 +189,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
+    public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
+
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
@@ -541,6 +543,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
+
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
+    private boolean checkOverflowForDecimal = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -1235,6 +1240,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean checkOverflowForDecimal() {
+        return checkOverflowForDecimal;
+    }
+
     public boolean isTrimTailingSpacesForExternalTableQuery() {
         return trimTailingSpacesForExternalTableQuery;
     }
@@ -1368,6 +1377,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
         tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);
