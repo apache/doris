@@ -177,6 +177,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     // Condition
     for (auto& filter : filters) {
+        if (is_match_condition(filter.condition_op) &&
+            !_tablet_schema->has_inverted_index(
+                    _tablet_schema->column(filter.column_name).unique_id())) {
+            return Status::NotSupported("Match query must with inverted index, column `" +
+                                        filter.column_name + "` is not inverted index column");
+        }
         _tablet_reader_params.conditions.push_back(filter);
     }
 
@@ -427,6 +433,12 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);
     COUNTER_UPDATE(olap_parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);
+
+    COUNTER_UPDATE(olap_parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);
+    COUNTER_UPDATE(olap_parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);
+
+    COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
+                   stats.output_index_result_column_timer);
 
     COUNTER_UPDATE(olap_parent->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(olap_parent->_total_segment_counter, stats.total_segment_number);

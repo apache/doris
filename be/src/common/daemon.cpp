@@ -37,6 +37,7 @@
 #include "exprs/is_null_predicate.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
+#include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
 #include "exprs/new_in_predicate.h"
 #include "exprs/operators.h"
@@ -404,6 +405,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     HashFunctions::init();
     TopNFunctions::init();
     DummyTableFunctions::init();
+    MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();

@@ -31,10 +31,11 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
-#include "olap/rowset/segment_v2/parsed_page.h"        // for ParsedPage
-#include "olap/rowset/segment_v2/row_ranges.h"         // for RowRanges
+#include "olap/rowset/segment_v2/inverted_index_reader.h" // for InvertedIndexReader
+#include "olap/rowset/segment_v2/ordinal_page_index.h"    // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/page_handle.h"           // for PageHandle
+#include "olap/rowset/segment_v2/parsed_page.h"           // for ParsedPage
+#include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "util/file_cache.h"
@@ -105,6 +106,9 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
+    Status new_inverted_index_iterator(const TabletIndex* index_meta,
+                                       InvertedIndexIterator** iterator);
+
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
@@ -174,9 +178,18 @@ private:
         });
     }
 
+    // Read column inverted indexes into memory
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_inverted_index_loaded(const TabletIndex* index_meta) {
+        // load inverted index only if not loaded or index_id is changed
+        RETURN_IF_ERROR(_load_inverted_index_index(index_meta));
+        return Status::OK();
+    }
+
     Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
     Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
     Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_inverted_index_index(const TabletIndex* index_meta);
     Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
@@ -214,9 +227,11 @@ private:
     const BloomFilterIndexPB* _bf_index_meta = nullptr;
 
     DorisCallOnce<Status> _load_index_once;
+    mutable std::mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
+    std::unique_ptr<InvertedIndexReader> _inverted_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
