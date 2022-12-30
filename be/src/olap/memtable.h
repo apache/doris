@@ -46,7 +46,7 @@ public:
              RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
              const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
-             const std::shared_ptr<MemTracker>& flush_mem_tracker, bool support_vec = false);
+             const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
