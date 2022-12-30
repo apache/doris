@@ -166,7 +166,7 @@ sortClause
     ;
 
 sortItem
-    :  expression ordering = (ASC | DESC)?
+    :  expression ordering = (ASC | DESC)? ( NULLS FIRST | NULLS LAST )?
     ;
 
 limitClause
