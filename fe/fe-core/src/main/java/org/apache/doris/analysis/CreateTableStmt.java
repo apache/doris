@@ -436,7 +436,7 @@ public class CreateTableStmt extends DdlStmt {
             if (distributionDesc == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
-            distributionDesc.analyze(columnSet, columnDefs);
+            distributionDesc.analyze(columnSet, columnDefs, keysDesc);
             if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {
                 if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                     throw new AnalysisException("Create unique keys table should not contain random distribution desc");

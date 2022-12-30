@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -29,6 +30,7 @@ import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.twill.internal.Configs.Keys;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -60,7 +62,7 @@ public class HashDistributionDesc extends DistributionDesc {
     }
 
     @Override
-    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs) throws AnalysisException {
+    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
         if (numBucket <= 0) {
             throw new AnalysisException("Number of hash distribution should be larger than zero.");
         }
@@ -74,6 +76,15 @@ public class HashDistributionDesc extends DistributionDesc {
             }
             if (!distColSet.add(columnName)) {
                 throw new AnalysisException("Duplicated distribution column " + columnName);
+            }
+            for (ColumnDef columnDef : columnDefs) {
+                if (columnDef.getName().equalsIgnoreCase(columnName)) {
+                    if (!columnDef.isKey() && (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS
+                            || keysDesc.getKeysType() == KeysType.AGG_KEYS)) {
+                        throw new AnalysisException("Distribution column[" + columnName + "] is not key column");
+                    }
+                    break;
+                }
             }
         }
     }
@@ -109,10 +120,6 @@ public class HashDistributionDesc extends DistributionDesc {
             boolean find = false;
             for (Column column : columns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (!column.isKey() && column.getAggregationType() != AggregateType.NONE) {
-                        throw new DdlException("Distribution column[" + colName + "] is not key column");
-                    }
-
                     if (column.getType().isScalarType(PrimitiveType.STRING)) {
                         throw new DdlException("String Type should not be used in distribution column["
                                 + column.getName() + "].");
