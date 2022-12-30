@@ -210,4 +210,5 @@ suite("order_group", "query,p0") {
     sql 'set enable_fallback_to_original_planner=false'
     qt_group31 "select count(*) from ${tableName1} where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00')\
 		    and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by count(*)"
+    qt_group1 "select min(k5) from ${tableName1}"
 }

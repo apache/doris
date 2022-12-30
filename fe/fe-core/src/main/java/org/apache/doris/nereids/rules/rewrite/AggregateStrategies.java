@@ -284,10 +284,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build()
                 .transform(olapScan, cascadesContext)
                 .get(0);
-
-        return aggregate.withChildren(ImmutableList.of(
-            new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
-        ));
+        if (project != null) {
+            return aggregate.withChildren(ImmutableList.of(
+                    project.withChildren(
+                            ImmutableList.of(new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)))
+            ));
+        } else {
+            return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
+            ));
+        }
     }
 
     /**
