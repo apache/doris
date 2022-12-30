@@ -29,7 +29,7 @@ namespace pipeline {
 class ConstValueOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:
     ConstValueOperatorBuilder(int32_t id, ExecNode* node)
-            : OperatorBuilder(id, "ConstValueOperatorBuilder", node) {};
+            : OperatorBuilder(id, "ConstValueOperator", node) {};
 
     OperatorPtr build_operator() override;
 
