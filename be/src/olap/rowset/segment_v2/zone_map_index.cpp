@@ -17,8 +17,6 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
-#include "olap/column_block.h"
-#include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
@@ -144,19 +142,18 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        RETURN_IF_ERROR(
-                ColumnVectorBatch::create(num_to_read, false, reader.type_info(), nullptr, &cvb));
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
+        // The type of reader is OLAP_FIELD_TYPE_OBJECT.
+        // ColumnBitmap will be created when using OLAP_FIELD_TYPE_OBJECT.
+        // But what we need actually is ColumnString.
+        vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
 
         RETURN_IF_ERROR(iter.seek_to_ordinal(i));
         size_t num_read = num_to_read;
-        RETURN_IF_ERROR(iter.next_batch(&num_read, &column_block_view));
+        RETURN_IF_ERROR(iter.next_batch(&num_read, column));
         DCHECK(num_to_read == num_read);
 
-        Slice* value = reinterpret_cast<Slice*>(cvb->data());
-        if (!_page_zone_maps[i].ParseFromArray(value->data, value->size)) {
+        if (!_page_zone_maps[i].ParseFromArray(column->get_data_at(0).data,
+                                               column->get_data_at(0).size)) {
             return Status::Corruption("Failed to parse zone map");
         }
         pool.clear();
