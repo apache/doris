@@ -42,7 +42,7 @@ public class Min extends NullableAggregateFunction implements UnaryExpression, C
         this(isDistinct, false, arg);
     }
 
-    public Min(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
+    private Min(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
         super("min", isAlwaysNullable, isDistinct, arg);
     }
 

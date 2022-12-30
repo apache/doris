@@ -41,7 +41,7 @@ public class Max extends NullableAggregateFunction implements UnaryExpression, C
         this(isDistinct, false, arg);
     }
 
-    public Max(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
+    private Max(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
         super("max", isAlwaysNullable, isDistinct, arg);
     }
 

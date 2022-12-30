@@ -48,7 +48,7 @@ public class GroupBitAnd extends NullableAggregateFunction implements UnaryExpre
         this(child, false);
     }
 
-    public GroupBitAnd(Expression child, boolean isAlwaysNullable) {
+    private GroupBitAnd(Expression child, boolean isAlwaysNullable) {
         super("group_bit_and", isAlwaysNullable, child);
     }
 
