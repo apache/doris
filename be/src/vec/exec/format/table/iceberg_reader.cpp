@@ -115,17 +115,33 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
                     data_file_path = fs_name + data_file_path;
                 }
             }
-            RETURN_IF_ERROR(
-                    delete_reader.init_reader(delete_file_col_names, nullptr, nullptr, false));
+            Status init_st =
+                    delete_reader.init_reader(delete_file_col_names, nullptr, nullptr, false);
+            if (init_st.is_end_of_file()) {
+                continue;
+            } else if (!init_st.ok()) {
+                return init_st;
+            }
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                     partition_columns;
             std::unordered_map<std::string, VExprContext*> missing_columns;
             delete_reader.set_fill_columns(partition_columns, missing_columns);
 
+            bool dictionary_coded = false;
+            const tparquet::FileMetaData* meta_data = delete_reader.get_meta_data();
+            for (int i = 0; i < delete_file_col_names.size(); ++i) {
+                if (delete_file_col_names[i] == ICEBERG_FILE_PATH) {
+                    // ParquetReader wil return EndOfFile if there's no row group
+                    auto& column_chunk = meta_data->row_groups[0].columns[i];
+                    if (column_chunk.__isset.meta_data &&
+                        column_chunk.meta_data.__isset.dictionary_page_offset) {
+                        dictionary_coded = true;
+                    }
+                    break;
+                }
+            }
+
             bool eof = false;
-            // We can only know whether a parquet file is encoded in dictionary after reading the first block,
-            // so we assume it dictionary encoded first, and reset it false if error thrown.
-            bool dictionary_coded = true;
             while (!eof) {
                 Block block = Block();
                 for (int i = 0; i < delete_file_col_names.size(); ++i) {
@@ -146,14 +162,7 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
                 }
                 eof = false;
                 size_t read_rows = 0;
-                Status st = delete_reader.get_next_block(&block, &read_rows, &eof);
-                if (!st.ok()) {
-                    if (st.to_string() == "[IO_ERROR]Not dictionary coded") {
-                        dictionary_coded = false;
-                        continue;
-                    }
-                    return st;
-                }
+                RETURN_IF_ERROR(delete_reader.get_next_block(&block, &read_rows, &eof));
                 if (read_rows > 0) {
                     ColumnPtr path_column = block.get_by_name(ICEBERG_FILE_PATH).column;
                     DCHECK_EQ(path_column->size(), read_rows);
