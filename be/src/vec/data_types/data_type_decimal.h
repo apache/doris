@@ -118,8 +118,7 @@ public:
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(UInt32 precision_ = 27, UInt32 scale_ = 9)
-            : precision(precision_), scale(scale_) {
+    DataTypeDecimal(UInt32 precision = 27, UInt32 scale = 9) : precision(precision), scale(scale) {
         if (UNLIKELY(precision < 1 || precision > max_precision())) {
             LOG(FATAL) << fmt::format("Precision {} is out of bounds", precision);
         }
