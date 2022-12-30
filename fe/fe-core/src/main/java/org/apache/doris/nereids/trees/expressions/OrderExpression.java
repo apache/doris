@@ -21,6 +21,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
@@ -39,6 +40,14 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
         this.orderKey = orderKey;
     }
 
+    public boolean isAsc() {
+        return orderKey.isAsc();
+    }
+
+    public boolean isNullFirst() {
+        return orderKey.isNullFirst();
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitOrderExpression(this, context);
@@ -48,6 +57,11 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new OrderExpression(new OrderKey(children.get(0), orderKey.isAsc(), orderKey.isNullFirst()));
+    }
+
+    @Override
+    public DataType getDataType() {
+        return child().getDataType();
     }
 
     @Override

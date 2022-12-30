@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import java.util.List;
 
@@ -30,9 +31,19 @@ import java.util.List;
  * X has vargs, the remaining arguments of Y must be strictly implicitly castable
  */
 public interface ImplicitlyCastableSignature extends ComputeSignature {
+
+    /** isImplicitlyCastable */
     static boolean isImplicitlyCastable(AbstractDataType signatureType, AbstractDataType realType) {
-        // TODO: copy isImplicitlyCastable method to DataType
-        return Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true);
+        if (signatureType instanceof AnyDataType || signatureType.isAssignableFrom(realType)) {
+            return true;
+        }
+        try {
+            // TODO: copy isImplicitlyCastable method to DataType
+            return Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true);
+        } catch (Throwable t) {
+            // the signatureType maybe AbstractDataType and can not cast to catalog data type.
+            return false;
+        }
     }
 
     @Override

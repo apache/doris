@@ -32,6 +32,7 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -403,28 +405,38 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     private Expr translateAggregateFunction(AggregateFunction function,
             List<Expression> currentPhaseArguments, List<Expr> aggFnArguments,
             AggregateParam aggregateParam, PlanTranslatorContext context) {
-        List<Expr> catalogArguments = currentPhaseArguments
+        List<Expr> currentPhaseCatalogArguments = currentPhaseArguments
                 .stream()
-                .map(arg -> arg.accept(this, context))
+                .map(arg -> arg instanceof OrderExpression
+                        ? translateOrderExpression((OrderExpression) arg, context).getExpr()
+                        : arg.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
+
+        List<OrderByElement> orderByElements = function.getArguments()
+                .stream()
+                .filter(arg -> arg instanceof OrderExpression)
+                .map(arg -> translateOrderExpression((OrderExpression) arg, context))
                 .collect(ImmutableList.toImmutableList());
 
         FunctionParams fnParams;
         FunctionParams aggFnParams;
         if (function instanceof Count && ((Count) function).isStar()) {
-            if (catalogArguments.isEmpty()) {
+            if (currentPhaseCatalogArguments.isEmpty()) {
                 // for explain display the label: count(*)
                 fnParams = FunctionParams.createStarParam();
             } else {
-                fnParams = new FunctionParams(function.isDistinct(), catalogArguments);
+                fnParams = new FunctionParams(function.isDistinct(), currentPhaseCatalogArguments);
             }
             aggFnParams = FunctionParams.createStarParam();
         } else {
-            fnParams = new FunctionParams(function.isDistinct(), catalogArguments);
+            fnParams = new FunctionParams(function.isDistinct(), currentPhaseCatalogArguments);
             aggFnParams = new FunctionParams(function.isDistinct(), aggFnArguments);
         }
 
-        ImmutableList<Type> argTypes = catalogArguments.stream()
-                .map(arg -> arg.getType())
+        ImmutableList<Type> argTypes = function.getArguments()
+                .stream()
+                .filter(arg -> !(arg instanceof OrderExpression))
+                .map(arg -> arg.getDataType().toCatalogDataType())
                 .collect(ImmutableList.toImmutableList());
 
         NullableMode nullableMode = function.nullable()
@@ -446,7 +458,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         boolean isMergeFn = aggregateParam.aggMode.consumeAggregateBuffer;
         // create catalog FunctionCallExpr without analyze again
-        return new FunctionCallExpr(catalogFunction, fnParams, aggFnParams, isMergeFn, catalogArguments);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
+                catalogFunction, fnParams, aggFnParams, isMergeFn, currentPhaseCatalogArguments);
+        functionCallExpr.setOrderByElements(orderByElements);
+        return functionCallExpr;
+    }
+
+    private OrderByElement translateOrderExpression(OrderExpression orderExpression, PlanTranslatorContext context) {
+        Expr child = orderExpression.child().accept(this, context);
+        return new OrderByElement(child, orderExpression.isAsc(), orderExpression.isNullFirst());
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(
