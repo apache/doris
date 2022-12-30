@@ -24,34 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compilation on macOS
+# Compile With macOS
 
-This post introduces how to compile from source on macOS (both x86_64 and arm64).
+This topic is about how to compile Doris from source with macOS (both x86_64 and arm64).
 
-## Prerequisites
+## Environment Requirements
 
-1. macOS 12 (Monterey) or newer（_**both Intel chip and Apple Silicon chip are supported**_）
+1. macOS 12 (Monterey) or newer（_**both Intel chip and Apple Silicon chips are supported**_）
 2. Apple Clang 13 or newer（the latest version is recommended）
 3. [Homebrew](https://brew.sh/)
 
 ## Steps
 
-1. Use [Homebrew](https://brew.sh/) to install tools
+1. Use [Homebrew](https://brew.sh/) to install dependencies.
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
         python cmake ninja ccache bison byacc gettext wget pcre maven openjdk@11 npm
     ```
 
-2. Compile from source
+2. Compile from source.
     ```shell
     bash build.sh
     ```
 
-## The Third Party Libraries
+## Third-Party Libraries
 
-1. [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page contains all sources of the third party libraries, users can download [doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz) to achieve the sources.
+1. The [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page contains the source code of all third-party libraries. You can download [doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz) to obtain them.
 
-2. If the macOS is powered by _**Intel**_ chip，users can download the _**prebuilt**_ third party libraries [doris-thirdparty-prebuilt-darwin-x86_64.tar.xz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz) from [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page and omit the building process for the third party libraries. Please refer to the following commands.
+2. If your macOS is powered by _**Intel**_ chips, you can download the _**precompiled**_ third party library [doris-thirdparty-prebuilt-darwin-x86_64.tar.xz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz) from the [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page. You may refer to the following commands:
     ```shell
     cd thirdparty
     curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
@@ -61,11 +61,11 @@ This post introduces how to compile from source on macOS (both x86_64 and arm64)
 
 ## Start-up
 
-1. Set `file descriptors` up（_**NOTICE: This way is only available in current terminal session. Users who close the current session and open a new terminal session should set the variable again**_）。
+1. Set `file descriptors` （_**NOTICE: If you have closed the current session, you need to set this variable again**_）。
     ```shell
     ulimit -n 65536
     ```
-    Users can also write the configuration to initialization files and don't need to set the variable again when opening a new terminal session.
+    You can also write this configuration into the initialization files so you don't need to set the variables again when opening a new terminal session.
     ```shell
     # bash
     echo 'ulimit -n 65536' >>~/.bashrc
@@ -73,7 +73,7 @@ This post introduces how to compile from source on macOS (both x86_64 and arm64)
     # zsh
     echo 'ulimit -n 65536' >>~/.zshrc
     ```
-    Check the configuration by executing the following command.
+    Check if the configuration works by executing the following command.
     ```shell
     $ ulimit -n
     65536
@@ -93,8 +93,9 @@ This post introduces how to compile from source on macOS (both x86_64 and arm64)
 
 ## FAQ
 
-### Fail to start BE up，errors in log: `fail to open StorageEngine, res=file descriptors limit is too small`
-Please refer to the foregoing contents about `file descriptors`.
+Fail to start BE up. The log shows: `fail to open StorageEngine, res=file descriptors limit is too small`
 
-### Java version
+To fix this, please refer to the "Start-up" section above and reset  `file descriptors`.
+
+### Java Version
 Java 11 is recommended.

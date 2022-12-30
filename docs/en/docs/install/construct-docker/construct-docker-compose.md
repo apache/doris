@@ -1,6 +1,6 @@
 ---
 {
-"title": "Construct Docker Compose",
+"title": "Build Docker Compose",
 "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Construct Docker Compose 
+# Build Docker Compose 
 
 *Todo*
 
