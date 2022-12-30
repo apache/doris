@@ -185,7 +185,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             }
             break;
         case TTaskType::PUSH_COOLDOWN_CONF:
-            if (task.__isset.push_cooldown_conf || task.__isset.push_cooldown_conf) {
+            if (task.__isset.push_cooldown_conf) {
                 _push_cooldown_conf_workers->submit_task(task);
             } else {
                 ret_st = Status::InvalidArgument(
