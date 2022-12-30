@@ -220,7 +220,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     // check path
     EXPECT_EQ(tablet2->data_dir()->path(), dest_store->path());
     // check rows
-    EXPECT_EQ(1, tablet2->num_rows());
+    EXPECT_EQ(0, tablet2->num_rows());
     // tablet2 should not equal to tablet
     EXPECT_NE(tablet2, tablet);
 
@@ -238,7 +238,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     // check path
     EXPECT_EQ(tablet3->data_dir()->path(), tablet->data_dir()->path());
     // check rows
-    EXPECT_EQ(1, tablet3->num_rows());
+    EXPECT_EQ(0, tablet3->num_rows());
     // orgi_tablet should not equal to new_tablet and tablet
     EXPECT_NE(tablet3, tablet2);
     EXPECT_NE(tablet3, tablet);
