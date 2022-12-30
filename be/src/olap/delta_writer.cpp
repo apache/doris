@@ -35,14 +35,12 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id,
-                         bool is_vec) {
-    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id, is_vec);
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id);
     return Status::OK();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
-                         bool is_vec)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -50,8 +48,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const
           _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _load_id(load_id),
-          _is_vec(is_vec) {}
+          _load_id(load_id) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -152,34 +149,6 @@ Status DeltaWriter::init() {
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
-    return Status::OK();
-}
-
-Status DeltaWriter::write(Tuple* tuple) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
-    }
-
-    if (_is_cancelled) {
-        // The writer may be cancelled at any time by other thread.
-        // just return ERROR if writer is cancelled.
-        return _cancel_status;
-    }
-
-    _total_received_rows++;
-    _mem_table->insert(tuple);
-
-    // if memtable is full, push it to the flush executor,
-    // and create a new memtable for incoming data
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        auto s = _flush_memtable_async();
-        // create a new memtable for new incoming data
-        _reset_mem_table();
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
     return Status::OK();
 }
 
@@ -291,7 +260,7 @@ void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
                                   _rowset_ids, _cur_max_version, mem_table_insert_tracker,
-                                  mem_table_flush_tracker, _is_vec));
+                                  mem_table_flush_tracker));
 }
 
 Status DeltaWriter::close() {

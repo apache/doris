@@ -61,8 +61,7 @@ class LoadChannel;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority,
-                   bool is_vec);
+    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority);
 
     ~TabletsChannel();
 
@@ -163,8 +162,6 @@ private:
     static std::atomic<uint64_t> _s_tablet_writer_count;
 
     bool _is_high_priority = false;
-
-    bool _is_vec = false;
 
     bool _write_single_replica = false;
 };
