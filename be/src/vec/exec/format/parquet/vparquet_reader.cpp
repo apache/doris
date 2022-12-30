@@ -141,7 +141,6 @@ Status ParquetReader::_open_file() {
                                                         _scan_range.file_size, 0, _file_reader));
     }
     if (_file_metadata == nullptr) {
-        SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
         RETURN_IF_ERROR(_file_reader->open());
         if (_file_reader->size() == 0) {
             return Status::EndOfFile("Empty Parquet File");
@@ -341,31 +340,31 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 }
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    if (_current_group_reader == nullptr) {
+    if (_current_group_reader == nullptr || _row_group_eof) {
         if (_read_row_groups.size() > 0) {
             RETURN_IF_ERROR(_next_row_group_reader());
         } else {
+            _current_group_reader.reset(nullptr);
+            _row_group_eof = true;
             *read_rows = 0;
             *eof = true;
             return Status::OK();
         }
     }
     DCHECK(_current_group_reader != nullptr);
-    bool batch_eof = false;
     {
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         RETURN_IF_ERROR(
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &batch_eof));
+                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof));
     }
-    if (batch_eof) {
+    if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);
         _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
-        Status st = _next_row_group_reader();
-        if (st.is_end_of_file()) {
+        if (_read_row_groups.size() == 0) {
             *eof = true;
-        } else if (!st.ok()) {
-            return st;
+        } else {
+            *eof = false;
         }
     }
     return Status::OK();
@@ -390,6 +389,7 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
 
 Status ParquetReader::_next_row_group_reader() {
     if (_read_row_groups.empty()) {
+        _row_group_eof = true;
         _current_group_reader.reset(nullptr);
         return Status::EndOfFile("No next RowGroupReader");
     }
@@ -406,6 +406,7 @@ Status ParquetReader::_next_row_group_reader() {
     _current_group_reader.reset(new RowGroupReader(_file_reader.get(), _read_columns,
                                                    row_group_index.row_group_id, row_group, _ctz,
                                                    position_delete_ctx, _lazy_read_ctx));
+    _row_group_eof = false;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges,
                                        _col_offsets);
 }

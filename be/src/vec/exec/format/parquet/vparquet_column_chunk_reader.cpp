@@ -176,6 +176,7 @@ Status ColumnChunkReader::_decode_dict_page() {
                                            header.dictionary_page_header.num_values));
     _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)] = std::move(page_decoder);
 
+    _has_dict = true;
     return Status::OK();
 }
 
@@ -218,6 +219,9 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                         ColumnSelectVector& select_vector) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    if (UNLIKELY(doris_column->is_column_dictionary() && !_has_dict)) {
+        return Status::IOError("Not dictionary coded");
+    }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
         return Status::IOError("Decode too many values in current page");
     }

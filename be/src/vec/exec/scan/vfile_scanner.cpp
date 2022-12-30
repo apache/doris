@@ -493,8 +493,8 @@ Status VFileScanner::_get_next_reader() {
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
                 IcebergTableReader* iceberg_reader = new IcebergTableReader(
-                        (GenericReader*)parquet_reader, _profile, _state, _params);
-                iceberg_reader->init_row_filters(range);
+                        (GenericReader*)parquet_reader, _profile, _state, _params, range);
+                RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 _cur_reader.reset((GenericReader*)parquet_reader);

@@ -257,8 +257,14 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
     // filter data in predicate columns, and remove filter column
     if (select_vector.has_filter()) {
-        Block::filter_block(block, _lazy_read_ctx.all_predicate_col_ids, filter_column_id,
-                            origin_column_num);
+        if (block->columns() == origin_column_num) {
+            // the whole row group has been filtered by _lazy_read_ctx.vconjunct_ctx, and batch_eof is
+            // generated from next batch, so the filter column is removed ahead.
+            DCHECK_EQ(block->rows(), 0);
+        } else {
+            Block::filter_block(block, _lazy_read_ctx.all_predicate_col_ids, filter_column_id,
+                                origin_column_num);
+        }
     } else {
         Block::erase_useless_column(block, origin_column_num);
     }
