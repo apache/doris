@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
@@ -29,7 +30,9 @@ import org.apache.logging.log4j.core.lookup.StrSubstitutor;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 //
 // don't use trace. use INFO, WARN, ERROR, FATAL
@@ -124,6 +127,9 @@ public class Log4jConfig extends XmlConfiguration {
     //     loggers, all logs will be printed to console.
     public static boolean foreground = false;
 
+    private static final Set<String> validLogLevels = ImmutableSet.of("ALL", "TRACE", "DEBUG", "INFO", "WARN", "ERROR",
+            "FATAL", "OFF");
+
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplate;
 
@@ -132,11 +138,9 @@ public class Log4jConfig extends XmlConfiguration {
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
         String sysDeleteAge = String.valueOf(Config.sys_log_delete_age);
 
-        if (!(sysLogLevel.equalsIgnoreCase("INFO")
-                || sysLogLevel.equalsIgnoreCase("WARN")
-                || sysLogLevel.equalsIgnoreCase("ERROR")
-                || sysLogLevel.equalsIgnoreCase("FATAL"))) {
-            throw new IOException("sys_log_level config error");
+        if (!validLogLevels.contains(sysLogLevel.toUpperCase(Locale.ROOT))) {
+            throw new IOException("sys_log_level config error, valid log level should be one of "
+                    + validLogLevels + ", but meet " + sysLogLevel);
         }
 
         String sysLogRollPattern = "%d{yyyyMMdd}";
