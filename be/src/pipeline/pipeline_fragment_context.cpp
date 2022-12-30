@@ -305,13 +305,12 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
 // TODO: use virtual function to do abstruct
 Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur_pipe) {
-    auto* fragment_context = this;
     auto node_type = node->type();
     switch (node_type) {
     // for source
     case TPlanNodeType::BROKER_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<BrokerScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<BrokerScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -320,8 +319,8 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<ScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -332,8 +331,8 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<SchemaScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<SchemaScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }

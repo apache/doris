@@ -63,7 +63,6 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
 
 Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::pull");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
