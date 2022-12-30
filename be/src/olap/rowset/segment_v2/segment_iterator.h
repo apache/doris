@@ -36,7 +36,6 @@
 namespace doris {
 
 class RowCursor;
-class RowBlockV2;
 class ShortKeyIndexIterator;
 
 namespace fs {
@@ -145,9 +144,6 @@ private:
 
     Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
     // read `nrows` of columns specified by `column_ids` into `block` at `row_offset`.
-    Status _read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block,
-                         size_t row_offset, size_t nrows);
-
     // for vectorization implementation
     Status _read_columns(const std::vector<ColumnId>& column_ids,
                          vectorized::MutableColumns& column_block, size_t nrows);
