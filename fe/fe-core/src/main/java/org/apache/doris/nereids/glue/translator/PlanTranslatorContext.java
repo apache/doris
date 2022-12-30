@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -46,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Context of physical plan.
@@ -147,14 +149,17 @@ public class PlanTranslatorContext {
     }
 
     /**
-     * Create SlotDesc and add it to the mappings from expression to the stales epxr
+     * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
-    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference,
+            @Nullable TableIf table) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-        Optional<Column> column = slotReference.getColumn();
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        if (column.isPresent()) {
-            slotDescriptor.setColumn(column.get());
+        if (table != null) {
+            Optional<Column> column = slotReference.getColumn();
+            if (column.isPresent()) {
+                slotDescriptor.setColumn(column.get());
+            }
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
@@ -172,6 +177,10 @@ public class PlanTranslatorContext {
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
+    }
+
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
+        return createSlotDesc(tupleDesc, slotReference, null);
     }
 
     public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {
