@@ -150,7 +150,6 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto& slots = tuple_desc->slots();
 
     PUniqueId load_id;
     load_id.set_hi(0);
