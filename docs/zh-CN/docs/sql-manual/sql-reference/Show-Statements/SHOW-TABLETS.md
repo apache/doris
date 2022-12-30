@@ -46,9 +46,10 @@ SHOW TABLETS FROM [database.]table [PARTITIONS(p1,p2)]
 
 where_condition 可以为下列条件之一:
 ```
-    Version = version
-    state = "NORMAL|ROLLUP|CLONE|DECOMMISSION"
-    BackendId = backend_id
+Version = version
+state = "NORMAL|ROLLUP|CLONE|DECOMMISSION"
+BackendId = backend_id
+IndexName = rollup_name
 ```
 或者通过`AND`组合的复合条件.
 
