@@ -101,11 +101,10 @@ public class MetastoreEventsProcessor extends MasterDaemon {
     //        }
     //    }
 
-    private void doExecute(List<NotificationEvent> events) {
-        for (NotificationEvent event : events) {
-            //            LOG.info("event消息内容:{}", event.toString());
-            LOG.error("收到hive event消息，id:为{},时间为:{},db为:{},table为:{},type为:{}", event.getEventId(),
-                    event.getEventTime(), event.getDbName(), event.getTableName(), event.getEventType());
+    private void doExecute(List<MetastoreEvent> events) {
+        for (MetastoreEvent event : events) {
+            LOG.error("收到hive event消息，event:[{}]", event.toString());
+            event.process();
         }
     }
 
@@ -114,8 +113,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      */
     private void processEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         //转换过滤
-        metastoreEventFactory.getMetastoreEvents(events, hmsExternalCatalog);
-        doExecute(events);
+        List<MetastoreEvent> metastoreEvents = metastoreEventFactory.getMetastoreEvents(events, hmsExternalCatalog);
+        doExecute(metastoreEvents);
 
         hmsExternalCatalog.setLastSyncedEventId(events.get(events.size() - 1).getEventId());
     }
