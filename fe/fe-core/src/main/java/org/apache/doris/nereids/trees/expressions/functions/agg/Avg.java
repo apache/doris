@@ -43,6 +43,10 @@ public class Avg extends NullableAggregateFunction implements UnaryExpression, C
         this(false, false, child);
     }
 
+    public Avg(boolean isDistinct, Expression arg) {
+        this(isDistinct, false, arg);
+    }
+
     public Avg(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
         super("avg", isAlwaysNullable, isDistinct, arg);
     }

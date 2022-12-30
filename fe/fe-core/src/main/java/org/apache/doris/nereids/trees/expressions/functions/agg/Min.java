@@ -38,6 +38,10 @@ public class Min extends NullableAggregateFunction implements UnaryExpression, C
         this(false, false, child);
     }
 
+    public Min(boolean isDistinct, Expression arg) {
+        this(isDistinct, false, arg);
+    }
+
     public Min(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
         super("min", isAlwaysNullable, isDistinct, arg);
     }

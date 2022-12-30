@@ -42,6 +42,10 @@ public class Sum extends NullableAggregateFunction implements UnaryExpression, C
         this(false, false, child);
     }
 
+    public Sum(boolean isDistinct, Expression arg) {
+        this(isDistinct, false, arg);
+    }
+
     public Sum(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
         super("sum", isAlwaysNullable, isDistinct, arg);
     }
