@@ -242,6 +242,7 @@ under the License.
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
         <dlf-metastore-client-hive2.version>0.2.14</dlf-metastore-client-hive2.version>
+        <aws-java-sdk-glue.version>1.12.374</aws-java-sdk-glue.version>
         <hadoop.version>2.10.2</hadoop.version>
         <revision>1.2-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
@@ -933,7 +934,7 @@ under the License.
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
             </dependency>
-             <dependency>
+            <dependency>
                 <groupId>com.aliyun.datalake</groupId>
                 <artifactId>metastore-client-hive2</artifactId>
                 <version>${dlf-metastore-client-hive2.version}</version>
@@ -942,6 +943,11 @@ under the License.
                 <groupId>com.zaxxer</groupId>
                 <artifactId>HikariCP</artifactId>
                 <version>${hikaricp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-glue</artifactId>
+                <version>${aws-java-sdk-glue.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
