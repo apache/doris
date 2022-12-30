@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
@@ -42,8 +43,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 public interface AggregateFunctionVisitor<R, C> {
     R visitAggregateFunction(AggregateFunction aggregateFunction, C context);
 
+    default R visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction, C context) {
+        return visitAggregateFunction(nullableAggregateFunction, context);
+    }
+
     default R visitAvg(Avg avg, C context) {
-        return visitAggregateFunction(avg, context);
+        return visitNullableAggregateFunction(avg, context);
     }
 
     default R visitCount(Count count, C context) {
@@ -51,11 +56,11 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitMax(Max max, C context) {
-        return visitAggregateFunction(max, context);
+        return visitNullableAggregateFunction(max, context);
     }
 
     default R visitMin(Min min, C context) {
-        return visitAggregateFunction(min, context);
+        return visitNullableAggregateFunction(min, context);
     }
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
@@ -67,19 +72,19 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
-        return visitAggregateFunction(groupBitAnd, context);
+        return visitNullableAggregateFunction(groupBitAnd, context);
     }
 
     default R visitGroupBitOr(GroupBitOr groupBitOr, C context) {
-        return visitAggregateFunction(groupBitOr, context);
+        return visitNullableAggregateFunction(groupBitOr, context);
     }
 
     default R visitGroupBitXor(GroupBitXor groupBitXor, C context) {
-        return visitAggregateFunction(groupBitXor, context);
+        return visitNullableAggregateFunction(groupBitXor, context);
     }
 
     default R visitSum(Sum sum, C context) {
-        return visitAggregateFunction(sum, context);
+        return visitNullableAggregateFunction(sum, context);
     }
 
     default R visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, C context) {
