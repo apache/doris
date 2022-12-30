@@ -22,6 +22,7 @@
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -135,9 +136,13 @@ Status DeltaWriter::init() {
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.ptable_schema_param,
                                  *_tablet->tablet_schema());
-
-    RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
-                                                _tablet_schema, &_rowset_writer));
+    RowsetWriterContext context;
+    context.txn_id = _req.txn_id;
+    context.load_id = _req.load_id;
+    context.rowset_state = PREPARED;
+    context.segments_overlap = OVERLAPPING;
+    context.tablet_schema = _tablet_schema;
+    RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 

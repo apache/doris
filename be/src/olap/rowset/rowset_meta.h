@@ -87,10 +87,10 @@ public:
     }
 
     // This method may return nullptr.
-    io::FileSystemSPtr fs() {
+    const io::FileSystemSPtr& fs() {
         if (!_fs) {
             if (is_local()) {
-                return io::global_local_filesystem();
+                _fs = io::global_local_filesystem();
             } else {
                 _fs = io::FileSystemMap::instance()->get(resource_id());
                 LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
@@ -99,7 +99,12 @@ public:
         return _fs;
     }
 
-    void set_fs(io::FileSystemSPtr fs) { _fs = std::move(fs); }
+    void set_fs(io::FileSystemSPtr fs) {
+        if (fs && fs->type() != io::FileSystemType::LOCAL) {
+            _rowset_meta_pb.set_resource_id(fs->resource_id());
+        }
+        _fs = std::move(fs);
+    }
 
     const io::ResourceId& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
