@@ -72,7 +72,6 @@ import org.apache.doris.planner.PlannerContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -332,12 +331,20 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Plan childPlan = having.child();
                     // We should deduplicate the slots, otherwise the binding process will fail due to the
                     // ambiguous slots exist.
-                    Set<Slot> boundSlots = Stream.concat(Stream.of(childPlan), childPlan.children().stream())
-                            .flatMap(plan -> plan.getOutput().stream())
-                            .collect(Collectors.toSet());
-                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), having,
+                    List<Slot> childChildSlots = childPlan.children().stream()
+                            .flatMap(plan -> plan.getOutputSet().stream())
+                            .collect(Collectors.toList());
+                    SlotBinder childChildBinder = new SlotBinder(toScope(childChildSlots), having,
                             ctx.cascadesContext);
-                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(binder::bind)
+                    List<Slot> childSlots = childPlan.getOutputSet().stream()
+                            .collect(Collectors.toList());
+                    SlotBinder childBinder = new SlotBinder(toScope(childSlots), having,
+                            ctx.cascadesContext);
+                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(
+                            expr -> {
+                                expr = childChildBinder.bind(expr);
+                                return childBinder.bind(expr);
+                            })
                             .collect(Collectors.toSet());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })

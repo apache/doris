@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("group_sort_bind_priority") {
+suite("bind_priority") {
     sql "SET enable_nereids_planner=true"
 
     sql """
-        DROP TABLE IF EXISTS group_sort_bind_priority
+        DROP TABLE IF EXISTS bind_priority_tbl
        """
 
-    sql """CREATE TABLE IF NOT EXISTS group_sort_bind_priority (a int not null, b int not null)
+    sql """CREATE TABLE IF NOT EXISTS bind_priority_tbl (a int not null, b int not null)
         DISTRIBUTED BY HASH(a)
         BUCKETS 1
         PROPERTIES(
@@ -31,7 +31,7 @@ suite("group_sort_bind_priority") {
         """
 
     sql """
-    insert into group_sort_bind_priority values(1, 2),(3, 4)
+    insert into bind_priority_tbl values(1, 2),(3, 4)
     """
 
     sql "SET enable_fallback_to_original_planner=false"
@@ -39,10 +39,14 @@ suite("group_sort_bind_priority") {
     sql """sync"""
 
     qt_select """
-        select a * -1 as a from group_sort_bind_priority group by a order by a;
+        select a * -1 as a from bind_priority_tbl group by a order by a;
     """
 
     qt_select """
         select coalesce(a, 'all') as a, count(*) as cnt from (select  null as a  union all  select  'a' as a ) t group by grouping sets ((a),()) order by a;
+    """
+
+    qt_select """
+        select (a-1) as a from bind_priority_tbl group by a having a=1;
     """
 }
