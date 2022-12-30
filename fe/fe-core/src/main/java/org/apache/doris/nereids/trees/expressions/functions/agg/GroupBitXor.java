@@ -45,11 +45,11 @@ public class GroupBitXor extends NullableAggregateFunction implements UnaryExpre
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
     );
 
-    private GroupBitXor(Expression child) {
+    public GroupBitXor(Expression child) {
         this(child, false);
     }
 
-    public GroupBitXor(Expression child, boolean isAlwaysNullable) {
+    private GroupBitXor(Expression child, boolean isAlwaysNullable) {
         super("group_bit_xor", isAlwaysNullable, child);
     }
 
