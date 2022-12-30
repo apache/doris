@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -30,7 +29,6 @@ import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.twill.internal.Configs.Keys;
 
 import java.io.DataInput;
 import java.io.DataOutput;
