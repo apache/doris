@@ -18,6 +18,9 @@
 
 package org.apache.doris.datasource.hive.event;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
@@ -60,7 +63,6 @@ public class DropTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean existInCache() {
-        //        return cache.isTablePresent(HiveTableName.of(dbName, tableName));
         return true;
     }
 
@@ -70,12 +72,16 @@ public class DropTableEvent extends MetastoreTableEvent {
     }
 
     protected boolean isSupported() {
-        //        return !isResourceMappingCatalog(catalogName);
         return true;
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
-
+        try {
+            Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName);
+        } catch (DdlException e) {
+            LOG.warn("DropExternalTable failed,dbName:[{}],tableName:[{}],catalogName:[{}].", dbName, tableName,
+                    catalogName, e);
+        }
     }
 }

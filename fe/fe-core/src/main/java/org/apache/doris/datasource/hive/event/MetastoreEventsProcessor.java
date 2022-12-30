@@ -24,7 +24,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 
-import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.messaging.MessageDeserializer;
@@ -64,12 +63,12 @@ public class MetastoreEventsProcessor extends MasterDaemon {
     // event factory which is used to get or create MetastoreEvents
     private final MetastoreEventFactory metastoreEventFactory;
 
-    // [catalogName.dbName.tableName] for hive table with resource
-    private final List<String> externalTables = Lists.newArrayList();
+    private boolean isRunning;
 
     public MetastoreEventsProcessor() {
         super(MetastoreEventsProcessor.class.getName(), Config.hms_events_polling_interval_ms);
-        this.metastoreEventFactory = new MetastoreEventFactory(externalTables);
+        this.metastoreEventFactory = new MetastoreEventFactory();
+        this.isRunning = false;
     }
 
     /**
@@ -78,7 +77,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      */
     private List<NotificationEvent> getNextHMSEvents(HMSExternalCatalog hmsExternalCatalog) {
         LOG.error("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
-        NotificationEventResponse response = hmsExternalCatalog.getNextEventResponse(hmsExternalCatalog.getName());
+        NotificationEventResponse response = hmsExternalCatalog.getNextEventResponse(hmsExternalCatalog);
 
         if (response == null) {
             return Collections.emptyList();
@@ -115,7 +114,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      */
     private void processEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         //转换过滤
-
+        metastoreEventFactory.getMetastoreEvents(events, hmsExternalCatalog);
         doExecute(events);
 
         hmsExternalCatalog.setLastSyncedEventId(events.get(events.size() - 1).getEventId());
@@ -123,6 +122,20 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        if (isRunning) {
+            LOG.warn("Last task not finished,ignore current task.");
+            return;
+        }
+        isRunning = true;
+        try {
+            realRun();
+        } catch (Exception ex) {
+            LOG.error("Task failed", ex);
+        }
+        isRunning = false;
+    }
+
+    private void realRun() {
         List<Long> catalogIds = Env.getCurrentEnv().getCatalogMgr().getCatalogIds();
         for (Long catalogId : catalogIds) {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
@@ -132,7 +145,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 try {
                     events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
-                        LOG.error("Events size are {} on catalog [{}]", events.size(), hmsExternalCatalog.getName());
+                        LOG.error("Events size are {} on catalog [{}]", events.size(),
+                                hmsExternalCatalog.getName());
                         processEvents(events, hmsExternalCatalog);
                     }
                 } catch (MetastoreNotificationFetchException e) {

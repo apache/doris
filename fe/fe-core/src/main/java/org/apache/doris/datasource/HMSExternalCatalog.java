@@ -187,23 +187,33 @@ public class HMSExternalCatalog extends ExternalCatalog {
         this.lastSyncedEventId = lastSyncedEventId;
     }
 
-    public NotificationEventResponse getNextEventResponse(String catalogName)
+    public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
             throws MetastoreNotificationFetchException {
         makeSureInitialized();
-        if (lastSyncedEventId == 0) {
-            LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
+        if (lastSyncedEventId <= 0) {
             lastSyncedEventId = getCurrentEventId();
-            //            LOG.error("Last synced event id is null when pulling events on catalog [{}]", catalogName);
+            refreshCatalog(hmsExternalCatalog);
+            LOG.error(
+                    "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
+                            + "lastSyncedEventId is [{}]",
+                    hmsExternalCatalog.getName(), lastSyncedEventId);
             return null;
         }
 
         long currentEventId = getCurrentEventId();
         LOG.error("本次getNextEventResponse的currentEventId为{},lastSyncedEventId为{}", currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
-            LOG.error("Event id not updated when pulling events on catalog [{}]", catalogName);
+            LOG.error("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
         return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+    }
+
+    private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(hmsExternalCatalog.getId());
+        log.setInvalidCache(true);
+        Env.getCurrentEnv().getCatalogMgr().refreshCatalog(log);
     }
 
     public long getCurrentEventId() {

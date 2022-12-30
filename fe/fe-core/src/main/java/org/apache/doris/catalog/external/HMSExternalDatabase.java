@@ -170,4 +170,13 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
         idToTbl.put(tbl.getId(), tbl);
         tableNameToId.put(tbl.getName(), tbl.getId());
     }
+
+    @Override
+    public void dropTable(String tableName) {
+        Long tableId = tableNameToId.remove(tableName);
+        if (tableId == null) {
+            LOG.warn("drop table [{}] failed", tableName);
+        }
+        idToTbl.remove(tableId);
+    }
 }

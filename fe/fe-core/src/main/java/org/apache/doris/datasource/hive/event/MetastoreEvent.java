@@ -52,22 +52,7 @@ public abstract class MetastoreEvent {
     // Actual notificationEvent object received from Metastore
     protected final NotificationEvent metastoreNotificationEvent;
 
-    // The cached instance of this event that needs to be updated
-    // TODO: 2022/12/27 注释
-    //    protected final CacheUpdateProcessor cache;
-
     protected final String catalogName;
-
-    //    protected MetastoreEvent(NotificationEvent event, CacheUpdateProcessor cacheProcessor, String catalogName) {
-    //        this.event = event;
-    //        this.dbName = event.getDbName();
-    //        this.tblName = event.getTableName();
-    //        this.eventId = event.getEventId();
-    //        this.eventType = MetastoreEventType.from(event.getEventType());
-    //        this.metastoreNotificationEvent = event;
-    //        this.cache = cacheProcessor;
-    //        this.catalogName = catalogName;
-    //    }
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
@@ -145,7 +130,7 @@ public abstract class MetastoreEvent {
 
     /**
      * Whether the current version of FE supports processing of some events, some events are reserved,
-     * and may be processed later version, such as {@link CreateTableEvent}
+     * and may be processed later version.
      */
     protected boolean isSupported() {
         return false;

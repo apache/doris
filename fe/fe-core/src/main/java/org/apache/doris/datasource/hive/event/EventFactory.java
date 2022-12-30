@@ -27,11 +27,6 @@ import java.util.List;
  */
 public interface EventFactory {
 
-
-    //    List<MetastoreEvent> get(NotificationEvent hmsEvent,
-    //                             CacheUpdateProcessor cacheProcessor,
-    //                             String catalogName) throws MetastoreNotificationException;
-
     List<MetastoreEvent> get(NotificationEvent hmsEvent,
             String catalogName) throws MetastoreNotificationException;
 }

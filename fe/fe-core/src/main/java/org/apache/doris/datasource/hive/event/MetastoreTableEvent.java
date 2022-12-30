@@ -21,7 +21,6 @@ package org.apache.doris.datasource.hive.event;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
-import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.List;
 
@@ -29,22 +28,12 @@ import java.util.List;
  * Base class for all the table events
  */
 public abstract class MetastoreTableEvent extends MetastoreEvent {
-    // tblName from the event
-    protected final String tblName;
 
-    // tbl object from the Notification event, corresponds to the before tableObj in case of alter events.
-    protected Table hmsTbl;
-
-    // HivePartitionName of each event to process. for unpartition table, the partition values are empty.
-    //    protected List<HivePartitionName> hivePartitionNames = Lists.newArrayList();
 
     protected MetastoreTableEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
-        //        Preconditions.checkNotNull(dbName, "Database name cannot be null");
-        tblName = Preconditions.checkNotNull(event.getTableName());
-        //
-        //        HivePartitionName hivePartitionName = new HivePartitionName(dbName, tblName, Lists.newArrayList());
-        //        hivePartitionNames.add(hivePartitionName);
+        Preconditions.checkNotNull(dbName, "Database name cannot be null");
+        Preconditions.checkNotNull(tblName, "Table name cannot be null");
     }
 
     /**
@@ -58,11 +47,4 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
                     .add("numFiles")
                     .add("comment")
                     .build();
-
-    /**
-     * According to the current processing method, each event only needs to process one {@link HivePartitionName}.
-     */
-    //    protected HivePartitionName getHivePartitionName() {
-    //        return hivePartitionNames.get(0);
-    //    }
 }
