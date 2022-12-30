@@ -71,6 +71,11 @@ constexpr Int128 max_decimal_value<Decimal128>() {
     return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
            static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
 }
+template <>
+constexpr Int128 max_decimal_value<Decimal128I>() {
+    return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+           static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+}
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
@@ -291,8 +296,8 @@ constexpr bool IsDataTypeDecimalOrNumber =
 template <typename FromDataType, typename ToDataType>
 inline std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>,
                         typename ToDataType::FieldType>
-convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_from,
-                 UInt32 scale_to) {
+convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_from, UInt32 scale_to,
+                 UInt8* overflow_flag = nullptr) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
@@ -310,6 +315,9 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
                                  converted_value)) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow";
             return converted_value < 0
                            ? std::numeric_limits<typename ToFieldType::NativeType>::min()
@@ -322,10 +330,16 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
 
     if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
         if (converted_value < std::numeric_limits<typename ToFieldType::NativeType>::min()) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow";
             return std::numeric_limits<typename ToFieldType::NativeType>::min();
         }
         if (converted_value > std::numeric_limits<typename ToFieldType::NativeType>::max()) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow";
             return std::numeric_limits<typename ToFieldType::NativeType>::max();
         }
@@ -381,12 +395,16 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
 template <typename FromDataType, typename ToDataType>
 inline std::enable_if_t<IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>,
                         typename ToDataType::FieldType>
-convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) {
+convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale,
+                   UInt8* overflow_flag) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToNativeType = typename ToDataType::FieldType::NativeType;
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
         if (!std::isfinite(value)) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
             return value < 0 ? std::numeric_limits<ToNativeType>::min()
                              : std::numeric_limits<ToNativeType>::max();
@@ -395,10 +413,16 @@ convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) 
         FromFieldType out;
         out = value * ToDataType::get_scale_multiplier(scale);
         if (out <= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::min())) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow. Float is out of Decimal range";
             return std::numeric_limits<ToNativeType>::min();
         }
         if (out >= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::max())) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow. Float is out of Decimal range";
             return std::numeric_limits<ToNativeType>::max();
         }
