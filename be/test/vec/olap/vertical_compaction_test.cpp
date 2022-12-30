@@ -29,6 +29,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"

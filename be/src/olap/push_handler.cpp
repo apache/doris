@@ -360,7 +360,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
         context.load_id = load_id;
         context.rowset_state = PREPARED;
         context.segments_overlap = OVERLAP_UNKNOWN;
-        context.tablet_schema = tablet_schema;        
+        context.tablet_schema = tablet_schema;
         res = cur_tablet->create_rowset_writer(context, &rowset_writer);
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
