@@ -35,14 +35,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 
 import com.google.common.collect.ImmutableList;
 
 /**
  * Builtin aggregate functions.
- *
+ * <p>
  * Note: Please ensure that this class only has some lists and no procedural code.
- *       It helps to be clear and concise.
+ * It helps to be clear and concise.
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
@@ -64,11 +65,13 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Min.class),
             agg(Ndv.class),
             agg(Sum.class),
-            agg(Variance.class, "variance")
+            agg(Variance.class, "variance", "variance_pop", "var_pop"),
+            agg(VarianceSamp.class, "variance_samp", "var_samp")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinAggregateFunctions() {}
+    private BuiltinAggregateFunctions() {
+    }
 }

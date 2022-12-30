@@ -34,8 +34,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 
-/** AggregateFunctionVisitor. */
+/**
+ * AggregateFunctionVisitor.
+ */
 public interface AggregateFunctionVisitor<R, C> {
     R visitAggregateFunction(AggregateFunction aggregateFunction, C context);
 
@@ -85,6 +88,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitVariance(Variance variance, C context) {
         return visitAggregateFunction(variance, context);
+    }
+
+    default R visitVarianceSamp(VarianceSamp varianceSamp, C context) {
+        return visitAggregateFunction(varianceSamp, context);
     }
 
     default R visitNdv(Ndv ndv, C context) {
