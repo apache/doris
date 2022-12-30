@@ -90,6 +90,30 @@ public:
             EXPECT_EQ(std::to_string(i), values[i - 1000].to_string());
         }
 
+        ret = page_decoder->seek_to_position_in_page(0);
+        EXPECT_TRUE(ret.ok());
+        int n = 0;
+        while (true) {
+            //check values
+            MemPool pool;
+            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            size_t size = 6;
+            ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
+            ColumnBlock column_block(cvb.get(), &pool);
+            ColumnBlockView block_view(&column_block);
+            ret = page_decoder->next_batch(&size, &block_view);
+            EXPECT_TRUE(ret.ok());
+            if (size == 0) {
+                break;
+            }
+            Slice* values = reinterpret_cast<Slice*>(column_block.data());
+            for (int i = 0; i < size; ++i) {
+                EXPECT_EQ(std::to_string(1000 + 6 * n + i), values[i].to_string());
+            }
+            n++;
+        }
+
         std::unique_ptr<ColumnVectorBatch> cvb2;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb2);
         ColumnBlock column_block2(cvb2.get(), &pool);
