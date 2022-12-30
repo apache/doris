@@ -61,7 +61,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -286,12 +285,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .transform(olapScan, cascadesContext)
                 .get(0);
         if (project != null) {
-            PhysicalProject physicalProject = new PhysicalProject<>(
-                    project.getProjects(),
-                    project.getLogicalProperties(),
-                    project.child());
             return aggregate.withChildren(ImmutableList.of(
-                    physicalProject.withChildren(
+                    project.withChildren(
                             ImmutableList.of(new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)))
             ));
         } else {
