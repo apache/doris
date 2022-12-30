@@ -25,6 +25,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -195,6 +196,59 @@ private:
                                      vectorized::Block* block);
 
 private:
+    // todo(wb) remove this method after RowCursor is removed
+    void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
+        if (_short_key.capacity() == 0) {
+            _short_key.resize(num_keys);
+            for (auto cid = 0; cid < num_keys; cid++) {
+                auto* field = key.schema()->column(cid);
+                _short_key[cid] = Schema::get_column_by_field(*field);
+
+                if (field->type() == OLAP_FIELD_TYPE_DATE) {
+                    _short_key[cid]->set_date_type();
+                } else if (field->type() == OLAP_FIELD_TYPE_DATETIME) {
+                    _short_key[cid]->set_datetime_type();
+                }
+            }
+        } else {
+            for (int i = 0; i < num_keys; i++) {
+                _short_key[i]->clear();
+            }
+        }
+
+        for (auto cid = 0; cid < num_keys; cid++) {
+            auto field = key.schema()->column(cid);
+            if (field == nullptr) {
+                break;
+            }
+            auto cell = key.cell(cid);
+            if (cell.is_null()) {
+                _short_key[cid]->insert_default();
+            } else {
+                if (field->type() == OLAP_FIELD_TYPE_VARCHAR ||
+                    field->type() == OLAP_FIELD_TYPE_CHAR ||
+                    field->type() == OLAP_FIELD_TYPE_STRING) {
+                    const Slice* slice = reinterpret_cast<const Slice*>(cell.cell_ptr());
+                    _short_key[cid]->insert_data(slice->data, slice->size);
+                } else {
+                    _short_key[cid]->insert_many_fix_len_data(
+                            reinterpret_cast<const char*>(cell.cell_ptr()), 1);
+                }
+            }
+        }
+    }
+
+    int _compare_short_key_with_seek_block(const std::vector<ColumnId>& col_ids) {
+        for (auto cid : col_ids) {
+            // todo(wb) simd compare when memory layout in row
+            auto res = _short_key[cid]->compare_at(0, 0, *_seek_block[cid], -1);
+            if (res != 0) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -263,7 +317,10 @@ private:
     std::unique_ptr<Schema> _seek_schema;
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
-    std::unique_ptr<RowBlockV2> _seek_block;
+    vectorized::MutableColumns _seek_block;
+
+    //todo(wb) remove this field after Rowcursor is removed
+    vectorized::MutableColumns _short_key;
 
     io::FileReaderSPtr _file_reader;
 

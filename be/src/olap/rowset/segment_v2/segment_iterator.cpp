@@ -25,7 +25,6 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
-#include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
@@ -267,7 +266,16 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     _seek_schema = std::make_unique<Schema>(key_fields, key_fields.size());
-    _seek_block = std::make_unique<RowBlockV2>(*_seek_schema, 1);
+    // todo(wb) need refactor here, when using pk to search, _seek_block is useless
+    if (_seek_block.capacity() == 0) {
+        _seek_block.resize(_seek_schema->num_column_ids());
+        int i = 0;
+        for (auto cid : _seek_schema->column_ids()) {
+            auto column_desc = _seek_schema->column(cid);
+            _seek_block[i] = Schema::get_column_by_field(*column_desc);
+            i++;
+        }
+    }
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
@@ -583,19 +591,6 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
     return Status::OK();
 }
 
-// Schema of lhs and rhs are different.
-// callers should assure that rhs' schema has all columns in lhs schema
-template <typename LhsRowType, typename RhsRowType>
-int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
-    for (auto cid : lhs.schema()->column_ids()) {
-        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
-        if (res != 0) {
-            return res;
-        }
-    }
-    return 0;
-}
-
 Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                         rowid_t* rowid) {
     if (_segment->_tablet_schema->keys_type() == UNIQUE_KEYS &&
@@ -622,6 +617,9 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     std::string index_key;
     encode_key_with_padding(&index_key, key, _segment->_tablet_schema->num_short_key_columns(),
                             is_include);
+
+    const auto& key_col_ids = key.schema()->column_ids();
+    _convert_rowcursor_to_short_key(key, key_col_ids.size());
 
     uint32_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
@@ -650,7 +648,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     while (start < end) {
         rowid_t mid = (start + end) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
-        int cmp = compare_row_with_lhs_columns(key, _seek_block->row(0));
+        int cmp = _compare_short_key_with_seek_block(key_col_ids);
         if (cmp > 0) {
             start = mid + 1;
         } else if (cmp == 0) {
@@ -745,11 +743,13 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
         RETURN_IF_ERROR(_seek_columns(_seek_schema->column_ids(), rowid));
     }
     size_t num_rows = 1;
-    // please note that usually RowBlockV2.clear() is called to free MemPool memory before reading the next block,
-    // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
-    // a single MemPool for all seeked keys.
-    RETURN_IF_ERROR(_read_columns(_seek_schema->column_ids(), _seek_block.get(), 0, num_rows));
-    _seek_block->set_num_rows(num_rows);
+
+    //note(wb) reset _seek_block for memory reuse
+    // it is easier to use row based memory layout for clear memory
+    for (int i = 0; i < _seek_block.size(); i++) {
+        _seek_block[i]->clear();
+    }
+    RETURN_IF_ERROR(_read_columns(_seek_schema->column_ids(), _seek_block, num_rows));
     return Status::OK();
 }
 
