@@ -93,6 +93,8 @@ public:
 
     Statistics& statistics() { return _statistics; }
 
+    const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
+
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
