@@ -61,7 +61,7 @@ public:
         _execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets, *nested_column_ptr,
                          expr_type);
 
-        WhichDataType which(remove_nullable(expr_type));
+        WhichDataType which(expr_type);
         if (which.is_nullable()) {
             auto dest_column_ptr =
                     ColumnNullable::create(std::move(nested_column_ptr),
