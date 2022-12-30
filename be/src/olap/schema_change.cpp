@@ -540,9 +540,14 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     MultiBlockMerger merger(new_tablet);
 
     std::unique_ptr<RowsetWriter> rowset_writer;
-    RETURN_IF_ERROR(new_tablet->create_rowset_writer(
-            version, VISIBLE, segments_overlap, new_tablet->tablet_schema(), oldest_write_timestamp,
-            newest_write_timestamp, &rowset_writer));
+    RowsetWriterContext context;
+    context.version = version;
+    context.rowset_state = VISIBLE;
+    context.segments_overlap = segments_overlap;
+    context.tablet_schema = new_tablet->tablet_schema();
+    context.oldest_write_timestamp = oldest_write_timestamp;
+    context.newest_write_timestamp = newest_write_timestamp;
+    RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
 
     Defer defer {[&]() {
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
@@ -1036,11 +1041,15 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         // When tablet create new rowset writer, it may change rowset type, in this case
         // linked schema change will not be used.
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status status = new_tablet->create_rowset_writer(
-                rs_reader->version(), VISIBLE,
-                rs_reader->rowset()->rowset_meta()->segments_overlap(), new_tablet->tablet_schema(),
-                rs_reader->oldest_write_timestamp(), rs_reader->newest_write_timestamp(),
-                rs_reader->rowset()->rowset_meta()->fs(), &rowset_writer);
+        RowsetWriterContext context;
+        context.version = rs_reader->version();
+        context.rowset_state = VISIBLE;
+        context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        context.tablet_schema = new_tablet->tablet_schema();
+        context.oldest_write_timestamp = rs_reader->oldest_write_timestamp();
+        context.newest_write_timestamp = rs_reader->newest_write_timestamp();
+        context.fs = rs_reader->rowset()->rowset_meta()->fs();
+        Status status = new_tablet->create_rowset_writer(context, &rowset_writer);
         if (!status.ok()) {
             res = Status::Error<ROWSET_BUILDER_INIT>();
             return process_alter_exit();

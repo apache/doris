@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
+#include "segment_v2/segment.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
