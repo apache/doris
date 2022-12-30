@@ -24,20 +24,20 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compile on Windows platform
+# Compile With Windows 
 
-This article describes how to compile the source code on the Windows platform
+This topic is about how to compile Doris from source with Windows.
 
-## Environmental requirements
+## Environment Requirements
 
-1. Available in Windows 11 or Windows 10, Version 1903, Build 18362 or later
-2. WSL2 can be used normally, and the steps to start WSL2 will not be repeated here
+1. Windows 11 or Windows 10, Version 1903, Build 18362 or newer
+2. Normal-functioning WSL2
 
-## Compilation steps
+## Steps
 
 1. Install the Oracle Linux 7.9 distribution from the Microsoft Store
 
-   > You can also install other desired distros via Docker images or Github installs
+   > You can also install other distros you want via Docker images or Github installs
 
 2. Open CMD and specify the identity to run WSL2
 
@@ -48,17 +48,17 @@ This article describes how to compile the source code on the Windows platform
 3. Install dependencies
 
     ```shell
-    # install required system packages
+    # Install required system packages
     sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2
-   
-    # install autoconf-2.69
+      
+    # Install autoconf-2.69
     wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
         tar zxf autoconf-2.69.tar.gz && \
         cd autoconf-2.69 && \
         ./configure && \
         make && \
         make install
-   
+      
     # install bison-3.0.4
     wget http://ftp.gnu.org/gnu/bison/bison-3.0.4.tar.gz && \
         tar xzf bison-3.0.4.tar.gz && \
@@ -89,6 +89,6 @@ This article describes how to compile the source code on the Windows platform
     cd doris
     sh build.sh
     ```
-## Precautions
+## Note
 
-The default WSL2 release version data storage drive letter is C drive, if necessary, switch the storage drive letter in advance to prevent the system drive letter from being full
+The default data storage drive letter of WSL2 distribution is the C drive. If neccessary, you can change that to prevent the system drive letter from getting full.
