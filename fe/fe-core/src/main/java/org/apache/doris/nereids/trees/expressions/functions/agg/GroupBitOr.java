@@ -48,7 +48,7 @@ public class GroupBitOr extends NullableAggregateFunction implements UnaryExpres
         this(child, false);
     }
 
-    public GroupBitOr(Expression child, boolean isAlwaysNullable) {
+    private GroupBitOr(Expression child, boolean isAlwaysNullable) {
         super("group_bit_or", isAlwaysNullable, child);
     }
 

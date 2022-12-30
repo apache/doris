@@ -39,7 +39,7 @@ public class GroupBitmapXor extends NullableAggregateFunction implements UnaryEx
         this(child, false);
     }
 
-    public GroupBitmapXor(Expression arg0, boolean isAlwaysNullable) {
+    private GroupBitmapXor(Expression arg0, boolean isAlwaysNullable) {
         super("group_bitmap_xor", isAlwaysNullable, arg0);
     }
 
