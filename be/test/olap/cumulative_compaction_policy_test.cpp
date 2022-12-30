@@ -400,10 +400,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candidate_rowsets) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
-
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
     EXPECT_EQ(3, candidate_rowsets.size());
 }
 
@@ -419,10 +416,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candidate_rowsets_big_base)
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
-
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
     EXPECT_EQ(3, candidate_rowsets.size());
 }
 
@@ -438,10 +432,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -468,10 +459,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -498,10 +486,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -528,10 +513,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -558,10 +540,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -588,10 +567,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -618,10 +594,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};

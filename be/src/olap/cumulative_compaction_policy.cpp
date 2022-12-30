@@ -85,7 +85,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
                 break;
             }
 
-            bool is_delete = tablet->version_for_delete_predicate(rs->version());
+            bool is_delete = rs->has_delete_predicate();
 
             // break the loop if segments in this rowset is overlapping.
             if (!is_delete && rs->is_segments_overlapping()) {
@@ -245,10 +245,9 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
-    for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
-        RowsetSharedPtr rowset = candidate_rowsets[i];
+    for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
-        if (tablet->version_for_delete_predicate(rowset->version())) {
+        if (rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.
@@ -342,17 +341,6 @@ int SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
         }
     }
     return 0;
-}
-
-void CumulativeCompactionPolicy::pick_candidate_rowsets(
-        const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
-        int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
-    for (const auto& [version, rs] : rs_version_map) {
-        if (version.first >= cumulative_point && rs->is_local()) {
-            candidate_rowsets->push_back(rs);
-        }
-    }
-    std::sort(candidate_rowsets->begin(), candidate_rowsets->end(), Rowset::comparator);
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>

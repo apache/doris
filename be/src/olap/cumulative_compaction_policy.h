@@ -58,15 +58,6 @@ public:
             Tablet* tablet, TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
             int64_t current_cumulative_point, uint32_t* score) = 0;
 
-    /// This function implements the policy which represents how to pick the candidate rowsets for compaction.
-    /// This base class gives a unified implementation. Its derived classes also can override this function each other.
-    /// param rs_version_map, mapping from version to rowset
-    /// param cumulative_point,  current cumulative point of tablet
-    /// return candidate_rowsets, the container of candidate rowsets
-    virtual void pick_candidate_rowsets(
-            const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
-            int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets);
-
     /// Pick input rowsets from candidate rowsets for compaction. This function is pure virtual function.
     /// Its implementation depends on concrete compaction policy.
     /// param candidate_rowsets, the candidate_rowsets vector container to pick input rowsets
