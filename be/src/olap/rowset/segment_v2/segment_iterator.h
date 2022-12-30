@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
@@ -106,6 +107,7 @@ private:
 
     Status _init_return_column_iterators();
     Status _init_bitmap_index_iterators();
+    Status _init_inverted_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
@@ -123,11 +125,14 @@ private:
     Status _get_row_ranges_by_column_conditions();
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
+    Status _apply_inverted_index();
 
     Status _apply_index_except_leafnode_of_andnode();
     Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                           roaring::Roaring* output_result);
-
+    Status _apply_inverted_index_except_leafnode_of_andnode(ColumnPredicate* pred,
+                                                            roaring::Roaring* output_result);
+    bool _is_handle_predicate_by_fulltext(ColumnPredicate* predicate);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
     Status _execute_compound_fn(const std::string& function_name);
@@ -185,9 +190,10 @@ private:
     void _update_max_row(const vectorized::Block* block);
 
     bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
+    bool _check_apply_by_inverted_index(ColumnPredicate* pred);
 
-    std::string _gen_predicate_sign(ColumnPredicate* predicate);
-    std::string _gen_predicate_sign(ColumnPredicateInfo* predicate_info);
+    std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
+    std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
 
     void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
                                     vectorized::Block* block, const std::string& pred_result_sign,
@@ -259,11 +265,12 @@ private:
     // can use _schema get unique_id by cid
     std::map<int32_t, ColumnIterator*> _column_iterators;
     std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
+    std::map<int32_t, InvertedIndexIterator*> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
-    std::unordered_map<std::string, std::pair<bool, roaring::Roaring> > _rowid_result_for_index;
-    std::vector<roaring::Roaring> _split_row_ranges;
+    std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
+    std::vector<std::pair<uint32_t, uint32_t>> _split_row_ranges;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
 
@@ -83,6 +84,7 @@ public class FunctionSet<T> {
         IsNullPredicate.initBuiltins(this);
         ScalarBuiltins.initBuiltins(this);
         LikePredicate.initBuiltins(this);
+        MatchPredicate.initBuiltins(this);
         InPredicate.initBuiltins(this);
         AliasFunction.initBuiltins(this);
 
