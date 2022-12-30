@@ -83,6 +83,7 @@ public:
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
+    void set_writer_path(const std::string& path) override { _context.rowset_dir = path; }
 
 private:
     template <typename RowType>

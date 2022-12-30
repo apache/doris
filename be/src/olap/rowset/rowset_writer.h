@@ -91,6 +91,8 @@ public:
     virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const {
         return Status::NotSupported("to be implemented");
     }
+    // for segment builder
+    virtual void set_writer_path(const std::string &) {}
 
     virtual int32_t get_atomic_num_segment() const = 0;
 

@@ -108,6 +108,8 @@ public:
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
     int64_t total_received_rows() const { return _total_received_rows; }
+    void set_writer_path(const std::string& path) { _rowset_writer->set_writer_path(path); }
+    RowsetSharedPtr get_cur_rowset() { return _cur_rowset; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id);

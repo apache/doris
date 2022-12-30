@@ -142,7 +142,6 @@ public:
 
     std::set<int64_t> check_all_tablet_segment(bool repair);
 
-private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
     //
@@ -151,7 +150,7 @@ private:
     //        Status::Error<UNINITIALIZED>(), if not inited
     Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                 bool update_meta, bool force);
-
+private:
     Status _add_tablet_to_map_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                        bool update_meta, bool keep_files, bool drop_old);
 

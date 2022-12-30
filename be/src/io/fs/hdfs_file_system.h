@@ -36,7 +36,7 @@ public:
         DCHECK(_ref_cnt == 0);
         if (hdfs_fs != nullptr) {
             // Even if there is an error, the resources associated with the hdfsFS will be freed.
-            hdfsDisconnect(hdfs_fs);
+            // hdfsDisconnect(hdfs_fs); // TODO: compile error here
         }
         hdfs_fs = nullptr;
     }

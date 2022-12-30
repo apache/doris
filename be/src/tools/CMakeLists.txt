@@ -43,3 +43,30 @@ add_custom_command(TARGET meta_tool POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:meta_tool>.dbg $<TARGET_FILE:meta_tool>
     )
 endif()
+
+add_executable(segment_builder
+    segment_builder.cpp
+    builder_helper.cpp
+    builder_scanner.cpp
+    builder_scanner_memtable.cpp
+)
+
+
+# This permits libraries loaded by dlopen to link to the symbols in the program.
+set_target_properties(segment_builder PROPERTIES ENABLE_EXPORTS 1)
+
+target_link_libraries(segment_builder
+    ${DORIS_LINK_LIBS}
+)
+
+install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+install(TARGETS segment_builder DESTINATION ${OUTPUT_DIR}/lib/)
+
+if (NOT OS_MACOSX)
+# Meta tool never need debug info
+add_custom_command(TARGET segment_builder POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:segment_builder> $<TARGET_FILE:segment_builder>.dbg
+    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:segment_builder>
+    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:segment_builder>.dbg $<TARGET_FILE:segment_builder>
+    )
+endif()

@@ -128,7 +128,7 @@ BUILD_FE=0
 BUILD_BE=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
-BUILD_META_TOOL='OFF'
+BUILD_META_TOOL='ON'
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=1
 BUILD_HIVE_UDF=0
@@ -142,7 +142,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BE=1
     BUILD_BROKER=1
     BUILD_AUDIT=1
-    BUILD_META_TOOL='OFF'
+    BUILD_META_TOOL='ON'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     CLEAN=0
@@ -554,14 +554,15 @@ EOF
     cd -
 
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then
-        cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
+        cp -r -p -f "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
+        cp -r -p -f "${DORIS_HOME}/be/output/lib/segment_builder" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    cp -r -p "${DORIS_HOME}/be/output/udf"/*.a "${DORIS_OUTPUT}/udf/lib"/
-    cp -r -p "${DORIS_HOME}/be/output/udf/include"/* "${DORIS_OUTPUT}/udf/include"/
-    cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
+    cp -r -p -f "${DORIS_HOME}/be/output/udf"/*.a "${DORIS_OUTPUT}/udf/lib"/
+    cp -r -p -f "${DORIS_HOME}/be/output/udf/include"/* "${DORIS_OUTPUT}/udf/include"/
+    cp -r -p -f "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
-        cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
+        cp -r -p -f "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
     fi
 
     java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
@@ -569,7 +570,7 @@ EOF
         cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    cp -r -p -f "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"

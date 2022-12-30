@@ -70,6 +70,10 @@ public:
         _slot_desc.slotType.types[0].scalar_type.__set_scale(scale);
         return *this;
     }
+    TSlotDescriptorBuilder& length(int len) {
+        _slot_desc.slotType.types[0].scalar_type.__set_len(len);
+        return *this;
+    }
     TSlotDescriptorBuilder& string_type(int len) {
         _slot_desc.slotType = get_common_type(to_thrift(TYPE_VARCHAR));
         _slot_desc.slotType.types[0].scalar_type.__set_len(len);
