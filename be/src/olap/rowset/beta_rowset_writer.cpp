@@ -81,14 +81,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta.reset(new RowsetMeta);
-    if (_context.fs == nullptr && _context.data_dir) {
-        _rowset_meta->set_fs(_context.data_dir->fs());
-    } else {
-        _rowset_meta->set_fs(_context.fs);
-    }
-    if (_context.fs != nullptr && _context.fs->resource_id().size() > 0) {
-        _rowset_meta->set_resource_id(_context.fs->resource_id());
-    }
+    _rowset_meta->set_fs(_context.fs);
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
