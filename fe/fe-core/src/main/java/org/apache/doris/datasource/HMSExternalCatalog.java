@@ -188,7 +188,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
             throws MetastoreNotificationFetchException {
         makeSureInitialized();
-        if (lastSyncedEventId <= 0) {
+        if (lastSyncedEventId < 0) {
             lastSyncedEventId = getCurrentEventId();
             refreshCatalog(hmsExternalCatalog);
             LOG.info(
