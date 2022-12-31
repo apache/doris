@@ -19,16 +19,21 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
+import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.utframe.TestWithFeService;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
+
+
 
 public class MTMVJobManagerTest extends TestWithFeService {
 
@@ -65,6 +70,13 @@ public class MTMVJobManagerTest extends TestWithFeService {
 
     @Test
     public void testOnceJob() throws DdlException, InterruptedException {
+        new MockUp<MTMVTaskProcessor>() {
+            @Mock
+            void process(MTMVTaskContext context) throws Exception {
+                context.getTask().setMessage("test");
+                context.getTask().setState(TaskState.SUCCESS);
+            }
+        };
         MTMVJobManager jobManager = new MTMVJobManager();
         jobManager.start();
         MTMVJob job = MTMVUtilsTest.createOnceJob();
@@ -125,10 +137,10 @@ public class MTMVJobManagerTest extends TestWithFeService {
         // index 7: RetryTimes
         Assertions.assertEquals("0", taskRow.get(7));
         // index 8: State
-        Assertions.assertEquals("FAILED", taskRow.get(8));
+        Assertions.assertEquals("SUCCESS", taskRow.get(8));
         // index 9: Message
-        Assertions.assertEquals("", taskRow.get(9));
+        Assertions.assertEquals("test", taskRow.get(9));
         // index 10: ErrorCode
-        //Assertions.assertEquals("0", taskRow.get(10));
+        Assertions.assertEquals("0", taskRow.get(10));
     }
 }

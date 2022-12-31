@@ -17,20 +17,50 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
-import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.utframe.TestWithFeService;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
+
+
 public class MTMVTaskExecutorTest extends TestWithFeService {
     @Test
-    public void testSubmitTask() throws InterruptedException, ExecutionException {
+    public void testHandleTaskSucc() throws InterruptedException, ExecutionException {
+        new MockUp<MTMVTaskProcessor>() {
+            @Mock
+            void process(MTMVTaskContext context) throws Exception {
+                context.getTask().setMessage("test");
+                context.getTask().setState(TaskState.SUCCESS);
+            }
+        };
+
+        MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
+        MTMVTaskExecutor executor = new MTMVTaskExecutor();
+        executor.setProcessor(new MTMVTaskProcessor());
+        executor.setJob(MTMVUtilsTest.createDummyJob());
+        executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
+        pool.executeTask(executor);
+        executor.getFuture().get();
+        Assertions.assertEquals(TaskState.SUCCESS, executor.getTask().getState());
+    }
+
+
+    @Test
+    public void testHandleTaskFailed() throws InterruptedException, ExecutionException {
+        new MockUp<MTMVTaskProcessor>() {
+            @Mock
+            void process(MTMVTaskContext context) throws Exception {
+                context.getTask().setMessage("test");
+                context.getTask().setState(TaskState.FAILED);
+            }
+        };
         MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
         MTMVTaskExecutor executor = new MTMVTaskExecutor();
         executor.setProcessor(new MTMVTaskProcessor());
@@ -39,66 +69,5 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         pool.executeTask(executor);
         executor.getFuture().get();
         Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
-    }
-
-
-    @Test
-    public void testFailTask() throws InterruptedException, ExecutionException {
-        MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
-        MTMVTaskExecutor executor = new MTMVTaskExecutor();
-        executor.setProcessor(new MTMVTaskProcessorTest(1));
-        executor.setJob(MTMVUtilsTest.createDummyJob());
-        executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
-        pool.executeTask(executor);
-        executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
-        //Assertions.assertEquals("java.lang.Exception: my define error 1", executor.getTask().getMessage());
-    }
-
-    @Test
-    public void testRetryTask() throws InterruptedException, ExecutionException {
-        MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
-
-        MTMVTaskExecutor executor = new MTMVTaskExecutor();
-        executor.setProcessor(new MTMVTaskProcessorTest(3));
-        MTMVJob job = MTMVUtilsTest.createDummyJob();
-        job.setRetryPolicy(TaskRetryPolicy.TIMES);
-        executor.setJob(job);
-        executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
-        pool.executeTask(executor);
-        executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
-    }
-
-    @Test
-    public void testRetryFailTask() throws InterruptedException, ExecutionException {
-        MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
-
-        MTMVTaskExecutor executor = new MTMVTaskExecutor();
-        executor.setProcessor(new MTMVTaskProcessorTest(4));
-        MTMVJob job = MTMVUtilsTest.createDummyJob();
-        job.setRetryPolicy(TaskRetryPolicy.TIMES);
-        executor.setJob(job);
-        executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
-        pool.executeTask(executor);
-        executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
-        //Assertions.assertEquals("java.lang.Exception: my define error 4", executor.getTask().getMessage());
-    }
-
-    public static class MTMVTaskProcessorTest extends MTMVTaskProcessor {
-        private final int times;
-        private int runTimes = 0;
-
-        public MTMVTaskProcessorTest(int times) {
-            this.times = times;
-        }
-
-        void process(MTMVTaskContext context) throws Exception {
-            if (runTimes < times) {
-                runTimes++;
-                throw new Exception("my define error " + runTimes);
-            }
-        }
     }
 }
