@@ -40,7 +40,7 @@ class Cache;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip, bool is_vec);
+                bool is_high_priority, const std::string& sender_ip);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -136,9 +136,6 @@ private:
 
     // the ip where tablet sink locate
     std::string _sender_ip = "";
-
-    // true if this load is vectorized
-    bool _is_vec = false;
 };
 
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>

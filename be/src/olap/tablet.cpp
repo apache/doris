@@ -65,6 +65,7 @@
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
 #include "util/trace.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 using namespace ErrorCode;
@@ -1581,8 +1582,12 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     do {
         // there is no data in init rowset, so overlapping info is unknown.
         std::unique_ptr<RowsetWriter> rs_writer;
-        res = create_rowset_writer(version, VISIBLE, OVERLAP_UNKNOWN, tablet_schema(), -1, -1,
-                                   &rs_writer);
+        RowsetWriterContext context;
+        context.version = version;
+        context.rowset_state = VISIBLE;
+        context.segments_overlap = OVERLAP_UNKNOWN;
+        context.tablet_schema = tablet_schema();
+        res = create_rowset_writer(context, &rs_writer);
 
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
@@ -1612,64 +1617,14 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     return res;
 }
 
-Status Tablet::create_vertical_rowset_writer(
-        const Version& version, const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
-        TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-        int64_t newest_write_timestamp, std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.version = version;
-    context.rowset_state = rowset_state;
-    context.segments_overlap = overlap;
-    context.oldest_write_timestamp = oldest_write_timestamp;
-    context.newest_write_timestamp = newest_write_timestamp;
-    context.tablet_schema = tablet_schema;
-    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+Status Tablet::create_vertical_rowset_writer(RowsetWriterContext& context,
+                                             std::unique_ptr<RowsetWriter>* rowset_writer) {
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, true, rowset_writer);
 }
 
-Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                    const SegmentsOverlapPB& overlap,
-                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-                                    int64_t newest_write_timestamp,
+Status Tablet::create_rowset_writer(RowsetWriterContext& context,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
-    return create_rowset_writer(version, rowset_state, overlap, tablet_schema,
-                                oldest_write_timestamp, newest_write_timestamp, nullptr,
-                                rowset_writer);
-}
-
-Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                    const SegmentsOverlapPB& overlap,
-                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-                                    int64_t newest_write_timestamp, io::FileSystemSPtr fs,
-                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.version = version;
-    context.rowset_state = rowset_state;
-    context.segments_overlap = overlap;
-    context.oldest_write_timestamp = oldest_write_timestamp;
-    context.newest_write_timestamp = newest_write_timestamp;
-    context.tablet_schema = tablet_schema;
-    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
-    context.fs = fs;
-    _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
-}
-
-Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
-                                    const RowsetStatePB& rowset_state,
-                                    const SegmentsOverlapPB& overlap,
-                                    TabletSchemaSPtr tablet_schema,
-                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.txn_id = txn_id;
-    context.load_id = load_id;
-    context.rowset_state = rowset_state;
-    context.segments_overlap = overlap;
-    context.oldest_write_timestamp = -1;
-    context.newest_write_timestamp = -1;
-    context.tablet_schema = tablet_schema;
-    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
@@ -1693,6 +1648,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
         context.rowset_dir = tablet_path();
     }
     context.data_dir = data_dir();
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
 }
 
 Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
@@ -1971,36 +1927,34 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
         bool exact_match = false;
         std::string last_key;
         int batch_size = 1024;
-        MemPool pool;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
             RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
 
             size_t num_to_read = std::min(batch_size, remaining);
-            std::unique_ptr<ColumnVectorBatch> cvb;
-            RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read, false, pk_idx->type_info(),
-                                                      nullptr, &cvb));
-            ColumnBlock block(cvb.get(), &pool);
-            ColumnBlockView column_block_view(&block);
+            auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    pk_idx->type_info()->type(), 1, 0);
+            auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
             RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
 
             size_t num_read = num_to_read;
-            RETURN_IF_ERROR(iter->next_batch(&num_read, &column_block_view));
+            RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
             DCHECK(num_to_read == num_read);
-            last_key = (reinterpret_cast<const Slice*>(cvb->cell_ptr(num_read - 1)))->to_string();
+            last_key = index_column->get_data_at(num_read - 1).to_string();
 
             // exclude last_key, last_key will be read in next batch.
             if (num_read == batch_size && num_read != remaining) {
                 num_read -= 1;
             }
             for (size_t i = 0; i < num_read; i++) {
-                const Slice* key = reinterpret_cast<const Slice*>(cvb->cell_ptr(i));
+                Slice key =
+                        Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
                 RowLocation loc;
                 // first check if exist in pre segment
                 if (check_pre_segments) {
-                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, *key,
-                                                        dummy_version, delete_bitmap, &loc);
+                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, key, dummy_version,
+                                                        delete_bitmap, &loc);
                     if (st.ok()) {
                         delete_bitmap->add({rowset_id, loc.segment_id, dummy_version.first},
                                            loc.row_id);
@@ -2014,7 +1968,7 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 }
 
                 if (specified_rowset_ids != nullptr && !specified_rowset_ids->empty()) {
-                    auto st = lookup_row_key(*key, specified_rowset_ids, &loc,
+                    auto st = lookup_row_key(key, specified_rowset_ids, &loc,
                                              dummy_version.first - 1);
                     CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
                     if (st.is<NOT_FOUND>()) {

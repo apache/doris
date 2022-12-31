@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,7 +33,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** count agg function. */
-public class Count extends AggregateFunction implements AlwaysNotNullable, CustomSignature {
+public class Count extends AggregateFunction implements AlwaysNotNullable, CustomSignature,
+        ForbiddenMetricTypeArguments {
 
     private final boolean isStar;
 

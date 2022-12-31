@@ -22,6 +22,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "util/trace.h"
 #include "vec/olap/block_reader.h"

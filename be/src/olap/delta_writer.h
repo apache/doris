@@ -56,13 +56,12 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static Status open(WriteRequest* req, DeltaWriter** writer,
-                       const UniqueId& load_id = TUniqueId(), bool is_vec = false);
+                       const UniqueId& load_id = TUniqueId());
 
     ~DeltaWriter();
 
     Status init();
 
-    Status write(Tuple* tuple);
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
@@ -111,8 +110,7 @@ public:
     int64_t total_received_rows() const { return _total_received_rows; }
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
-                bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -152,9 +150,6 @@ private:
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
-
-    // use in vectorized load
-    bool _is_vec;
 
     // memory consumption snapshot for current delta_writer, only
     // used for std::sort

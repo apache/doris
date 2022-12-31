@@ -25,7 +25,9 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
@@ -105,6 +107,7 @@ private:
 
     Status _init_return_column_iterators();
     Status _init_bitmap_index_iterators();
+    Status _init_inverted_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
@@ -122,11 +125,14 @@ private:
     Status _get_row_ranges_by_column_conditions();
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
+    Status _apply_inverted_index();
 
     Status _apply_index_except_leafnode_of_andnode();
     Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                           roaring::Roaring* output_result);
-
+    Status _apply_inverted_index_except_leafnode_of_andnode(ColumnPredicate* pred,
+                                                            roaring::Roaring* output_result);
+    bool _is_handle_predicate_by_fulltext(ColumnPredicate* predicate);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
     Status _execute_compound_fn(const std::string& function_name);
@@ -184,9 +190,10 @@ private:
     void _update_max_row(const vectorized::Block* block);
 
     bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
+    bool _check_apply_by_inverted_index(ColumnPredicate* pred);
 
-    std::string _gen_predicate_sign(ColumnPredicate* predicate);
-    std::string _gen_predicate_sign(ColumnPredicateInfo* predicate_info);
+    std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
+    std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
 
     void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
                                     vectorized::Block* block, const std::string& pred_result_sign,
@@ -195,6 +202,59 @@ private:
                                      vectorized::Block* block);
 
 private:
+    // todo(wb) remove this method after RowCursor is removed
+    void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
+        if (_short_key.capacity() == 0) {
+            _short_key.resize(num_keys);
+            for (auto cid = 0; cid < num_keys; cid++) {
+                auto* field = key.schema()->column(cid);
+                _short_key[cid] = Schema::get_column_by_field(*field);
+
+                if (field->type() == OLAP_FIELD_TYPE_DATE) {
+                    _short_key[cid]->set_date_type();
+                } else if (field->type() == OLAP_FIELD_TYPE_DATETIME) {
+                    _short_key[cid]->set_datetime_type();
+                }
+            }
+        } else {
+            for (int i = 0; i < num_keys; i++) {
+                _short_key[i]->clear();
+            }
+        }
+
+        for (auto cid = 0; cid < num_keys; cid++) {
+            auto field = key.schema()->column(cid);
+            if (field == nullptr) {
+                break;
+            }
+            auto cell = key.cell(cid);
+            if (cell.is_null()) {
+                _short_key[cid]->insert_default();
+            } else {
+                if (field->type() == OLAP_FIELD_TYPE_VARCHAR ||
+                    field->type() == OLAP_FIELD_TYPE_CHAR ||
+                    field->type() == OLAP_FIELD_TYPE_STRING) {
+                    const Slice* slice = reinterpret_cast<const Slice*>(cell.cell_ptr());
+                    _short_key[cid]->insert_data(slice->data, slice->size);
+                } else {
+                    _short_key[cid]->insert_many_fix_len_data(
+                            reinterpret_cast<const char*>(cell.cell_ptr()), 1);
+                }
+            }
+        }
+    }
+
+    int _compare_short_key_with_seek_block(const std::vector<ColumnId>& col_ids) {
+        for (auto cid : col_ids) {
+            // todo(wb) simd compare when memory layout in row
+            auto res = _short_key[cid]->compare_at(0, 0, *_seek_block[cid], -1);
+            if (res != 0) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -205,11 +265,12 @@ private:
     // can use _schema get unique_id by cid
     std::map<int32_t, ColumnIterator*> _column_iterators;
     std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
+    std::map<int32_t, InvertedIndexIterator*> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
-    std::unordered_map<std::string, std::pair<bool, roaring::Roaring> > _rowid_result_for_index;
-    std::vector<roaring::Roaring> _split_row_ranges;
+    std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
+    std::vector<std::pair<uint32_t, uint32_t>> _split_row_ranges;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
@@ -263,7 +324,10 @@ private:
     std::unique_ptr<Schema> _seek_schema;
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
-    std::unique_ptr<RowBlockV2> _seek_block;
+    vectorized::MutableColumns _seek_block;
+
+    //todo(wb) remove this field after Rowcursor is removed
+    vectorized::MutableColumns _short_key;
 
     io::FileReaderSPtr _file_reader;
 

@@ -29,7 +29,7 @@ under the License.
 
 Doris can easily expand and shrink FE, BE, Broker instances.
 
-## FE Expansion and Compression
+## FE Scaling
 
 High availability of FE can be achieved by expanding FE to three top-one nodes.
 
@@ -94,7 +94,7 @@ Delete the corresponding FE node using the following command:
 >
 > 1. When deleting Follower FE, make sure that the remaining Follower (including Leader) nodes are odd.
 
-## BE Expansion and Compression
+## BE Scaling
 
 Users can login to Leader FE through mysql-client. By:
 
@@ -142,7 +142,7 @@ DECOMMISSION clause:
 
 **For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document](../multi-tenant).**
 
-## Broker Expansion and Shrinkage
+## Broker Scaling
 
 There is no rigid requirement for the number of Broker instances. Usually one physical machine is deployed. Broker addition and deletion can be accomplished by following commands:
 

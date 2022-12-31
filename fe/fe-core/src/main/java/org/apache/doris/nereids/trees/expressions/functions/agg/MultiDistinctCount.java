@@ -18,28 +18,38 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /** MultiDistinctCount */
 public class MultiDistinctCount extends AggregateFunction
         implements AlwaysNotNullable, ExplicitlyCastableSignature {
+    // MultiDistinctCount is created in AggregateStrategies phase
+    // can't change getSignatures to use type coercion rule to add a cast expr
+    // because AggregateStrategies phase is after type coercion
     public MultiDistinctCount(Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs));
+        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
+                .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
+                .collect(Collectors.toList()));
     }
 
     public MultiDistinctCount(boolean isDistinct, Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs));
+        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
+                .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
+                .collect(Collectors.toList()));
     }
 
     @Override

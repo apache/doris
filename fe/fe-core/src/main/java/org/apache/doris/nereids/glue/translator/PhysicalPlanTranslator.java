@@ -127,7 +127,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -184,13 +183,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
-        if (physicalPlan instanceof PhysicalProject) {
-            PhysicalProject project = (PhysicalProject) physicalPlan;
-            if (isUnnecessaryProject(project) && !projectOnAgg(project)) {
-                List<Slot> slotReferences = removeAlias(project);
-                physicalPlan = (PhysicalPlan) physicalPlan.child(0).withOutput(slotReferences);
-            }
-        }
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
@@ -1079,7 +1071,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Expr expr : predicateList) {
             extractExecSlot(expr, requiredSlotIdList);
         }
-        boolean nonPredicate = CollectionUtils.isEmpty(requiredSlotIdList);
+
         for (Expr expr : execExprList) {
             extractExecSlot(expr, requiredSlotIdList);
         }
@@ -1087,21 +1079,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdList));
         }
-        if (!hasExprCalc(project) && (!hasPrune(project) || nonPredicate) && !projectOnAgg(project)) {
-            List<NamedExpression> namedExpressions = project.getProjects();
-            for (int i = 0; i < namedExpressions.size(); i++) {
-                NamedExpression n = namedExpressions.get(i);
-                for (Expression e : n.children()) {
-                    SlotReference slotReference = (SlotReference) e;
-                    SlotRef slotRef = context.findSlotRef(slotReference.getExprId());
-                    context.addExprIdSlotRefPair(slotList.get(i).getExprId(), slotRef);
-                }
-            }
-        } else {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-            inputPlanNode.setProjectList(execExprList);
-            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-        }
+
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+        inputPlanNode.setProjectList(execExprList);
+        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+
         if (inputPlanNode instanceof OlapScanNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
             return inputFragment;

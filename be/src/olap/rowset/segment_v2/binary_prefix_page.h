@@ -113,9 +113,7 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("binary prefix page not implement vec op now");
-    };
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
     size_t count() const override {
         DCHECK(_parsed);

@@ -189,6 +189,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
+    public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
+
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
@@ -542,6 +544,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
+    private boolean checkOverflowForDecimal = false;
+
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -651,7 +656,7 @@ public class SessionVariable implements Serializable, Writable {
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
-    public int groupConcatMaxLen = 2147483646;
+    public long groupConcatMaxLen = 2147483646;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -664,6 +669,7 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
     }
 
     /**
@@ -1235,6 +1241,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean checkOverflowForDecimal() {
+        return checkOverflowForDecimal;
+    }
+
     public boolean isTrimTailingSpacesForExternalTableQuery() {
         return trimTailingSpacesForExternalTableQuery;
     }
@@ -1368,6 +1378,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
         tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);

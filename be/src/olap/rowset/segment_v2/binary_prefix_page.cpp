@@ -257,17 +257,38 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     RETURN_IF_ERROR(_copy_current_to_output(dst->pool(), out));
     i++;
     out++;
+    _cur_pos++;
 
     // read and copy remaining values
     for (; i < max_fetch; ++i) {
-        _cur_pos++;
         RETURN_IF_ERROR(_read_next_value_to_output(prev[i - 1], dst->pool(), out));
         out++;
+        _cur_pos++;
     }
 
     //must update _current_value
     _current_value.clear();
     _current_value.assign_copy((uint8_t*)prev[i - 1].data, prev[i - 1].size);
+    _read_next_value();
+
+    *n = max_fetch;
+    return Status::OK();
+}
+
+Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    DCHECK(_parsed);
+    if (PREDICT_FALSE(*n == 0 || _cur_pos >= _num_values)) {
+        *n = 0;
+        return Status::OK();
+    }
+    size_t max_fetch = std::min(*n, static_cast<size_t>(_num_values - _cur_pos));
+
+    // read and copy values
+    for (size_t i = 0; i < max_fetch; ++i) {
+        dst->insert_data((char*)(_current_value.data()), _current_value.size());
+        _read_next_value();
+        _cur_pos++;
+    }
 
     *n = max_fetch;
     return Status::OK();

@@ -35,13 +35,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
-                               bool is_high_priority, bool is_vec)
+                               bool is_high_priority)
         : _key(key),
           _state(kInitialized),
           _load_id(load_id),
           _closed_senders(64),
-          _is_high_priority(is_high_priority),
-          _is_vec(is_vec) {
+          _is_high_priority(is_high_priority) {
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -369,7 +368,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _load_id, _is_vec);
+        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
         if (!st.ok()) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

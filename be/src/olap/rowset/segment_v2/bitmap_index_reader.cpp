@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 
 #include "olap/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -49,18 +50,16 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, roaring::Roaring* resul
     DCHECK(0 <= ordinal && ordinal < _reader->bitmap_nums());
 
     size_t num_to_read = 1;
-    std::unique_ptr<ColumnVectorBatch> cvb;
-    RETURN_IF_ERROR(
-            ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
-    ColumnBlock block(cvb.get(), _pool.get());
-    ColumnBlockView column_block_view(&block);
+    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+            _reader->type_info()->type(), 1, 0);
+    auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));
     size_t num_read = num_to_read;
-    RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, &column_block_view));
+    RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, column));
     DCHECK(num_to_read == num_read);
 
-    *result = roaring::Roaring::read(reinterpret_cast<const Slice*>(block.data())->data, false);
+    *result = roaring::Roaring::read(column->get_data_at(0).data, false);
     _pool->clear();
     return Status::OK();
 }
