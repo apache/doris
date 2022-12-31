@@ -108,6 +108,10 @@ public class PartitionDesc {
                         throw new AnalysisException("String Type should not be used in partition column["
                                 + columnDef.getName() + "].");
                     }
+                    if (columnDef.getType().isComplexType()) {
+                        throw new AnalysisException("Complex type column can't be partition column: "
+                                + columnDef.getType().toString());
+                    }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {
                         throw new AnalysisException("The partition column must be NOT NULL");
