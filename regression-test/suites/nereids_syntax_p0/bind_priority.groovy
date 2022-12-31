@@ -49,4 +49,11 @@ suite("bind_priority") {
     qt_select """
         select (a-1) as a from bind_priority_tbl group by a having a=1;
     """
+
+    test {
+        sql """
+            select sum(a) as v from bind_priority_tbl  group by v;
+            """
+        exception "Unexpected exception: cannot bind GROUP BY KEY: v"
+    }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -72,6 +73,7 @@ import org.apache.doris.planner.PlannerContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -193,11 +195,55 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
                     // The columns referenced in group by are first obtained from the child's output,
                     // and then from the node's output
+                    Set<String> duplicatedSlotNames = new HashSet<>();
                     Map<String, Expression> childOutputsToExpr = agg.child().getOutput().stream()
-                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot, (oldExpr, newExpr) -> oldExpr));
+                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot,
+                                    (oldExpr, newExpr) -> {
+                                        duplicatedSlotNames.add(((Slot) oldExpr).getName());
+                                        return oldExpr;
+                                }));
+                    /*
+                    GroupByKey binding priority:
+                    1. child.output
+                    2. agg.output
+                    CASE 1
+                     k is not in agg.output
+                     plan:
+                         agg(group_by: k)
+                          +---child(output t1.k, t2.k)
+
+                     group_by_key: k is ambiguous, t1.k and t2.k are candidate.
+
+                    CASE 2
+                     k is in agg.output
+                     plan:
+                         agg(group_by: k, output (k+1 as k)
+                          +---child(output t1.k, t2.k)
+
+                     it is failed to bind group_by_key with child.output(ambiguous), but group_by_key can be bound with
+                     agg.output
+
+                    CASE 3
+                     group by key cannot bind with agg func
+                     plan:
+                        agg(group_by v, output sum(k) as v)
+
+                     throw AnalysisException
+                    */
+                    duplicatedSlotNames.stream().forEach(dup -> childOutputsToExpr.remove(dup));
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
+                            //agg function cannot be bound with group_by_key
+                            .filter(alias -> ! alias.child().anyMatch(expr -> {
+                                        if (expr instanceof UnboundFunction) {
+                                            UnboundFunction unboundFunction = (UnboundFunction) expr;
+                                            return BuiltinAggregateFunctions.aggFuncNames.contains(
+                                                    unboundFunction.getName().toLowerCase());
+                                        }
+                                        return false;
+                                    }
+                            ))
                             .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
                     aliasNameToExpr.entrySet().stream()
                             .forEach(e -> childOutputsToExpr.putIfAbsent(e.getKey(), e.getValue()));
@@ -217,6 +263,18 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             }).collect(Collectors.toList());
 
                     List<Expression> groupBy = bind(replacedGroupBy, agg.children(), agg, ctx.cascadesContext);
+                    List<Expression> unboundGroupBys = Lists.newArrayList();
+                    boolean hasUnbound = groupBy.stream().anyMatch(
+                            expression -> {
+                                if (expression.anyMatch(UnboundSlot.class::isInstance)) {
+                                    unboundGroupBys.add(expression);
+                                    return true;
+                                }
+                                return false;
+                            });
+                    if (hasUnbound) {
+                        throw new AnalysisException("cannot bind GROUP BY KEY: " + unboundGroupBys.get(0).toSql());
+                    }
                     List<NamedExpression> newOutput = adjustNullableForAgg(agg, output);
                     return agg.withGroupByAndOutput(groupBy, newOutput);
                 })
