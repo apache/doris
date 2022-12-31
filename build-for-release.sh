@@ -140,7 +140,7 @@ mkdir -p ${OUTPUT_FE} ${OUTPUT_BE} ${OUTPUT_DEPS}
 # FE
 cp -R ${ORI_OUTPUT}/fe/* ${OUTPUT_FE}/
 
-# Jar
+# DEPS
 cp ${ORI_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar ${OUTPUT_DEPS}/
 cp -R ${ORI_OUTPUT}/apache_hdfs_broker ${OUTPUT_DEPS}/apache_hdfs_broker
 cp -R ${ORI_OUTPUT}/audit_loader ${OUTPUT_DEPS}/audit_loader
