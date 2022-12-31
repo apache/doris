@@ -107,115 +107,107 @@ public:
         ColumnUInt8::Container& vec_res = res->get_data();
         vec_res.resize(input_rows_count);
 
-        ColumnUInt8::MutablePtr col_null_map_to;
-        col_null_map_to = ColumnUInt8::create(input_rows_count);
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(input_rows_count);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
-        /// First argument may be a single column.
-        const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
-        auto materialized_column = left_arg.column->convert_to_full_column_if_const();
+        if (in_state->null_in_set) {
+            // To comply with the SQL standard, IN() returns NULL not only if the expression on the left hand side
+            // is NULL, but also if no match is found in the list and one of the expressions in the list is NULL.
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                vec_null_map_to[i] = 1;
+            }
+        } else {
+            /// First argument may be a single column.
+            const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
+            auto materialized_column = left_arg.column->convert_to_full_column_if_const();
 
-        if (in_state->use_set) {
-            if (materialized_column->is_nullable()) {
-                auto* null_col_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                        materialized_column);
-                auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                            null_col_ptr->get_null_map_column())
-                                            .get_data();
-                auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
-                auto search_hash_set = [&](auto* col_ptr) {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        const auto& ref_data = col_ptr->get_data_at(i);
-                        vec_res[i] =
-                                !null_bitmap[i] &&
-                                in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
-                        if constexpr (negative) {
-                            vec_res[i] = !vec_res[i];
+            if (in_state->use_set) {
+                if (materialized_column->is_nullable()) {
+                    auto* null_col_ptr =
+                            vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                                    materialized_column);
+                    auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                                null_col_ptr->get_null_map_column())
+                                                .get_data();
+                    auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
+                    auto search_hash_set = [&](auto* col_ptr) {
+                        for (size_t i = 0; i < input_rows_count; ++i) {
+                            const auto& ref_data = col_ptr->get_data_at(i);
+                            vec_res[i] =
+                                    !null_bitmap[i] &&
+                                    in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
+                            if constexpr (negative) {
+                                vec_res[i] = !vec_res[i];
+                            }
                         }
+                    };
+
+                    if (nested_col_ptr->is_column_string()) {
+                        const auto* column_string_ptr =
+                                reinterpret_cast<const vectorized::ColumnString*>(nested_col_ptr);
+                        search_hash_set(column_string_ptr);
+                    } else {
+                        // todo support other column type
+                        search_hash_set(nested_col_ptr);
                     }
-                };
 
-                if (nested_col_ptr->is_column_string()) {
-                    const auto* column_string_ptr =
-                            reinterpret_cast<const vectorized::ColumnString*>(nested_col_ptr);
-                    search_hash_set(column_string_ptr);
-                } else {
-                    // todo support other column type
-                    search_hash_set(nested_col_ptr);
-                }
-
-                if (!in_state->null_in_set) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
                         vec_null_map_to[i] = null_bitmap[i];
                     }
-                } else {
+
+                } else { // non-nullable
+
+                    auto search_hash_set = [&](auto* col_ptr) {
+                        for (size_t i = 0; i < input_rows_count; ++i) {
+                            const auto& ref_data = col_ptr->get_data_at(i);
+                            vec_res[i] =
+                                    in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
+                            if constexpr (negative) {
+                                vec_res[i] = !vec_res[i];
+                            }
+                        }
+                    };
+
+                    if (materialized_column->is_column_string()) {
+                        const auto* column_string_ptr =
+                                reinterpret_cast<const vectorized::ColumnString*>(
+                                        materialized_column.get());
+                        search_hash_set(column_string_ptr);
+                    } else {
+                        search_hash_set(materialized_column.get());
+                    }
+
                     for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = null_bitmap[i] || (negative == vec_res[i]);
+                        vec_null_map_to[i] = 0;
                     }
                 }
+            } else {
+                std::vector<ColumnPtr> set_columns;
+                for (int i = 1; i < arguments.size(); ++i) {
+                    set_columns.emplace_back(block.get_by_position(arguments[i]).column);
+                }
 
-            } else { // non-nullable
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    const auto& ref_data = materialized_column->get_data_at(i);
+                    if (ref_data.data == nullptr) {
+                        vec_null_map_to[i] = true;
+                        continue;
+                    }
 
-                auto search_hash_set = [&](auto* col_ptr) {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        const auto& ref_data = col_ptr->get_data_at(i);
-                        vec_res[i] =
-                                in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
-                        if constexpr (negative) {
-                            vec_res[i] = !vec_res[i];
+                    std::unique_ptr<HybridSetBase> hybrid_set(create_set(
+                            convert_type_to_primitive(context->get_arg_type(0)->type), true));
+                    bool null_in_set = false;
+
+                    for (const auto& set_column : set_columns) {
+                        auto set_data = set_column->get_data_at(i);
+                        if (set_data.data == nullptr) {
+                            null_in_set = true;
+                        } else {
+                            hybrid_set->insert((void*)(set_data.data), set_data.size);
                         }
                     }
-                };
-
-                if (materialized_column->is_column_string()) {
-                    const auto* column_string_ptr =
-                            reinterpret_cast<const vectorized::ColumnString*>(
-                                    materialized_column.get());
-                    search_hash_set(column_string_ptr);
-                } else {
-                    search_hash_set(materialized_column.get());
-                }
-
-                if (in_state->null_in_set) {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = negative == vec_res[i];
-                    }
-                } else {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = false;
-                    }
-                }
-            }
-        } else {
-            std::vector<ColumnPtr> set_columns;
-            for (int i = 1; i < arguments.size(); ++i) {
-                set_columns.emplace_back(block.get_by_position(arguments[i]).column);
-            }
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                const auto& ref_data = materialized_column->get_data_at(i);
-                if (ref_data.data == nullptr) {
-                    vec_null_map_to[i] = true;
-                    continue;
-                }
-
-                std::unique_ptr<HybridSetBase> hybrid_set(create_set(
-                        convert_type_to_primitive(context->get_arg_type(0)->type), true));
-                bool null_in_set = false;
-
-                for (const auto& set_column : set_columns) {
-                    auto set_data = set_column->get_data_at(i);
-                    if (set_data.data == nullptr) {
-                        null_in_set = true;
-                    } else {
-                        hybrid_set->insert((void*)(set_data.data), set_data.size);
-                    }
-                }
-                vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
-                if (null_in_set) {
-                    vec_null_map_to[i] = negative == vec_res[i];
-                } else {
-                    vec_null_map_to[i] = false;
+                    vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
+                    vec_null_map_to[i] = null_in_set;
                 }
             }
         }
