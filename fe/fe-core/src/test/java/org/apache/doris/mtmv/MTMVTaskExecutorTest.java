@@ -28,8 +28,6 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
-
-
 public class MTMVTaskExecutorTest extends TestWithFeService {
     @Test
     public void testHandleTaskSucc() throws InterruptedException, ExecutionException {

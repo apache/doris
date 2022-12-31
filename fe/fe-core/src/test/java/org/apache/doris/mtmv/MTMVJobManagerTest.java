@@ -33,8 +33,6 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 
-
-
 public class MTMVJobManagerTest extends TestWithFeService {
 
     @Test
