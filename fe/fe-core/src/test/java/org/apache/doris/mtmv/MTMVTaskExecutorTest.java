@@ -17,7 +17,9 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -67,5 +69,52 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         pool.executeTask(executor);
         executor.getFuture().get();
         Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+    }
+
+    @Test
+    public void testRetryTask() throws InterruptedException, ExecutionException {
+        MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
+
+        MTMVTaskExecutor executor = new MTMVTaskExecutor();
+        executor.setProcessor(new MTMVTaskProcessorTest(3));
+        MTMVJob job = MTMVUtilsTest.createDummyJob();
+        job.setRetryPolicy(TaskRetryPolicy.TIMES);
+        executor.setJob(job);
+        executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
+        pool.executeTask(executor);
+        executor.getFuture().get();
+        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+    }
+
+    @Test
+    public void testRetryFailTask() throws InterruptedException, ExecutionException {
+        MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
+
+        MTMVTaskExecutor executor = new MTMVTaskExecutor();
+        executor.setProcessor(new MTMVTaskProcessorTest(4));
+        MTMVJob job = MTMVUtilsTest.createDummyJob();
+        job.setRetryPolicy(TaskRetryPolicy.TIMES);
+        executor.setJob(job);
+        executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
+        pool.executeTask(executor);
+        executor.getFuture().get();
+        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+        //Assertions.assertEquals("java.lang.Exception: my define error 4", executor.getTask().getMessage());
+    }
+
+    public static class MTMVTaskProcessorTest extends MTMVTaskProcessor {
+        private final int times;
+        private int runTimes = 0;
+
+        public MTMVTaskProcessorTest(int times) {
+            this.times = times;
+        }
+
+        void process(MTMVTaskContext context) throws Exception {
+            if (runTimes < times) {
+                runTimes++;
+                throw new Exception("my define error " + runTimes);
+            }
+        }
     }
 }
