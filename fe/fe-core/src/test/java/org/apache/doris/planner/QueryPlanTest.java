@@ -1312,7 +1312,7 @@ public class QueryPlanTest extends TestWithFeService {
         // this table is Oracle ODBC table, so abs(k1) should not be pushed down
         queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("k1 > 10"));
+        Assert.assertTrue(explainString.contains("\"K1\" > 10"));
         Assert.assertTrue(!explainString.contains("abs(k1) > 10"));
     }
 
@@ -1352,7 +1352,7 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("TABLENAME IN DORIS: odbc_oracle"));
         Assert.assertTrue(explainString.contains("TABLE TYPE: ORACLE"));
-        Assert.assertTrue(explainString.contains("TABLENAME OF EXTERNAL TABLE: tbl1"));
+        Assert.assertTrue(explainString.contains("TABLENAME OF EXTERNAL TABLE: \"TBL1\""));
 
         // enable transaction of ODBC Sink
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableOdbcTransaction", true);
