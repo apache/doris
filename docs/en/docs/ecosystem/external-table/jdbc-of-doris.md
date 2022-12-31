@@ -101,6 +101,8 @@ Parameter Description：
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
+Because it is possible to use keywords in the database as column name, in order to solve this problem, escape characters will be automatically added to field names and table names in SQL statements according to the standards of each database. For example, MYSQL (``), PostgreSQL (""), SQLServer ([]), and ORACLE (""), But this may cause case sensitivity of field names. You can check the query statements issued to each database after escape through explain SQL.
+
 ### Data write
 
 After the JDBC external table is create in Doris, the data can be written directly by the `insert into` statement, the query results of Doris can be written to the JDBC external table, or the data can be imported from one JDBC table to another.
