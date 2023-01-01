@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.batch.AdjustAggregateNullableForEmptySetJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 import org.apache.doris.nereids.jobs.batch.TypeCoercionJob;
+import org.apache.doris.nereids.jobs.batch.UnnestSubqueryJob;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
 import java.util.Objects;
@@ -50,6 +52,8 @@ public class NereidsAnalyzer {
     public void analyze() {
         new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
+        new UnnestSubqueryJob(cascadesContext).execute();
+        new AdjustAggregateNullableForEmptySetJob(cascadesContext).execute();
         new TypeCoercionJob(cascadesContext).execute();
         // check whether analyze result is meaningful
         new CheckAnalysisJob(cascadesContext).execute();

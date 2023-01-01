@@ -42,20 +42,20 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         return ImmutableList.of(
                 RuleType.ADJUST_NULLABLE_FOR_AGGREGATE_SLOT.build(
                         logicalAggregate()
-                                .when(agg -> agg.getGroupByExpressions().isEmpty())
                                 .then(agg -> {
                                     List<NamedExpression> output = agg.getOutputExpressions().stream()
-                                            .map(ne -> ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne)))
+                                            .map(ne -> ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne,
+                                                    agg.getGroupByExpressions().isEmpty())))
                                             .collect(Collectors.toList());
                                     return agg.withAggOutput(output);
                                 })
                 ),
                 RuleType.ADJUST_NULLABLE_FOR_HAVING_SLOT.build(
                         logicalHaving(logicalAggregate())
-                                .when(having -> (having.child().getGroupByExpressions().isEmpty()))
                                 .then(having -> {
                                     Set<Expression> newConjuncts = having.getConjuncts().stream()
-                                            .map(FunctionReplacer.INSTANCE::replace)
+                                            .map(ne -> FunctionReplacer.INSTANCE.replace(ne,
+                                                    having.child().getGroupByExpressions().isEmpty()))
                                             .collect(Collectors.toSet());
                                     return new LogicalHaving<>(newConjuncts, having.child());
                                 })
@@ -63,17 +63,18 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         );
     }
 
-    private static class FunctionReplacer extends DefaultExpressionRewriter<Void> {
+    private static class FunctionReplacer extends DefaultExpressionRewriter<Boolean> {
         public static final FunctionReplacer INSTANCE = new FunctionReplacer();
 
-        public Expression replace(Expression expression) {
-            return expression.accept(INSTANCE, null);
+        public Expression replace(Expression expression, boolean isAlwaysNullable) {
+            return expression.accept(INSTANCE, isAlwaysNullable);
         }
 
         @Override
         public Expression visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction,
-                Void unused) {
-            return nullableAggregateFunction.withAlwaysNullable(true);
+                Boolean isAlwaysNullable) {
+            return nullableAggregateFunction.isDistinct() ? nullableAggregateFunction
+                    : nullableAggregateFunction.withAlwaysNullable(isAlwaysNullable);
         }
     }
 }
