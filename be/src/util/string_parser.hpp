@@ -757,8 +757,8 @@ inline T StringParser::string_to_decimal(const char* s, int len, int type_precis
                 divisor = get_scale_multiplier<T>(shift);
             }
             if (LIKELY(divisor >= 0)) {
-                value /= divisor;
                 T remainder = value % divisor;
+                value /= divisor;
                 if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
                     value += 1;
                 }
