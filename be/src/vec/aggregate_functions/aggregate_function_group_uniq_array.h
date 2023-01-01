@@ -17,19 +17,14 @@
 
 #pragma once
 
-#include <cstddef>
-#include <type_traits>
+#include <limits>
 
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/key_holder_helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/common/aggregation_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/hash_table/hash_set.h"
-#include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
@@ -50,6 +45,7 @@ struct AggregateFunctionGroupUniqArrayData {
     //we use a hashset to filterout duplicated datas
     using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
     Set data_set;
+    UInt64 max_size;
 
     size_t size() const { return data_set.size(); }
 
@@ -58,7 +54,11 @@ struct AggregateFunctionGroupUniqArrayData {
     }
     void merge(const SelfType& rhs) { data_set.merge(rhs.data_set); }
 
-    void merge(const SelfType& rhs, UInt64 max_size) {
+    void merge(const SelfType& rhs, bool has_limit) {
+        if (!has_limit) {
+            merge(rhs);
+            return;
+        }
         for (auto& rhs_elem : rhs.data_set) {
             if (size() >= max_size) {
                 return;
@@ -73,7 +73,7 @@ struct AggregateFunctionGroupUniqArrayData {
 
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
-        vec.reserve(data_set.size());
+        vec.reserve(size());
         for (auto item : data_set) {
             vec.push_back(item.key);
         }
@@ -89,6 +89,7 @@ struct AggregateFunctionGroupUniqArrayData<StringRef> {
     using SelfType = AggregateFunctionGroupUniqArrayData<ElementType>;
     using Set = HashSetWithSavedHashWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
     Set data_set;
+    UInt64 max_size;
 
     size_t size() const { return data_set.size(); }
 
@@ -99,11 +100,11 @@ struct AggregateFunctionGroupUniqArrayData<StringRef> {
         data_set.emplace(key_holder, it, inserted);
     }
 
-    void merge(const SelfType& rhs, UInt64 max_size, Arena* arena) {
+    void merge(const SelfType& rhs, bool has_limit, Arena* arena) {
         bool inserted;
         Set::LookupResult it;
         for (auto& rhs_elem : rhs.data_set) {
-            if (size() >= max_size) {
+            if (has_limit && size() >= max_size) {
                 return;
             }
             assert(arena != nullptr);
@@ -145,35 +146,47 @@ class AggregateFunctionGroupUniqArray
                                               AggregateFunctionGroupUniqArray<T, HasLimit>> {
     using GenericType = AggregateFunctionGroupUniqArrayData<StringRef>;
     using Data = AggregateFunctionGroupUniqArrayData<T>;
-    static constexpr bool is_ele_num_limited = HasLimit::value;
-    static constexpr bool enable_arena = std::is_same_v<Data, GenericType>;
+
+    static constexpr bool HAS_LIMIT = HasLimit::value;
+    static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
 
 private:
-    UInt64 max_size;
+    DataTypePtr return_type;
 
 public:
     AggregateFunctionGroupUniqArray(const DataTypePtr& argument_type, const Array& parameters_,
                                     UInt64 max_size_ = std::numeric_limits<UInt64>::max())
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionGroupUniqArray<T, HasLimit>>(
+                      {argument_type}, parameters_),
+              return_type(argument_type) {}
+
+    AggregateFunctionGroupUniqArray(const DataTypePtr& argument_type, const Array& parameters_,
+                                    const DataTypePtr& return_type_,
+                                    UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<AggregateFunctionGroupUniqArrayData<T>,
                                            AggregateFunctionGroupUniqArray<T, HasLimit>>(
                       {argument_type}, parameters_),
-              max_size(max_size_) {}
+              return_type(return_type_) {}
 
     std::string get_name() const override { return "group_uniq_array"; }
 
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeArray>(make_nullable(this->argument_types[0]));
+        return std::make_shared<DataTypeArray>(make_nullable(return_type));
     }
 
-    bool allocates_memory_in_arena() const override { return enable_arena; }
+    bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
-        if (is_ele_num_limited && data.size() >= max_size) {
-            return;
+        if constexpr (HAS_LIMIT) {
+            data.max_size =
+                    (UInt64) static_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+            if (data.size() >= data.max_size) {
+                return;
+            }
         }
-        if constexpr (enable_arena) {
+        if constexpr (ENABLE_ARENA) {
             data.add(*columns[0], row_num, arena);
         } else {
             data.add(*columns[0], row_num);
@@ -184,15 +197,11 @@ public:
                Arena* arena) const override {
         auto& data = this->data(place);
         auto& rhs_data = this->data(rhs);
-        if constexpr (!enable_arena) {
-            if (is_ele_num_limited) {
-                data.merge(rhs_data, max_size);
-            } else {
-                data.merge(rhs_data);
-            }
-            return;
+        if constexpr (ENABLE_ARENA) {
+            data.merge(rhs_data, HAS_LIMIT, arena);
+        } else {
+            data.merge(rhs_data, HAS_LIMIT);
         }
-        data.merge(rhs_data, max_size, arena);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {

@@ -214,35 +214,35 @@ public class FunctionSet<T> {
 
     private static final Map<Type, String> MAX_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.BOOLEAN,
-                    "3maxIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.TINYINT,
-                    "3maxIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.SMALLINT,
-                    "3maxIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.INT,
-                    "3maxIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.BIGINT,
-                    "3maxIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.FLOAT,
-                    "3maxIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.DOUBLE,
-                    "3maxIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PS6_")
-                // .put(Type.CHAR,
-                //    "3maxIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.VARCHAR,
-                        "3maxIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.STRING,
-                        "3maxIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.DATE,
-                    "3maxIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.DATETIME,
-                    "3maxIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                    "3maxIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .put(Type.LARGEINT,
-                    "3maxIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-               .build();
+                    .put(Type.BOOLEAN,
+                            "3maxIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.TINYINT,
+                            "3maxIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.SMALLINT,
+                            "3maxIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.INT,
+                            "3maxIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.BIGINT,
+                            "3maxIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.FLOAT,
+                            "3maxIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DOUBLE,
+                            "3maxIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    // .put(Type.CHAR,
+                    //    "3maxIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.VARCHAR,
+                            "3maxIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.STRING,
+                            "3maxIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DATE,
+                            "3maxIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DATETIME,
+                            "3maxIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "3maxIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.LARGEINT,
+                            "3maxIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .build();
 
     private static final Map<Type, String> ANY_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -309,7 +309,7 @@ public class FunctionSet<T> {
                     .build();
 
     private static final Map<Type, Type> MULTI_DISTINCT_SUM_RETURN_TYPE =
-             ImmutableMap.<Type, Type>builder()
+            ImmutableMap.<Type, Type>builder()
                     .put(Type.TINYINT, Type.BIGINT)
                     .put(Type.SMALLINT, Type.BIGINT)
                     .put(Type.INT, Type.BIGINT)
@@ -415,7 +415,7 @@ public class FunctionSet<T> {
 
 
     private static final Map<Type, String> MULTI_DISTINCT_SUM_FINALIZE_SYMBOL =
-             ImmutableMap.<Type, String>builder()
+            ImmutableMap.<Type, String>builder()
                     .put(Type.BIGINT,
                             "28sum_distinct_bigint_finalizeIN9doris_udf9BigIntValEEES3_PNS2_15FunctionContextERKNS2_9StringValE")
                     .put(Type.FLOAT,
@@ -442,111 +442,111 @@ public class FunctionSet<T> {
 
     private static final Map<Type, String> STDDEV_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .put(Type.INT,
-                        "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "24decimalv2_knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .put(Type.INT,
+                            "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "14knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "24decimalv2_knuth_var_initEPN9doris_udf15FunctionContextEPNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> STDDEV_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "16knuth_var_updateIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.SMALLINT,
-                        "16knuth_var_updateIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.INT,
-                        "16knuth_var_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.BIGINT,
-                        "16knuth_var_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.FLOAT,
-                        "16knuth_var_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.DOUBLE,
-                        "16knuth_var_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "16knuth_var_updateEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "16knuth_var_updateIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "16knuth_var_updateIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "16knuth_var_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "16knuth_var_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "16knuth_var_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "16knuth_var_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "16knuth_var_updateEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
+                    .build();
 
 
     private static final Map<Type, String> STDDEV_REMOVE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "16knuth_var_removeIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.SMALLINT,
-                        "16knuth_var_removeIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.INT,
-                        "16knuth_var_removeIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.BIGINT,
-                        "16knuth_var_removeIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.FLOAT,
-                        "16knuth_var_removeIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.DOUBLE,
-                        "16knuth_var_removeIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "16knuth_var_removeEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "16knuth_var_removeIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "16knuth_var_removeIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "16knuth_var_removeIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "16knuth_var_removeIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "16knuth_var_removeIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "16knuth_var_removeIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "16knuth_var_removeEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
+                    .build();
     private static final Map<Type, String> STDDEV_MERGE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.SMALLINT,
-                        "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.INT,
-                        "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.BIGINT,
-                        "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.FLOAT,
-                        "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.DOUBLE,
-                        "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "25decimalv2_knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .build();
+                    .put(Type.TINYINT,
+                            "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.SMALLINT,
+                            "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.INT,
+                            "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.BIGINT,
+                            "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.FLOAT,
+                            "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.DOUBLE,
+                            "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "25decimalv2_knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .build();
 
     private static final Map<Type, String> STDDEV_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "31decimalv2_knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "31decimalv2_knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> STDDEV_GET_VALUE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "32decimalv2_knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "32decimalv2_knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> STDDEV_POP_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -568,93 +568,93 @@ public class FunctionSet<T> {
 
     private static final Map<Type, String> STDDEV_POP_GET_VALUE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                "36decimalv2_knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "36decimalv2_knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> VAR_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "28decimalv2_knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "28decimalv2_knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> VAR_GET_VALUE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "29decimalv2_knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "29decimalv2_knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> VAR_POP_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "32decimalv2_knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "32decimalv2_knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     private static final Map<Type, String> VAR_POP_GET_VALUE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.TINYINT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.SMALLINT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.INT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.BIGINT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.FLOAT,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.DOUBLE,
-                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                        "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
-                .build();
+                    .put(Type.TINYINT,
+                            "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.SMALLINT,
+                            "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.INT,
+                            "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.BIGINT,
+                            "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.FLOAT,
+                            "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.DOUBLE,
+                            "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                    .build();
 
     public static final String HLL_HASH = "hll_hash";
     public static final String HLL_UNION = "hll_union";
@@ -664,116 +664,116 @@ public class FunctionSet<T> {
 
     private static final Map<Type, String> HLL_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.BOOLEAN,
-                    "10hll_updateIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.TINYINT,
-                    "10hll_updateIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.SMALLINT,
-                    "10hll_updateIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.INT,
-                    "10hll_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.BIGINT,
-                    "10hll_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.FLOAT,
-                    "10hll_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.DOUBLE,
-                    "10hll_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                // .put(Type.CHAR,
-                //    "10hll_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS3_")
-                .put(Type.VARCHAR,
-                    "10hll_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS3_")
-                .put(Type.STRING,
-                    "10hll_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS3_")
-                .put(Type.DATE,
-                    "10hll_updateIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.DATETIME,
-                    "10hll_updateIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                    "10hll_updateIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .put(Type.LARGEINT,
-                    "10hll_updateIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
-                .build();
+                    .put(Type.BOOLEAN,
+                            "10hll_updateIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.TINYINT,
+                            "10hll_updateIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "10hll_updateIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "10hll_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "10hll_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "10hll_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "10hll_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    // .put(Type.CHAR,
+                    //    "10hll_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS3_")
+                    .put(Type.VARCHAR,
+                            "10hll_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS3_")
+                    .put(Type.STRING,
+                            "10hll_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS3_")
+                    .put(Type.DATE,
+                            "10hll_updateIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.DATETIME,
+                            "10hll_updateIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "10hll_updateIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.LARGEINT,
+                            "10hll_updateIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .build();
 
 
     private static final Map<Type, String> HLL_UNION_AGG_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.VARCHAR,
-                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.STRING,
-                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .put(Type.HLL,
-                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
-                .build();
+                    .put(Type.VARCHAR,
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.STRING,
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .put(Type.HLL,
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                    .build();
 
     private static final Map<Type, String> OFFSET_FN_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.BOOLEAN,
-                     "14offset_fn_initIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                     "14offset_fn_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.TINYINT,
-                     "14offset_fn_initIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.SMALLINT,
-                     "14offset_fn_initIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.DATE,
-                     "14offset_fn_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.DATETIME,
-                     "14offset_fn_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.INT,
-                     "14offset_fn_initIN9doris_udf6IntValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.FLOAT,
-                     "14offset_fn_initIN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.BIGINT,
-                     "14offset_fn_initIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.DOUBLE,
-                     "14offset_fn_initIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPT_")
-                // .put(Type.CHAR,
-                //     "14offset_fn_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.VARCHAR,
-                     "14offset_fn_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.STRING,
-                     "14offset_fn_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
-                .put(Type.LARGEINT,
-                     "14offset_fn_initIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.BOOLEAN,
+                            "14offset_fn_initIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "14offset_fn_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.TINYINT,
+                            "14offset_fn_initIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.SMALLINT,
+                            "14offset_fn_initIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DATE,
+                            "14offset_fn_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DATETIME,
+                            "14offset_fn_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.INT,
+                            "14offset_fn_initIN9doris_udf6IntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.FLOAT,
+                            "14offset_fn_initIN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.BIGINT,
+                            "14offset_fn_initIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DOUBLE,
+                            "14offset_fn_initIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPT_")
+                    // .put(Type.CHAR,
+                    //     "14offset_fn_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.VARCHAR,
+                            "14offset_fn_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.STRING,
+                            "14offset_fn_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.LARGEINT,
+                            "14offset_fn_initIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPT_")
 
-                .build();
+                    .build();
 
     private static final Map<Type, String> OFFSET_FN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
-                .put(Type.BOOLEAN,
-                     "16offset_fn_updateIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.MAX_DECIMALV2_TYPE,
-                     "16offset_fn_updateIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.TINYINT,
-                     "16offset_fn_updateIN9doris_udf10TinyIntValEEEvPNS2_15"
-                     + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.SMALLINT,
-                     "16offset_fn_updateIN9doris_udf11SmallIntValEEEvPNS2_15"
-                     + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.DATE,
-                     "16offset_fn_updateIN9doris_udf11DateTimeValEEEvPNS2_15"
-                     + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.DATETIME,
-                     "16offset_fn_updateIN9doris_udf11DateTimeValEEEvPNS2_15"
-                     + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.INT,
-                     "16offset_fn_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.FLOAT,
-                     "16offset_fn_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.BIGINT,
-                     "16offset_fn_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKS3_S8_PS6_")
-                .put(Type.DOUBLE,
-                     "16offset_fn_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                // .put(Type.CHAR,
-                //     "16offset_fn_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.VARCHAR,
-                     "16offset_fn_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.STRING,
-                     "16offset_fn_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .put(Type.LARGEINT,
-                     "16offset_fn_updateIN9doris_udf11LargeIntValEEEvPNS2_15"
-                     + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
-                .build();
+                    .put(Type.BOOLEAN,
+                            "16offset_fn_updateIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.MAX_DECIMALV2_TYPE,
+                            "16offset_fn_updateIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.TINYINT,
+                            "16offset_fn_updateIN9doris_udf10TinyIntValEEEvPNS2_15"
+                                    + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.SMALLINT,
+                            "16offset_fn_updateIN9doris_udf11SmallIntValEEEvPNS2_15"
+                                    + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.DATE,
+                            "16offset_fn_updateIN9doris_udf11DateTimeValEEEvPNS2_15"
+                                    + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.DATETIME,
+                            "16offset_fn_updateIN9doris_udf11DateTimeValEEEvPNS2_15"
+                                    + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.INT,
+                            "16offset_fn_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.FLOAT,
+                            "16offset_fn_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.BIGINT,
+                            "16offset_fn_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKS3_S8_PS6_")
+                    .put(Type.DOUBLE,
+                            "16offset_fn_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    // .put(Type.CHAR,
+                    //     "16offset_fn_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.VARCHAR,
+                            "16offset_fn_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.STRING,
+                            "16offset_fn_updateIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .put(Type.LARGEINT,
+                            "16offset_fn_updateIN9doris_udf11LargeIntValEEEvPNS2_15"
+                                    + "FunctionContextERKT_RKNS2_9BigIntValES8_PS6_")
+                    .build();
 
     private static final Map<Type, String> LAST_VALUE_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -792,9 +792,9 @@ public class FunctionSet<T> {
                     .put(Type.INT,
                             "15last_val_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.FLOAT,
-                             "15last_val_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PS6_")
+                            "15last_val_updateIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.BIGINT,
-                             "15last_val_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                            "15last_val_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.DOUBLE,
                             "15last_val_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PS6_")
                     // .put(Type.CHAR,
@@ -819,7 +819,7 @@ public class FunctionSet<T> {
                             "24first_val_rewrite_updateIN9doris_udf10TinyIntValEEEvPNS2_15"
                                     + "FunctionContextERKT_RKNS2_9BigIntValEPS6_")
                     .put(Type.SMALLINT,
-                             "24first_val_rewrite_updateIN9doris_udf11SmallIntValEEEvPNS2_15"
+                            "24first_val_rewrite_updateIN9doris_udf11SmallIntValEEEvPNS2_15"
                                     + "FunctionContextERKT_RKNS2_9BigIntValEPS6_")
                     .put(Type.DATE,
                             "24first_val_rewrite_updateIN9doris_udf11DateTimeValEEEvPNS2_15"
@@ -863,7 +863,7 @@ public class FunctionSet<T> {
                     .put(Type.SMALLINT,
                             "15last_val_removeIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.DATE,
-                             "15last_val_removeIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
+                            "15last_val_removeIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.DATETIME,
                             "15last_val_removeIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.INT,
@@ -1152,7 +1152,7 @@ public class FunctionSet<T> {
                             "_ZN5doris15BitmapFunctions26bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
                     .put(Type.VARCHAR,
                             "_ZN5doris15BitmapFunctions26bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
-                     .put(Type.STRING,
+                    .put(Type.STRING,
                             "_ZN5doris15BitmapFunctions26bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
                     .build();
 
@@ -1265,6 +1265,7 @@ public class FunctionSet<T> {
     /**
      * There are essential differences in the implementation of some functions for different
      * types params, which should be prohibited.
+     *
      * @param desc
      * @param candicate
      * @return
@@ -1315,7 +1316,8 @@ public class FunctionSet<T> {
         if (getFunction(fn, Function.CompareMode.IS_INDISTINGUISHABLE) != null) {
             return false;
         }
-        List<Function> fns = fn.isVectorized() ? vectorizedFunctions.get(fn.functionName()) : functions.get(fn.functionName());
+        List<Function> fns = fn.isVectorized() ? vectorizedFunctions.get(fn.functionName())
+                : functions.get(fn.functionName());
         if (fns == null) {
             fns = Lists.newArrayList();
             if (fn.isVectorized()) {
@@ -1332,9 +1334,9 @@ public class FunctionSet<T> {
      * Add a builtin with the specified name and signatures to this db.
      */
     public void addScalarBuiltin(String fnName, String symbol, boolean userVisible,
-                                 String prepareFnSymbol, String closeFnSymbol,
-                                 Function.NullableMode nullableMode, Type retType,
-                                 boolean varArgs, Type ... args) {
+            String prepareFnSymbol, String closeFnSymbol,
+            Function.NullableMode nullableMode, Type retType,
+            boolean varArgs, Type... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
             argsType.add(type);
@@ -1344,9 +1346,16 @@ public class FunctionSet<T> {
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible));
     }
 
+<<<<<<< HEAD
     public void addScalarAndVectorizedBuiltin(String fnName, boolean userVisible,
                                               Function.NullableMode nullableMode, Type retType,
                                               boolean varArgs, Type ... args) {
+=======
+    public void addScalarAndVectorizedBuiltin(String fnName, String symbol, boolean userVisible,
+            String prepareFnSymbol, String closeFnSymbol,
+            Function.NullableMode nullableMode, Type retType,
+            boolean varArgs, Type... args) {
+>>>>>>> a983c088c... support optional arguments
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
             argsType.add(type);
@@ -1390,9 +1399,9 @@ public class FunctionSet<T> {
         ScalarFunction scalarFunction = (ScalarFunction) fn;
         vecFns.add(ScalarFunction.createVecBuiltin(scalarFunction.functionName(), scalarFunction.getPrepareFnSymbol(),
                 scalarFunction.getSymbolName(), scalarFunction.getCloseFnSymbol(),
-                    Lists.newArrayList(scalarFunction.getArgs()), scalarFunction.hasVarArgs(),
-                    scalarFunction.getReturnType(), scalarFunction.isUserVisible(),
-                    scalarFunction.getNullableMode()));
+                Lists.newArrayList(scalarFunction.getArgs()), scalarFunction.hasVarArgs(),
+                scalarFunction.getReturnType(), scalarFunction.isUserVisible(),
+                scalarFunction.getNullableMode()));
     }
 
 
@@ -1447,7 +1456,8 @@ public class FunctionSet<T> {
                 Type.VARCHAR,
                 true,
                 prefix + "18window_funnel_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9StringValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPS7_",
+                prefix
+                        + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9StringValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPS7_",
                 prefix + "19window_funnel_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "23window_funnel_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 "",
@@ -1690,7 +1700,8 @@ public class FunctionSet<T> {
                         Type.BIGINT,
                         Type.VARCHAR,
                         prefix + "24count_distinct_date_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                        prefix + "26count_distinct_date_updateEPN9doris_udf15FunctionContextERNS1_11DateTimeValEPNS1_9StringValE",
+                        prefix
+                                + "26count_distinct_date_updateEPN9doris_udf15FunctionContextERNS1_11DateTimeValEPNS1_9StringValE",
                         prefix + "25count_distinct_date_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
                         prefix + "29count_distinct_date_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         null,
@@ -1703,10 +1714,14 @@ public class FunctionSet<T> {
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                         Type.BIGINT,
                         Type.VARCHAR,
-                        prefix + "36count_or_sum_distinct_decimalv2_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                        prefix + "38count_or_sum_distinct_decimalv2_updateEPN9doris_udf15FunctionContextERNS1_12DecimalV2ValEPNS1_9StringValE",
-                        prefix + "37count_or_sum_distinct_decimalv2_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
-                        prefix + "41count_or_sum_distinct_decimalv2_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix
+                                + "36count_or_sum_distinct_decimalv2_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                        prefix
+                                + "38count_or_sum_distinct_decimalv2_updateEPN9doris_udf15FunctionContextERNS1_12DecimalV2ValEPNS1_9StringValE",
+                        prefix
+                                + "37count_or_sum_distinct_decimalv2_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
+                        prefix
+                                + "41count_or_sum_distinct_decimalv2_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         null,
                         null,
                         prefix + "33count_distinct_decimalv2_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -1790,14 +1805,18 @@ public class FunctionSet<T> {
                         null,
                         prefix + MULTI_DISTINCT_SUM_FINALIZE_SYMBOL.get(t),
                         false, true, true, true));
-            }  else if (t.equals(Type.MAX_DECIMALV2_TYPE)) {
+            } else if (t.equals(Type.MAX_DECIMALV2_TYPE)) {
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                         MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
                         Type.VARCHAR,
-                        prefix + "36count_or_sum_distinct_decimalv2_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                        prefix + "38count_or_sum_distinct_decimalv2_updateEPN9doris_udf15FunctionContextERNS1_12DecimalV2ValEPNS1_9StringValE",
-                        prefix + "37count_or_sum_distinct_decimalv2_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
-                        prefix + "41count_or_sum_distinct_decimalv2_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix
+                                + "36count_or_sum_distinct_decimalv2_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                        prefix
+                                + "38count_or_sum_distinct_decimalv2_updateEPN9doris_udf15FunctionContextERNS1_12DecimalV2ValEPNS1_9StringValE",
+                        prefix
+                                + "37count_or_sum_distinct_decimalv2_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
+                        prefix
+                                + "41count_or_sum_distinct_decimalv2_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         null,
                         null,
                         prefix + "31sum_distinct_decimalv2_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -1922,42 +1941,42 @@ public class FunctionSet<T> {
             // NDV
             // ndv return string
             addBuiltin(AggregateFunction.createBuiltin("ndv", Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
-                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
-                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            true, false, true));
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
 
             // vectorized
             addBuiltin(AggregateFunction.createBuiltin("ndv", Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
-                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
-                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            true, true, true, true));
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, true, true, true));
 
             // APPROX_COUNT_DISTINCT
             // alias of ndv, compute approx count distinct use HyperLogLog
             addBuiltin(AggregateFunction.createBuiltin("approx_count_distinct", Lists.newArrayList(t), Type.BIGINT,
-                            Type.VARCHAR,
-                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
-                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            true, false, true));
+                    Type.VARCHAR,
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
 
             // vectorized
             addBuiltin(AggregateFunction.createBuiltin("approx_count_distinct", Lists.newArrayList(t), Type.BIGINT,
-                            Type.VARCHAR,
-                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
-                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                            true, true, true, true));
+                    Type.VARCHAR,
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, true, true, true));
 
             // BITMAP_UNION_INT
             addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION_INT,
@@ -2003,7 +2022,7 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("hll_union_agg",
                     Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
                     "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                     HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
+                    HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
                     "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                     "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     "_ZN5doris12HllFunctions13hll_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2249,31 +2268,35 @@ public class FunctionSet<T> {
         }
 
         // Sum
-        String []sumNames = {"sum", "sum_distinct"};
+        String[] sumNames = {"sum", "sum_distinct"};
         for (String name : sumNames) {
             addBuiltin(AggregateFunction.createBuiltin(name,
-                    Lists.<Type>newArrayList(Type.BIGINT), Type.BIGINT, Type.BIGINT, prefix + "14init_zero_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    Lists.<Type>newArrayList(Type.BIGINT), Type.BIGINT, Type.BIGINT,
+                    prefix + "14init_zero_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
                     prefix + "3sumIN9doris_udf9BigIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     prefix + "3sumIN9doris_udf9BigIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, null,
                     prefix + "10sum_removeIN9doris_udf9BigIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, false, true, false));
             addBuiltin(AggregateFunction.createBuiltin(name,
-                    Lists.<Type>newArrayList(Type.DOUBLE), Type.DOUBLE, Type.DOUBLE, prefix + "14init_zero_nullIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPT_",
+                    Lists.<Type>newArrayList(Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                    prefix + "14init_zero_nullIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPT_",
                     prefix + "3sumIN9doris_udf9DoubleValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     prefix + "3sumIN9doris_udf9DoubleValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, null,
                     prefix + "10sum_removeIN9doris_udf9DoubleValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, false, true, false));
             addBuiltin(AggregateFunction.createBuiltin(name,
-                    Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE), Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE, prefix + "14init_zero_nullIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_",
+                    Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE), Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE,
+                    prefix + "14init_zero_nullIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_",
                     prefix + "3sumIN9doris_udf12DecimalV2ValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     prefix + "3sumIN9doris_udf12DecimalV2ValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, null,
                     prefix + "10sum_removeIN9doris_udf12DecimalV2ValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, false, true, false));
             addBuiltin(AggregateFunction.createBuiltin(name,
-                    Lists.<Type>newArrayList(Type.LARGEINT), Type.LARGEINT, Type.LARGEINT, prefix + "14init_zero_nullIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPT_",
+                    Lists.<Type>newArrayList(Type.LARGEINT), Type.LARGEINT, Type.LARGEINT,
+                    prefix + "14init_zero_nullIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPT_",
                     prefix + "3sumIN9doris_udf11LargeIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     prefix + "3sumIN9doris_udf11LargeIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, null,
@@ -2317,7 +2340,8 @@ public class FunctionSet<T> {
                     prefix + "10sum_removeIN9doris_udf9DoubleValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, false, true, false, true));
             addBuiltin(AggregateFunction.createBuiltin(name,
-                    Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE), Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE, initNull,
+                    Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE), Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE,
+                    initNull,
                     prefix + "3sumIN9doris_udf12DecimalV2ValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     prefix + "3sumIN9doris_udf12DecimalV2ValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, null,
@@ -2526,7 +2550,8 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("percentile",
                 Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 prefix + "15percentile_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
+                prefix
+                        + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
                 prefix + "16percentile_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "20percentile_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "19percentile_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2536,7 +2561,8 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
+                prefix
+                        + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
                 prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2544,7 +2570,8 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_SA_PNS2_9StringValE",
+                prefix
+                        + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_SA_PNS2_9StringValE",
                 prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2554,7 +2581,8 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("percentile",
                 Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 prefix + "15percentile_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
+                prefix
+                        + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
                 prefix + "16percentile_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "20percentile_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "19percentile_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2563,7 +2591,8 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
+                prefix
+                        + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
                 prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2572,7 +2601,8 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_SA_PNS2_9StringValE",
+                prefix
+                        + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_SA_PNS2_9StringValE",
                 prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
@@ -2607,23 +2637,29 @@ public class FunctionSet<T> {
                             .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT, Type.INT),
                                     new ArrayType(t), t,
                                     "", "", "", "", "", true, false, true, true));
-<<<<<<< HEAD
+
             addBuiltin(AggregateFunction.createBuiltin(HIST, Lists.newArrayList(t), Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
-=======
 
->>>>>>> 2cf06c2d6... [Feature](aggregate-function) support funtion group_uniq_array
             addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t), Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
+
             addBuiltin(AggregateFunction.createBuiltin(HIST, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
                                     "", "", "", "", "", true, false, true, true));
 
-            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
+            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT),
+                    Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
 
 
-            addBuiltin(AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t),new ArrayType(t),t,
-                    "","","","","",true,false,true,true));
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
+                            t, "", "", "", "", "", true, false, true, true));
         }
 
         // Avg
@@ -2722,20 +2758,20 @@ public class FunctionSet<T> {
 
         // Group_concat(string)
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
-                        Type.VARCHAR, initNullString,
-                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        stringValSerializeOrFinalize,
-                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
-                        false, false));
+                Type.VARCHAR, initNullString,
+                prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                stringValSerializeOrFinalize,
+                prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                false, false));
         // Group_concat(string, string)
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                        Type.VARCHAR, Type.VARCHAR, initNullString,
-                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
-                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        stringValSerializeOrFinalize,
-                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
-                        false, false));
+                Type.VARCHAR, Type.VARCHAR, initNullString,
+                prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
+                prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                stringValSerializeOrFinalize,
+                prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                false, false));
         // Group_concat(string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
                 Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
@@ -2810,8 +2846,8 @@ public class FunctionSet<T> {
                     t.isStringType() ? initNullString : initNull,
                     prefix + FIRST_VALUE_UPDATE_SYMBOL.get(t),
                     null,
-                    t.isStringType()  ? stringValGetValue : null,
-                    t.isStringType()  ? stringValSerializeOrFinalize : null));
+                    t.isStringType() ? stringValGetValue : null,
+                    t.isStringType() ? stringValSerializeOrFinalize : null));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "last_value", Lists.newArrayList(t), t, t,
@@ -2827,8 +2863,8 @@ public class FunctionSet<T> {
                     t.isStringType() ? initNullString : initNull,
                     prefix + FIRST_VALUE_UPDATE_SYMBOL.get(t),
                     null,
-                    t.isStringType()  ? stringValGetValue : null,
-                    t.isStringType()  ? stringValSerializeOrFinalize : null, true));
+                    t.isStringType() ? stringValGetValue : null,
+                    t.isStringType() ? stringValSerializeOrFinalize : null, true));
             // Implements FIRST_VALUE for some windows that require rewrites during planning.
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "first_value_rewrite", Lists.newArrayList(t, Type.BIGINT), t, t,
@@ -2881,13 +2917,13 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lead", Lists.newArrayList(t, Type.BIGINT), t, t, false));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                        "lag", Lists.newArrayList(t), t, t, true));
+                    "lag", Lists.newArrayList(t), t, t, true));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                        "lag", Lists.newArrayList(t, Type.BIGINT), t, t, true));
+                    "lag", Lists.newArrayList(t, Type.BIGINT), t, t, true));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                        "lead", Lists.newArrayList(t), t, t, true));
+                    "lead", Lists.newArrayList(t), t, t, true));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                        "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
+                    "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
 
     }

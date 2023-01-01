@@ -19,19 +19,19 @@
 
 #include <type_traits>
 
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
-template <typename TYPE, typename HasLimit, typename... TArgs>
+template <typename T, typename HasLimit, typename... TArgs>
 AggregateFunctionPtr do_create_aggregate_function_group_uniq_array(const DataTypePtr& argument_type,
                                                                    TArgs... args) {
-    return AggregateFunctionPtr(new AggregateFunctionGroupUniqArray<TYPE, HasLimit>(
+    return AggregateFunctionPtr(new AggregateFunctionGroupUniqArray<T, HasLimit>(
             argument_type, std::forward<TArgs>(args)...));
 }
 
@@ -42,11 +42,14 @@ AggregateFunctionPtr create_aggregate_function_group_uniq_array_impl(
 #define DISPATCH(TYPE)                                                        \
     if (which.idx == TypeIndex::TYPE)                                         \
         return do_create_aggregate_function_group_uniq_array<TYPE, HasLimit>( \
-                argument_type, std::forward<TArgs>(args)...) FOR_NUMERIC_TYPES(DISPATCH);
+                argument_type, std::forward<TArgs>(args)...);
+    FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-
-    if (which.is_date() || which.is_date_time()) {
-        return do_create_aggregate_function_group_uniq_array<StringRef, HasLimit>(
+    if (which.is_date()) {
+        return do_create_aggregate_function_group_uniq_array<Int64, HasLimit>(
+                argument_type, std::forward<TArgs>(args)...);
+    } else if (which.is_date_time()) {
+        return do_create_aggregate_function_group_uniq_array<Int64, HasLimit>(
                 argument_type, std::forward<TArgs>(args)...);
     } else if (which.is_string()) {
         return do_create_aggregate_function_group_uniq_array<StringRef, HasLimit>(
@@ -62,31 +65,16 @@ AggregateFunctionPtr create_aggregate_function_group_uniq_array(const std::strin
                                                                 const DataTypes& argument_types,
                                                                 const Array& parameters,
                                                                 const bool result_is_nullable) {
-    assert_unary(name, argument_types);
-    if (parameters.empty()) {
+    if (argument_types.size() == 1) {
         return create_aggregate_function_group_uniq_array_impl<std::false_type>(
                 name, argument_types[0], parameters);
     }
-    if (parameters.size() == 1) {
-        auto type = parameters[0].get_type();
-        if (type != Field::Types::Int64 && type != Field::Types::UInt64) {
-            LOG(WARNING) << fmt::format(
-                    "parameter type error for aggregate function {},should be Int64 or UInt64",
-                    name);
-            return nullptr;
-        }
-        if ((type == Field::Types::Int64 && parameters[0].get<Int64>() < 0) ||
-            (type == Field::Types::UInt64 && parameters[0].get<UInt64>() == 0)) {
-            LOG(WARNING) << fmt::format(
-                    "parameter invalid for aggregate function {},should be positive", name);
-            return nullptr;
-        }
-        UInt64 max_size = parameters[0].get<UInt64>();
+    if (argument_types.size() == 2) {
         return create_aggregate_function_group_uniq_array_impl<std::true_type>(
-                name, argument_types[0], parameters, max_size);
+                name, argument_types[0], parameters);
     }
 
-    LOG(WARNING) << fmt::format("number of parameters for aggregate function {}, should be 0 or 1",
+    LOG(WARNING) << fmt::format("number of parameters for aggregate function {}, should be 1 or 2",
                                 name);
     return nullptr;
 }

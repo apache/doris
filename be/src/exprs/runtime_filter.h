@@ -287,14 +287,14 @@ protected:
         if (_state->enable_pipeline_exec()) {
             return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
                            ? "READY"
-                           : _rf_state_atomic.load(std::memory_order_acquire) ==
-                                             RuntimeFilterState::TIME_OUT
-                                     ? "TIME_OUT"
-                                     : "NOT_READY";
+                   : _rf_state_atomic.load(std::memory_order_acquire) ==
+                                   RuntimeFilterState::TIME_OUT
+                           ? "TIME_OUT"
+                           : "NOT_READY";
         } else {
-            return _rf_state == RuntimeFilterState::READY
-                           ? "READY"
-                           : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT" : "NOT_READY";
+            return _rf_state == RuntimeFilterState::READY      ? "READY"
+                   : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
+                                                               : "NOT_READY";
         }
     }
 

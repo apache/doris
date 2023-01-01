@@ -645,8 +645,10 @@ DateTimeVal TimestampFunctions::time_round(FunctionContext* ctx, const DateTimeV
     //round down/up inside time period(several time-units)
     int64_t count = period.val;
     int64_t delta_inside_period = (diff % count + count) % count;
-    int64_t step =
-            diff - delta_inside_period + (type == FLOOR ? 0 : delta_inside_period == 0 ? 0 : count);
+    int64_t step = diff - delta_inside_period +
+                   (type == FLOOR              ? 0
+                    : delta_inside_period == 0 ? 0
+                                               : count);
     bool is_neg = step < 0;
 
     TimeInterval interval(unit, is_neg ? -step : step, is_neg);

@@ -631,12 +631,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             auto find_result =
                     !need_null_map_for_probe
                             ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
-                            : (*null_map)[probe_index]
-                                      ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
-                                                                     probe_index,
-                                                                     *_arena)) {nullptr, false}
-                                      : key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                            *_arena);
+                    : (*null_map)[probe_index]
+                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
+                                                           *_arena)) {nullptr, false}
+                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
             if (probe_index + PREFETCH_STEP < probe_rows)
                 key_getter.template prefetch<true>(hash_table_ctx.hash_table,
                                                    probe_index + PREFETCH_STEP, *_arena);
