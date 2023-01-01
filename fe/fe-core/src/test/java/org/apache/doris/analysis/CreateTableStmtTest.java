@@ -158,10 +158,18 @@ public class CreateTableStmtTest {
         col4.setIsKey(false);
         cols.add(col4);
         // test merge-on-write
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, tblName, cols, "olap",
                 new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null,
-                new HashDistributionDesc(10, Lists.newArrayList("col1")), properties, null, "");
-        stmt.analyze(analyzer);
+                new HashDistributionDesc(10, Lists.newArrayList("col3")), properties, null, "");
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Distribution column[col3] is not key column");
+        stmt1.analyze(analyzer);
+
+        CreateTableStmt stmt2 = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col3")), properties, null, "");
+        stmt2.analyze(analyzer);
+
         Assert.assertEquals(col3.getAggregateType(), AggregateType.NONE);
         Assert.assertEquals(col4.getAggregateType(), AggregateType.NONE);
         // clear
