@@ -800,8 +800,7 @@ Status VOlapTableSink::init(const TDataSink& t_sink) {
             findTabletMode = FindTabletMode::FIND_TABLET_EVERY_BATCH;
         }
     }
-    _vpartition = _pool->add(
-            new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
+    _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
     return _vpartition->init();
 }
 
