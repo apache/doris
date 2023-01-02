@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
@@ -38,28 +40,22 @@ public class JoinTest extends SqlTestBase {
     @Test
     void testColocatedJoin() {
         String sql = "select * from T2 join T2 b on T2.id = b.id and T2.id = b.id;";
-        String plan = PlanChecker.from(connectContext)
+        PhysicalPlan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .deriveStats()
                 .optimize()
-                .getBestPlanTree()
-                .treeString();
-        Assertions.assertEquals(plan,
-                "PhysicalHashJoin ( type=INNER_JOIN, hashJoinCondition=[(id#0 = id#2), (id#0 = id#2)], otherJoinCondition=[], stats=(rows=1, width=2, penalty=0.0) )\n"
-                        + "|--PhysicalOlapScan ( qualified=default_cluster:test.T2, output=[id#0, score#1], stats=(rows=1, width=1, penalty=0.0) )\n"
-                        + "+--PhysicalOlapScan ( qualified=default_cluster:test.T2, output=[id#2, score#3], stats=(rows=1, width=1, penalty=0.0) )");
+                .getBestPlanTree();
+        // generate colocate join plan without physicalDistribute
+        Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
         sql = "select * from T1 join T0 on T1.score = T0.score and T1.id = T0.id;";
         plan = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .deriveStats()
                 .optimize()
-                .getBestPlanTree()
-                .treeString();
-        Assertions.assertEquals(plan,
-                "PhysicalHashJoin ( type=INNER_JOIN, hashJoinCondition=[(score#1 = score#3), (id#0 = id#2)], otherJoinCondition=[], stats=(rows=1, width=2, penalty=0.0) )\n"
-                        + "|--PhysicalOlapScan ( qualified=default_cluster:test.T1, output=[id#0, score#1], stats=(rows=1, width=1, penalty=0.0) )\n"
-                        + "+--PhysicalOlapScan ( qualified=default_cluster:test.T0, output=[id#2, score#3], stats=(rows=1, width=1, penalty=0.0) )");
+                .getBestPlanTree();
+        // generate colocate join plan without physicalDistribute
+        Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
     }
 }

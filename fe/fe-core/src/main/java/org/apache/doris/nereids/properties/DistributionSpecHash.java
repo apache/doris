@@ -178,18 +178,19 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
 
+        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
+            // this shuffle type is not natural but require natural
+            return false;
+        }
+
         if (requiredHash.shuffleType == ShuffleType.AGGREGATE) {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        // when this shuffle type is natural, we allow contains satisfied for possible colocate-join
-        if (this.shuffleType == ShuffleType.NATURAL) {
+        // If the required property is from join and this property is not enforced, we only need to check to contain
+        // And more checking is in ChildrenPropertiesRegulator
+        if (requiredHash.shuffleType == shuffleType.JOIN && this.shuffleType != shuffleType.ENFORCED) {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
-        }
-
-        if (requiredHash.shuffleType == ShuffleType.NATURAL) {
-            // this shuffle type is not natural but require natural
-            return false;
         }
 
         return equalsSatisfy(requiredHash.getOrderedShuffledColumns());

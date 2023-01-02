@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -107,7 +108,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         PhysicalProperties leftOutput = leftChild.getOutputProperties(childrenProperties.get(0));
 
         GroupExpression rightChild = children.get(1);
-        final Pair<Double, List<PhysicalProperties>> rightLowest
+        Pair<Double, List<PhysicalProperties>> rightLowest
                 = rightChild.getLowestCostTable().get(childrenProperties.get(1));
         PhysicalProperties rightOutput = rightChild.getOutputProperties(childrenProperties.get(1));
 
@@ -126,8 +127,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
                 // to make right child compatible with left child.
                 PhysicalProperties rightRequireProperties = calRightRequiredOfBucketShuffleJoin(leftHashSpec,
                         rightHashSpec);
-                enforceCost += updateChildEnforceAndCost(rightChild, rightOutput,
-                        (DistributionSpecHash) rightRequireProperties.getDistributionSpec(), rightLowest.first);
+                if (!rightOutput.equals(rightRequireProperties)) {
+                    enforceCost += updateChildEnforceAndCost(rightChild, rightOutput,
+                            (DistributionSpecHash) rightRequireProperties.getDistributionSpec(), rightLowest.first);
+                }
                 childrenProperties.set(1, rightRequireProperties);
                 return enforceCost;
             }
@@ -173,13 +176,24 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
 
     private double updateChildEnforceAndCost(GroupExpression child, PhysicalProperties childOutput,
             DistributionSpecHash required, double currentCost) {
+        double enforceCost = 0;
+        if (child.getPlan() instanceof PhysicalDistribute) {
+            //To avoid continuous distribute operator, we just enforce the child's child
+            childOutput = child.getInputPropertiesList(childOutput).get(0);
+            Pair<Double, GroupExpression> newChildAndCost
+                    = child.getOwnerGroup().getLowestCostPlan(childOutput).get();
+            child = newChildAndCost.second;
+            enforceCost = newChildAndCost.first - currentCost;
+            currentCost = newChildAndCost.first;
+        }
+
         DistributionSpec outputDistributionSpec;
         outputDistributionSpec = required.withShuffleType(ShuffleType.ENFORCED);
 
         PhysicalProperties newOutputProperty = new PhysicalProperties(outputDistributionSpec);
         GroupExpression enforcer = outputDistributionSpec.addEnforcer(child.getOwnerGroup());
         jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
-        double enforceCost = CostCalculator.calculateCost(enforcer);
+        enforceCost = Double.sum(enforceCost, CostCalculator.calculateCost(enforcer));
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(childOutput), enforceCost + currentCost)) {

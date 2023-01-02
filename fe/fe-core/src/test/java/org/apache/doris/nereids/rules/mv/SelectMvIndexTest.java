@@ -760,7 +760,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         createMv(createUserTagMVSql);
         String query = "select user_id from " + USER_TAG_TABLE_NAME + " where user_id in (select user_id from "
                 + USER_TAG_TABLE_NAME + " group by user_id having bitmap_union_count(to_bitmap(tag_id)) >1 ) ;";
-        testMvWithTwoTable(query, "user_tags_mv", "user_tags");
+        testMvWithTwoTable(query, "user_tags", "user_tags_mv");
     }
 
     @Test

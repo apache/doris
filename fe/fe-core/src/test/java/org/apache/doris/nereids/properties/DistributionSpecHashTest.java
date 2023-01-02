@@ -227,7 +227,7 @@ public class DistributionSpecHashTest {
         // require is same order
         Assertions.assertTrue(natural1.satisfy(natural2));
         // require contains all sets but order is not same
-        Assertions.assertTrue(natural1.satisfy(natural3));
+        Assertions.assertFalse(natural1.satisfy(natural3));
         // require slots is not contained by target
         Assertions.assertFalse(natural2.satisfy(natural1));
         // other shuffle type with same order
@@ -306,7 +306,7 @@ public class DistributionSpecHashTest {
         // require is same order
         Assertions.assertTrue(join1.satisfy(join2));
         // require contains all sets but order is not same
-        Assertions.assertFalse(join1.satisfy(join3));
+        Assertions.assertTrue(join1.satisfy(join3));
         // require slots is not contained by target
         Assertions.assertFalse(join3.satisfy(join1));
         // other shuffle type with same order
@@ -315,7 +315,7 @@ public class DistributionSpecHashTest {
         Assertions.assertTrue(enforce.satisfy(join2));
         // other shuffle type contain all set but order is not same
         Assertions.assertTrue(natural.satisfy(join3));
-        Assertions.assertFalse(aggregate.satisfy(join3));
+        Assertions.assertTrue(aggregate.satisfy(join3));
         Assertions.assertFalse(enforce.satisfy(join3));
     }
 
