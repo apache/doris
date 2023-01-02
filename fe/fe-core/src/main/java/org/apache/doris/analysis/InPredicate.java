@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -75,19 +74,19 @@ public class InPredicate extends Predicate {
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(IN_ITERATE,
-                    Type.BOOLEAN, NullableMode.CUSTOM, Lists.newArrayList(t, t), true,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::in_iterate", null, null, false));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
-                    Type.BOOLEAN, NullableMode.CUSTOM, Lists.newArrayList(t, t), true,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_iterate", null, null, false));
 
             String prepareFn = "doris::InPredicate::set_lookup_prepare_" + typeString;
             String closeFn = "doris::InPredicate::set_lookup_close_" + typeString;
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
-                    Type.BOOLEAN, NullableMode.CUSTOM, Lists.newArrayList(t, t), true,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::in_set_lookup", prepareFn, closeFn, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
-                    Type.BOOLEAN, NullableMode.CUSTOM, Lists.newArrayList(t, t), true,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
 
         }
