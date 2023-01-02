@@ -535,7 +535,6 @@ private:
     enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 
-    OlapTablePartitionParam* _partition = nullptr;
     std::vector<ExprContext*> _output_expr_ctxs;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
