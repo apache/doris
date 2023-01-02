@@ -125,3 +125,14 @@ $ USE_AVX2=0 sh build.sh
 If supported, execute `sh build.sh` directly.
 
 This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output will be in the `output/` directory.
+
+## Precompile the three-party binaries
+
+The `build.sh` script will first compile the third-party dependencies. You can also directly download the precompiled three-party binaries:
+
+`https://github.com/apache/doris-thirdparty/releases`
+
+Here we provide precompiled third-party binaries for Linux X86(with AVX2) and MacOS(X86 Chip). If it is consistent with your compiling and running environment, you can download and use it directly.
+
+After downloading, you will get an `installed/` directory after decompression, copy this directory to the `thirdparty/` directory, and then run `build.sh`.
+
