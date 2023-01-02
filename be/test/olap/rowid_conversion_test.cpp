@@ -43,7 +43,7 @@ using namespace ErrorCode;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
 
-class TestRowIdConversion : public testing::TestWithParam<std::tuple<KeysType, bool, bool>> {
+class TestRowIdConversion : public testing::TestWithParam<std::tuple<KeysType, bool, bool, bool>> {
 protected:
     void SetUp() override {
         char buffer[MAX_PATH_LEN];
@@ -305,7 +305,7 @@ protected:
     void check_rowid_conversion(KeysType keys_type, bool enable_unique_key_merge_on_write,
                                 uint32_t num_input_rowset, uint32_t num_segments,
                                 uint32_t rows_per_segment, const SegmentsOverlapPB& overlap,
-                                bool has_delete_handler) {
+                                bool has_delete_handler, bool is_vertical_merger) {
         // generate input data
         std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
         generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -338,7 +338,12 @@ protected:
         RowsetWriterContext writer_context;
         create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
         std::unique_ptr<RowsetWriter> output_rs_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &output_rs_writer);
+        Status s;
+        if (is_vertical_merger) {
+            s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+        } else {
+            s = RowsetFactory::create_rowset_writer(writer_context, false, &output_rs_writer);
+        }
         EXPECT_TRUE(s.ok());
 
         // merge input rowset
@@ -348,8 +353,14 @@ protected:
         Merger::Statistics stats;
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
-        s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema, input_rs_readers,
-                                   output_rs_writer.get(), &stats);
+        if (is_vertical_merger) {
+            s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+                                               input_rs_readers, output_rs_writer.get(), 10000000,
+                                               &stats);
+        } else {
+            s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+                                       input_rs_readers, output_rs_writer.get(), &stats);
+        }
         EXPECT_TRUE(s.ok());
         RowsetSharedPtr out_rowset = output_rs_writer->build();
 
@@ -535,19 +546,25 @@ TEST_F(TestRowIdConversion, Basic) {
 
 INSTANTIATE_TEST_SUITE_P(
         Parameters, TestRowIdConversion,
-        ::testing::ValuesIn(std::vector<std::tuple<KeysType, bool, bool>> {
-                // Parameters: data_type, enable_unique_key_merge_on_write, has_delete_handler
-                {DUP_KEYS, false, false},
-                {UNIQUE_KEYS, false, false},
-                {UNIQUE_KEYS, true, false},
-                {DUP_KEYS, false, true},
-                {UNIQUE_KEYS, false, true},
-                {UNIQUE_KEYS, true, true}}));
+        ::testing::ValuesIn(std::vector<std::tuple<KeysType, bool, bool, bool>> {
+                // Parameters: data_type, enable_unique_key_merge_on_write, has_delete_handler, is_vertical_merger
+                {DUP_KEYS, false, false, false},
+                {UNIQUE_KEYS, false, false, false},
+                {UNIQUE_KEYS, true, false, false},
+                {DUP_KEYS, false, true, false},
+                {UNIQUE_KEYS, false, true, false},
+                {UNIQUE_KEYS, true, true, false},
+                {UNIQUE_KEYS, false, false, true},
+                {UNIQUE_KEYS, true, false, true},
+                {DUP_KEYS, false, true, true},
+                {UNIQUE_KEYS, false, true, true},
+                {UNIQUE_KEYS, true, true, true}}));
 
 TEST_P(TestRowIdConversion, Conversion) {
     KeysType keys_type = std::get<0>(GetParam());
     bool enable_unique_key_merge_on_write = std::get<1>(GetParam());
     bool has_delete_handler = std::get<2>(GetParam());
+    bool is_vertical_merger = std::get<3>(GetParam());
 
     // if num_input_rowset = 2, VCollectIterator::Level1Iterator::_merge = flase
     // if num_input_rowset = 3, VCollectIterator::Level1Iterator::_merge = true
@@ -559,7 +576,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = NONOVERLAPPING;
             std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
-                                   num_segments, rows_per_segment, overlap, has_delete_handler);
+                                   num_segments, rows_per_segment, overlap, has_delete_handler,
+                                   is_vertical_merger);
         }
         // RowsetReader: VMergeIterator
         {
@@ -567,7 +585,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = OVERLAPPING;
             std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
-                                   num_segments, rows_per_segment, overlap, has_delete_handler);
+                                   num_segments, rows_per_segment, overlap, has_delete_handler,
+                                   is_vertical_merger);
         }
         // RowsetReader: VUnionIterator
         {
@@ -575,7 +594,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = NONOVERLAPPING;
             std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
-                                   num_segments, rows_per_segment, overlap, has_delete_handler);
+                                   num_segments, rows_per_segment, overlap, has_delete_handler,
+                                   is_vertical_merger);
         }
         // RowsetReader: VUnionIterator + VMergeIterator
         {
@@ -583,7 +603,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = OVERLAP_UNKNOWN;
             std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
-                                   num_segments, rows_per_segment, overlap, has_delete_handler);
+                                   num_segments, rows_per_segment, overlap, has_delete_handler,
+                                   is_vertical_merger);
         }
     }
 }
