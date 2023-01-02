@@ -29,7 +29,7 @@ export DORIS_HOME="${ROOT}"
 # Check args
 usage() {
     echo "
-Usage: $0 --version "version" <options>
+Usage: $0 --version version <options>
   Optional options:
      [no option]        build with avx2
      --noavx2           build without avx2
@@ -110,8 +110,8 @@ echo "Get params:
 "
 
 sh build.sh --clean &&
-USE_AVX2="${_USE_AVX2}" sh build.sh &&
-USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool &&
+    USE_AVX2="${_USE_AVX2}" sh build.sh &&
+    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool
 
 echo "Begin to pack"
 ORI_OUTPUT="${ROOT}/output"
@@ -134,27 +134,27 @@ echo "FE:   ${OUTPUT_FE}"
 echo "BE:   ${OUTPUT_BE}"
 echo "JAR:  ${OUTPUT_DEPS}"
 
-rm -rf ${OUTPUT}
-mkdir -p ${OUTPUT_FE} ${OUTPUT_BE} ${OUTPUT_DEPS}
+rm -rf "${OUTPUT}"
+mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_DEPS}"
 
 # FE
-cp -R ${ORI_OUTPUT}/fe/* ${OUTPUT_FE}/
+cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
 
 # DEPS
-cp ${ORI_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar ${OUTPUT_DEPS}/
-cp -R ${ORI_OUTPUT}/apache_hdfs_broker ${OUTPUT_DEPS}/apache_hdfs_broker
-cp -R ${ORI_OUTPUT}/audit_loader ${OUTPUT_DEPS}/audit_loader
+cp "${ORI_OUTPUT}"/be/lib/java-udf-jar-with-dependencies.jar "${OUTPUT_DEPS}"/
+cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_DEPS}"/apache_hdfs_broker
+cp -R "${ORI_OUTPUT}"/audit_loader "${OUTPUT_DEPS}"/audit_loader
 
 # BE
-cp -R ${ORI_OUTPUT}/be/* ${OUTPUT_BE}/
-rm ${OUTPUT_BE}/lib/java-udf-jar-with-dependencies.jar
+cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/
+rm "${OUTPUT_BE}"/lib/java-udf-jar-with-dependencies.jar
 
 if [[ "${TAR}" -eq 1 ]]; then
     echo "Begin to compress"
-    cd ${OUTPUT}
-    tar -cf - ${FE} | xz -T0 -z - > ${FE}.tar.xz
-    tar -cf - ${BE} | xz -T0 -z - > ${BE}.tar.xz
-    tar -cf - ${DEPS} | xz -T0 -z - > ${DEPS}.tar.xz
+    cd "${OUTPUT}"
+    tar -cf - "${FE}" | xz -T0 -z - >"${FE}".tar.xz
+    tar -cf - "${BE}" | xz -T0 -z - >"${BE}".tar.xz
+    tar -cf - "${DEPS}" | xz -T0 -z - >"${DEPS}".tar.xz
     cd -
 fi
 
