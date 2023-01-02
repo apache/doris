@@ -62,6 +62,7 @@ private:
 
     Container data;
     IndexByName index_by_name;
+    std::vector<bool> row_same_bit;
 
     int64_t _decompress_time_ns = 0;
     int64_t _decompressed_bytes = 0;
@@ -348,6 +349,20 @@ public:
     int64_t get_decompress_time() const { return _decompress_time_ns; }
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
     int64_t get_compress_time() const { return _compress_time_ns; }
+
+    void set_same_bit(std::vector<bool>::const_iterator begin,
+                      std::vector<bool>::const_iterator end) {
+        row_same_bit.insert(row_same_bit.end(), begin, end);
+
+        DCHECK_EQ(row_same_bit.size(), rows());
+    }
+
+    bool get_same_bit(size_t position) {
+        if (position >= row_same_bit.size()) {
+            return false;
+        }
+        return row_same_bit[position];
+    }
 
 private:
     void erase_impl(size_t position);
