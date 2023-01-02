@@ -126,7 +126,7 @@ public class FunctionCallExpr extends Expr {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) children.get(0).getType()).getScalarScale());
+                        Math.max(((ScalarType) children.get(0).getType()).getScalarScale(), 4));
             } else {
                 return returnType;
             }
@@ -740,6 +740,14 @@ public class FunctionCallExpr extends Expr {
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
         }
+        // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
+        if (fnName.getFunction().equalsIgnoreCase("avg") && arg.type.isDecimalV3()
+                && arg.type.getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
+            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), arg.type.getPrecision(),
+                    ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+            Expr e = getChild(0).castTo(t);
+            setChild(0, e);
+        }
         if (fnName.getFunction().equalsIgnoreCase("sum_distinct")
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(
@@ -816,12 +824,13 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)
-                || fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_CARDINALITY)
-                || fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_RAW_AGG))
+        if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
+                || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
+                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG")
+                || fnName.getFunction().equalsIgnoreCase("HLL_UNION"))
                 && !arg.type.isHllType()) {
             throw new AnalysisException(
-                    "HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
+                    "HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
         }
 
         if (fnName.getFunction().equalsIgnoreCase("min")
@@ -830,7 +839,7 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("DISTINCT_PC")
                 || fnName.getFunction().equalsIgnoreCase("DISTINCT_PCSA")
                 || fnName.getFunction().equalsIgnoreCase("NDV")
-                || fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)) {
+                || fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
             fnParams.setIsDistinct(false);
         }
 

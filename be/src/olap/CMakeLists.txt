@@ -40,6 +40,7 @@ add_library(Olap STATIC
     file_helper.cpp
     hll.cpp
     inverted_index_parser.cpp
+    itoken_extractor.cpp
     like_column_predicate.cpp
     key_coder.cpp
     lru_cache.cpp
@@ -76,6 +77,7 @@ add_library(Olap STATIC
     primary_key_index.cpp
     rowset/segment_v2/bitmap_index_reader.cpp
     rowset/segment_v2/bitmap_index_writer.cpp
+    rowset/segment_v2/inverted_index_reader.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp
@@ -93,6 +95,7 @@ add_library(Olap STATIC
     rowset/segment_v2/empty_segment_iterator.cpp
     rowset/segment_v2/segment_writer.cpp
     rowset/segment_v2/block_split_bloom_filter.cpp
+    rowset/segment_v2/ngram_bloom_filter.cpp
     rowset/segment_v2/bloom_filter_index_reader.cpp
     rowset/segment_v2/bloom_filter_index_writer.cpp
     rowset/segment_v2/bloom_filter.cpp

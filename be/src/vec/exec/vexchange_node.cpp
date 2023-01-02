@@ -119,6 +119,7 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             *eos = true;
             auto limit = _limit - _num_rows_returned;
             block->set_num_rows(limit);
+            _num_rows_returned = _limit;
         }
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
@@ -132,6 +133,7 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     if (_is_merging) {
         _vsort_exec_exprs.close(state);
     }
+    ExecNode::release_resource(state);
 }
 
 Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {

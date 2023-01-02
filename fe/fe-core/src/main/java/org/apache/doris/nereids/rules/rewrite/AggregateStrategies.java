@@ -284,10 +284,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build()
                 .transform(olapScan, cascadesContext)
                 .get(0);
-
-        return aggregate.withChildren(ImmutableList.of(
-            new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
-        ));
+        if (project != null) {
+            return aggregate.withChildren(ImmutableList.of(
+                    project.withChildren(
+                            ImmutableList.of(new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)))
+            ));
+        } else {
+            return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
+            ));
+        }
     }
 
     /**
@@ -781,7 +787,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 false, Optional.empty(), logicalAgg.getLogicalProperties(),
                 requireGather, logicalAgg.child());
 
-        AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
+        AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
@@ -794,7 +800,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         } else {
                             Alias alias = nonDistinctAggFunctionToAliasPhase1.get(outputChild);
                             return new AggregateExpression(
-                                    aggregateFunction, inputToResultParam, alias.toSlot());
+                                    aggregateFunction, bufferToResultParam, alias.toSlot());
                         }
                     } else {
                         return outputChild;
@@ -803,7 +809,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         PhysicalHashAggregate<Plan> gatherLocalGatherGlobalAgg
                 = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), globalOutput,
-                Optional.empty(), inputToResultParam, false,
+                Optional.empty(), bufferToResultParam, false,
                 logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg);
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
@@ -943,7 +949,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     bufferToResultParam, aggregateFunction.child(0));
                         } else {
                             Alias alias = nonDistinctAggFunctionToAliasPhase2.get(expr);
-                            return new AggregateExpression(aggregateFunction, bufferToResultParam, alias.toSlot());
+                            return new AggregateExpression(aggregateFunction,
+                                    new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.BUFFER_TO_RESULT),
+                                    alias.toSlot());
                         }
                     }
                     return expr;

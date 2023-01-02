@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -33,38 +34,44 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 
 import com.google.common.collect.ImmutableList;
 
 /**
  * Builtin aggregate functions.
- *
+ * <p>
  * Note: Please ensure that this class only has some lists and no procedural code.
- *       It helps to be clear and concise.
+ * It helps to be clear and concise.
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
+            agg(ApproxCountDistinct.class, "approx_count_distinct"),
             agg(Avg.class),
             agg(BitmapIntersect.class, "bitmap_intersect"),
             agg(BitmapUnion.class, "bitmap_union"),
             agg(BitmapUnionCount.class, "bitmap_union_count"),
             agg(BitmapUnionInt.class, "bitmap_union_int"),
             agg(Count.class),
+
+            agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitmapXor.class, "group_bitmap_xor"),
+            agg(GroupBitOr.class, "group_bit_or"),
+            agg(GroupBitXor.class, "group_bit_xor"),
             agg(HllUnion.class, "hll_union", "hll_raw_agg"),
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(Max.class),
             agg(Min.class),
+            agg(Ndv.class),
             agg(Sum.class),
-            agg(GroupBitAnd.class, "group_bit_and"),
-            agg(GroupBitOr.class, "group_bit_or"),
-            agg(GroupBitXor.class, "group_bit_xor"),
-            agg(Ndv.class)
-
+            agg(Variance.class, "variance", "variance_pop", "var_pop"),
+            agg(VarianceSamp.class, "variance_samp", "var_samp")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinAggregateFunctions() {}
+    private BuiltinAggregateFunctions() {
+    }
 }

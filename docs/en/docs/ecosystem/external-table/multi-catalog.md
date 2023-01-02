@@ -67,7 +67,7 @@ This function will be used as a supplement and enhancement to the previous exter
     
 4. Drop Catalog
 
-    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
+    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
 
     This operation will only delete the mapping information of the catalog in Doris, and will not modify or change the contents of any external data source.
 

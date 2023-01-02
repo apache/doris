@@ -363,10 +363,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.2.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.2.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.2"
-HDFS3_MD5SUM="5087ffec0fda4fbcd60a53ed92eb4d2d"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.4.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.4.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.4"
+HDFS3_MD5SUM="5da1d32ec83b3732ccbe26346a7f5f9a"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -394,10 +394,10 @@ XSIMD_SOURCE=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2
 XSIMD_MD5SUM="d024855f71c0a2837a6918c0f8f66245"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
-SIMDJSON_NAME=simdjson-1.0.2.tar.gz
-SIMDJSON_SOURCE=simdjson-1.0.2
-SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
+SIMDJSON_NAME=simdjson-3.0.1.tar.gz
+SIMDJSON_SOURCE=simdjson-3.0.1
+SIMDJSON_MD5SUM="993576b47249f2bade2bfb2552b2896a"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"

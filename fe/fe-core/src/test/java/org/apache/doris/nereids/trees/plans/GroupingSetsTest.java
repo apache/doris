@@ -183,4 +183,53 @@ public class GroupingSetsTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("select if(k1 = 1, 2, k1) k_if from t1");
     }
+
+    @Test
+    public void test1() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select coalesce(col1, 'all') as col1, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());");
+    }
+
+    @Test
+    public void test1_1() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select coalesce(col1, 'all') as col2, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());");
+    }
+
+    @Test
+    public void test1_2() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select coalesce(col1, 'all') as col2, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col2),());");
+    }
+
+    @Test
+    public void test2() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select if(1 = null, 'all', 2) as col1, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());");
+    }
+
+    @Test
+    public void test2_1() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select if(col1 = null, 'all', 2) as col1, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());");
+    }
+
+    @Test
+    public void test2_2() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select if(col1 = null, 'all', 2) as col2, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());");
+    }
+
+    @Test
+    public void test2_3() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select if(col1 = null, 'all', 2) as col2, count(*) as cnt from"
+                        + " (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col2),());");
+    }
 }

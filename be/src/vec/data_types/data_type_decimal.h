@@ -71,6 +71,11 @@ constexpr Int128 max_decimal_value<Decimal128>() {
     return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
            static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
 }
+template <>
+constexpr Int128 max_decimal_value<Decimal128I>() {
+    return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+           static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+}
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
@@ -219,56 +224,30 @@ private:
 };
 
 template <typename T, typename U>
-typename std::enable_if_t<(sizeof(T) >= sizeof(U)), const DataTypeDecimal<T>> decimal_result_type(
-        const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty, bool is_multiply,
-        bool is_divide) {
+DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty,
+                                bool is_multiply, bool is_divide, bool is_plus_minus) {
+    using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
     if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
+        return std::make_shared<DataTypeDecimal<Type>>((max_decimal_precision<T>(), 9));
     } else {
-        UInt32 scale = (tx.get_scale() > ty.get_scale() ? tx.get_scale() : ty.get_scale());
+        UInt32 scale = std::max(tx.get_scale(), ty.get_scale());
+        auto precision = max_decimal_precision<Type>();
+
+        size_t multiply_precision = tx.get_precision() + ty.get_precision();
+        size_t divide_precision = tx.get_precision() + ty.get_scale();
+        size_t plus_minus_precision =
+                std::max(tx.get_precision() - tx.get_scale(), ty.get_precision() - ty.get_scale()) +
+                scale;
         if (is_multiply) {
             scale = tx.get_scale() + ty.get_scale();
+            precision = std::min(multiply_precision, max_decimal_precision<Decimal128I>());
         } else if (is_divide) {
             scale = tx.get_scale();
+            precision = std::min(divide_precision, max_decimal_precision<Decimal128I>());
+        } else if (is_plus_minus) {
+            precision = std::min(plus_minus_precision, max_decimal_precision<Decimal128I>());
         }
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), scale);
-    }
-}
-
-template <typename T, typename U>
-typename std::enable_if_t<(sizeof(T) < sizeof(U)), const DataTypeDecimal<U>> decimal_result_type(
-        const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty, bool is_multiply,
-        bool is_divide) {
-    if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
-    } else {
-        UInt32 scale = (tx.get_scale() > ty.get_scale() ? tx.get_scale() : ty.get_scale());
-        if (is_multiply) {
-            scale = tx.get_scale() + ty.get_scale();
-        } else if (is_divide) {
-            scale = tx.get_scale();
-        }
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), scale);
-    }
-}
-
-template <typename T, typename U>
-const DataTypeDecimal<T> decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeNumber<U>&,
-                                             bool, bool) {
-    if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
-    } else {
-        return DataTypeDecimal<T>(max_decimal_precision<T>(), tx.get_scale());
-    }
-}
-
-template <typename T, typename U>
-const DataTypeDecimal<U> decimal_result_type(const DataTypeNumber<T>&, const DataTypeDecimal<U>& ty,
-                                             bool, bool) {
-    if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
-    } else {
-        return DataTypeDecimal<U>(max_decimal_precision<U>(), ty.get_scale());
+        return create_decimal(precision, scale, false);
     }
 }
 
@@ -317,8 +296,8 @@ constexpr bool IsDataTypeDecimalOrNumber =
 template <typename FromDataType, typename ToDataType>
 inline std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>,
                         typename ToDataType::FieldType>
-convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_from,
-                 UInt32 scale_to) {
+convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_from, UInt32 scale_to,
+                 UInt8* overflow_flag = nullptr) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
@@ -336,6 +315,9 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
                                  converted_value)) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow";
             return converted_value < 0
                            ? std::numeric_limits<typename ToFieldType::NativeType>::min()
@@ -348,10 +330,16 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
 
     if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
         if (converted_value < std::numeric_limits<typename ToFieldType::NativeType>::min()) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow";
             return std::numeric_limits<typename ToFieldType::NativeType>::min();
         }
         if (converted_value > std::numeric_limits<typename ToFieldType::NativeType>::max()) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow";
             return std::numeric_limits<typename ToFieldType::NativeType>::max();
         }
@@ -407,12 +395,16 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
 template <typename FromDataType, typename ToDataType>
 inline std::enable_if_t<IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>,
                         typename ToDataType::FieldType>
-convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) {
+convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale,
+                   UInt8* overflow_flag) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToNativeType = typename ToDataType::FieldType::NativeType;
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
         if (!std::isfinite(value)) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
             return value < 0 ? std::numeric_limits<ToNativeType>::min()
                              : std::numeric_limits<ToNativeType>::max();
@@ -421,10 +413,16 @@ convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) 
         FromFieldType out;
         out = value * ToDataType::get_scale_multiplier(scale);
         if (out <= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::min())) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow. Float is out of Decimal range";
             return std::numeric_limits<ToNativeType>::min();
         }
         if (out >= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::max())) {
+            if (overflow_flag) {
+                *overflow_flag = 1;
+            }
             VLOG_DEBUG << "Decimal convert overflow. Float is out of Decimal range";
             return std::numeric_limits<ToNativeType>::max();
         }

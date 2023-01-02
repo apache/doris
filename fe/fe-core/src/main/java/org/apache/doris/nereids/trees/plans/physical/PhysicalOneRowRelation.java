@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -45,19 +44,17 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     private final boolean buildUnionNode;
 
     public PhysicalOneRowRelation(List<NamedExpression> projects, boolean buildUnionNode,
-                                  LogicalProperties logicalProperties) {
+            LogicalProperties logicalProperties) {
         this(projects, buildUnionNode, Optional.empty(), logicalProperties, null, null);
     }
 
     private PhysicalOneRowRelation(List<NamedExpression> projects,
-                                   boolean buildUnionNode,
-                                   Optional<GroupExpression> groupExpression,
+            boolean buildUnionNode,
+            Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
         super(PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression, logicalProperties, physicalProperties,
                 statsDeriveResult);
-        Preconditions.checkArgument(projects.stream().allMatch(Expression::isConstant),
-                "OneRowRelation must consist of some constant expression");
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
         this.buildUnionNode = buildUnionNode;
     }

@@ -27,7 +27,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -95,6 +94,8 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     private final boolean partitionPruned;
     private final List<Long> manuallySpecifiedPartitions;
 
+    private final ImmutableList<Long> selectedPartitionIds;
+
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
     }
@@ -128,7 +129,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
             long selectedIndexId, boolean indexSelected, PreAggStatus preAggStatus, List<Long> partitions) {
 
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
-                groupExpression, logicalProperties, selectedPartitionIds);
+                groupExpression, logicalProperties);
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.partitionPruned = partitionPruned;
         this.tabletPruned = tabletPruned;
@@ -136,6 +137,12 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
         this.manuallySpecifiedPartitions = ImmutableList.copyOf(partitions);
+        this.selectedPartitionIds = ImmutableList.copyOf(
+                Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
+    }
+
+    public List<Long> getSelectedPartitionIds() {
+        return selectedPartitionIds;
     }
 
     @Override
@@ -188,33 +195,33 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
+    public LogicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalOlapScan(id, (Table) table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties,
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), logicalProperties,
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
     }
 
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, true, selectedTabletIds, tabletPruned,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, long indexId) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
                 indexId, true, preAgg, manuallySpecifiedPartitions);
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, true,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
     }

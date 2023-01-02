@@ -65,6 +65,9 @@ private:
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
+    // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,
+    // such as: "(a or b) and (c or d)", conditions for a,b,c,d will be stored
+    std::vector<TCondition> _compound_filters;
 
 private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
@@ -123,6 +126,12 @@ private:
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
     // time fro bitmap inverted index read and filter
     RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
+
+    RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+
+    RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
+
     // number of created olap scanners
     RuntimeProfile::Counter* _num_scanners = nullptr;
 

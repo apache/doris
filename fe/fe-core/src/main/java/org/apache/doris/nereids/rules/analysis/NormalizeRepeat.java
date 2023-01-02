@@ -200,7 +200,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
-        if (!pushedExprs.equals(originBottomPlan.getOutputSet())) {
+        if (!pushedExprs.equals(originBottomPlan.getOutputSet()) && !pushedExprs.isEmpty()) {
             return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan);
         }
         return originBottomPlan;

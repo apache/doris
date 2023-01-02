@@ -35,6 +35,9 @@ public:
     std::string debug_string() const override;
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
+    bool fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                      size_t result, size_t input_rows_count);
+
 private:
     FunctionBasePtr _function;
     std::string _expr_name;

@@ -104,7 +104,8 @@ private:
     VDataStreamMgr* _mgr;
 
 #ifdef USE_MEM_TRACKER
-    RuntimeState* _state;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    TUniqueId _query_id;
 #endif
 
     // Fragment and node id of the destination exchange node this receiver is used by.
@@ -260,6 +261,7 @@ public:
         _data_arrival_cv.notify_one();
 
         _recvr->_num_buffered_bytes += block_size;
+        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
     }
 };
 } // namespace vectorized

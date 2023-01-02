@@ -267,6 +267,7 @@ terminal String
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
+    KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
     KW_BROKER,
@@ -445,6 +446,15 @@ terminal String
     KW_MINUTE,
     KW_MODIFY,
     KW_MONTH,
+    KW_MATCH,
+    KW_MATCH_ANY,
+    KW_MATCH_ALL,
+    KW_MATCH_PHRASE,
+    KW_MATCH_ELEMENT_EQ,
+    KW_MATCH_ELEMENT_LT,
+    KW_MATCH_ELEMENT_GT,
+    KW_MATCH_ELEMENT_LE,
+    KW_MATCH_ELEMENT_GE,
     KW_NAME,
     KW_NAMES,
     KW_NATURAL,
@@ -456,6 +466,7 @@ terminal String
     KW_NULL,
     KW_NULLS,
     KW_OBSERVER,
+    KW_OF,
     KW_OFFSET,
     KW_ON,
     KW_ONLY,
@@ -592,6 +603,7 @@ terminal String
     KW_VARCHAR,
     KW_VARIABLES,
     KW_VERBOSE,
+    KW_VERSION,
     KW_VIEW,
     KW_WARNINGS,
     KW_WEEK,
@@ -684,6 +696,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
+nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -694,7 +707,7 @@ nonterminal Expr where_clause;
 nonterminal Expr delete_on_clause;
 nonterminal String sequence_col_clause;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
-  compound_predicate, in_predicate, like_predicate, exists_predicate;
+  compound_predicate, in_predicate, like_predicate, exists_predicate, match_predicate;
 nonterminal ArrayList<Expr> opt_partition_by_clause;
 nonterminal Expr having_clause;
 nonterminal ArrayList<OrderByElement> order_by_elements, order_by_clause;
@@ -895,6 +908,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -2143,7 +2157,7 @@ opt_password_lock_time ::=
     | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
     {:
         RESULT = opt;
-    :} 
+    :}
     ;
 
 passwd_lock_time_opt ::=
@@ -3269,6 +3283,10 @@ opt_index_type ::=
     | KW_USING KW_BITMAP
     {:
         RESULT = IndexDef.IndexType.BITMAP;
+    :}
+    | KW_USING KW_NGRAM_BF
+    {:
+        RESULT = IndexDef.IndexType.NGRAM_BF;
     :}
     | KW_USING KW_INVERTED
     {:
@@ -5095,9 +5113,31 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
+    table_name:name opt_table_snapshot:tableSnapshot opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints, tableSnapshot);
+    :}
+    ;
+
+opt_table_snapshot ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | table_snapshot:tableSnapshot
+    {:
+        RESULT = tableSnapshot;
+    :}
+    ;
+
+table_snapshot ::=
+    KW_FOR KW_VERSION KW_AS KW_OF INTEGER_LITERAL:version
+    {:
+        RESULT = new TableSnapshot(version);
+    :}
+    | KW_FOR KW_TIME KW_AS KW_OF STRING_LITERAL:time
+    {:
+        RESULT = new TableSnapshot(time);
     :}
     ;
 
@@ -5662,10 +5702,10 @@ func_args_def ::=
 
 cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
-  {: 
-    CastExpr castExpr = new CastExpr(targetType, e); 
+  {:
+    CastExpr castExpr = new CastExpr(targetType, e);
     if (targetType.getType().getLength() != -1
-        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR 
+        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
         || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
         // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)
         // this is just a workaround to make the result correct
@@ -6120,6 +6160,8 @@ predicate ::=
   {: RESULT = p; :}
   | like_predicate:p
   {: RESULT = p; :}
+  | match_predicate:p
+  {: RESULT = p; :}
   | LPAREN predicate:p RPAREN
   {:
     p.setPrintSqlInParens(true);
@@ -6157,6 +6199,27 @@ like_predicate ::=
   | expr:e1 KW_NOT KW_REGEXP expr:e2
   {: RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT,
     new LikePredicate(LikePredicate.Operator.REGEXP, e1, e2), null); :}
+  ;
+
+match_predicate ::=
+  expr:e1 KW_MATCH_ANY expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ANY, e1, e2); :}
+  | expr:e1 KW_MATCH expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ANY, e1, e2); :}
+  | expr:e1 KW_MATCH_ALL expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ALL, e1, e2); :}
+  | expr:e1 KW_MATCH_PHRASE expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE, e1, e2); :}
+  | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
+  | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LT, e1, e2); :}
+  | expr:e1 KW_MATCH_ELEMENT_GT expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GT, e1, e2); :}
+  | expr:e1 KW_MATCH_ELEMENT_LE expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LE, e1, e2); :}
+  | expr:e1 KW_MATCH_ELEMENT_GE expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GE, e1, e2); :}
   ;
 
 // Avoid a reduce/reduce conflict with compound_predicate by explicitly
@@ -6504,6 +6567,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BITMAP_UNION:id
     {: RESULT = id; :}
+    | KW_NGRAM_BF:id
+    {: RESULT = id; :}
     | KW_QUANTILE_UNION:id
     {: RESULT = id; :}
     | KW_BLOB:id
@@ -6686,6 +6751,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_NULLS:id
     {: RESULT = id; :}
+    | KW_OF:id
+    {: RESULT = id; :}
     | KW_OFFSET:id
     {: RESULT = id; :}
     | KW_ONLY:id
@@ -6809,6 +6876,8 @@ keyword ::=
     | KW_VALUE:id
     {: RESULT = id; :}
     | KW_VERBOSE:id
+    {: RESULT = id; :}
+    | KW_VERSION:id
     {: RESULT = id; :}
     | KW_VIEW:id
     {: RESULT = id; :}

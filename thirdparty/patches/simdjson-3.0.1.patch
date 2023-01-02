@@ -1,6 +1,6 @@
-diff -ur a/fuzz/fuzz_dump.cpp b/fuzz/fuzz_dump.cpp
---- a/fuzz/fuzz_dump.cpp	2021-10-28 07:29:42.000000000 +0800
-+++ b/fuzz/fuzz_dump.cpp	2022-12-20 21:20:13.068613831 +0800
+diff -Naur a/fuzz/fuzz_dump.cpp b/fuzz/fuzz_dump.cpp
+--- a/fuzz/fuzz_dump.cpp	2022-11-23 23:59:48.000000000 +0800
++++ b/fuzz/fuzz_dump.cpp	2022-12-27 17:59:16.614067037 +0800
 @@ -48,7 +48,7 @@
    case simdjson::dom::element_type::STRING:
      os << element.get_string().value_unsafe() << endl;
@@ -10,9 +10,9 @@ diff -ur a/fuzz/fuzz_dump.cpp b/fuzz/fuzz_dump.cpp
      os << element.get_bool().value_unsafe() << endl;
      break;
    case simdjson::dom::element_type::NULL_VALUE:
-diff -ur a/include/simdjson/dom/element.h b/include/simdjson/dom/element.h
---- a/include/simdjson/dom/element.h	2021-10-28 07:29:42.000000000 +0800
-+++ b/include/simdjson/dom/element.h	2022-12-20 21:19:28.213840603 +0800
+diff -Naur a/include/simdjson/dom/element.h b/include/simdjson/dom/element.h
+--- a/include/simdjson/dom/element.h	2022-11-23 23:59:48.000000000 +0800
++++ b/include/simdjson/dom/element.h	2022-12-27 17:59:16.614067037 +0800
 @@ -27,7 +27,7 @@
    UINT64 = 'u',    ///< uint64_t: any integer that fits in uint64_t but *not* int64_t
    DOUBLE = 'd',    ///< double: Any number with a "." or "e" that fits in double.
@@ -22,19 +22,19 @@ diff -ur a/include/simdjson/dom/element.h b/include/simdjson/dom/element.h
    NULL_VALUE = 'n' ///< null
  };
  
-diff -ur a/include/simdjson/dom/element-inl.h b/include/simdjson/dom/element-inl.h
---- a/include/simdjson/dom/element-inl.h	2021-10-28 07:29:42.000000000 +0800
-+++ b/include/simdjson/dom/element-inl.h	2022-12-20 21:23:03.064754395 +0800
-@@ -187,7 +187,7 @@
- 
+diff -Naur a/include/simdjson/dom/element-inl.h b/include/simdjson/dom/element-inl.h
+--- a/include/simdjson/dom/element-inl.h	2022-11-23 23:59:48.000000000 +0800
++++ b/include/simdjson/dom/element-inl.h	2022-12-27 17:59:16.615067032 +0800
+@@ -188,7 +188,7 @@
  inline element_type element::type() const noexcept {
+   SIMDJSON_DEVELOPMENT_ASSERT(tape.usable()); // https://github.com/simdjson/simdjson/issues/1914
    auto tape_type = tape.tape_ref_type();
 -  return tape_type == internal::tape_type::FALSE_VALUE ? element_type::BOOL : static_cast<element_type>(tape_type);
 +  return tape_type == internal::tape_type::FALSE_VALUE ? element_type::BOOLEAN : static_cast<element_type>(tape_type);
  }
  
  inline simdjson_result<bool> element::get_bool() const noexcept {
-@@ -413,7 +413,7 @@
+@@ -425,7 +425,7 @@
        return out << "double";
      case element_type::STRING:
        return out << "string";
@@ -43,10 +43,10 @@ diff -ur a/include/simdjson/dom/element-inl.h b/include/simdjson/dom/element-inl
        return out << "bool";
      case element_type::NULL_VALUE:
        return out << "null";
-diff -ur a/singleheader/simdjson.h b/singleheader/simdjson.h
---- a/singleheader/simdjson.h	2021-10-28 07:29:42.000000000 +0800
-+++ b/singleheader/simdjson.h	2022-12-20 21:19:55.295703686 +0800
-@@ -5167,7 +5167,7 @@
+diff -Naur a/singleheader/simdjson.h b/singleheader/simdjson.h
+--- a/singleheader/simdjson.h	2022-11-23 23:59:48.000000000 +0800
++++ b/singleheader/simdjson.h	2022-12-27 17:59:16.619067010 +0800
+@@ -5301,7 +5301,7 @@
    UINT64 = 'u',    ///< uint64_t: any integer that fits in uint64_t but *not* int64_t
    DOUBLE = 'd',    ///< double: Any number with a "." or "e" that fits in double.
    STRING = '"',    ///< std::string_view
@@ -55,16 +55,16 @@ diff -ur a/singleheader/simdjson.h b/singleheader/simdjson.h
    NULL_VALUE = 'n' ///< null
  };
  
-@@ -7008,7 +7008,7 @@
- 
+@@ -7149,7 +7149,7 @@
  inline element_type element::type() const noexcept {
+   SIMDJSON_DEVELOPMENT_ASSERT(tape.usable()); // https://github.com/simdjson/simdjson/issues/1914
    auto tape_type = tape.tape_ref_type();
 -  return tape_type == internal::tape_type::FALSE_VALUE ? element_type::BOOL : static_cast<element_type>(tape_type);
 +  return tape_type == internal::tape_type::FALSE_VALUE ? element_type::BOOLEAN : static_cast<element_type>(tape_type);
  }
  
  inline simdjson_result<bool> element::get_bool() const noexcept {
-@@ -7234,7 +7234,7 @@
+@@ -7386,7 +7386,7 @@
        return out << "double";
      case element_type::STRING:
        return out << "string";
@@ -73,10 +73,10 @@ diff -ur a/singleheader/simdjson.h b/singleheader/simdjson.h
        return out << "bool";
      case element_type::NULL_VALUE:
        return out << "null";
-diff -ur a/tests/dom/basictests.cpp b/tests/dom/basictests.cpp
---- a/tests/dom/basictests.cpp	2021-10-28 07:29:42.000000000 +0800
-+++ b/tests/dom/basictests.cpp	2022-12-20 21:18:54.684010105 +0800
-@@ -1499,7 +1499,7 @@
+diff -Naur a/tests/dom/basictests.cpp b/tests/dom/basictests.cpp
+--- a/tests/dom/basictests.cpp	2022-11-23 23:59:48.000000000 +0800
++++ b/tests/dom/basictests.cpp	2022-12-27 17:59:16.619067010 +0800
+@@ -1567,7 +1567,7 @@
      simdjson_result<dom::element> result = parser.parse(ALL_TYPES_JSON)[key];
  
      return true
@@ -85,10 +85,10 @@ diff -ur a/tests/dom/basictests.cpp b/tests/dom/basictests.cpp
        && test_cast_error<dom::array>(result, INCORRECT_TYPE)
        && test_cast_error<dom::object>(result, INCORRECT_TYPE)
        && test_cast_error<std::string_view>(result, INCORRECT_TYPE)
-diff -ur a/tests/dom/readme_examples.cpp b/tests/dom/readme_examples.cpp
---- a/tests/dom/readme_examples.cpp	2021-10-28 07:29:42.000000000 +0800
-+++ b/tests/dom/readme_examples.cpp	2022-12-20 21:19:06.757949077 +0800
-@@ -204,7 +204,7 @@
+diff -Naur a/tests/dom/readme_examples.cpp b/tests/dom/readme_examples.cpp
+--- a/tests/dom/readme_examples.cpp	2022-11-23 23:59:48.000000000 +0800
++++ b/tests/dom/readme_examples.cpp	2022-12-27 17:59:16.619067010 +0800
+@@ -208,7 +208,7 @@
        case dom::element_type::STRING:
          cout << std::string_view(element) << endl;
          break;

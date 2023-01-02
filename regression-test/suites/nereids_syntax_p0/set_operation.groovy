@@ -213,4 +213,5 @@ suite("test_nereids_set_operation") {
             logger.info(exception.message)
         }
     }
+    qt_union39 """(select  k1 from setOperationTable order by k1) union all (select k1 from setOperationTableNotNullable order by k1) order by k1;"""
 }

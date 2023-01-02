@@ -127,6 +127,10 @@ Status NewOlapScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
+void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compound_filters) {
+    _compound_filters = compound_filters;
+}
+
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
@@ -168,11 +172,24 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
+    _tablet_reader_params.remaining_vconjunct_root =
+            (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
 
     // Condition
     for (auto& filter : filters) {
+        if (is_match_condition(filter.condition_op) &&
+            !_tablet_schema->has_inverted_index(
+                    _tablet_schema->column(filter.column_name).unique_id())) {
+            return Status::NotSupported("Match query must with inverted index, column `" +
+                                        filter.column_name + "` is not inverted index column");
+        }
         _tablet_reader_params.conditions.push_back(filter);
     }
+
+    std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
+              std::inserter(_tablet_reader_params.conditions_except_leafnode_of_andnode,
+                            _tablet_reader_params.conditions_except_leafnode_of_andnode.begin()));
+
     std::copy(filter_predicates.bloom_filters.cbegin(), filter_predicates.bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
@@ -416,6 +433,12 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);
     COUNTER_UPDATE(olap_parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);
+
+    COUNTER_UPDATE(olap_parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);
+    COUNTER_UPDATE(olap_parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);
+
+    COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
+                   stats.output_index_result_column_timer);
 
     COUNTER_UPDATE(olap_parent->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(olap_parent->_total_segment_counter, stats.total_segment_number);

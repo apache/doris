@@ -449,7 +449,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isDateType() {
-        return isDate() || isDateTime();
+        return isDate() || isDateTime() || isDateV2() || isDateTimeV2();
     }
 
     public boolean isNullType() {
@@ -490,6 +490,23 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isHll() {
         return this instanceof HllType;
+    }
+
+    public boolean isQuantileState() {
+        return this instanceof QuantileStateType;
+    }
+
+    public boolean isArray() {
+        return this instanceof ArrayType;
+    }
+
+    // only metric types have the following constraint:
+    // 1. don't support as key column
+    // 2. don't support filter
+    // 3. don't support group by
+    // 4. don't support index
+    public boolean isOnlyMetricType() {
+        return isHll() || isBitmap() || isQuantileState() || isArray();
     }
 
     public DataType promotion() {

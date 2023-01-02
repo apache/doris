@@ -460,6 +460,7 @@ void HashJoinNode::prepare_for_next() {
 
 Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
                           bool* eos) {
+    SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
         // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
@@ -550,7 +551,7 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
 Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool eos) {
     _probe_eos = eos;
     if (input_block->rows() > 0) {
-        COUNTER_UPDATE(_probe_rows_counter, _probe_block.rows());
+        COUNTER_UPDATE(_probe_rows_counter, input_block->rows());
         int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
         _probe_columns.resize(probe_expr_ctxs_sz);
 
@@ -585,7 +586,6 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(_probe_timer);
 
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
@@ -659,6 +659,7 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);

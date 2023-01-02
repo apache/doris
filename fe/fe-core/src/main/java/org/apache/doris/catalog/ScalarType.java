@@ -84,6 +84,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
+    public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
 
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
@@ -557,9 +558,6 @@ public class ScalarType extends Type {
                 }
                 break;
             case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append("decimal").append("(").append(precision)
                             .append(", ").append(scale).append(")");
@@ -570,8 +568,22 @@ public class ScalarType extends Type {
                     stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
                 }
                 break;
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                String typeName = Config.enable_decimal_conversion ? "decimal" : "decimalv3";
+                if (Strings.isNullOrEmpty(precisionStr)) {
+                    stringBuilder.append(typeName).append("(").append(precision)
+                        .append(", ").append(scale).append(")");
+                } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
+                    stringBuilder.append(typeName).append("(`").append(precisionStr)
+                        .append("`, `").append(scaleStr).append("`)");
+                } else {
+                    stringBuilder.append(typeName).append("(`").append(precisionStr).append("`)");
+                }
+                break;
             case DATETIMEV2:
-                stringBuilder.append("datetime").append("(").append(scale).append(")");
+                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
             case TIME:
                 stringBuilder.append("time");

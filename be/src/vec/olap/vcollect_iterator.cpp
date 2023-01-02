@@ -468,6 +468,11 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
+    // append extra columns (eg. MATCH pred result column) from src_block to block
+    for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
+        block->insert(cur_row.block->get_by_position(i).clone_empty());
+    }
+
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
         _block_row_locations.resize(_batch_size);
     }
