@@ -187,6 +187,7 @@ struct TQueryOptions {
   55: optional bool enable_pipeline_engine = false
 
   56: optional i32 repeat_max_num = 0
+  57: optional bool check_overflow_for_decimal = false
 }
     
 

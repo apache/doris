@@ -67,7 +67,7 @@ This function will be used as a supplement and enhancement to the previous exter
     
 4. Drop Catalog
 
-    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
+    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
 
     This operation will only delete the mapping information of the catalog in Doris, and will not modify or change the contents of any external data source.
 
@@ -653,5 +653,16 @@ Metadata changes of external data sources, such as creating, dropping tables, ad
 Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
 Automatic synchronization of metadata will be supported soon.
+
+## FAQ
+
+### Iceberg
+
+The following configurations solves the problem `failed to get schema for table xxx in db xxx` and `java.lang.UnsupportedOperationException: Storage schema reading not supported` when reading data from `Hive Metastore`.
+
+- Place iceberg runtime jar in the hive lib directory.
+- hive-site.xml add the property `metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`.
+
+Restart `Hive Metastore` after the configuration is complete. 
 
 </version>

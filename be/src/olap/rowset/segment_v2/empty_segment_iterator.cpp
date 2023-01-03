@@ -17,8 +17,6 @@
 
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 
-#include "olap/row_block2.h"
-
 namespace doris {
 namespace segment_v2 {
 

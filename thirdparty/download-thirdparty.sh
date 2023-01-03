@@ -397,10 +397,10 @@ cd -
 echo "Finished patching ${BRPC_SOURCE}"
 
 # patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
-if [[ "${SIMDJSON_SOURCE}" = "simdjson-1.0.2" ]]; then
+if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
     cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/simdjson-1.0.2.patch"
+        patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -

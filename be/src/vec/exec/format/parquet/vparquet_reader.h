@@ -94,6 +94,8 @@ public:
 
     Statistics& statistics() { return _statistics; }
 
+    const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
+
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
@@ -156,7 +158,9 @@ private:
     io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
-    std::unique_ptr<RowGroupReader> _current_group_reader;
+    std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
+    // read to the end of current reader
+    bool _row_group_eof = true;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;

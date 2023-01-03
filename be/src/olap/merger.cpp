@@ -22,6 +22,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "util/trace.h"
 #include "vec/olap/block_reader.h"
@@ -181,6 +182,9 @@ Status Merger::vertical_compact_one_group(
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));
     }
+    if (is_key && stats_output && stats_output->rowid_conversion) {
+        reader_params.record_rowids = true;
+    }
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*tablet_schema);
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
@@ -192,6 +196,17 @@ Status Merger::vertical_compact_one_group(
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
+
+    if (is_key && reader_params.record_rowids) {
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
+        // init segment rowid map for rowid conversion
+        std::vector<uint32_t> segment_num_rows;
+        for (auto& rs_reader : reader_params.rs_readers) {
+            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
+                                                             segment_num_rows);
+        }
+    }
 
     vectorized::Block block = tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
@@ -205,6 +220,12 @@ Status Merger::vertical_compact_one_group(
                 dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
+        if (is_key && reader_params.record_rowids && block.rows() > 0) {
+            std::vector<uint32_t> segment_num_rows;
+            RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
+                                                segment_num_rows);
+        }
         output_rows += block.rows();
         block.clear_column_data();
     }

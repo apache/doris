@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## jsonb_extract
+
+<version since="1.2.0">
+
+jsonb_extract
+
+</version>
+
 ### description
 #### Syntax
 

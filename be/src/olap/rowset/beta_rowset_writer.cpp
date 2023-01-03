@@ -33,7 +33,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
-//#include "olap/storage_engine.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
@@ -81,14 +81,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta.reset(new RowsetMeta);
-    if (_context.fs == nullptr && _context.data_dir) {
-        _rowset_meta->set_fs(_context.data_dir->fs());
-    } else {
-        _rowset_meta->set_fs(_context.fs);
-    }
-    if (_context.fs != nullptr && _context.fs->resource_id().size() > 0) {
-        _rowset_meta->set_resource_id(_context.fs->resource_id());
-    }
+    _rowset_meta->set_fs(_context.fs);
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
@@ -391,10 +384,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
     for (int seg_id = _segcompacted_point; seg_id < num; ++seg_id) {
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
-        auto cache_path =
-                BetaRowset::segment_cache_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(),
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
                                            _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();

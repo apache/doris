@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -35,6 +36,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -66,7 +69,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
                 new FilterExpressionRewrite().build(),
-                new JoinExpressionRewrite().build());
+                new JoinExpressionRewrite().build(),
+                new SortExpressionRewrite().build(),
+                new LogicalRepeatRewrite().build(),
+                new HavingExpressionRewrite().build());
     }
 
     private class GenerateExpressionRewrite extends OneRewriteRuleFactory {
@@ -181,6 +187,50 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
                         rewriteOtherJoinConjuncts, join.getHint(), join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
+        }
+    }
+
+    private class SortExpressionRewrite extends OneRewriteRuleFactory {
+
+        @Override
+        public Rule build() {
+            return logicalSort().then(sort -> {
+                List<OrderKey> orderKeys = sort.getOrderKeys();
+                List<OrderKey> rewrittenOrderKeys = new ArrayList<>();
+                for (OrderKey k : orderKeys) {
+                    Expression expression = rewriter.rewrite(k.getExpr());
+                    rewrittenOrderKeys.add(new OrderKey(expression, k.isAsc(), k.isNullFirst()));
+                }
+                return sort.withOrderByKey(rewrittenOrderKeys);
+            }).toRule(RuleType.REWRITE_SORT_EXPRESSION);
+        }
+    }
+
+    private class HavingExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalHaving().then(having -> {
+                Set<Expression> rewrittenExpr = new HashSet<>();
+                for (Expression e : having.getExpressions()) {
+                    rewrittenExpr.add(rewriter.rewrite(e));
+                }
+                return having.withExpressions(rewrittenExpr);
+            }).toRule(RuleType.REWRITE_HAVING_EXPRESSSION);
+        }
+    }
+
+    private class LogicalRepeatRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalRepeat().then(r -> {
+                List<List<Expression>> groupingExprs = new ArrayList<>();
+                for (List<Expression> expressions : r.getGroupingSets()) {
+                    groupingExprs.add(expressions.stream().map(rewriter::rewrite).collect(Collectors.toList()));
+                }
+                return r.withGroupSetsAndOutput(groupingExprs,
+                        r.getOutputExpressions().stream().map(rewriter::rewrite).map(e -> (NamedExpression) e)
+                                .collect(Collectors.toList()));
+            }).toRule(RuleType.REWRITE_REPEAT_EXPRESSSION);
         }
     }
 }

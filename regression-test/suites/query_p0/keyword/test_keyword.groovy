@@ -116,4 +116,8 @@ suite("test_keyword", "query,p0") {
 
     qt_distinct "select distinct upper(k6) from ${tableName1} order by upper(k6)"
     qt_distinct "select distinct * from ${tableName1} where k1<20 order by k1, k2, k3, k4"
+    qt_having2 "select k1, k2 from ${tableName2} having k1 % 3 = 0 order by k1, k2"
+    qt_distinct25 "select avg(distinct k1), avg(k1) from ${tableName1}"
+    qt_distinct26 "select count(*) from (select count(distinct k1) from ${tableName1} group by k2) v \
+		    order by count(*)"
 }

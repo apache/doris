@@ -303,27 +303,28 @@ public class StreamLoadPlanner {
         if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
             PartitionInfo partitionInfo = destTable.getPartitionInfo();
             Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
-            Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+            Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (Column column : partitionInfo.getPartitionColumns()) {
                 SlotDescriptor slotDesc = tupleDesc.getColumnSlot(column.getName());
                 if (null == slotDesc) {
                     continue;
                 }
-                PartitionColumnFilter keyFilter = SingleNodePlanner.createPartitionFilter(slotDesc, conjuncts);
-                if (null != keyFilter) {
-                    columnFilters.put(column.getName(), keyFilter);
+                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts);
+                if (columnRange != null) {
+                    columnNameToRange.put(column.getName(), columnRange);
                 }
             }
-            if (columnFilters.isEmpty()) {
+            if (columnNameToRange.isEmpty()) {
                 return null;
             }
+
             PartitionPruner partitionPruner = null;
             if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                partitionPruner = new RangePartitionPruner(itemById,
-                        partitionInfo.getPartitionColumns(), columnFilters);
+                partitionPruner = new RangePartitionPrunerV2(itemById,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
             } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
-                partitionPruner = new ListPartitionPruner(itemById,
-                        partitionInfo.getPartitionColumns(), columnFilters);
+                partitionPruner = new ListPartitionPrunerV2(itemById,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
             }
             partitionIds.addAll(partitionPruner.prune());
             return partitionIds;

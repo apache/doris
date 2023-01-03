@@ -35,6 +35,8 @@ void PipelineTask::_init_profile() {
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
     _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
+    _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
+    _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
 }
@@ -48,13 +50,15 @@ Status PipelineTask::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(o->prepare(state));
     }
 
-    _task_profile->add_info_string("SinkId", fmt::format("{}", _sink->id()));
+    _task_profile->add_info_string("Sink", fmt::format("{}({})", _sink->get_name(), _sink->id()));
     fmt::memory_buffer operator_ids_str;
     for (size_t i = 0; i < _operators.size(); i++) {
         if (i == 0) {
-            fmt::format_to(operator_ids_str, fmt::format("[{}", _operators[i]->id()));
+            fmt::format_to(operator_ids_str,
+                           fmt::format("[{}({})", _operators[i]->get_name(), _operators[i]->id()));
         } else {
-            fmt::format_to(operator_ids_str, fmt::format(", {}", _operators[i]->id()));
+            fmt::format_to(operator_ids_str,
+                           fmt::format(", {}({})", _operators[i]->get_name(), _operators[i]->id()));
         }
     }
     fmt::format_to(operator_ids_str, "]");
@@ -205,14 +209,13 @@ void PipelineTask::set_state(PipelineTaskState state) {
             _wait_sink_watcher.stop();
         }
     } else if (_cur_state == RUNNABLE) {
+        COUNTER_UPDATE(_block_counts, 1);
         if (state == BLOCKED_FOR_SOURCE) {
             _wait_source_watcher.start();
-            COUNTER_UPDATE(_block_counts, 1);
+            COUNTER_UPDATE(_block_by_source_counts, 1);
         } else if (state == BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
-            COUNTER_UPDATE(_block_counts, 1);
-        } else if (state == BLOCKED_FOR_DEPENDENCY) {
-            COUNTER_UPDATE(_block_counts, 1);
+            COUNTER_UPDATE(_block_by_sink_counts, 1);
         }
     }
     _cur_state = state;

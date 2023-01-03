@@ -47,6 +47,22 @@ public:
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
+    std::string get_search_str() const override {
+        return std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len);
+    }
+    bool is_opposite() const { return _opposite; }
+
+    void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
+        _page_ng_bf = std::move(src);
+    }
+    bool evaluate_and(const BloomFilter* bf) const override {
+        if (_page_ng_bf) {
+            return bf->contains(*_page_ng_bf);
+        }
+        return true;
+    }
+    bool can_do_bloom_filter() const override { return true; }
+
 private:
     template <bool is_and>
     void _evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
@@ -130,9 +146,11 @@ private:
 
     StateType* _state;
 
-    // A separate scratch region is required for every concurrent caller of the Hyperscan API.
-    // So here _like_state is separate for each instance of LikeColumnPredicate.
+    // A separate scratch region is required for every concurrent caller of the
+    // Hyperscan API. So here _like_state is separate for each instance of
+    // LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
+    std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
 };
 
-} //namespace doris
+} // namespace doris

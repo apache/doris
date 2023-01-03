@@ -33,16 +33,24 @@ suite("test_external_catalog_icebergv2", "p2") {
         sql """switch ${catalog_name};"""
         // test parquet format format
         def q01 = {
-            qt_q01 """ select count(1) as c from customer_small;"""
-            qt_q02 """ select c_custkey from customer_small group by c_custkey limit 4;"""
-            qt_q03 """ select count(1) from orders """
-            qt_q04 """ select count(1) from customer_small where c_name = 'Customer#0063356' order by c_custkey limit 1; """
+            qt_q01 """ select count(1) as c from customer_small """
+            qt_q02 """ select c_custkey from customer_small group by c_custkey limit 4 """
+            qt_q03 """ select count(1) from orders_small """
+            qt_q04 """ select count(1) from customer_small where c_name = 'Customer#000000005' or c_name = 'Customer#000000006' """
             qt_q05 """ select * from customer_small order by c_custkey limit 3 """
-            qt_q06 """ select o_orderkey from orders where o_orderkey > 652566 limit 3"""
-            qt_q07 """ select o_orderkey from orders where o_custkey < 3357 limit 3"""
-            qt_q08 """ select count(1) as c from customer;"""
+            qt_q06 """ select o_orderkey from orders_small where o_orderkey > 652566 order by o_orderkey limit 3 """
+            qt_q07 """ select o_totalprice from orders_small where o_custkey < 3357 order by o_custkey limit 3 """
+            qt_q08 """ select count(1) as c from customer """
+        }
+        // test time travel stmt
+        def q02 = {
+            qt_q09 """ select c_custkey from customer for time as of '2022-12-27 10:21:36' limit 3 """
+            qt_q10 """ select c_custkey from customer for time as of '2022-12-28 10:21:36' limit 3 """
+            qt_q11 """ select c_custkey from customer for version as of 906874575350293177  limit 3 """
+            qt_q12 """ select c_custkey from customer for version as of 6352416983354893547  limit 3 """
         }
         sql """ use `tpch_1000_icebergv2`; """
         q01()
+        q02()
     }
 }

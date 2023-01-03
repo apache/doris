@@ -40,7 +40,7 @@ public class DistributionDesc implements Writable {
 
     }
 
-    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs) throws AnalysisException {
+    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
         throw new NotImplementedException();
     }
 

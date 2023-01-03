@@ -67,7 +67,7 @@ under the License.
     
 4. 删除 Catalog
 
-    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
+    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
     
     该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
 
@@ -650,5 +650,16 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
 后续会支持元数据的自动同步。
+
+## 常见问题
+
+### Iceberg
+
+下面的配置用来解决Doris使用Hive客户端访问Hive Metastore时出现的`failed to get schema for table xxx in db xxx` 和 `java.lang.UnsupportedOperationException: Storage schema reading not supported`。
+
+- 在hive的lib目录放上iceberg运行时有关的jar包。
+- hive-site.xml配置`metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`。
+  
+配置完成后需要重启Hive Metastore。
 
 </version>

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
@@ -31,6 +32,9 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -66,9 +70,12 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     // should make sure isDisinct property is correctly passed around.
                     // please see rule BindSlotReference or BindFunction for example
                     new ProjectWithDistinctToAggregate(),
+                    new AvgDistinctToSumDivCount(),
                     new ResolveOrdinalInOrderByAndGroupBy(),
                     new ReplaceExpressionByChildOutput(),
-                    new HideOneRowRelationUnderUnion()
+                    new HideOneRowRelationUnderUnion(),
+                    new ExpressionNormalization(cascadesContext.getConnectContext(),
+                                ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE))
                 )),
                 topDownBatch(ImmutableList.of(
                     new FillUpMissingSlots(),

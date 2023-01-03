@@ -18,7 +18,6 @@
 #pragma once
 
 #include "olap/iterators.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
@@ -89,7 +88,6 @@ private:
     SegmentCacheHandle _segment_cache_handle;
 
     StorageReadOptions _read_options;
-    bool _can_reuse_schema = true;
 };
 
 } // namespace doris

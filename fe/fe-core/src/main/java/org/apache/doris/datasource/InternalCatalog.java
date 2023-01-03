@@ -1848,7 +1848,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Map<String, String> properties = stmt.getProperties();
 
         // get use light schema change
-        Boolean enableLightSchemaChange = false;
+        Boolean enableLightSchemaChange;
         try {
             enableLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
         } catch (AnalysisException e) {
@@ -1889,7 +1889,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
 
-        boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableUniqueKeyMergeOnWrite;
         try {
             enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
         } catch (AnalysisException e) {
@@ -1917,6 +1917,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+
+        Index.checkConflict(stmt.getIndexes(), bfColumns);
 
         olapTable.setReplicationAllocation(replicaAlloc);
 
@@ -1947,7 +1949,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        DataProperty.DEFAULT_DATA_PROPERTY);
+                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2104,7 +2106,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 try {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_DATA_PROPERTY);
+                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                            new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
 

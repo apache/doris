@@ -389,9 +389,17 @@ public class ScalarFunction extends Function {
         if (getCloseFnSymbol() != null) {
             sb.append(",\n  \"CLOSE_FN\"=").append("\"" + getCloseFnSymbol() + "\"");
         }
-        sb.append(",\n  \"OBJECT_FILE\"=")
-                .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
-        sb.append(",\n  \"MD5\"=").append("\"" + getChecksum() + "\"");
+
+        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            sb.append(",\n  \"FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+        } else {
+            sb.append(",\n  \"OBJECT_FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+        }
+        sb.append(",\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
         sb.append("\n);");
         return sb.toString();
     }

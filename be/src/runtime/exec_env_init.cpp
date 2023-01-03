@@ -26,6 +26,7 @@
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
 #include "pipeline/task_scheduler.h"
+#include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/cache/result_cache.h"
@@ -150,6 +151,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _storage_policy_mgr = new StoragePolicyMgr();
+    _block_spill_mgr = new BlockSpillManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");

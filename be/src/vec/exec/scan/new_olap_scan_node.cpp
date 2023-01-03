@@ -109,6 +109,12 @@ Status NewOlapScanNode::_init_profile() {
             ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
 
+    _inverted_index_filter_counter =
+            ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
+    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTimer");
+
+    _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
+
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
 
@@ -230,6 +236,20 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
             for (const auto& filter : filters) {
                 _olap_filters.push_back(filter);
+            }
+        }
+
+        for (auto& iter : _compound_value_ranges) {
+            std::vector<TCondition> filters;
+            std::visit(
+                    [&](auto&& range) {
+                        if (range.is_in_compound_value_range()) {
+                            range.to_condition_in_compound(filters);
+                        }
+                    },
+                    iter);
+            for (const auto& filter : filters) {
+                _compound_filters.push_back(filter);
             }
         }
 
@@ -385,6 +405,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
                     _need_agg_finalize, *scan_range, _scanner_profile.get());
+
+            scanner->set_compound_filters(_compound_filters);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

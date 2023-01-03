@@ -247,6 +247,8 @@ E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
+E(INVERTED_INDEX_INVALID_PARAMETERS, -4000);
+E(INVERTED_INDEX_NOT_SUPPORTED, -4001);
 #undef E
 }; // namespace ErrorCode
 
@@ -356,6 +358,7 @@ public:
     static Status name(std::string_view msg, Args&&... args) {                  \
         return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
     }
+
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)

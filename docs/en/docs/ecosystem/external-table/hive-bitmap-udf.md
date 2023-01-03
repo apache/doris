@@ -106,4 +106,4 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive Bitmap import into Doris
 
- see details: [Spark Load](../../../data-operate/import/import-way/spark-load-manual) -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)
+ see details: [Spark Load](../../data-operate/import/import-way/spark-load-manual) -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)

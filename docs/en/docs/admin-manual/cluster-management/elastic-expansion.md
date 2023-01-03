@@ -29,7 +29,7 @@ under the License.
 
 Doris can easily expand and shrink FE, BE, Broker instances.
 
-## FE Expansion and Compression
+## FE Scaling
 
 High availability of FE can be achieved by expanding FE to three top-one nodes.
 
@@ -94,7 +94,7 @@ Delete the corresponding FE node using the following command:
 >
 > 1. When deleting Follower FE, make sure that the remaining Follower (including Leader) nodes are odd.
 
-## BE Expansion and Compression
+## BE Scaling
 
 Users can login to Leader FE through mysql-client. By:
 
@@ -106,7 +106,7 @@ You can also view the BE node through the front-end page connection: ``http://fe
 
 All of the above methods require Doris's root user rights.
 
-The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../../maint-monitor/tablet-repair-and-balance).
+The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../maint-monitor/tablet-repair-and-balance).
 
 ### Add BE nodes
 
@@ -142,7 +142,7 @@ DECOMMISSION clause:
 
 **For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document](../multi-tenant).**
 
-## Broker Expansion and Shrinkage
+## Broker Scaling
 
 There is no rigid requirement for the number of Broker instances. Usually one physical machine is deployed. Broker addition and deletion can be accomplished by following commands:
 

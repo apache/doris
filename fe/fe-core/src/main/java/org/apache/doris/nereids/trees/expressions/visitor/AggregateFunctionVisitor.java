@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -32,8 +34,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCou
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 
-/** AggregateFunctionVisitor. */
+/**
+ * AggregateFunctionVisitor.
+ */
 public interface AggregateFunctionVisitor<R, C> {
     R visitAggregateFunction(AggregateFunction aggregateFunction, C context);
 
@@ -81,6 +87,14 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(bitmapUnionCount, context);
     }
 
+    default R visitVariance(Variance variance, C context) {
+        return visitAggregateFunction(variance, context);
+    }
+
+    default R visitVarianceSamp(VarianceSamp varianceSamp, C context) {
+        return visitAggregateFunction(varianceSamp, context);
+    }
+
     default R visitNdv(Ndv ndv, C context) {
         return visitAggregateFunction(ndv, context);
     }
@@ -91,5 +105,13 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitHllUnion(HllUnion hllUnion, C context) {
         return visitAggregateFunction(hllUnion, context);
+    }
+
+    default R visitApproxCountDistinct(ApproxCountDistinct approxCountDistinct, C context) {
+        return visitAggregateFunction(approxCountDistinct, context);
+    }
+
+    default R visitAnyValue(AnyValue anyValue, C context) {
+        return visitAggregateFunction(anyValue, context);
     }
 }

@@ -273,4 +273,9 @@ suite("test_union") {
         qt_union40 """(select k1 from ${new_union_table}) union (select k${idx} from ${tbName1}) order by k1"""
     }
     sql"""drop table ${new_union_table}"""
+
+    sql 'set enable_vectorized_engine=true;'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=true'
+    qt_union35 """select cast("2016-07-01" as date) union (select cast("2016-07-02 1:10:0" as date)) order by 1"""
 }

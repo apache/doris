@@ -20,6 +20,7 @@
 #include <queue>
 
 #include "table_format_reader.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr.h"
@@ -29,8 +30,9 @@ namespace doris::vectorized {
 class IcebergTableReader : public TableFormatReader {
 public:
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
-                       RuntimeState* state, const TFileScanRangeParams& params);
-    ~IcebergTableReader() override;
+                       RuntimeState* state, const TFileScanRangeParams& params,
+                       const TFileRangeDesc& range);
+    ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range) override;
 
@@ -51,14 +53,34 @@ private:
         RuntimeProfile::Counter* num_delete_files;
         RuntimeProfile::Counter* num_delete_rows;
         RuntimeProfile::Counter* delete_files_read_time;
+        RuntimeProfile::Counter* delete_rows_sort_time;
     };
 
+    /**
+     * https://iceberg.apache.org/spec/#position-delete-files
+     * The rows in the delete file must be sorted by file_path then position to optimize filtering rows while scanning.
+     * Sorting by file_path allows filter pushdown by file in columnar storage formats.
+     * Sorting by position allows filtering rows while scanning, to avoid keeping deletes in memory.
+     *
+     * So, use merge-sort to merge delete rows from different files.
+     */
     void _merge_sort(std::list<std::vector<int64_t>>& delete_rows_list, int64_t num_delete_rows);
+
+    /**
+     * Delete rows is sorted by file_path, using binary-search to locate the right delete rows for current data file.
+     * @return a pair of \<skip_count, valid_count\>,
+     * and the range of [skip_count, skip_count + valid_count) is the delete rows for current data file.
+     */
+    std::pair<int, int> _binary_search(const ColumnDictI32& file_path_column,
+                                       const std::string& data_file_path);
+
+    std::pair<int, int> _binary_search(const ColumnString& file_path_column,
+                                       const std::string& data_file_path);
 
     RuntimeProfile* _profile;
     RuntimeState* _state;
     const TFileScanRangeParams& _params;
-    VExprContext* _data_path_conjunct_ctx = nullptr;
+    const TFileRangeDesc& _range;
     IcebergProfile _iceberg_profile;
     std::vector<int64_t> _delete_rows;
 };

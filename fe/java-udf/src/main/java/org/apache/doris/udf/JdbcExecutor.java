@@ -42,6 +42,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class JdbcExecutor {
@@ -54,6 +55,7 @@ public class JdbcExecutor {
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
     private List<String> resultColumnTypeNames = null;
+    private int baseTypeInt = 0;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -122,6 +124,20 @@ public class JdbcExecutor {
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor getResultColumnTypeNames has error: ", e);
         }
+    }
+
+    public List<Object> getArrayColumnData(Object object) throws UdfRuntimeException {
+        try {
+            java.sql.Array obj = (java.sql.Array) object;
+            baseTypeInt = obj.getBaseType();
+            return Arrays.asList((Object[]) obj.getArray());
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getArrayColumnData has error: ", e);
+        }
+    }
+
+    public int getBaseTypeInt() {
+        return baseTypeInt;
     }
 
     public void openTrans() throws UdfRuntimeException {

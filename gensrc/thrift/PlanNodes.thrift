@@ -274,7 +274,9 @@ struct TIcebergFileDesc {
     2: optional i32 content;
     // When open a delete file, filter the data file path with the 'file_path' property
     3: optional list<TIcebergDeleteFileDesc> delete_files;
+    // Deprecated
     4: optional Types.TTupleId delete_table_tuple_id;
+    // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
@@ -406,6 +408,7 @@ struct TJdbcScanNode {
   1: optional Types.TTupleId tuple_id
   2: optional string table_name
   3: optional string query_string
+  4: optional Types.TOdbcTableType table_type
 }
 
 

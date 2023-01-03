@@ -316,8 +316,8 @@ public class EsScanNode extends ScanNode {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 Map<Long, PartitionItem> keyRangeById = rangePartitionInfo.getIdToItem(false);
-                partitionPruner = new RangePartitionPruner(keyRangeById, rangePartitionInfo.getPartitionColumns(),
-                        columnFilters);
+                partitionPruner = new RangePartitionPrunerV2(keyRangeById, rangePartitionInfo.getPartitionColumns(),
+                        columnNameToRange);
                 return partitionPruner.prune();
             }
             case UNPARTITIONED: {
