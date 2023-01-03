@@ -301,6 +301,9 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             db.setTableExtCatalog(this);
         }
         objectCreated = false;
+        if (this instanceof HMSExternalCatalog) {
+            ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase db) {
