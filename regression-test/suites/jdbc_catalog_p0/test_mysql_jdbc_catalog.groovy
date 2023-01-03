@@ -18,6 +18,7 @@
 suite("test_mysql_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String resource_name = "jdbc_resource_catalog_mysql"
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -47,8 +48,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
         sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
 
-        sql """create resource if not exists jdbc_resource_catalog_mysql properties(
+        sql """create resource if not exists ${resource_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -57,7 +59,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
         
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE jdbc_resource_catalog_mysql"""
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
 
 
         sql  """ drop table if exists ${inDorisTable} """
@@ -100,7 +102,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists jdbc_resource_catalog_mysql"""
+        sql """drop resource if exists ${resource_name}"""
 
         // test old create-catalog syntax for compatibility
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -114,6 +116,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
         sql """switch ${catalog_name}"""
         sql """use ${ex_db_name}"""
         order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
-        sql """drop resource if exists jdbc_resource_catalog_mysql"""
+        sql """drop resource if exists ${resource_name}"""
     }
 }
