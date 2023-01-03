@@ -137,13 +137,14 @@ Status VSortNode::open(RuntimeState* state) {
             if (_use_topn_opt) {
                 Field new_top = _sorter->get_top_value();
                 if (!new_top.is_null() && new_top != old_top) {
-                    auto & sort_description = _sorter->get_sort_description();
+                    auto& sort_description = _sorter->get_sort_description();
                     auto col = upstream_block->get_by_position(sort_description[0].column_number);
                     auto type = remove_nullable(col.type)->get_type_id();
                     bool is_reverse = sort_description[0].direction < 0;
                     auto query_ctx = _runtime_state->get_query_fragments_ctx();
                     std::vector<vectorized::Field> values = {new_top};
-                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(values, col.name, type, is_reverse));
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(values, col.name,
+                                                                              type, is_reverse));
                     old_top = std::move(new_top);
                 }
             }

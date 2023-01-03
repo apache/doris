@@ -16,15 +16,15 @@
 // under the License.
 
 #include "runtime/runtime_predicate.h"
-#include "olap/predicate_creator.h"
 
+#include "olap/predicate_creator.h"
 
 namespace doris {
 
 namespace vectorized {
 
 Status RuntimePredicate::update(std::vector<Field>& values, const String& col_name,
-                const TypeIndex type, bool is_reverse) {
+                                const TypeIndex type, bool is_reverse) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     if (!_predicate_mem_pool) {
@@ -48,8 +48,7 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
         }
     }
 
-    if (!updated)
-        return Status::OK();
+    if (!updated) return Status::OK();
 
     TCondition condition;
     condition.__set_column_name(col_name);
@@ -108,13 +107,13 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
     case TypeIndex::DateV2: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType;
         str_value = cast_to_string<TYPE_DATEV2, ValueType>(
-            binary_cast<UInt32, ValueType>(field.get<UInt32>()), scale);
+                binary_cast<UInt32, ValueType>(field.get<UInt32>()), scale);
         break;
     }
     case TypeIndex::DateTimeV2: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
         str_value = cast_to_string<TYPE_DATETIMEV2, ValueType>(
-            binary_cast<UInt64, ValueType>(field.get<UInt64>()), scale);
+                binary_cast<UInt64, ValueType>(field.get<UInt64>()), scale);
         break;
     }
     case TypeIndex::Date: {
@@ -164,7 +163,8 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
 
     condition.condition_values.push_back(str_value);
 
-    _predictate.reset(parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
+    _predictate.reset(
+            parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
 
     return Status::OK();
 }

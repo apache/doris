@@ -24,9 +24,9 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 

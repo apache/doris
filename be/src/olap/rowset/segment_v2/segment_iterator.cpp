@@ -383,19 +383,18 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
-            int32_t cid = _opts.tablet_schema->column(
-                            runtime_predicate->column_id()).unique_id();
+            int32_t cid = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
 
             RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
-                &and_predicate, nullptr, &column_rp_row_ranges));
+                    &and_predicate, nullptr, &column_rp_row_ranges));
 
             // intersect different columns's row ranges to get final row ranges by zone map
             RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                        &zone_map_row_ranges);
+                                           &zone_map_row_ranges);
         }
     }
 
@@ -939,8 +938,8 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
     // add runtime predicate to _col_predicates
     if (_opts.use_topn_opt) {
-        auto & runtime_predicate =
-            _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        auto& runtime_predicate =
+                _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();
         if (_runtime_predicate) {
             _col_predicates.push_back(_runtime_predicate.get());

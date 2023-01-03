@@ -145,7 +145,7 @@ Field HeapSorter::get_top_value() {
     Field field;
     // get field from first sort column of top row
     if (_heap->size() >= _heap_size) {
-        auto & top = _heap->top();
+        auto& top = _heap->top();
         top.sort_columns()[0]->get(top.row_id(), field);
     }
 

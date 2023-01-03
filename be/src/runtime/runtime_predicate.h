@@ -18,26 +18,24 @@
 #pragma once
 
 #include <atomic>
-#include <string>
 #include <mutex>
 #include <shared_mutex>
+#include <string>
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "exec/olap_common.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
+#include "olap/column_predicate.h"
+#include "olap/tablet_schema.h"
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "util/threadpool.h"
-#include "vec/core/types.h"
 #include "vec/core/field.h"
-
-#include "exec/olap_common.h"
-#include "olap/tablet_schema.h"
-#include "olap/column_predicate.h"
+#include "vec/core/types.h"
 // #include "olap/predicate_creator.h"
-
 
 namespace doris {
 
@@ -45,7 +43,7 @@ namespace vectorized {
 
 class RuntimePredicate {
 public:
-    RuntimePredicate() { }
+    RuntimePredicate() {}
 
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
@@ -57,8 +55,8 @@ public:
         return _predictate;
     }
 
-    Status update(std::vector<Field>& values, const String& col_name,
-                  const TypeIndex type, bool is_reverse);
+    Status update(std::vector<Field>& values, const String& col_name, const TypeIndex type,
+                  bool is_reverse);
 
 private:
     mutable std::shared_mutex _rwlock;
