@@ -27,6 +27,6 @@ import java.util.List;
  */
 public interface EventFactory {
 
-    List<MetastoreEvent> get(NotificationEvent hmsEvent,
+    List<MetastoreEvent> transferNotificationEventToMetastoreEvents(NotificationEvent hmsEvent,
             String catalogName) throws MetastoreNotificationException;
 }

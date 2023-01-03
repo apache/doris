@@ -37,7 +37,7 @@ public class MetastoreEventFactory implements EventFactory {
     private static final Logger LOG = LogManager.getLogger(MetastoreEventFactory.class);
 
     @Override
-    public List<MetastoreEvent> get(NotificationEvent event,
+    public List<MetastoreEvent> transferNotificationEventToMetastoreEvents(NotificationEvent event,
             String catalogName) {
         Preconditions.checkNotNull(event.getEventType());
         MetastoreEventType metastoreEventType = MetastoreEventType.from(event.getEventType());
@@ -54,7 +54,7 @@ public class MetastoreEventFactory implements EventFactory {
         List<MetastoreEvent> metastoreEvents = Lists.newArrayList();
 
         for (NotificationEvent event : events) {
-            metastoreEvents.addAll(get(event, hmsExternalCatalog.getName()));
+            metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, hmsExternalCatalog.getName()));
         }
 
         List<MetastoreEvent> tobeProcessEvents = metastoreEvents.stream()

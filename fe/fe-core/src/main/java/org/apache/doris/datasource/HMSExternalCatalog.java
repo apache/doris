@@ -199,7 +199,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         long currentEventId = getCurrentEventId();
-        LOG.debug("Catalog [{}] getNextEventResponse的currentEventId is {},lastSyncedEventId is {}",
+        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {},lastSyncedEventId is {}",
                 hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
