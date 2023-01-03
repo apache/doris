@@ -59,7 +59,7 @@ import java.util.Set;
 public abstract class ScanNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected final TupleDescriptor desc;
-    // Use this if partition_prune_algorithm_version is 1.
+    // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
     // Use this if partition_prune_algorithm_version is 2.
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
@@ -137,17 +137,15 @@ public abstract class ScanNode extends PlanNode {
                 columnFilters.put(column.getName(), keyFilter);
             }
 
-            if (analyzer.partitionPruneV2Enabled()) {
-                ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
-                if (columnRange != null) {
-                    columnNameToRange.put(column.getName(), columnRange);
-                }
+            ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
+            if (columnRange != null) {
+                columnNameToRange.put(column.getName(), columnRange);
             }
         }
     }
 
-    private ColumnRange createColumnRange(SlotDescriptor desc,
-                                          List<Expr> conjuncts) {
+    public static ColumnRange createColumnRange(SlotDescriptor desc,
+            List<Expr> conjuncts) {
         ColumnRange result = ColumnRange.create();
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {
@@ -202,8 +200,8 @@ public abstract class ScanNode extends PlanNode {
         return result;
     }
 
-    private ColumnRanges expressionToRanges(Expr expr,
-                                            SlotDescriptor desc) {
+    public static ColumnRanges expressionToRanges(Expr expr,
+            SlotDescriptor desc) {
         if (expr instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
             if (isNullPredicate.isSlotRefChildren() && !isNullPredicate.isNotNull()) {

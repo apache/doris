@@ -565,21 +565,11 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            if (analyzer.partitionPruneV2Enabled()) {
-                partitionPruner = new RangePartitionPrunerV2(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnNameToRange);
-            } else {
-                partitionPruner = new RangePartitionPruner(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnFilters);
-            }
+            partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnNameToRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            if (analyzer.partitionPruneV2Enabled()) {
-                partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
-                        columnNameToRange);
-            } else {
-                partitionPruner = new ListPartitionPruner(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnFilters);
-            }
+            partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                    columnNameToRange);
         }
         return partitionPruner.prune();
     }
