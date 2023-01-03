@@ -57,13 +57,13 @@ class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
 public:
     static constexpr bool is_parametric = true;
 
-    DataTypeDateTimeV2(UInt32 scale = 0) : scale_(scale) {
+    DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
             LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
         }
     }
 
-    DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : scale_(rhs.scale_) {}
+    DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
@@ -77,7 +77,7 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    const UInt32 get_scale() const { return scale_; }
+    const UInt32 get_scale() const { return _scale; }
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);
@@ -86,7 +86,7 @@ public:
     static void cast_from_date_time(const Int64 from, UInt64& to);
 
 private:
-    UInt32 scale_;
+    UInt32 _scale;
 };
 
 template <typename DataType>
