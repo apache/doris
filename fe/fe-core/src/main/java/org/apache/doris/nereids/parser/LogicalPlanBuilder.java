@@ -716,11 +716,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression timeStamp = (Expression) visit(ctx.timestamp);
         Expression amount = (Expression) visit(ctx.unitsAmount);
         if (ctx.unit == null) {
-            if ("days_add".equalsIgnoreCase(ctx.name.getText())) {
-                return new DaysAdd(timeStamp, amount);
-            }
-            throw new ParseException("Unsupported signature: " + ctx.name
-                    + " needs time unit (YEAR/MONTH/DAY/HOUR/MINUTE/SECOND)", ctx);
+            //use "DAY" as unit by default
+            return new DaysAdd(timeStamp, amount);
         }
 
         if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
@@ -753,11 +750,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             amount = new Cast(amount, IntegerType.INSTANCE);
         }
         if (ctx.unit == null) {
-            if ("days_sub".equalsIgnoreCase(ctx.name.getText())) {
-                return new DaysSub(timeStamp, amount);
-            }
-            throw new ParseException("Unsupported signature: " + ctx.name
-                    + " needs time unit (YEAR/MONTH/DAY/HOUR/MINUTE/SECOND)", ctx);
+            //use "DAY" as unit by default
+            return new DaysSub(timeStamp, amount);
         }
 
         if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
