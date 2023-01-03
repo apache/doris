@@ -75,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -840,7 +841,8 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaNotInCluster(tabletCtx, force)
                 || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
-                || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
+                || deleteReplicaOnHighLoadBackend(tabletCtx, force)
+                || deleteRedundantReplicaByRandom(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
             // to remove this tablet from the pendingTablets(consider it as finished)
             throw new SchedException(Status.FINISHED, "redundant replica is deleted");
@@ -1009,6 +1011,19 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         return deleteFromHighLoadBackend(tabletCtx, tabletCtx.getReplicas(), force, statistic);
+    }
+
+    // this should be called in the lowest priority if the redundant tablet satisfies other delete criteria
+    private boolean deleteRedundantReplicaByRandom(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        Tablet tablet = tabletCtx.getTablet();
+        List<Replica> replicas = tablet.getReplicas();
+        Random rand = new Random();
+
+        //lower bound inclusive(0), upper bound exclusive
+        int deleteIdx = rand.nextInt(replicas.size());
+
+        deleteReplicaInternal(tabletCtx, replicas.get(deleteIdx), "delete redundant by random", force);
+        return true;
     }
 
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
