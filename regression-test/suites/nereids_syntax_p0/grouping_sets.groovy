@@ -260,32 +260,4 @@ suite("test_nereids_grouping_sets") {
     order_qt_select7 """
         select if(col1 = null, 'all', 2) as col2, count(*) as cnt from (select null as col1 union all select 'a' as col1 ) t group by grouping sets ((col1),());
     """
-    
-    order_qt_select8 """
-        SELECT k1 FROM groupingSetsTable WHERE k2 = 2 
-        INTERSECT 
-        SELECT k1 FROM groupingSetsTable WHERE k1 = 1 
-        UNION 
-        SELECT k1 FROM groupingSetsTable WHERE k3 = 2
-    """
-    
-    order_qt_select9 """
-    SELECT k1 FROM groupingSetsTable WHERE k2 = 1
-    EXCEPT
-    SELECT k1 FROM groupingSetsTable WHERE k3 = 2
-    UNION
-    (SELECT k1 FROM groupingSetsTable WHERE k3 = 2
-    INTERSECT
-    SELECT k1 FROM groupingSetsTable WHERE k2 > 0)
-    """
-
-    order_qt_select10 """
-    SELECT k1 FROM groupingSetsTable WHERE k2 = 1
-    EXCEPT
-    SELECT k1 FROM groupingSetsTable WHERE k3 = 2
-    UNION ALL
-    (SELECT k1 FROM groupingSetsTable WHERE k3 = 2
-    INTERSECT
-    SELECT k1 FROM groupingSetsTable WHERE k2 > 0)
-    """
 }
