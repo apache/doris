@@ -229,6 +229,11 @@ select * from t_iceberg where k1 > 1000 and k3 ='term' or k4 like '%doris';
 
 ## 相关系统配置
 
+### Hive Metastore配置
+下面的配置用来解决Doris使用Hive客户端访问Hive Metastore时，出现表schema无法读取的问题。配置完成后需要重启Hive Metastore。
+- 在hive的lib目录放上iceberg运行时有关的jar包。
+- hive-site.xml配置`metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`。
+
 ### FE配置
 
 下面几个配置属于 Iceberg 外表系统级别的配置，可以通过修改 `fe.conf` 来配置，也可以通过 `ADMIN SET CONFIG` 来配置。
