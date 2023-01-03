@@ -458,7 +458,7 @@ public class JdbcClient {
             case "bigserial":
                 return Type.BIGINT;
             case "numeric": {
-                int precision = fieldSchema.getColumnSize() + 1;
+                int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
                     if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
