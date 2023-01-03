@@ -23,13 +23,13 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9039/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8039"
 feHttpUser = "root"
-feHttpPassword = ""
+feHttpPassword = "clz123"
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
