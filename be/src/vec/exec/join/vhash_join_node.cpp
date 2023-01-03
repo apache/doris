@@ -663,6 +663,9 @@ Status HashJoinNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
+    if (!_build_blocks->empty() && _is_anti_join) {
+        _probe_ignore_null = true;
+    }
     return Status::OK();
 }
 

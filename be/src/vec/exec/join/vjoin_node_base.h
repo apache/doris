@@ -89,6 +89,7 @@ protected:
 
     const bool _is_right_semi_anti;
     const bool _is_left_semi_anti;
+    const bool _is_anti_join;
     const bool _is_outer_join;
     const bool _is_mark_join;
 

@@ -21,6 +21,7 @@ suite("test_join", "query,p0") {
     def tbName1 = "test"
     def tbName2 = "baseall"
     def tbName3 = "bigtable"
+    def empty_name = "empty"
 
     order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
@@ -719,6 +720,14 @@ suite("test_join", "query,p0") {
 
     qt_left_anti_join_with_other_pred "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by b.k1"
 
+    qt_left_anti_join_null_1 "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 = t.k1 order by b.k1"
+
+    qt_left_anti_join_null_2 "select b.k1 from ${tbName2} b left anti join ${empty_name} t on b.k1 = t.k1 order by b.k1"
+
+    qt_left_anti_join_null_3 "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 > t.k2 order by b.k1"
+
+    qt_left_anti_join_null_4 "select b.k1 from ${tbName2} b left anti join ${empty_name} t on b.k1 > t.k2 order by b.k1"
+
     // right anti join
     for (s in right_selected){
         def res43 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b 
@@ -790,6 +799,14 @@ suite("test_join", "query,p0") {
 
     qt_right_anti_join_with_other_pred "select t.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by t.k1"
 
+//     qt_right_anti_join_null_1 "select b.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 order by b.k1"
+
+//     qt_right_anti_join_null_2 "select b.k1 from ${tbName2} b right anti join ${empty_name} t on b.k1 = t.k1 order by b.k1"
+
+    qt_right_anti_join_null_3 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+
+    qt_right_anti_join_null_4 "select b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+
     // join with no join keyword
     for (s in selected){
         qt_join_without_keyword1"""select ${s} from ${tbName1} a , ${tbName2} b 
@@ -834,7 +851,6 @@ suite("test_join", "query,p0") {
     // join with empty table
     sql"drop view if exists empty"
     sql"create view empty as select * from baseall where k1 = 0"
-    String empty_name = "empty"
     qt_join_with_emptyTable1"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a join ${empty_name} b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
     qt_join_with_emptyTable2"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a inner join ${empty_name} b on a.k1 = b.k1 
@@ -962,7 +978,7 @@ suite("test_join", "query,p0") {
         def res71 = sql"""select * from ${tbName2} a left anti join ${tbName1} b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
         def res72 = sql"""select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
-                where b.k1 is null order by a.k1, a.k2, a.k3"""
+                where b.k1 is null and a.k1 is not null order by a.k1, a.k2, a.k3"""
         check2_doris(res71, res72)
 
         def res73 = sql"""select * from ${tbName2} a right anti join ${tbName1} b on (a.${c} = b.${c}) 
@@ -1070,7 +1086,7 @@ suite("test_join", "query,p0") {
 
     def res85 = sql"""select a.k1, a.k2 from ${tbName2} a left anti join ${null_name} b on a.k1 = b.n2 
            order by 1, 2"""
-    def res86 = sql"""select k1, k2 from ${tbName2} order by k1, k2"""
+    def res86 = sql"""select k1, k2 from ${tbName2} where k1 is not null order by k1, k2"""
     check2_doris(res85, res86)
 
     def res87 = sql"""select b.n1, b.n2 from ${tbName2} a right anti join ${null_name} b on a.k1 = b.n2 
@@ -1082,11 +1098,6 @@ suite("test_join", "query,p0") {
            order by 1, 2"""
     def res90 = sql"""select k1, k2 from ${tbName2} order by k1, k2"""
     check2_doris(res89, res90)
-
-    def res91 = sql"""select a.n1, a.n2 from ${null_name} a left anti join ${tbName2} b on b.k1 = a.n2 
-           order by 1, 2"""
-    def res92 = sql"""select n1, n2 from ${null_name} order by n1, n2"""
-    check2_doris(res91, res92)
 
     // join on predicate
     qt_join_on_predicate1"""select c.k1 from ${tbName2} a join ${tbName1} b on a.k2 between 0 and 1000 
