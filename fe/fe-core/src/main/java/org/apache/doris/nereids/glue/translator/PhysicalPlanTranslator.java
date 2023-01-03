@@ -227,10 +227,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toCollection(ArrayList::new));
 
         PlanFragment currentFragment;
-        if (inputPlanFragment.getPlanRoot() instanceof ExchangeNode) {
-            Preconditions.checkState(aggregate.child() instanceof PhysicalDistribute,
-                    "When the ExchangeNode is child of PhysicalHashAggregate, "
-                            + "it should be created by PhysicalDistribute, but meet " + aggregate.child());
+        if (inputPlanFragment.getPlanRoot() instanceof ExchangeNode
+                && aggregate.child() instanceof PhysicalDistribute) {
+            //the exchange node is generated in two cases:
+            //  1. some nodes (e.g. sort node) need to gather data from multiple instances, and hence their gather phase
+            //     need an exchange node. For this type of exchange, their data partition is un_partitioned, do not
+            //     create a new plan fragment.
+            //  2. PhysicalDistribute node is translated to exchange node. PhysicalDistribute node means we need to
+            //     shuffle data, and we have to create a new plan fragment.
             ExchangeNode exchangeNode = (ExchangeNode) inputPlanFragment.getPlanRoot();
             Optional<List<Expression>> partitionExpressions = aggregate.getPartitionExpressions();
             PhysicalDistribute physicalDistribute = (PhysicalDistribute) aggregate.child();
