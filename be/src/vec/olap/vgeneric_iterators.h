@@ -17,7 +17,6 @@
 
 #include "olap/iterators.h"
 #include "olap/row.h"
-#include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris {

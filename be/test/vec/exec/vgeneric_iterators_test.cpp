@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "olap/olap_common.h"
-#include "olap/row_block2.h"
 #include "olap/schema.h"
 #include "util/slice.h"
 
