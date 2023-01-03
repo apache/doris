@@ -1392,3 +1392,58 @@ true	0.1
 
 -- !group1 --
 123.123000000
+
+-- !orderBy_withNull_3 --
+\N	\N
+\N	15
+\N	14
+\N	13
+\N	12
+\N	11
+\N	10
+\N	9
+\N	8
+\N	7
+\N	6
+\N	5
+\N	4
+\N	3
+\N	2
+\N	1
+
+-- !orderBy_withNull_3 --
+\N	15
+\N	14
+\N	13
+\N	12
+\N	11
+\N	10
+\N	9
+\N	8
+\N	7
+\N	6
+\N	5
+\N	4
+\N	3
+\N	2
+\N	1
+\N	\N
+
+-- !orderBy_withNull_3 --
+\N	\N
+\N	15
+\N	14
+\N	13
+\N	12
+\N	11
+\N	10
+\N	9
+\N	8
+\N	7
+\N	6
+\N	5
+\N	4
+\N	3
+\N	2
+\N	1
+
