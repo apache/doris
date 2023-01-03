@@ -65,6 +65,8 @@ set(VEC_FILES
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
+  core/block_spill_reader.cpp
+  core/block_spill_writer.cpp
   core/column_with_type_and_name.cpp
   core/field.cpp
   core/field.cpp
