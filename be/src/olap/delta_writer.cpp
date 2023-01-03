@@ -17,14 +17,11 @@
 
 #include "olap/delta_writer.h"
 
-#include "olap/base_compaction.h"
-#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
-#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/row_batch.h"
@@ -223,14 +220,16 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 }
 
 Status DeltaWriter::wait_flush() {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init) {
-        // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
-        // as described in flush_memtable_and_wait()
-        return Status::OK();
-    }
-    if (_is_cancelled) {
-        return _cancel_status;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (!_is_init) {
+            // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
+            // as described in flush_memtable_and_wait()
+            return Status::OK();
+        }
+        if (_is_cancelled) {
+            return _cancel_status;
+        }
     }
     RETURN_NOT_OK(_flush_token->wait());
     return Status::OK();
