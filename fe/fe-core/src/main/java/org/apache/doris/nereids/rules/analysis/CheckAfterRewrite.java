@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -32,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
-import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
@@ -48,29 +45,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     public Rule build() {
         return any().then(plan -> {
             checkAllSlotReferenceFromChildren(plan);
-            checkNoUnbounded(plan);
             checkMetricTypeIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
-    }
-
-    private void checkNoUnbounded(Plan plan) {
-        List<Expression> unboundedExprs = Lists.newArrayList();
-        boolean unbounded = plan.getExpressions().stream().anyMatch(
-                expr -> {
-                    if (expr.getInputSlots().stream().anyMatch(UnboundSlot.class::isInstance)) {
-                        unboundedExprs.add(expr);
-                        return true;
-                    } else if (expr.getInputSlots().stream().anyMatch(UnboundFunction.class::isInstance)) {
-                        unboundedExprs.add(expr);
-                        return true;
-                    }
-                    return false;
-                }
-        );
-        if (unbounded) {
-            throw new AnalysisException("has unbounded expression:" + plan.getExpressions().get(0).toSql());
-        }
     }
 
     private void checkAllSlotReferenceFromChildren(Plan plan) {

@@ -47,7 +47,7 @@ class BindSlotReferenceTest {
                 new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
-        Assertions.assertEquals("Cannot find column foo.", exception.getMessage());
+        Assertions.assertEquals("unbounded object foo.", exception.getMessage());
     }
 
     @Test
