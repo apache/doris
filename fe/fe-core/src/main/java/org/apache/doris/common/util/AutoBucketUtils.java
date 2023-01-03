@@ -30,8 +30,9 @@ import org.apache.logging.log4j.Logger;
 public class AutoBucketUtils {
     private static Logger logger = LogManager.getLogger(AutoBucketUtils.class);
 
-    private static final long SIZE_100MB = 100 * 1024 * 1024L;
-    private static final long SIZE_1GB = 1 * 1024 * 1024 * 1024L;
+    static final long SIZE_100MB = 100 * 1024 * 1024L;
+    static final long SIZE_1GB = 1 * 1024 * 1024 * 1024L;
+    static final long SIZE_1TB = 1024 * SIZE_1GB;
 
     private static int getBENum() {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
