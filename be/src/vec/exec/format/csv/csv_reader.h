@@ -56,7 +56,8 @@ public:
 private:
     // used for stream/broker load of csv file.
     Status _create_decompressor();
-    Status _fill_dest_columns(const Slice& line, Block* block, size_t* rows);
+    Status _fill_dest_columns(const Slice& line, Block* block,
+                              std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);

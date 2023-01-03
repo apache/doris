@@ -190,6 +190,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     const int batch_size = _state->batch_size();
     size_t rows = 0;
+    auto columns = block->mutate_columns();
     while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
@@ -203,7 +204,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             continue;
         }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, &rows));
+        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
     }
 
     *eof = (rows == 0);
@@ -303,7 +304,8 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* rows) {
+Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
+                                     std::vector<MutableColumnPtr>& columns, size_t* rows) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -312,18 +314,34 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* ro
         return Status::OK();
     }
 
-    // if _split_values.size > _file_slot_descs.size()
-    // we only take the first few columns
-    for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        auto src_slot_desc = _file_slot_descs[i];
-        int col_idx = _col_idxs[i];
-        // col idx is out of range, fill with null.
-        const Slice& value =
-                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        IColumn* col_ptr =
-                const_cast<IColumn*>(block->get_by_name(src_slot_desc->col_name()).column.get());
-        _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-                                          false);
+    if (_is_load) {
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto src_slot_desc = _file_slot_descs[i];
+            // int col_idx = _col_idxs[i];
+            // col idx is out of range, fill with null.
+            const Slice& value = i < _split_values.size() ? _split_values[i] : _s_null_slice;
+            // IColumn* col_ptr =
+            //         const_cast<IColumn*>(block->get_by_name(src_slot_desc->col_name()).column.get());
+            // _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
+            //                                   false);
+
+            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                 value.size);
+        }
+    } else {
+        // if _split_values.size > _file_slot_descs.size()
+        // we only take the first few columns
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto src_slot_desc = _file_slot_descs[i];
+            int col_idx = _col_idxs[i];
+            // col idx is out of range, fill with null.
+            const Slice& value =
+                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            IColumn* col_ptr = const_cast<IColumn*>(
+                    block->get_by_name(src_slot_desc->col_name()).column.get());
+            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
+                                              false);
+        }
     }
     ++(*rows);
 
