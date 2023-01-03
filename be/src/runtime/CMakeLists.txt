@@ -90,6 +90,7 @@ set(RUNTIME_FILES
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
+    block_spill_manager.cpp
 )
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)
