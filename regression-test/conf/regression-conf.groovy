@@ -23,11 +23,11 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9139/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8139"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -70,16 +70,16 @@ sk=""
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableJdbcTest=true
-mysql_57_port=3359
-pg_14_port=5449
+enableJdbcTest=false
+mysql_57_port=3316
+pg_14_port=5442
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableHiveTest=true
-hms_port=9484
-hdfs_port=8424
+enableHiveTest=false
+hms_port=9183
+hdfs_port=8120
 
 // elasticsearch catalog test config
 // See `docker/thirdparties/start-thirdparties-docker.sh`

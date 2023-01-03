@@ -2313,6 +2313,9 @@ public class ShowExecutor {
 
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
+        if (ctx.getCurrentCatalog() == null) {
+            throw new AnalysisException("Current catalog is not exist, please switch catalog.");
+        }
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog().getName());
     }
 
