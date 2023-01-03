@@ -70,6 +70,20 @@ AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_intersect_count
                                                                              result_is_nullable);
 }
 
+AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_expr_calculate(
+    const std::string& name, const DataTypes& argument_types, const Array& parameters,
+    bool result_is_nullable) {
+    return create_aggregate_function_orthogonal<AggOrthBitMapExprCal>(
+               name, argument_types, parameters, result_is_nullable);
+}
+
+AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_expr_calculate_count(
+    const std::string& name, const DataTypes& argument_types, const Array& parameters,
+    bool result_is_nullable) {
+    return create_aggregate_function_orthogonal<AggOrthBitMapExprCalCount>(
+               name, argument_types, parameters, result_is_nullable);
+}
+
 AggregateFunctionPtr create_aggregate_function_intersect_count(const std::string& name,
                                                                const DataTypes& argument_types,
 
@@ -92,5 +106,9 @@ void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactor
     factory.register_function_both("orthogonal_bitmap_union_count",
                                    create_aggregate_function_orthogonal_bitmap_union_count);
     factory.register_function_both("intersect_count", create_aggregate_function_intersect_count);
+    factory.register_function_both("orthogonal_bitmap_expr_calculate",
+                                   create_aggregate_function_orthogonal_bitmap_expr_calculate);
+    factory.register_function_both("orthogonal_bitmap_expr_calculate_count",
+                                   create_aggregate_function_orthogonal_bitmap_expr_calculate_count);
 }
 } // namespace doris::vectorized

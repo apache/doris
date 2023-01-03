@@ -16,7 +16,8 @@
 // under the License.
 #pragma once
 #include <parallel_hashmap/phmap.h>
-
+#include <string>
+#include <sstream>
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "vec/common/string_ref.h"
@@ -52,7 +53,38 @@ public:
         memcpy(result, *src, type_size);
         *src += type_size;
     }
+
+    template <typename T>
+    static std::string to_string(T item) {
+        std::stringstream buffer;
+        buffer << item;
+        return buffer.str();
+    }
+
 };
+
+template <>
+inline StringValue Helper::get_val<StringVal>(const StringVal& x) {
+    DCHECK(!x.is_null);
+    return StringValue::from_string_val(x);
+}
+
+template <>
+inline std::string Helper::get_val<StringVal>(const StringVal& x) {
+    DCHECK(!x.is_null);
+    return std::string(reinterpret_cast<char*>(x.ptr), x.len);
+}
+
+template <>
+inline DateTimeValue Helper::get_val<DateTimeVal>(const DateTimeVal& x) {
+    return DateTimeValue::from_datetime_val(x);
+}
+
+template <>
+inline DecimalV2Value Helper::get_val<DecimalV2Val>(const DecimalV2Val& x) {
+    return DecimalV2Value::from_decimal_val(x);
+}
+// get_val end
 
 template <>
 inline char* Helper::write_to<DateTimeValue>(const DateTimeValue& v, char* dest) {
@@ -84,10 +116,10 @@ inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 
 template <>
 inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
-    *(uint32_t*)dest = v.size();
+    *(int32_t*)dest = v.length();
     dest += 4;
-    memcpy(dest, v.c_str(), v.size());
-    dest += v.size();
+    memcpy(dest, v.data(), v.length());
+    dest += v.length();
     return dest;
 }
 // write_to end
@@ -109,7 +141,7 @@ inline int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
 
 template <>
 inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
-    return v.size() + 4;
+    return v.length() + 4;
 }
 // serialize_size end
 
@@ -148,7 +180,6 @@ inline void Helper::read_from<std::string>(const char** src, std::string* result
     *src += length;
 }
 // read_from end
-
 } // namespace detail
 
 // Calculate the intersection of two or more bitmaps
@@ -238,7 +269,7 @@ public:
         }
     }
 
-private:
+protected:
     std::map<T, BitmapValue> _bitmaps;
 };
 
@@ -325,7 +356,7 @@ public:
         }
     }
 
-private:
+protected:
     phmap::flat_hash_map<std::string, BitmapValue> _bitmaps;
 };
 
