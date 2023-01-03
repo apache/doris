@@ -228,6 +228,7 @@ select * from t_iceberg where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```
 
 ## 相关系统配置
+
 ### FE配置
 
 下面几个配置属于 Iceberg 外表系统级别的配置，可以通过修改 `fe.conf` 来配置，也可以通过 `ADMIN SET CONFIG` 来配置。

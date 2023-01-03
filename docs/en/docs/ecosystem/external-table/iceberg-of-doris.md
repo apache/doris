@@ -227,6 +227,7 @@ select * from t_iceberg where k1 > 1000 and k3 = 'term' or k4 like '%doris';
 ```
 
 ## Related system configurations
+
 ### FE Configuration
 
 The following configurations are at the Iceberg external table system level and can be configured by modifying `fe.conf` or by `ADMIN SET CONFIG`.
