@@ -220,7 +220,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitLogicalExcept(
             LogicalExcept except, Void context) {
-        return computeExcept();
+        return computeExcept(except);
     }
 
     @Override
@@ -339,7 +339,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalExcept(PhysicalExcept except, Void context) {
-        return computeExcept();
+        return computeExcept(except);
     }
 
     @Override
@@ -564,8 +564,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 : newColumnStatsMap.get(leftSlot.getExprId());
     }
 
-    private StatsDeriveResult computeExcept() {
-        return groupExpression.childStatistics(0);
+    private StatsDeriveResult computeExcept(SetOperation setOperation) {
+        StatsDeriveResult leftStatsResult = groupExpression.childStatistics(0);
+        return new StatsDeriveResult(leftStatsResult.getRowCount(),
+                replaceExprIdWithCurrentOutput(setOperation, leftStatsResult));
     }
 
     private StatsDeriveResult computeIntersect(SetOperation setOperation) {
@@ -574,8 +576,19 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         for (int i = 1; i < setOperation.getArity(); ++i) {
             rowCount = Math.min(rowCount, groupExpression.childStatistics(i).getRowCount());
         }
-        return new StatsDeriveResult(
-                rowCount, leftStatsResult.getSlotIdToColumnStats());
+        return new StatsDeriveResult(rowCount, replaceExprIdWithCurrentOutput(setOperation, leftStatsResult));
+    }
+
+    private Map<Id, ColumnStatistic> replaceExprIdWithCurrentOutput(
+            SetOperation setOperation, StatsDeriveResult leftStatsResult) {
+        Map<Id, ColumnStatistic> newColumnStatsMap = new HashMap<>();
+        for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+            NamedExpression namedExpression = setOperation.getOutputs().get(i);
+            Slot childSlot = setOperation.getChildOutput(0).get(i);
+            newColumnStatsMap.put(namedExpression.getExprId(),
+                    leftStatsResult.getSlotIdToColumnStats().get(childSlot.getExprId()));
+        }
+        return newColumnStatsMap;
     }
 
     private StatsDeriveResult computeGenerate(Generate generate) {
