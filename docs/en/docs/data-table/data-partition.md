@@ -110,7 +110,8 @@ PARTITION BY LIST(`city`)
 (
     PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
     PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
-    PARTITION `p_jp` VALUES IN ("Tokyo")
+    PARTITION `p_jp` VALUES IN ("Tokyo"),
+    PARTITION `default`
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES
@@ -262,6 +263,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
 </version>
     
+<<<<<<< HEAD
 
 #### List Partitioning
 
@@ -273,11 +275,58 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * As in the `example_list_tbl` example above, when the table is created, the following three partitions are automatically created.
 
+=======
+    #### List Partition
+
+    * The partition column supports the `BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR` data type, and the partition value is an enumeration value. Partitions can be hit only if the data is one of the target partition enumeration values.
+    * Partition supports specifying the number of partitions contained in each partition via `VALUES IN (...) ` to specify the enumeration values contained in each partition.
+    * The following example illustrates how partitions change when adding or deleting partitions.
+      
+        * As in the `example_list_tbl` example above, when the table is built, the following three partitions are automatically created.
+
+            ```
+            p_cn: ("Beijing", "Shanghai", "Hong Kong")
+            p_usa: ("New York", "San Francisco")
+            p_jp: ("Tokyo")
+            default:
+            ```
+
+        * When we add a partition p_uk VALUES IN ("London"), the result of the partition is as follows
+        
+            ```
+            p_cn: ("Beijing", "Shanghai", "Hong Kong")
+            p_usa: ("New York", "San Francisco")
+            p_jp: ("Tokyo")
+            p_uk: ("London")
+            default:
+            ```
+        
+        * When we delete the partition p_jp, the result of the partition is as follows.
+
+            ```
+            p_cn: ("Beijing", "Shanghai", "Hong Kong")
+            p_usa: ("New York", "San Francisco")
+            p_uk: ("London")
+            default:
+            ```
+
+    List partition also supports **multi-column partition**, examples are as follows:
+
+    ```text
+    PARTITION BY LIST(`id`, `city`)
+    (
+        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
+        PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
+        PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai")),
+        PARTITION `default`
+    )
+>>>>>>> 14490d491... remove Partition pruner
     ```
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
     ```
+<<<<<<< HEAD
 
   * If we add Partition p_uk VALUES IN ("London"), the results will be as follows:
 
@@ -286,11 +335,18 @@ Range partitioning also supports batch partitioning. For example, you can create
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
     p_uk: ("London")
+=======
+    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+    * default:
+>>>>>>> 14490d491... remove Partition pruner
     ```
 
   * Now we delete Partition p_jp, the results will be as follows:
 
     ```
+<<<<<<< HEAD
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -298,6 +354,20 @@ Range partitioning also supports batch partitioning. For example, you can create
     ```
 
   List partitioning also supports **multi-column partitioning**. Examples are as follows:
+=======
+    * Data ---> Partition
+    * 1, Beijing  ---> p1_city
+    * 1, Shanghai ---> p1_city
+    * 2, Shanghai ---> p2_city
+    * 3, Beijing  ---> p3_city
+    * 1, Tianjin  ---> Unable to import, would redirect to default partition if default partition exists
+    * 4, Beijing  ---> Unable to import, would redirect to default partition if default partition exists
+    ```
+
+    List partition supports default partiton. Default partitions ensure that incoming data that does not match a partition is inserted into the default partition if user had created default partition. The DEFAULT partition (if your hierarchy has one) is always choosed by optimizer to be scanned. DEFAULT partitions that contain data **slow down ** the overall scan time.
+
+2. Bucket
+>>>>>>> 14490d491... remove Partition pruner
 
   ```
   PARTITION BY LIST(`id`, `city`)
