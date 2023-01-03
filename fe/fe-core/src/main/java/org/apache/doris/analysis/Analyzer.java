@@ -2129,15 +2129,6 @@ public class Analyzer {
         return globalState.context.getSessionVariable().isEnableInferPredicate();
     }
 
-    // Use V2 version as default implementation.
-    public boolean partitionPruneV2Enabled() {
-        if (globalState.context == null) {
-            return true;
-        } else {
-            return globalState.context.getSessionVariable().getPartitionPruneAlgorithmVersion() == 2;
-        }
-    }
-
     // The cost based join reorder is turned on
     // when 'enable_join_reorder_based_cost = true' and 'disable_join_reorder = false'
     // Load plan and query plan are the same framework
