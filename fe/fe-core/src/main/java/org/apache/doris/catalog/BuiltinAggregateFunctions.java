@@ -48,14 +48,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
-import org.apache.doris.nereids.trees.expressions.functions.agg.StddevPop;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
-import org.apache.doris.nereids.trees.expressions.functions.agg.VarPop;
-import org.apache.doris.nereids.trees.expressions.functions.agg.VarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
-import org.apache.doris.nereids.trees.expressions.functions.agg.VariancePop;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
@@ -101,16 +97,12 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(QuantileUnion.class, "quantile_union"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
-            agg(Stddev.class, "stddev"),
-            agg(StddevPop.class, "stddev_pop"),
+            agg(Stddev.class, "stddev_pop", "stddev"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
             agg(TopN.class, "topn"),
-            agg(VarPop.class, "var_pop"),
-            agg(VarSamp.class, "var_samp"),
-            agg(Variance.class, "variance"),
-            agg(VariancePop.class, "variance_pop"),
-            agg(VarianceSamp.class, "variance_samp"),
+            agg(Variance.class, "var_pop", "variance_pop", "variance"),
+            agg(VarianceSamp.class, "var_samp", "variance_samp"),
             agg(WindowFunnel.class, "window_funnel")
     );
 

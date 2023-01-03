@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 
 import com.google.common.base.Suppliers;
@@ -71,6 +73,7 @@ public abstract class BoundFunction extends Function implements FunctionTrait, C
         // If you want to add some special cases, please override this method in the special
         // function class, like 'If' function and 'Substring' function.
         return ComputeSignatureChain.from(signature, getArguments())
+                .then(this::implementAbstractReturnType)
                 .then(this::computePrecisionForDatetimeV2)
                 .then(this::upgradeDateOrDateTimeToV2)
                 .then(this::upgradeDecimalV2ToV3)
@@ -137,6 +140,18 @@ public abstract class BoundFunction extends Function implements FunctionTrait, C
         return name + "(" + args + ")";
     }
 
+    private FunctionSignature implementAbstractReturnType(
+            FunctionSignature signature, List<Expression> arguments) {
+        if (!(signature.returnType instanceof DataType)) {
+            if (signature.returnType instanceof FollowToArgumentType) {
+                int argumentIndex = ((FollowToArgumentType) signature.returnType).argumentIndex;
+                return signature.withReturnType(arguments.get(argumentIndex).getDataType());
+            }
+            throw new AnalysisException("Not implemented abstract return type: " + signature.returnType);
+        }
+        return signature;
+    }
+
     private FunctionSignature computePrecisionForDatetimeV2(
             FunctionSignature signature, List<Expression> arguments) {
 
@@ -163,10 +178,9 @@ public abstract class BoundFunction extends Function implements FunctionTrait, C
 
     private FunctionSignature upgradeDateOrDateTimeToV2(
             FunctionSignature signature, List<Expression> arguments) {
-        DataType returnType = signature.returnType;
-        Type type = returnType.toCatalogDataType();
+        Type type = signature.returnType.toCatalogDataType();
         if ((type.isDate() || type.isDatetime()) && Config.enable_date_conversion) {
-            Type legacyReturnType = ScalarType.getDefaultDateType(returnType.toCatalogDataType());
+            Type legacyReturnType = ScalarType.getDefaultDateType(type);
             signature = signature.withReturnType(DataType.fromCatalogType(legacyReturnType));
         }
         return signature;
@@ -195,8 +209,7 @@ public abstract class BoundFunction extends Function implements FunctionTrait, C
 
     private FunctionSignature upgradeDecimalV2ToV3(
             FunctionSignature signature, List<Expression> arguments) {
-        DataType returnType = signature.returnType;
-        Type type = returnType.toCatalogDataType();
+        Type type = signature.returnType.toCatalogDataType();
         if (type.isDecimalV2() && Config.enable_decimal_conversion) {
             Type v3Type = ScalarType.createDecimalV3Type(type.getPrecision(), ((ScalarType) type).getScalarScale());
             signature = signature.withReturnType(DataType.fromCatalogType(v3Type));

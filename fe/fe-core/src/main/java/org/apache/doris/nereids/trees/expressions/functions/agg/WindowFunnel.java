@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -26,6 +27,8 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -66,6 +69,41 @@ public class WindowFunnel extends AggregateFunction
             Expression arg3, Expression... varArgs) {
         super("window_funnel", distinct,
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, arg3, varArgs));
+    }
+
+    @Override
+    public void checkLegality() {
+        String functionName = getName();
+        if (!getArgumentType(0).isIntegerType()) {
+            throw new AnalysisException("The window params of " + functionName + " function must be integer");
+        }
+        if (!getArgumentType(1).isStringLikeType()) {
+            throw new AnalysisException("The mode params of " + functionName + " function must be string");
+        }
+        if (!getArgumentType(2).isDateLikeType()) {
+            throw new AnalysisException("The 3rd param of " + functionName + " function must be DATE or DATETIME");
+        }
+        for (int i = 3; i < arity(); i++) {
+            if (!getArgumentType(i).isBooleanType()) {
+                throw new AnalysisException("The 4th and subsequent params of "
+                        + functionName + " function must be boolean");
+            }
+        }
+    }
+
+    @Override
+    protected FunctionSignature computeSignature(FunctionSignature signature) {
+        FunctionSignature functionSignature = super.computeSignature(signature);
+        if (functionSignature.getArgType(2) instanceof DateType) {
+            return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
+                (index == 2) ? DateTimeType.INSTANCE : originType
+            );
+        } else if (functionSignature.getArgType(2) instanceof DateV2Type) {
+            return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
+                    (index == 2) ? DateTimeV2Type.SYSTEM_DEFAULT : originType
+            );
+        }
+        return functionSignature;
     }
 
     /**

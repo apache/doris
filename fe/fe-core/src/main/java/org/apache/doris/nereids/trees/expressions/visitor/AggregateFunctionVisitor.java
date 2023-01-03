@@ -52,14 +52,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
-import org.apache.doris.nereids.trees.expressions.functions.agg.StddevPop;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
-import org.apache.doris.nereids.trees.expressions.functions.agg.VarPop;
-import org.apache.doris.nereids.trees.expressions.functions.agg.VarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
-import org.apache.doris.nereids.trees.expressions.functions.agg.VariancePop;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
@@ -204,10 +200,6 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(stddev, context);
     }
 
-    default R visitStddevPop(StddevPop stddevPop, C context) {
-        return visitAggregateFunction(stddevPop, context);
-    }
-
     default R visitStddevSamp(StddevSamp stddevSamp, C context) {
         return visitAggregateFunction(stddevSamp, context);
     }
@@ -220,20 +212,8 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(topN, context);
     }
 
-    default R visitVarPop(VarPop varPop, C context) {
-        return visitAggregateFunction(varPop, context);
-    }
-
-    default R visitVarSamp(VarSamp varSamp, C context) {
-        return visitAggregateFunction(varSamp, context);
-    }
-
     default R visitVariance(Variance variance, C context) {
         return visitAggregateFunction(variance, context);
-    }
-
-    default R visitVariancePop(VariancePop variancePop, C context) {
-        return visitAggregateFunction(variancePop, context);
     }
 
     default R visitVarianceSamp(VarianceSamp varianceSamp, C context) {

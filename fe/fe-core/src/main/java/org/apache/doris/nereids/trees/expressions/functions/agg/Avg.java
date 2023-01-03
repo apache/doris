@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DecimalWiderPrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -72,6 +73,14 @@ public class Avg extends NullableAggregateFunction
 
     private Avg(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
         super("avg", isAlwaysNullable, isDistinct, arg);
+    }
+
+    @Override
+    public void checkLegality() {
+        DataType argType = child().getDataType();
+        if (((!argType.isNumericType() && !argType.isNullType()) || argType.isOnlyMetricType())) {
+            throw new AnalysisException("avg requires a numeric parameter: " + this.toSql());
+        }
     }
 
     @Override

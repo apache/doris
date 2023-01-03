@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
@@ -355,6 +356,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(EsQuery.class, "esquery"),
             scalar(Exp.class, "exp"),
             scalar(ExtractUrlParameter.class, "extract_url_parameter"),
+            scalar(Field.class, "field"),
             scalar(FindInSet.class, "find_in_set"),
             scalar(Floor.class, "floor"),
             scalar(Fmod.class, "fmod"),

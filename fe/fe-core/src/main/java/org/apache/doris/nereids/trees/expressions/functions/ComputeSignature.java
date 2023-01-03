@@ -73,7 +73,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default DataType getDataType() {
-        return getSignature().returnType;
+        return (DataType) getSignature().returnType;
     }
 
     @Override

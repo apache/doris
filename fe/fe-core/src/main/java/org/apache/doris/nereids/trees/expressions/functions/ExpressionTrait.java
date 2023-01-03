@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +33,11 @@ import java.util.List;
 public interface ExpressionTrait extends TreeNode<Expression> {
 
     boolean nullable();
+
+    // check legality before do type coercion.
+    // maybe we should merge checkInputDataTypes and checkLegality later.
+    @Developing
+    default void checkLegality() {}
 
     default boolean notNullable() {
         return !nullable();

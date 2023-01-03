@@ -76,7 +76,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     @Override
     public final DataType getDataType() {
-        return getSignature().returnType;
+        return (DataType) getSignature().returnType;
     }
 
     @Override

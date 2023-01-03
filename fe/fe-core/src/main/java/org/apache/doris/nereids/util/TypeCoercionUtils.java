@@ -129,7 +129,7 @@ public class TypeCoercionUtils {
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             }
-        } else if (input.isDate()) {
+        } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
                 returnType = expected.defaultConcreteType();
             }
@@ -251,11 +251,11 @@ public class TypeCoercionUtils {
      * The type used for arithmetic operations.
      */
     public static DataType getNumResultType(DataType type) {
-        if (type.isTinyIntType() || type.isSmallIntType() || type.isIntType() || type.isBigIntType()) {
+        if (type.isTinyIntType() || type.isSmallIntType() || type.isIntegerType() || type.isBigIntType()) {
             return BigIntType.INSTANCE;
         } else if (type.isLargeIntType()) {
             return LargeIntType.INSTANCE;
-        } else if (type.isFloatType() || type.isDoubleType() || type.isStringType()) {
+        } else if (type.isFloatType() || type.isDoubleType() || type.isStringLikeType()) {
             return DoubleType.INSTANCE;
         } else if (type.isDecimalType()) {
             return DecimalV2Type.SYSTEM_DEFAULT;

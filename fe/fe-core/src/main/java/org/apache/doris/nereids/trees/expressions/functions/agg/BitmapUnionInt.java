@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.coercion.Int64OrLessType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -60,6 +62,14 @@ public class BitmapUnionInt extends AggregateFunction
      */
     public BitmapUnionInt(boolean distinct, Expression arg) {
         this(arg);
+    }
+
+    @Override
+    public void checkLegality() {
+        DataType argumentType = getArgumentType(0);
+        if (!(argumentType instanceof Int64OrLessType)) {
+            throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT or BIGINT");
+        }
     }
 
     @Override

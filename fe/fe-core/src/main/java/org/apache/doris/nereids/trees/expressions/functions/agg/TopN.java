@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -72,6 +73,20 @@ public class TopN extends AggregateFunction
      */
     public TopN(boolean distinct, Expression arg0, Expression arg1, Expression arg2) {
         super("topn", distinct, arg0, arg1, arg2);
+    }
+
+    @Override
+    public void checkLegality() {
+        if (!getArgument(1).isConstant() || !getArgumentType(1).isIntegerType()) {
+            throw new AnalysisException(
+                    "topn requires second parameter must be a constant Integer Type: " + this.toSql());
+        }
+        if (arity() == 3) {
+            if (!getArgument(2).isConstant() || !getArgumentType(2).isIntegerType()) {
+                throw new AnalysisException(
+                        "topn requires the third parameter must be a constant Integer Type: " + this.toSql());
+            }
+        }
     }
 
     /**

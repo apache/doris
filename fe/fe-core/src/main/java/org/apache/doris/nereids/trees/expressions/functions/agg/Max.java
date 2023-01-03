@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -42,7 +44,14 @@ public class Max extends NullableAggregateFunction implements UnaryExpression, C
     }
 
     private Max(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
-        super("max", isAlwaysNullable, isDistinct, arg);
+        super("max", isDistinct, isAlwaysNullable, arg);
+    }
+
+    @Override
+    public void checkLegality() {
+        if (getArgumentType(0).isOnlyMetricType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
     }
 
     @Override
@@ -57,9 +66,9 @@ public class Max extends NullableAggregateFunction implements UnaryExpression, C
     }
 
     @Override
-    public Max withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public Max withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(isDistinct, isAlwaysNullable, children.get(0));
+        return new Max(distinct, isAlwaysNullable, children.get(0));
     }
 
     @Override

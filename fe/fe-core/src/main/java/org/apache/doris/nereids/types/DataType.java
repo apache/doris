@@ -32,6 +32,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
@@ -416,7 +417,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof SmallIntType;
     }
 
-    public boolean isIntType() {
+    public boolean isIntegerType() {
         return this instanceof IntegerType;
     }
 
@@ -440,16 +441,16 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DecimalV2Type;
     }
 
-    public boolean isDateTime() {
+    public boolean isDateTimeType() {
         return this instanceof DateTimeType;
     }
 
-    public boolean isDate() {
+    public boolean isDateType() {
         return this instanceof DateType;
     }
 
-    public boolean isDateType() {
-        return isDate() || isDateTime() || isDateV2() || isDateTimeV2();
+    public boolean isDateLikeType() {
+        return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2();
     }
 
     public boolean isNullType() {
@@ -468,7 +469,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof VarcharType;
     }
 
-    public boolean isStringType() {
+    public boolean isStringLikeType() {
         return this instanceof CharacterType;
     }
 
@@ -484,29 +485,28 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DateTimeV2Type;
     }
 
-    public boolean isBitmap() {
+    public boolean isBitmapType() {
         return this instanceof BitmapType;
     }
 
-    public boolean isHll() {
-        return this instanceof HllType;
-    }
-
-    public boolean isQuantileState() {
+    public boolean isQuantileStateType() {
         return this instanceof QuantileStateType;
     }
 
-    public boolean isArray() {
+    public boolean isHllType() {
+        return this instanceof HllType;
+    }
+
+    public boolean isArrayType() {
         return this instanceof ArrayType;
     }
 
-    // only metric types have the following constraint:
-    // 1. don't support as key column
-    // 2. don't support filter
-    // 3. don't support group by
-    // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isHll() || isBitmap() || isQuantileState() || isArray();
+        return isObjectType() || isArrayType();
+    }
+
+    public boolean isObjectType() {
+        return isHllType() || isBitmapType() || isQuantileStateType();
     }
 
     public DataType promotion() {
@@ -536,5 +536,19 @@ public abstract class DataType implements AbstractDataType {
         } else {
             throw new AnalysisException("Illegal array type: " + type);
         }
+    }
+
+    public static List<DataType> supportedTypes() {
+        return Type.getSupportedTypes()
+                .stream()
+                .map(DataType::fromCatalogType)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public static List<DataType> nonNullNonCharTypes() {
+        return supportedTypes()
+                .stream()
+                .filter(type -> !type.isNullType() && !type.isCharType())
+                .collect(ImmutableList.toImmutableList());
     }
 }

@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.QuantileStateType;
 
 import com.google.common.base.Preconditions;
@@ -52,6 +54,15 @@ public class QuantileUnion extends AggregateFunction
      */
     public QuantileUnion(boolean distinct, Expression arg) {
         super("quantile_union", distinct, arg);
+    }
+
+    @Override
+    public void checkLegality() {
+        DataType inputType = getArgumentType(0);
+        if (!inputType.isQuantileStateType()) {
+            throw new AnalysisException(getName()
+                    + " function's argument should be of QUANTILE_STATE type, but was" + inputType);
+        }
     }
 
     /**

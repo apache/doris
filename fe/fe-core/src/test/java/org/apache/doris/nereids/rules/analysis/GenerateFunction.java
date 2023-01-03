@@ -181,6 +181,11 @@ public class GenerateFunction {
             .put("approx_count_distinct", "ndv")
             .put("any", "any_value")
             .put("char_length", "character_length")
+            .put("variance_pop", "variance")
+            .put("stddev_pop", "stddev")
+            .put("var_pop", "variance")
+            .put("variance_pop", "variance")
+            .put("var_samp", "variance_samp")
             .build();
 
     static final Map<String, String> formatClassName = ImmutableMap.<String, String>builder()
@@ -264,15 +269,13 @@ public class GenerateFunction {
         Class<? extends Function> catalogFunctionType = AggregateFunction.class;
         Map<String, String> functionCodes = collectFunctionCodes(catalogFunctionType);
 
-        // functionCodes = functionCodes.entrySet()
-        //         .stream()
-        //         .filter(kv -> {
-        //             String[] functions = ("approx_count_distinct,avg,bitmap_intersect,bitmap_union,bitmap_union_count,"
-        //                     + "bitmap_union_int,count,group_bit_and,group_bitmap_xor,group_bit_or,group_bit_xor,"
-        //                     + "hll_union,hll_union_agg,max,min,ndv,sum").split(",");
-        //             return !ImmutableSet.copyOf(functions).contains(kv.getKey());
-        //         })
-        //         .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
+        functionCodes = functionCodes.entrySet()
+                 .stream()
+                 .filter(kv -> {
+                     String[] functions = ("retention").split(",");
+                     return !ImmutableSet.copyOf(functions).contains(kv.getKey());
+                 })
+                 .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
 
         // Pair<className, Pair<functionName, code>>
         List<Pair<String, Pair<String, String>>> codeInfos = functionCodes.entrySet()

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -46,11 +47,14 @@ public class GroupConcat extends AggregateFunction
                     .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE)
     );
 
+    private int nonOrderArguments;
+
     /**
      * constructor with 1 argument.
      */
     public GroupConcat(Expression arg, OrderExpression... orders) {
         super("group_concat", ExpressionUtils.mergeArguments(arg, orders));
+        this.nonOrderArguments = 1;
     }
 
     /**
@@ -58,6 +62,7 @@ public class GroupConcat extends AggregateFunction
      */
     public GroupConcat(boolean distinct, Expression arg, OrderExpression... orders) {
         super("group_concat", distinct, ExpressionUtils.mergeArguments(arg, orders));
+        this.nonOrderArguments = 1;
     }
 
     /**
@@ -65,6 +70,7 @@ public class GroupConcat extends AggregateFunction
      */
     public GroupConcat(Expression arg0, Expression arg1, OrderExpression... orders) {
         super("group_concat", ExpressionUtils.mergeArguments(arg0, arg1, orders));
+        this.nonOrderArguments = 2;
     }
 
     /**
@@ -72,6 +78,24 @@ public class GroupConcat extends AggregateFunction
      */
     public GroupConcat(boolean distinct, Expression arg0, Expression arg1, OrderExpression... orders) {
         super("group_concat", distinct, ExpressionUtils.mergeArguments(arg0, arg1, orders));
+        this.nonOrderArguments = 2;
+    }
+
+    @Override
+    public void checkLegality() {
+        DataType typeOrArg0 = getArgumentType(0);
+        if (!typeOrArg0.isStringLikeType() && !typeOrArg0.isNullType()) {
+            throw new AnalysisException(
+                    "group_concat requires first parameter to be of type STRING: " + this.toSql());
+        }
+
+        if (nonOrderArguments == 2) {
+            DataType typeOrArg1 = getArgumentType(1);
+            if (!typeOrArg1.isStringLikeType() && !typeOrArg1.isNullType()) {
+                throw new AnalysisException(
+                        "group_concat requires second parameter to be of type STRING: " + this.toSql());
+            }
+        }
     }
 
     /**

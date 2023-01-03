@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -45,6 +46,15 @@ public class JsonObject extends ScalarFunction
      */
     public JsonObject(Expression arg, Expression... varArgs) {
         super("json_object", ExpressionUtils.mergeArguments(arg, varArgs));
+    }
+
+    @Override
+    public void checkLegality() {
+        for (int i = 0; i < arity(); i++) {
+            if ((i & 1) == 0 && getArgumentType(i).isNullType()) {
+                throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
+            }
+        }
     }
 
     /**

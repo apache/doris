@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DecimalWiderPrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -72,6 +74,14 @@ public class Sum extends NullableAggregateFunction
 
     private Sum(boolean distinct, boolean isAlwaysNullable, Expression arg) {
         super("sum", distinct, isAlwaysNullable, arg);
+    }
+
+    @Override
+    public void checkLegality() {
+        DataType argType = child().getDataType();
+        if (((!argType.isNumericType() && !argType.isNullType()) || argType.isOnlyMetricType())) {
+            throw new AnalysisException("sum requires a numeric parameter: " + this.toSql());
+        }
     }
 
     /**

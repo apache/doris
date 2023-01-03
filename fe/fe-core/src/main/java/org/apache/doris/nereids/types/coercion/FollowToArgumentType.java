@@ -15,51 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.Int16OrLessType;
-import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.DataType;
 
 /**
- * TinyInt type in Nereids.
+ * FollowArgumentType is used to auto compute the return type by the argument type.
+ *
+ * e.g. the FunctionSignature.retArg(0).args(AnyDataType.INSTANCE)
+ *      will return `IntegerType.INSTANCE` if the first argument type is `IntegerType.INSTANCE`.
  */
-public class TinyIntType extends IntegralType implements Int16OrLessType {
-    public static final TinyIntType INSTANCE = new TinyIntType();
+public class FollowToArgumentType implements AbstractDataType {
+    public final int argumentIndex;
 
-    private static final int WIDTH = 1;
-
-    private TinyIntType() {
-    }
-
-    @Override
-    public Type toCatalogDataType() {
-        return Type.TINYINT;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof TinyIntType;
-    }
-
-    @Override
-    public String simpleString() {
-        return "tinyint";
-    }
-
-    @Override
-    public boolean acceptsType(AbstractDataType other) {
-        return other instanceof TinyIntType;
+    public FollowToArgumentType(int argumentIndex) {
+        this.argumentIndex = argumentIndex;
     }
 
     @Override
     public DataType defaultConcreteType() {
-        return this;
+        throw new RuntimeException("Unsupported operation.");
     }
 
     @Override
-    public int width() {
-        return WIDTH;
+    public boolean acceptsType(AbstractDataType other) {
+        throw new RuntimeException("Unsupported operation.");
+    }
+
+    @Override
+    public Type toCatalogDataType() {
+        throw new RuntimeException("Unsupported operation.");
+    }
+
+    @Override
+    public String simpleString() {
+        return "argumentType#" + argumentIndex;
     }
 }

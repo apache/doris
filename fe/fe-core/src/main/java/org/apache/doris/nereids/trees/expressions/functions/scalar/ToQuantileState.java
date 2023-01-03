@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -47,6 +48,13 @@ public class ToQuantileState extends ScalarFunction
      */
     public ToQuantileState(Expression arg0, Expression arg1) {
         super("to_quantile_state", arg0, arg1);
+    }
+
+    @Override
+    public void checkLegality() {
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException(getName() + "function's second argument should be constant");
+        }
     }
 
     /**

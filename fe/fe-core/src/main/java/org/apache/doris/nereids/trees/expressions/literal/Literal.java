@@ -147,7 +147,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return Byte.compare((byte) getValue(), (byte) other.getValue());
         } else if (type.isSmallIntType()) {
             return Short.compare((short) getValue(), (short) other.getValue());
-        } else if (type.isIntType()) {
+        } else if (type.isIntegerType()) {
             return Integer.compare((int) getValue(), (int) other.getValue());
         } else if (type.isBigIntType()) {
             return Long.compare((long) getValue(), (long) other.getValue());
@@ -159,7 +159,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return Double.compare((double) getValue(), (double) other.getValue());
         } else if (type.isDecimalType()) {
             return Long.compare((Long) getValue(), (Long) other.getValue());
-        } else if (type.isDateType()) {
+        } else if (type.isDateLikeType()) {
             // todo process date
         } else if (type.isDecimalType()) {
             return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
@@ -184,7 +184,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return Literal.of(Double.valueOf(desc).byteValue());
         } else if (targetType.isSmallIntType()) {
             return Literal.of(Double.valueOf(desc).shortValue());
-        } else if (targetType.isIntType()) {
+        } else if (targetType.isIntegerType()) {
             return Literal.of(Double.valueOf(desc).intValue());
         } else if (targetType.isBigIntType()) {
             return Literal.of(Double.valueOf(desc).longValue());
@@ -198,11 +198,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new CharLiteral(desc, ((CharType) targetType).getLen());
         } else if (targetType.isVarcharType()) {
             return new VarcharLiteral(desc, desc.length());
-        } else if (targetType.isStringType()) {
+        } else if (targetType.isStringLikeType()) {
             return Literal.of(desc);
-        } else if (targetType.isDate()) {
+        } else if (targetType.isDateType()) {
             return new DateLiteral(desc);
-        } else if (targetType.isDateTime()) {
+        } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(desc);
         } else if (targetType.isDecimalType()) {
             return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
@@ -243,6 +243,6 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     public abstract LiteralExpr toLegacyLiteral();
 
     public boolean isStringLiteral() {
-        return dataType.isStringType();
+        return dataType.isStringLikeType();
     }
 }

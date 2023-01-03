@@ -68,10 +68,13 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -84,6 +87,7 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -298,22 +302,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
-        List<Expr> arguments = function.getArguments()
+        List<Expression> nereidsArguments = adaptFunctionArgumentsForBackends(function);
+
+        List<Expr> arguments = nereidsArguments
                 .stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
-        List<Type> argTypes = function.expectedInputTypes().stream()
+
+        List<Type> argTypes = nereidsArguments.stream()
+                .map(Expression::getDataType)
                 .map(AbstractDataType::toCatalogDataType)
                 .collect(Collectors.toList());
 
         NullableMode nullableMode = function.nullable()
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
-
-        if (FunctionTranslatorUtil.isEncryptFunction(function)
-                && function.children().size() == 3) {
-            FunctionTranslatorUtil.translateEncryptionFunction(function, arguments, argTypes);
-        }
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
@@ -492,6 +495,44 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 return Assertion.GE;
             default:
                 throw new AnalysisException("UnSupported type: " + assertion);
+        }
+    }
+
+    /**
+     * some special arguments not need exists in the nereids, and backends need it, so we must add the
+     * special arguments for backends, e.g. the json data type string in the json_object function.
+     */
+    private List<Expression> adaptFunctionArgumentsForBackends(BoundFunction function) {
+        if (function instanceof JsonObject || function instanceof JsonArray) {
+            return fillJsonTypeArgument(function);
+        }
+        return function.getArguments();
+    }
+
+    private List<Expression> fillJsonTypeArgument(BoundFunction function) {
+        List<Expression> arguments = function.getArguments();
+        try {
+            List<Expression> newArguments = Lists.newArrayList();
+            StringBuilder jsonTypeStr = new StringBuilder("");
+            for (int i = 0; i < arguments.size(); i++) {
+                Expression argument = arguments.get(i);
+                Type type = argument.getDataType().toCatalogDataType();
+                int jsonType = FunctionCallExpr.computeJsonDataType(type);
+                jsonTypeStr.append(jsonType);
+
+                if (type.isNull()) {
+                    // Not to return NULL directly, so save string, but flag is '0'
+                    newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("NULL"));
+                } else {
+                    newArguments.add(argument);
+                }
+            }
+            // add json type string to the last
+            newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                    jsonTypeStr.toString()));
+            return newArguments;
+        } catch (Throwable t) {
+            throw new AnalysisException(t.getMessage());
         }
     }
 }
