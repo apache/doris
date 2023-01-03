@@ -227,12 +227,6 @@ select * from t_iceberg where k1 > 1000 and k3 = 'term' or k4 like '%doris';
 ```
 
 ## Related system configurations
-
-### Hive Metastore Configuration
-The following configurations solves the problem that table schema cannot be obtained when reading data from `Hive Metastore`. Restart `Hive Metastore` after the configuration is complete.
-- Place iceberg runtime jar in the hive lib directory.
-- hive-site.xml add the property `metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`.
-
 ### FE Configuration
 
 The following configurations are at the Iceberg external table system level and can be configured by modifying `fe.conf` or by `ADMIN SET CONFIG`.
