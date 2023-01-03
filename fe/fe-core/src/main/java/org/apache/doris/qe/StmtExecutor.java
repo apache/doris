@@ -923,6 +923,7 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt.reset();
                 parsedStmt.analyze(analyzer);
                 if (prepareStmt != null) {
+                    prepareStmt.reset();
                     prepareStmt.analyze(analyzer);
                 }
 
@@ -1679,7 +1680,8 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
-        LOG.debug("add prepared statement {}", prepareStmt.getName());
+        LOG.debug("add prepared statement {}, isBinaryProtocol {}",
+                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
                             context, planner, analyzer, prepareStmt.getName()));

@@ -171,17 +171,29 @@ public:
     const ObjectVal* operator->() const { return ((const ObjectVal*)payload_); }
 
 public:
-    bool operator==(const JsonbDocument& other) const { assert(false); }
+    bool operator==(const JsonbDocument& other) const {
+        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+    }
 
-    bool operator!=(const JsonbDocument& other) const { assert(false); }
+    bool operator!=(const JsonbDocument& other) const {
+        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+    }
 
-    bool operator<=(const JsonbDocument& other) const { assert(false); }
+    bool operator<=(const JsonbDocument& other) const {
+        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+    }
 
-    bool operator>=(const JsonbDocument& other) const { assert(false); }
+    bool operator>=(const JsonbDocument& other) const {
+        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+    }
 
-    bool operator<(const JsonbDocument& other) const { assert(false); }
+    bool operator<(const JsonbDocument& other) const {
+        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+    }
 
-    bool operator>(const JsonbDocument& other) const { assert(false); }
+    bool operator>(const JsonbDocument& other) const {
+        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+    }
 
 private:
     /*

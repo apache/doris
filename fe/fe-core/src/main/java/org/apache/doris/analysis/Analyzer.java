@@ -492,9 +492,6 @@ public class Analyzer {
     // conjunct evaluating to false.
     private boolean hasEmptySpjResultSet = false;
 
-    // If read in two phase
-    private boolean isOptimizedTwoPhaseRead = false;
-
     public Analyzer(Env env, ConnectContext context) {
         ancestors = Lists.newArrayList();
         globalState = new GlobalState(env, context);
@@ -1735,14 +1732,6 @@ public class Analyzer {
 
     public boolean hasEmptySpjResultSet() {
         return hasEmptySpjResultSet;
-    }
-
-    public boolean isOptimizedTwoPhaseRead() {
-        return isOptimizedTwoPhaseRead;
-    }
-
-    public void setIsOptimizedTwoPhaseRead() {
-        isOptimizedTwoPhaseRead = true;
     }
 
     public void setHasLimitOffsetClause(boolean hasLimitOffset) {

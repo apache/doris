@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys") {
+suite("test_compaction_uniq_keys_row_store") {
     def tableName = "compaction_uniq_keys_row_store_regression_test"
     def setPrepareStmtArgs = {stmt, user_id, date, datev2, datetimev2_1, datetimev2_2, city, age, sex ->
         java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SS");
