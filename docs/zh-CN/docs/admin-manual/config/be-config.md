@@ -1261,6 +1261,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
 
+<version since="1.2"></version>
+
 #### `jvm_max_heap_size`
 
 * 类型：string

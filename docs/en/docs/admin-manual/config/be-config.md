@@ -1243,6 +1243,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: enable to use Snappy compression algorithm for data compression when serializing RowBatch
 * Default value: true
 
+<version since="1.2"></version>
+
 #### `jvm_max_heap_size`
 
 * Type: string
