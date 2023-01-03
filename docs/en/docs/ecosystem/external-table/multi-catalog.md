@@ -656,7 +656,10 @@ Automatic synchronization of metadata will be supported soon.
 
 ## FAQ
 
+### Iceberg
+
 The following configurations solves the problem `failed to get schema for table xxx in db xxx` and `java.lang.UnsupportedOperationException: Storage schema reading not supported` when reading data from `Hive Metastore`.
+
 - Place iceberg runtime jar in the hive lib directory.
 - hive-site.xml add the property `metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`.
 

@@ -653,7 +653,10 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 ## 常见问题
 
+### Iceberg
+
 下面的配置用来解决Doris使用Hive客户端访问Hive Metastore时出现的`failed to get schema for table xxx in db xxx` 和 `java.lang.UnsupportedOperationException: Storage schema reading not supported`。
+
 - 在hive的lib目录放上iceberg运行时有关的jar包。
 - hive-site.xml配置`metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`。
   
