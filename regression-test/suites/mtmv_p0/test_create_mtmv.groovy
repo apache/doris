@@ -81,5 +81,6 @@ suite("test_create_mtmv") {
         }
     }
     assertTrue(is_succ);
+    sql "drop database ${dbName}"
 }
 
