@@ -40,6 +40,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Builtin aggregate functions.
  * <p>
@@ -47,6 +50,7 @@ import com.google.common.collect.ImmutableList;
  * It helps to be clear and concise.
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
+    public static Set<String> aggFuncNames = new HashSet<>();
     public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(ApproxCountDistinct.class, "approx_count_distinct"),
             agg(Avg.class),
