@@ -68,8 +68,18 @@ suite("test_create_mtmv") {
         AS 
         select ${tableName}.username, ${tableNamePv}.pv  from ${tableName}, ${tableNamePv} where ${tableName}.id=${tableNamePv}.id;
     """
-    Thread.sleep(10000);
-    def result= sql """ select * from   ${mvName}"""
-    assertTrue(result.size()==3);
+    int retry=10;
+    boolean is_succ=false;
+    while(retry>0){
+        def result= sql """ select * from   ${mvName}"""
+        if(result.size()!=3){
+            Thread.sleep(1000);
+            retry--;
+        }else{
+            is_succ=true;
+            break;
+        }
+    }
+    assertTrue(is_succ);
 }
 
