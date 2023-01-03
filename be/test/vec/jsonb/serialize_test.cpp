@@ -16,6 +16,7 @@
 // under the License.
 #include <gtest/gtest.h>
 
+#include "gen_cpp/descriptors.pb.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #define private public
@@ -106,23 +107,23 @@ TEST(BlockSerializeTest, Array) {
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     // slot1
-    PSlotDescriptor pslot1;
-    pslot1.set_col_name("k1");
+    TSlotDescriptor tslot1;
+    tslot1.__set_colName("k1");
     TypeDescriptor type_desc(TYPE_ARRAY);
     type_desc.children.push_back(TypeDescriptor(TYPE_INT));
-    type_desc.to_protobuf(pslot1.mutable_slot_type());
-    pslot1.set_col_unique_id(1);
-    SlotDescriptor* slot = new SlotDescriptor(pslot1);
+    tslot1.__set_slotType(type_desc.to_thrift());
+    tslot1.__set_col_unique_id(1);
+    SlotDescriptor* slot = new SlotDescriptor(tslot1);
     read_desc.add_slot(slot);
 
     // slot2
-    PSlotDescriptor pslot2;
-    pslot2.set_col_name("k2");
+    TSlotDescriptor tslot2;
+    tslot2.__set_colName("k2");
     TypeDescriptor type_desc2(TYPE_ARRAY);
     type_desc2.children.push_back(TypeDescriptor(TYPE_STRING));
-    type_desc2.to_protobuf(pslot2.mutable_slot_type());
-    pslot2.set_col_unique_id(2);
-    SlotDescriptor* slot2 = new SlotDescriptor(pslot2);
+    tslot2.__set_slotType(type_desc2.to_thrift());
+    tslot2.__set_col_unique_id(2);
+    SlotDescriptor* slot2 = new SlotDescriptor(tslot2);
     read_desc.add_slot(slot2);
 
     Block new_block = block.clone_empty();
@@ -139,9 +140,9 @@ TEST(BlockSerializeTest, JsonbBlock) {
     std::vector<std::tuple<std::string, FieldType, int, PrimitiveType>> cols {
             {"k1", OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
             {"k2", OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
-            {"k3", OLAP_FIELD_TYPE_DECIMAL128, 3, TYPE_DECIMAL128},
+            {"k3", OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
             {"k4", OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
-            {"k5", OLAP_FIELD_TYPE_DECIMAL128, 5, TYPE_DECIMAL128},
+            {"k5", OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
             {"k6", OLAP_FIELD_TYPE_INT, 6, TYPE_INT},
             {"k9", OLAP_FIELD_TYPE_DATEV2, 9, TYPE_DATEV2}};
     for (auto t : cols) {
@@ -176,7 +177,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
+        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
         auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
                               decimal_column.get())
@@ -202,7 +203,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // nullable decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
+        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
@@ -245,19 +246,19 @@ TEST(BlockSerializeTest, JsonbBlock) {
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     for (auto t : cols) {
-        PSlotDescriptor pslot;
-        pslot.set_col_name(std::get<0>(t));
-        if (std::get<3>(t) == TYPE_DECIMAL128) {
+        TSlotDescriptor tslot;
+        tslot.__set_colName(std::get<0>(t));
+        if (std::get<3>(t) == TYPE_DECIMAL128I) {
             TypeDescriptor type_desc(std::get<3>(t));
             type_desc.precision = 27;
             type_desc.scale = 9;
-            type_desc.to_protobuf(pslot.mutable_slot_type());
+            tslot.__set_slotType(type_desc.to_thrift());
         } else {
             TypeDescriptor type_desc(std::get<3>(t));
-            type_desc.to_protobuf(pslot.mutable_slot_type());
+            tslot.__set_slotType(type_desc.to_thrift());
         }
-        pslot.set_col_unique_id(std::get<2>(t));
-        SlotDescriptor* slot = new SlotDescriptor(pslot);
+        tslot.__set_col_unique_id(std::get<2>(t));
+        SlotDescriptor* slot = new SlotDescriptor(tslot);
         read_desc.add_slot(slot);
     }
     Block new_block = block.clone_empty();

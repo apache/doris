@@ -24,7 +24,6 @@
 
 namespace doris {
 class BufferControlBlock;
-class MysqlRowBuffer;
 class TFetchDataResult;
 
 namespace vectorized {
@@ -33,7 +32,7 @@ class VExprContext;
 template <bool is_binary_format = false>
 class VMysqlResultWriter final : public VResultWriter {
 public:
-    typedef std::vector<std::unique_ptr<TFetchDataResult>> ResultList;
+    using ResultList = std::vector<std::unique_ptr<TFetchDataResult>>;
 
     VMysqlResultWriter(BufferControlBlock* sinker,
                        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,

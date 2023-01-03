@@ -421,17 +421,8 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
     }
 }
 
-<<<<<<< HEAD
-Status VMysqlResultWriter::append_block(Block& input_block) {
-=======
-template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::append_row_batch(const RowBatch* batch) {
-    return Status::RuntimeError("Not Implemented MysqlResultWriter::append_row_batch scalar");
-}
-
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
->>>>>>> fd324581a ([Feature-WIP](optimize point query) optimize point query)
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {

@@ -47,9 +47,11 @@ public:
     void to_schema_pb(ColumnPB* column) const;
 
     int32_t unique_id() const { return _unique_id; }
+    void set_unique_id(int32_t id) { _unique_id = id; }
     std::string name() const { return _col_name; }
     void set_name(std::string col_name) { _col_name = col_name; }
     FieldType type() const { return _type; }
+    void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
     bool is_bf_column() const { return _is_bf_column; }

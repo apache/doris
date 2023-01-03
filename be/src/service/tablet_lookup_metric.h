@@ -34,7 +34,7 @@ class Reusable {
 public:
     ~Reusable();
 
-    bool is_expired(int64_t ttl_ms) {
+    bool is_expired(int64_t ttl_ms) const {
         return butil::gettimeofday_ms() - _create_timestamp > ttl_ms;
     }
 
