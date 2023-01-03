@@ -45,20 +45,23 @@ import java.util.Optional;
 public class UnboundRelation extends LogicalRelation implements Unbound {
     private final List<String> nameParts;
     private final List<String> partNames;
+    private final boolean isTempPart;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), Collections.emptyList());
+        this(id, nameParts, Optional.empty(), Optional.empty(),
+                Collections.emptyList(), false);
     }
 
-    public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames);
+    public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<String> partNames) {
+            Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
+        this.isTempPart = isTempPart;
     }
 
     @Override
@@ -82,12 +85,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()), partNames);
+        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()),
+                partNames, isTempPart);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames);
+        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames,
+                isTempPart);
     }
 
     @Override
@@ -139,5 +144,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     public List<String> getPartNames() {
         return partNames;
+    }
+
+    public boolean isTempPart() {
+        return isTempPart;
     }
 }

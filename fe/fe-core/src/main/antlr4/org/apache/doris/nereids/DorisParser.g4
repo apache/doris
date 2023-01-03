@@ -312,8 +312,8 @@ qualifiedName
     ;
 
 specifiedPartition
-    : PARTITION identifier
-    | PARTITIONS identifierList
+    : TEMPORARY? PARTITION (identifier | identifierList)
+    | TEMPORARY? PARTITIONS identifierList
     ;
 
 constant

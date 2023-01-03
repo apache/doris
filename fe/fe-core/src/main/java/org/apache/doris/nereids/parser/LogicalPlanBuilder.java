@@ -434,7 +434,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
         List<String> partitionNames = new ArrayList<>();
+        boolean isTempPart = false;
         if (ctx.specifiedPartition() != null) {
+            isTempPart = ctx.specifiedPartition().TEMPORARY() != null;
             if (ctx.specifiedPartition().identifier() != null) {
                 partitionNames.add(ctx.specifiedPartition().identifier().getText());
             } else {
@@ -442,7 +444,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         LogicalPlan checkedRelation = withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames));
+                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
