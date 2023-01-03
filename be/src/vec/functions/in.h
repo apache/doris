@@ -151,7 +151,7 @@ public:
                     }
                 } else {
                     for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = null_bitmap[i] || !vec_res[i];
+                        vec_null_map_to[i] = null_bitmap[i] || negative == vec_res[i];
                     }
                 }
 
@@ -209,7 +209,7 @@ public:
                 }
                 vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
                 if (null_in_set) {
-                    vec_null_map_to[i] = !vec_res[i];
+                    vec_null_map_to[i] = negative == vec_res[i];
                 } else {
                     vec_null_map_to[i] = false;
                 }
