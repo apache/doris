@@ -138,15 +138,26 @@ public class Alter {
             throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
         }
         TableName tableName = !stmt.isForMTMV() ? stmt.getTableName() : stmt.getMTMVName();
-
-        // check db
-        String dbName = tableName.getDb();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        String name = tableName.getTbl();
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name,
-                !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
-
+        Database db;
+        OlapTable olapTable;
+        if (stmt.isIfExists()) {
+            try {
+                String dbName = tableName.getDb();
+                db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+                String name = tableName.getTbl();
+                olapTable = (OlapTable) db.getTableOrMetaException(name,
+                        !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
+            } catch (Exception e) {
+                LOG.info("db or table not exists, msg={}", e.getMessage());
+                return ;
+            }
+        } else {
+            String dbName = tableName.getDb();
+            db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            String name = tableName.getTbl();
+            olapTable = (OlapTable) db.getTableOrMetaException(name,
+                    !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
+        }
         // drop materialized view
         if (!stmt.isForMTMV()) {
             ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
