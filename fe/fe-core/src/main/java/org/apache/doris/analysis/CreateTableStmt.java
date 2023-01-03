@@ -289,7 +289,7 @@ public class CreateTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException, AnalysisException {
-        if (Strings.isNullOrEmpty(engineName) || engineName.equals("olap")) {
+        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
 
