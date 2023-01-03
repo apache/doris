@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
@@ -78,6 +79,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelateToUnCorrelateJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
+                .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
                 .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
