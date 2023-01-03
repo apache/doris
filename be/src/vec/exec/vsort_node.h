@@ -73,7 +73,7 @@ private:
 
     bool _use_topn_opt = false;
 
-    bool reuse_mem;
+    bool _reuse_mem;
 
     std::unique_ptr<Sorter> _sorter;
 

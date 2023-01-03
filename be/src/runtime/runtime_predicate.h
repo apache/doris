@@ -36,7 +36,7 @@
 #include "exec/olap_common.h"
 #include "olap/tablet_schema.h"
 #include "olap/column_predicate.h"
-#include "olap/predicate_creator.h"
+// #include "olap/predicate_creator.h"
 
 
 namespace doris {

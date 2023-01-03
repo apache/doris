@@ -16,6 +16,7 @@
 // under the License.
 
 #include "runtime/runtime_predicate.h"
+#include "olap/predicate_creator.h"
 
 
 namespace doris {

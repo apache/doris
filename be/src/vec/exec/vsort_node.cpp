@@ -150,7 +150,7 @@ Status VSortNode::open(RuntimeState* state) {
                 }
             }
 
-            if (!reuse_mem) {
+            if (!_reuse_mem) {
                 upstream_block.reset(new Block());
             }
         }
