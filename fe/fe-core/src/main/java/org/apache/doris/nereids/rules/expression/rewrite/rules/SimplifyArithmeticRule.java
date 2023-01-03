@@ -39,6 +39,8 @@ import java.util.Optional;
  * a + 1 + b - 2 - ((c - d) + 1) => a + b - c + d + (1 - 2 - 1)
  * After `FoldConstantRule`:
  * a + b - c + d + (1 - 2 - 1) => a + b - c + d - 2
+ *
+ * TODO: handle cases like: '1 - IA < 1' to 'IA > 0'
  */
 public class SimplifyArithmeticRule extends AbstractExpressionRewriteRule {
     public static final SimplifyArithmeticRule INSTANCE = new SimplifyArithmeticRule();
@@ -100,7 +102,12 @@ public class SimplifyArithmeticRule extends AbstractExpressionRewriteRule {
                 }
                 return Operand.of(true, expr);
             });
-            variables.add(Operand.of(!isOpposite, c.get().expression));
+            boolean firstVariableFlag = variables.isEmpty() || variables.get(0).flag;
+            if (isOpposite || firstVariableFlag) {
+                variables.add(Operand.of(!isOpposite, c.get().expression));
+            } else {
+                variables.add(0, Operand.of(!isOpposite, c.get().expression));
+            }
         }
 
         Optional<Operand> result = variables.stream().reduce((x, y) -> !y.flag
