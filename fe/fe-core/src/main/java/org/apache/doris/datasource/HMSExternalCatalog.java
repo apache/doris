@@ -215,7 +215,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         Env.getCurrentEnv().getCatalogMgr().refreshCatalog(log);
     }
 
-    public long getCurrentEventId() {
+    private long getCurrentEventId() {
         makeSureInitialized();
         CurrentNotificationEventId currentNotificationEventId = client.getCurrentNotificationEventId();
         if (currentNotificationEventId == null) {
