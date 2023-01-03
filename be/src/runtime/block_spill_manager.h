@@ -23,18 +23,33 @@
 #include <vector>
 
 #include "olap/options.h"
-#include "vec/core/block_spill_reader.h"
-#include "vec/core/block_spill_writer.h"
 
 namespace doris {
+class RuntimeProfile;
+
+namespace vectorized {
+class BlockSpillWriter;
+class BlockSpillReader;
+using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;
+using BlockSpillReaderUPtr = std::unique_ptr<BlockSpillReader>;
+} // namespace vectorized
 
 class ExecEnv;
 class BlockSpillManager {
 public:
     BlockSpillManager(const std::vector<StorePath>& paths);
-    Status get_writer(int32_t batch_size, vectorized::BlockSpillWriterUPtr& writer);
-    Status get_reader(int64_t stream_id, vectorized::BlockSpillReaderUPtr& reader);
+
+    Status init();
+
+    Status get_writer(int32_t batch_size, vectorized::BlockSpillWriterUPtr& writer,
+                      RuntimeProfile* profile);
+
+    Status get_reader(int64_t stream_id, vectorized::BlockSpillReaderUPtr& reader,
+                      RuntimeProfile* profile, bool delete_after_read = true);
+
     void remove(int64_t streamid_);
+
+    void gc(int64_t max_file_count);
 
 private:
     std::vector<StorePath> _store_paths;
