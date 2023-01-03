@@ -949,6 +949,11 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalTable(log);
                     break;
                 }
+                case OperationType.OP_DROP_EXTERNAL_TABLE: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayDropExternalTable(log);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1622,6 +1627,10 @@ public class EditLog {
 
     public void logRefreshExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
+    }
+
+    public void logDropExternalTable(ExternalObjectLog log) {
+        logEdit(OperationType.OP_DROP_EXTERNAL_TABLE, log);
     }
 
     public Journal getJournal() {
