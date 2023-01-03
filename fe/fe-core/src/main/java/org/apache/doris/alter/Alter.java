@@ -149,7 +149,7 @@ public class Alter {
                         !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
             } catch (Exception e) {
                 LOG.info("db or table not exists, msg={}", e.getMessage());
-                return ;
+                return;
             }
         } else {
             String dbName = tableName.getDb();
