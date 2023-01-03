@@ -437,9 +437,10 @@ public class OlapTable extends Table {
     /**
      * Reset properties to correct values.
      */
-    public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, ReplicaAllocation replicaAlloc) {
+    public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
+                                          ReplicaAllocation replicaAlloc) {
         if (tableProperty != null) {
-            tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, replicaAlloc);
+            tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
         // remove colocate property.
         setColocateGroup(null);

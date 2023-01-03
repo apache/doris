@@ -92,7 +92,7 @@ public class OlapTableTest {
         Assert.assertTrue(olapTable.getDefaultReplicaAllocation() == ReplicaAllocation.DEFAULT_ALLOCATION);
 
         ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) 4);
-        olapTable.resetPropertiesForRestore(false, replicaAlloc);
+        olapTable.resetPropertiesForRestore(false, false, replicaAlloc);
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.isColocateTable());
@@ -112,7 +112,7 @@ public class OlapTableTest {
 
         tableProperty = new TableProperty(properties);
         olapTable.setTableProperty(tableProperty);
-        olapTable.resetPropertiesForRestore(false, ReplicaAllocation.DEFAULT_ALLOCATION);
+        olapTable.resetPropertiesForRestore(false, false, ReplicaAllocation.DEFAULT_ALLOCATION);
 
         Map<String, String> expectedProperties = Maps.newHashMap(properties);
         expectedProperties.put(DynamicPartitionProperty.ENABLE, "false");
