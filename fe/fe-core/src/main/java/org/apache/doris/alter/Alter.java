@@ -542,8 +542,9 @@ public class Alter {
         long newTblId = log.getNewTblId();
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, TableType.OLAP);
-        OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, TableType.OLAP);
+        List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
+        OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, tableTypes);
+        OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, tableTypes);
         List<Table> tableList = Lists.newArrayList(origTable, newTbl);
         tableList.sort((Comparator.comparing(Table::getId)));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
