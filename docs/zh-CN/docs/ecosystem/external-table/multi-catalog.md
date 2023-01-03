@@ -443,7 +443,10 @@ mysql> select * from test;
 ### 连接JDBC
 
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
-jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前只支持MYSQL数据库类型。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL数据库类型。
+
+**MYSQL catalog示例**
+
 ```sql
 -- 1.2.0+ 版本
 CREATE RESOURCE mysql_resource PROPERTIES (
@@ -460,6 +463,28 @@ CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    ...
+)
+```
+
+**POSTGRESQL catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE CATALOG pg_resource PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="postgres",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "jdbc.driver_class" = "org.postgresql.Driver"
+);
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
     ...
 )
 ```
@@ -517,6 +542,8 @@ MySQL [(none)]> show databases;
 +--------------------+
 9 rows in set (0.67 sec)
 ```
+
+⚠️注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
 
 查看`db1`数据库下的表，并查询：
 ```sql
@@ -637,6 +664,31 @@ MySQL [db1]> select * from tbl1;
 | CHAR | CHAR | |
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
+| uuid/josnb | STRING | |
+
 ## 权限管理
 
 使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。

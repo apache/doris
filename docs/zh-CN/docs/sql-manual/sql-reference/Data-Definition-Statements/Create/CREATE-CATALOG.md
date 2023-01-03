@@ -122,6 +122,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	```
 
 3. 新建数据目录 jdbc
+	**mysql**
 
 	```sql
 	-- 1.2.0+ 版本
@@ -145,6 +146,31 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
 	```
+
+	**postgresql**
+
+	```sql
+	-- 1.2.0+ 版本
+	CREATE CATALOG pg_resource PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="postgres",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_class" = "org.postgresql.Driver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+	-- 1.2.0 版本
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="postgres",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_class" = "org.postgresql.Driver"
+	);
+	```	
 
 ### Keywords
 

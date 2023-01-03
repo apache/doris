@@ -56,7 +56,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
-        // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
+        
         sql """CREATE CATALOG ${catalog_name} WITH RESOURCE jdbc_resource_catalog_mysql"""
 
 

@@ -372,6 +372,8 @@ Parameter | Description
 
 The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
 
+**mysql catalog example**
+
 ```sql
 -- 1.2.0+ Version
 CREATE RESOURCE mysql_resource PROPERTIES (
@@ -388,6 +390,28 @@ CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    ...
+)
+```
+
+**postgresql catalog example**
+
+```sql
+-- 1.2.0+ Version
+CREATE CATALOG pg_resource PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="postgres",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "jdbc.driver_class" = "org.postgresql.Driver"
+);
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
     ...
 )
 ```
@@ -423,6 +447,8 @@ MySQL [(none)]> show catalogs;
 +-----------+-------------+----------+
 2 rows in set (0.02 sec)
 ```
+
+⚠️Note: In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
 
 Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
 
@@ -639,6 +665,30 @@ For Hive/Iceberge/Hudi
 | CHAR | CHAR | |
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit` type corresponds to the `STRING` type of DORIS. The data read is `true/false`, not `1/0` |
+| uuid/josnb | STRING | |
 
 ## Privilege Management
 
