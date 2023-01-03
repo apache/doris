@@ -104,51 +104,87 @@ void VJoinNodeBase::_construct_mutable_join_block() {
                 _join_block.columns() - 1,
                 remove_nullable(_join_block.get_by_position(_join_block.columns() - 1).column));
     }
+    _join_block_column_num = _join_block.columns();
 }
 
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block) {
     auto is_mem_reuse = output_block->mem_reuse();
-    MutableBlock mutable_block =
-            is_mem_reuse
-                    ? MutableBlock(output_block)
-                    : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(row_desc()));
     auto rows = origin_block->rows();
-    // TODO: After FE plan support same nullable of output expr and origin block and mutable column
-    // we should replace `insert_column_datas` by `insert_range_from`
-
-    auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
-        if (to->is_nullable() && !from.is_nullable()) {
-            auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
-            null_column.get_nested_column().insert_range_from(from, 0, rows);
-            null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-        } else {
-            to->insert_range_from(from, 0, rows);
-        }
-    };
+    auto origin_col_num = origin_block->columns();
     if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
+        SCOPED_TIMER(_projection_timer);
+        ColumnsWithTypeAndName empty_columns_with_type =
+                VectorizedUtils::create_empty_block(row_desc());
+        if (!is_mem_reuse) {
+            MutableBlock mutable_block = MutableBlock(empty_columns_with_type);
+            // If not mem reuse, it means output block is empty, so that we create empty column for it
+            // Then the empty column maybe swap to origin_block, origin_block will reuse the column to
+            // avoid call malloc and page fault
+            output_block->swap(mutable_block.to_block());
+        }
+        Columns columns;
+        // origin block id --> output block id
+        // This mapping is used to help reuse the columns from output block to reduce the page fault
+        std::map<int, int> col_mapping;
+        Columns resusable_columns;
+        size_t output_size = row_desc().num_materialized_slots();
         if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
-            for (int i = 0; i < mutable_columns.size(); ++i) {
-                insert_column_datas(mutable_columns[i], *origin_block->get_by_position(i).column,
-                                    rows);
+            for (int i = 0; i < output_size; ++i) {
+                columns.emplace_back(origin_block->get_by_position(i).column);
+                col_mapping[i] = i;
             }
         } else {
-            DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
-            SCOPED_TIMER(_projection_timer);
-            for (int i = 0; i < mutable_columns.size(); ++i) {
-                auto result_column_id = -1;
+            for (int i = 0; i < output_size; ++i) {
+                int result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
                 auto column_ptr = origin_block->get_by_position(result_column_id)
                                           .column->convert_to_full_column_if_const();
-                insert_column_datas(mutable_columns[i], *column_ptr, rows);
+                columns.emplace_back(column_ptr);
+                if (result_column_id < origin_col_num) {
+                    col_mapping[result_column_id] = i;
+                }
+            }
+        }
+        // TODO: After FE plan support same nullable of output expr and origin block and mutable column
+        // we should replace `insert_column_datas` by `insert_range_from`
+        // Sometimes the origin block's column nullable property is not equal to row descriptor
+        // So that should change it here
+        for (int i = 0; i < output_size; ++i) {
+            if (empty_columns_with_type[i].type->is_nullable() && !columns[i]->is_nullable()) {
+                columns[i] = vectorized::make_nullable(columns[i]);
+            } else if (!empty_columns_with_type[i].type->is_nullable() &&
+                       columns[i]->is_nullable()) {
+                LOG(FATAL) << "To column is not nullable, but from column is nullable";
             }
         }
 
-        if (!is_mem_reuse) {
-            output_block->swap(mutable_block.to_block());
+        if (is_mem_reuse) {
+            for (int i = 0; i < origin_col_num; ++i) {
+                if (col_mapping.find(i) == col_mapping.end()) {
+                    // It means this column is not transferred to output block, it is reuseable
+                    resusable_columns.emplace_back(origin_block->get_by_position(i).column);
+                } else {
+                    // Move the column from output block
+                    if (empty_columns_with_type[col_mapping[i]].type->is_nullable() &&
+                        !origin_block->get_by_position(i).column->is_nullable()) {
+                        resusable_columns.emplace_back(
+                                reinterpret_cast<const ColumnNullable*>(
+                                        output_block->get_by_position(col_mapping[i]).column.get())
+                                        ->get_nested_column_ptr());
+                    } else if (!empty_columns_with_type[i].type->is_nullable() &&
+                               origin_block->get_by_position(i).column->is_nullable()) {
+                        LOG(FATAL) << "To column is not nullable, but from column is nullable";
+                    } else {
+                        resusable_columns.emplace_back(output_block->get_by_position(i).column);
+                    }
+                }
+            }
         }
+        output_block->set_columns(columns);
         DCHECK(output_block->rows() == rows);
+        // Remove the redundant columns generated during expr calculation
+        origin_block->prune_columns(origin_col_num);
+        origin_block->set_columns(resusable_columns);
     }
 
     return Status::OK();

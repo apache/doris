@@ -114,6 +114,12 @@ void Block::initialize_index_by_name() {
     }
 }
 
+void Block::init_with_empty_columns() {
+    for (auto& elem : data) {
+        elem.column = elem.type->create_column();
+    }
+}
+
 void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
     if (position > data.size()) {
         LOG(FATAL) << fmt::format("Position out of bound in Block::insert(), max position = {}",
@@ -603,6 +609,15 @@ void Block::clear() {
     data.clear();
     index_by_name.clear();
     row_same_bit.clear();
+}
+
+// Remove the tail columns to keep the number of columns in this block == column_size
+void Block::prune_columns(int column_size) {
+    if (column_size > 0 and data.size() > column_size) {
+        for (int i = data.size() - 1; i >= column_size; --i) {
+            erase(i);
+        }
+    }
 }
 
 void Block::clear_column_data(int column_size) noexcept {

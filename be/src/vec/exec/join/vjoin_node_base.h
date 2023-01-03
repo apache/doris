@@ -105,6 +105,7 @@ protected:
     std::vector<VExprContext*> _output_expr_ctxs;
 
     Block _join_block;
+    size_t _join_block_column_num = 0;
 
     MutableColumnPtr _tuple_is_null_left_flag_column;
     MutableColumnPtr _tuple_is_null_right_flag_column;

@@ -642,17 +642,17 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
                        : _matched_rows_done;
 
         {
-            Block tmp_block = _join_block;
-            _add_tuple_is_null_column(&tmp_block);
+            _add_tuple_is_null_column(&_join_block);
             {
                 SCOPED_TIMER(_join_filter_timer);
-                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block,
-                                                           tmp_block.columns()));
+                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, &_join_block,
+                                                           _join_block.columns()));
             }
-            RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+            RETURN_IF_ERROR(_build_output_block(&_join_block, block));
+            _join_block.prune_columns(_join_block_column_num);
+            _join_block.clear_column_data();
             _reset_tuple_is_null_column();
         }
-        _join_block.clear_column_data();
 
         if (!(*eos) and !_need_more_input_data) {
             auto func = [&](auto&& join_op_variants, auto set_build_side_flag,

@@ -76,6 +76,8 @@ public:
     Block(const PBlock& pblock);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size);
 
+    void init_with_empty_columns();
+
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
     void insert(size_t position, ColumnWithTypeAndName&& elem);
@@ -233,6 +235,7 @@ public:
     void swap(Block& other) noexcept;
     void swap(Block&& other) noexcept;
 
+    void prune_columns(int column_size);
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
     void clear_column_data(int column_size = -1) noexcept;

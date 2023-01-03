@@ -467,10 +467,8 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
         *eos = true;
         return Status::OK();
     }
-    _join_block.clear_column_data();
 
     MutableBlock mutable_join_block(&_join_block);
-    Block temp_block;
 
     Status st;
     if (_probe_index < _probe_block.rows()) {
@@ -490,7 +488,7 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
                                                      need_null_map_for_probe
                                                              ? &_null_map_column->get_data()
                                                              : nullptr,
-                                                     mutable_join_block, &temp_block,
+                                                     mutable_join_block, &_join_block,
                                                      _probe_block.rows(), _is_mark_join);
                             } else {
                                 st = process_hashtable_ctx.template do_process<
@@ -498,7 +496,7 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
                                         arg,
                                         need_null_map_for_probe ? &_null_map_column->get_data()
                                                                 : nullptr,
-                                        mutable_join_block, &temp_block, _probe_block.rows(),
+                                        mutable_join_block, &_join_block, _probe_block.rows(),
                                         _is_mark_join);
                             }
                         } else {
@@ -519,7 +517,7 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                                 st = process_hashtable_ctx.process_data_in_hashtable(
-                                        arg, mutable_join_block, &temp_block, eos);
+                                        arg, mutable_join_block, &_join_block, eos);
                             } else {
                                 LOG(FATAL) << "FATAL: uninited hash table";
                             }
@@ -536,14 +534,17 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
         return Status::OK();
     }
     if (_is_outer_join) {
-        _add_tuple_is_null_column(&temp_block);
+        _add_tuple_is_null_column(&_join_block);
     }
     {
         SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+        RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, &_join_block,
+                                                   _join_block.columns()));
     }
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+    RETURN_IF_ERROR(_build_output_block(&_join_block, output_block));
+    // Clear join block since it's column is moved to output block
+    _join_block.prune_columns(_join_block_column_num);
+    _join_block.clear_column_data();
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
