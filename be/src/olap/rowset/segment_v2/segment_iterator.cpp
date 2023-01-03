@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
@@ -857,18 +856,6 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
     for (auto cid : column_ids) {
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->seek_to_ordinal(pos));
-    }
-    return Status::OK();
-}
-
-Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block,
-                                      size_t row_offset, size_t nrows) {
-    for (auto cid : column_ids) {
-        auto column_block = block->column_block(cid);
-        ColumnBlockView dst(&column_block, row_offset);
-        size_t rows_read = nrows;
-        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, &dst));
-        DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
 }
