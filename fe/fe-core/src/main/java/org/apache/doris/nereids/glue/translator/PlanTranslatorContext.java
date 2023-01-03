@@ -157,9 +157,7 @@ public class PlanTranslatorContext {
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         if (table != null) {
             Optional<Column> column = slotReference.getColumn();
-            if (column.isPresent()) {
-                slotDescriptor.setColumn(column.get());
-            }
+            column.ifPresent(slotDescriptor::setColumn);
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
