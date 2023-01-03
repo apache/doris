@@ -126,8 +126,6 @@ Status VSortNode::open(RuntimeState* state) {
                                   _children[0], std::placeholders::_1, std::placeholders::_2,
                                   std::placeholders::_3)),
                 child(0)->get_next_span(), eos);
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-        RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
 
         if (upstream_block->rows() != 0) {
             RETURN_IF_ERROR(_sorter->append_block(upstream_block.get()));
@@ -154,6 +152,9 @@ Status VSortNode::open(RuntimeState* state) {
                 upstream_block.reset(new Block());
             }
         }
+
+        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+        RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
     } while (!eos);
 
     child(0)->close(state);
