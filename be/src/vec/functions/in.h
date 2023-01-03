@@ -109,7 +109,7 @@ public:
         vec_res.resize(input_rows_count);
 
         ColumnUInt8::MutablePtr col_null_map_to;
-        col_null_map_to = ColumnUInt8::create(input_rows_count);
+        col_null_map_to = ColumnUInt8::create(input_rows_count, false);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
         /// First argument may be a single column.
@@ -176,10 +176,6 @@ public:
                     search_hash_set(column_string_ptr);
                 } else {
                     search_hash_set(materialized_column.get());
-                }
-
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    vec_null_map_to[i] = false;
                 }
             }
         } else {
