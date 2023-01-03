@@ -3,8 +3,14 @@
 4
 
 -- !select --
+4
 
 -- !select --
+
+-- !select --
+
+-- !select --
+103	4	d
 
 -- !select --
 
@@ -15,6 +21,7 @@ c
 4
 
 -- !select --
+4
 
 -- !select --
 c
@@ -26,6 +33,10 @@ c
 3
 
 -- !select --
+1
+2
+3
+\N
 
 -- !select --
 \N
@@ -39,6 +50,9 @@ d
 3
 
 -- !select --
+1
+2
+3
 
 -- !select --
 a
