@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
@@ -66,7 +67,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Ndv.class),
             agg(Sum.class),
             agg(Variance.class, "variance", "variance_pop", "var_pop"),
-            agg(VarianceSamp.class, "variance_samp", "var_samp")
+            agg(VarianceSamp.class, "variance_samp", "var_samp"),
+            agg(AnyValue.class, "any_value", "any")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
