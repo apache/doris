@@ -48,7 +48,9 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
         }
     }
 
-    if (!updated) return Status::OK();
+    if (!updated) {
+        return Status::OK();
+    }
 
     TCondition condition;
     condition.__set_column_name(col_name);
