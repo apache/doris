@@ -24,6 +24,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 
@@ -64,7 +65,7 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                                 expr.setChild(1, literal);
                                 return expr;
                             } else {
-                                return new BoolLiteral(true);
+                                return new IsNullPredicate(expr0, true);
                             }
                         }
                         case GT:
@@ -117,7 +118,7 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                         expr.setChild(1, literal);
                         return expr;
                     } else {
-                        return new BoolLiteral(true);
+                        return new IsNullPredicate(expr0, true);
                     }
                 }
                 case GT:
