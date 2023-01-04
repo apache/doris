@@ -1026,7 +1026,10 @@ public class ScalarType extends Type {
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
-            return MAX_DECIMALV2_TYPE;
+            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                return MAX_DECIMALV2_TYPE;
+            }
+            return t1.isDecimalV2() ? t1 : t2;
         }
 
         if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
