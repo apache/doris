@@ -55,6 +55,7 @@ enum TPlanNodeType {
   TABLE_FUNCTION_NODE,
   DATA_GEN_SCAN_NODE,
   FILE_SCAN_NODE,
+  METADATA_SCAN_NODE,
   JDBC_SCAN_NODE,
 }
 
@@ -422,6 +423,10 @@ struct TBrokerScanNode {
 }
 
 struct TFileScanNode {
+    1: optional Types.TTupleId tuple_id
+}
+
+struct TMetadataScanNode {
     1: optional Types.TTupleId tuple_id
 }
 
@@ -1036,6 +1041,7 @@ struct TPlanNode {
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
+  103: optional TMetadataScanNode metadata_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

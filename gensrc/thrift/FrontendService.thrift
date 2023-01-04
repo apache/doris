@@ -694,6 +694,7 @@ struct TInitExternalCtlMetaResult {
 
 enum TSchemaTableName{
   BACKENDS = 0,
+  ICEBERG_TABLE_META = 1,
 }
 
 struct TFetchSchemaTableDataRequest {

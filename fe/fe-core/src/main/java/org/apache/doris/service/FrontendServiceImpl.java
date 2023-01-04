@@ -997,11 +997,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         switch (request.getSchemaTableName()) {
             case BACKENDS:
                 return getBackendsSchemaTable(request);
+            case ICEBERG_TABLE_META:
+                return getIcebergMetadataTable(request);
             default:
                 break;
         }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
+        return result;
+    }
+
+    private TFetchSchemaTableDataResult getIcebergMetadataTable(TFetchSchemaTableDataRequest request) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TRow trow = new TRow();
+        // iceberg api
+        dataBatch.add(trow);
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
