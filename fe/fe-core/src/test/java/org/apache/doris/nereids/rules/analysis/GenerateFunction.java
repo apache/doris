@@ -181,7 +181,6 @@ public class GenerateFunction {
             .put("approx_count_distinct", "ndv")
             .put("any", "any_value")
             .put("char_length", "character_length")
-            .put("variance_pop", "variance")
             .put("stddev_pop", "stddev")
             .put("var_pop", "variance")
             .put("variance_pop", "variance")
@@ -209,6 +208,11 @@ public class GenerateFunction {
             .put("nullif", "NullIf")
             .put("to_datev2", "ToDateV2")
             .put("topn", "TopN")
+            .put("topn_array", "TopNArray")
+            .put("topn_weighted", "TopNWeighted")
+            .put("countequal", "CountEqual")
+            .put("%element_extract%", "ElementExtract")
+            .put("%element_slice%", "ElementSlice")
             .build();
 
     static final Set<String> customNullableFunctions = ImmutableSet.of("if", "ifnull", "nvl", "coalesce",
@@ -266,14 +270,16 @@ public class GenerateFunction {
     // @Disabled
     @Developing
     public void generate() throws IOException {
-        Class<? extends Function> catalogFunctionType = AggregateFunction.class;
+        Class<? extends Function> catalogFunctionType = ScalarFunction.class;
         Map<String, String> functionCodes = collectFunctionCodes(catalogFunctionType);
 
         functionCodes = functionCodes.entrySet()
                  .stream()
                  .filter(kv -> {
-                     String[] functions = ("retention").split(",");
-                     return !ImmutableSet.copyOf(functions).contains(kv.getKey());
+                     // String[] functions = ("array,array_avg,array_compact,array_contains,array_difference,array_distinct,array_enumerate,array_except,array_intersect,array_join,array_max,array_min,array_popback,array_position,array_product,array_range,array_remove,array_size,array_slice,array_sort,array_sum,array_union,array_with_constant,arrays_overlap,"
+                     //         + "bitmap_from_array,bitmap_to_array,cardinality,concat_ws,countequal,element_at,%element_extract%,%element_slice%,if,multi_match_any,multi_search_all_positions,reverse,size,split_by_char,split_by_string").split(",");
+                     // return ImmutableSet.copyOf(functions).contains(kv.getKey());
+                     return "array_join".equalsIgnoreCase(kv.getKey());
                  })
                  .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
 
@@ -485,8 +491,7 @@ public class GenerateFunction {
                 if (operators.contains(functionName)
                         || functionName.startsWith("castto")
                         || (distinctFunctions.contains(functionName))
-                        || onlyUsedInAnalyticFunction.contains(functionName)
-                        || isArrayFunction(function)) {
+                        || onlyUsedInAnalyticFunction.contains(functionName)) {
                     continue;
                 }
                 functionMap.put(functionName, function);
@@ -565,7 +570,9 @@ public class GenerateFunction {
 
         boolean hasVarArg = functions.stream().anyMatch(Function::hasVarArgs);
         if (hasVarArg && !functions.stream().allMatch(Function::hasVarArgs)) {
-            throw new IllegalStateException("can not generate");
+            if (!functionName.equalsIgnoreCase("concat_ws")) {
+                throw new IllegalStateException("can not generate");
+            }
         }
         List<Class> interfaces = getInterfaces(functionName, hasVarArg, functions, functionSet);
 
@@ -656,6 +663,13 @@ public class GenerateFunction {
         }
     }
 
+    private void addNestedType(DataType dataType, Set<Class> imports) {
+        imports.add(dataType.getClass());
+        if (dataType instanceof org.apache.doris.nereids.types.ArrayType) {
+            addNestedType(((org.apache.doris.nereids.types.ArrayType) dataType).getItemType(), imports);
+        }
+    }
+
     private List<String> generateSignatures(List<Function> functions, Set<Class> imports) {
         List<String> signatures = Lists.newArrayList();
         // (returnType, args, buildArgs)
@@ -665,7 +679,8 @@ public class GenerateFunction {
             String returnType = getDataTypeAndInstance(function.getReturnType()).second;
             String args = Arrays.stream(function.getArgs())
                     .map(type -> {
-                        imports.add(DataType.fromCatalogType(type).getClass());
+                        DataType dataType = DataType.fromCatalogType(type);
+                        addNestedType(dataType, imports);
                         return getDataTypeAndInstance(type).second;
                     })
                     .collect(Collectors.joining(", "));
@@ -1376,10 +1391,9 @@ public class GenerateFunction {
         @Override
         public String fields() {
             return "    private final Supplier<DataType> widerType = Suppliers.memoize(() -> {\n"
-                    + "        List<DataType> argumentsTypes = getSignature().argumentsTypes;\n"
                     + "        Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(\n"
-                    + "                argumentsTypes.get(1).toCatalogDataType(),\n"
-                    + "                argumentsTypes.get(2).toCatalogDataType(),\n"
+                    + "                getArgumentType(1).toCatalogDataType(),\n"
+                    + "                getArgumentType(2).toCatalogDataType(),\n"
                     + "                true);\n"
                     + "        return DataType.fromCatalogType(assignmentCompatibleType);\n"
                     + "    });\n"
@@ -1391,7 +1405,12 @@ public class GenerateFunction {
             return "    @Override\n"
                     + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        DataType widerType = this.widerType.get();\n"
-                    + "        signature = signature.withArgumentTypes(children(), (sigType, argType) -> widerType)\n"
+                    + "        List<AbstractDataType> newArgumentsTypes = new ImmutableList.Builder<AbstractDataType>()\n"
+                    + "                .add(signature.argumentsTypes.get(0))\n"
+                    + "                .add(widerType)\n"
+                    + "                .add(widerType)\n"
+                    + "                .build();\n"
+                    + "        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes)\n"
                     + "                .withReturnType(widerType);\n"
                     + "        return super.computeSignature(signature);\n"
                     + "    }\n"

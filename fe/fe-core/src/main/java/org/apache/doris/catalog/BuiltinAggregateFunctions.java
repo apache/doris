@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -44,13 +46,17 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
@@ -74,6 +80,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(BitmapUnion.class, "bitmap_union"),
             agg(BitmapUnionCount.class, "bitmap_union_count"),
             agg(BitmapUnionInt.class, "bitmap_union_int"),
+            agg(CollectList.class, "collect_list"),
+            agg(CollectSet.class, "collect_set"),
             agg(Count.class, "count"),
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
@@ -94,13 +102,17 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
             agg(Percentile.class, "percentile"),
             agg(PercentileApprox.class, "percentile_approx"),
+            agg(PercentileArray.class, "percentile_array"),
             agg(QuantileUnion.class, "quantile_union"),
+            agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Stddev.class, "stddev_pop", "stddev"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
             agg(TopN.class, "topn"),
+            agg(TopNArray.class, "topn_array"),
+            agg(TopNWeighted.class, "topn_weighted"),
             agg(Variance.class, "var_pop", "variance_pop", "variance"),
             agg(VarianceSamp.class, "var_samp", "variance_samp"),
             agg(WindowFunnel.class, "window_funnel")

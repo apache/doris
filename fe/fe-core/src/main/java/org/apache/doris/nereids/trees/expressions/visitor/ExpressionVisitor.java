@@ -79,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -252,6 +253,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, C context) {
         return visitLiteral(dateTimeLiteral, context);
+    }
+
+    public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
+        return visitLiteral(arrayLiteral, context);
     }
 
     public R visitBetween(Between between, C context) {

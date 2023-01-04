@@ -34,6 +34,7 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Locale;
@@ -56,6 +57,27 @@ public abstract class DataType implements AbstractDataType {
             .put(SmallIntType.class, () -> IntegerType.INSTANCE)
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
             .put(FloatType.class, () -> DoubleType.INSTANCE)
+            .build();
+
+    private static final Map<Class<? extends DataType>, Promotion<DataType>> FULL_PRIMITIVE_TYPE_PROMOTION_MAP
+            = Promotion.builder()
+            .add(BooleanType.class, () -> ImmutableList.of(TinyIntType.INSTANCE))
+            .add(TinyIntType.class, () -> ImmutableList.of(SmallIntType.INSTANCE))
+            .add(SmallIntType.class, () -> ImmutableList.of(IntegerType.INSTANCE))
+            .add(IntegerType.class, () -> ImmutableList.of(BigIntType.INSTANCE))
+            .add(BigIntType.class, () -> ImmutableList.of(LargeIntType.INSTANCE))
+            .add(LargeIntType.class, () -> ImmutableList.of(FloatType.INSTANCE, StringType.INSTANCE))
+            .add(FloatType.class, () -> ImmutableList.of(
+                    DoubleType.INSTANCE, DecimalV3Type.DEFAULT_DECIMAL64, StringType.INSTANCE))
+            .add(DoubleType.class, () -> ImmutableList.of(DecimalV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
+            .add(DecimalV2Type.class, () -> ImmutableList.of(
+                    DecimalV3Type.DEFAULT_DECIMAL32,
+                    DecimalV3Type.DEFAULT_DECIMAL64,
+                    DecimalV3Type.DEFAULT_DECIMAL128,
+                    StringType.INSTANCE))
+            .add(DateType.class, () -> ImmutableList.of(
+                    DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
+            .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
             .build();
 
     /**
@@ -517,6 +539,21 @@ public abstract class DataType implements AbstractDataType {
         }
     }
 
+    /** getAllPromotions */
+    public List<DataType> getAllPromotions() {
+        if (this instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) this;
+            return arrayType.getItemType()
+                    .getAllPromotions()
+                    .stream()
+                    .map(promotionType -> ArrayType.of(promotionType, arrayType.containsNull()))
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        Promotion<DataType> promotion = FULL_PRIMITIVE_TYPE_PROMOTION_MAP.get(this.getClass());
+        return promotion == null ? ImmutableList.of() : promotion.apply(this);
+    }
+
     public abstract int width();
 
     private static ArrayType resolveArrayType(String type) {
@@ -550,5 +587,31 @@ public abstract class DataType implements AbstractDataType {
                 .stream()
                 .filter(type -> !type.isNullType() && !type.isCharType())
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    interface Promotion<T extends DataType> {
+        List<DataType> apply(T dataType);
+
+        static PromotionBuilder builder() {
+            return new PromotionBuilder();
+        }
+    }
+
+    static class PromotionBuilder {
+        private Map<Class<? extends DataType>, Promotion<? extends DataType>> promotionMap = Maps.newLinkedHashMap();
+
+        public <T extends DataType> PromotionBuilder add(Class<T> dataTypeClass, Promotion<T> promotion) {
+            promotionMap.put(dataTypeClass, promotion);
+            return this;
+        }
+
+        public <T extends DataType> PromotionBuilder add(Class<T> dataTypeClass, Supplier<List<DataType>> promotion) {
+            promotionMap.put(dataTypeClass, type -> promotion.get());
+            return this;
+        }
+
+        public Map<Class<? extends DataType>, Promotion<DataType>> build() {
+            return (Map) ImmutableMap.copyOf(promotionMap);
+        }
     }
 }

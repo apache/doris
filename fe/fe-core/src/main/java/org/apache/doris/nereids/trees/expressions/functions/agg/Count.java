@@ -39,6 +39,8 @@ public class Count extends AggregateFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable, ForbiddenMetricTypeArguments {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            // count(*)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(),
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)
     );
 

@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -48,13 +50,17 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
@@ -94,6 +100,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitBitmapUnionInt(BitmapUnionInt bitmapUnionInt, C context) {
         return visitAggregateFunction(bitmapUnionInt, context);
+    }
+
+    default R visitCollectList(CollectList collectList, C context) {
+        return visitAggregateFunction(collectList, context);
+    }
+
+    default R visitCollectSet(CollectSet collectSet, C context) {
+        return visitAggregateFunction(collectSet, context);
     }
 
     default R visitCount(Count count, C context) {
@@ -184,8 +198,16 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(percentileApprox, context);
     }
 
+    default R visitPercentileArray(PercentileArray percentileArray, C context) {
+        return visitAggregateFunction(percentileArray, context);
+    }
+
     default R visitQuantileUnion(QuantileUnion quantileUnion, C context) {
         return visitAggregateFunction(quantileUnion, context);
+    }
+
+    default R visitRetention(Retention retention, C context) {
+        return visitAggregateFunction(retention, context);
     }
 
     default R visitSequenceCount(SequenceCount sequenceCount, C context) {
@@ -210,6 +232,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitTopN(TopN topN, C context) {
         return visitAggregateFunction(topN, context);
+    }
+
+    default R visitTopNArray(TopNArray topnArray, C context) {
+        return visitAggregateFunction(topnArray, context);
+    }
+
+    default R visitTopNWeighted(TopNWeighted topnWeighted, C context) {
+        return visitAggregateFunction(topnWeighted, context);
     }
 
     default R visitVariance(Variance variance, C context) {

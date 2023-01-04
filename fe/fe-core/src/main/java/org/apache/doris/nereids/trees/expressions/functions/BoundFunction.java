@@ -223,17 +223,19 @@ public abstract class BoundFunction extends Function implements FunctionTrait, C
             return signature;
         }
 
-        // TODO: compute array(...) function's itemType
-
         // fill item type by the type of first item
         ArrayType arrayType = (ArrayType) signature.returnType;
 
+        // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
+        boolean containsNull = true;
+
         // fill containsNull if any array argument contains null
-        boolean containsNull = signature.argumentsTypes
+        /* boolean containsNull = arguments
                 .stream()
+                .map(Expression::getDataType)
                 .filter(argType -> argType instanceof ArrayType)
                 .map(ArrayType.class::cast)
-                .anyMatch(ArrayType::containsNull);
+                .anyMatch(ArrayType::containsNull);*/
         return signature.withReturnType(
                 ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
     }

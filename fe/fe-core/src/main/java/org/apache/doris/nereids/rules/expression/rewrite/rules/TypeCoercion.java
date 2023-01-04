@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -192,8 +193,19 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     private Expression visitImplicitCastInputTypes(Expression expr,
             List<AbstractDataType> expectedInputTypes, ExpressionRewriteContext ctx) {
         expr = expr.withChildren(child -> rewrite(child, ctx));
-        List<Optional<DataType>> inputImplicitCastTypes = getInputImplicitCastTypes(
-                expr.children(), expectedInputTypes);
+        List<Optional<DataType>> inputImplicitCastTypes = null;
+        if (expr instanceof ComputeSignature) {
+            // the ComputeSignature interface already find the correct implicit cast types.
+            if (expectedInputTypes.stream().allMatch(type -> type instanceof DataType)) {
+                inputImplicitCastTypes = expectedInputTypes.stream()
+                        .map(type -> Optional.of((DataType) type))
+                        .collect(Collectors.toList());
+            }
+        }
+
+        if (inputImplicitCastTypes == null) {
+            inputImplicitCastTypes = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
+        }
         return castInputs(expr, inputImplicitCastTypes);
     }
 
@@ -210,7 +222,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     && !(expectedType.getClass().equals(IntegralType.class))
                     && !(expectedType.getClass().equals(FractionalType.class))
                     && !(expectedType.getClass().equals(CharacterType.class))
-                    && !argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
+                    && argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
             if (!castType.isPresent() && legacyCastCompatible) {
                 castType = Optional.of((DataType) expectedType);
             }
