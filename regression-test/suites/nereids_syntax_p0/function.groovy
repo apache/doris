@@ -185,5 +185,63 @@ suite("nereids_function") {
         sql "select cast(1.2 as integer);"
         result([[1]])
     }
+
+    // scalar function
+    sql """
+        DROP TABLE IF EXISTS running_difference_test
+    """
+
+    sql """
+        CREATE TABLE running_difference_test (
+            `id` int NOT NULL COMMENT 'id' ,
+            `day` date COMMENT 'day', 
+            `time_val` datetime COMMENT 'time_val',
+            `double_num` double NULL COMMENT 'doublenum'
+        )
+        DUPLICATE KEY(id) 
+        DISTRIBUTED BY HASH(id) BUCKETS 3 
+        PROPERTIES ( 
+            "replication_num" = "1"
+        );
+    """
+
+    sql """                                       
+        INSERT into running_difference_test values 
+            ('1', '2022-10-28', '2022-03-12 10:41:00', null),
+            ('2','2022-10-27', '2022-03-12 10:41:02', 2.6),
+            ('3','2022-10-28', '2022-03-12 10:41:03', 2.5),
+            ('4','2022-9-29', '2022-03-12 10:41:03', null),
+            ('5','2022-10-31', '2022-03-12 10:42:01', 3.3),
+            ('6', '2022-11-08', '2022-03-12 11:05:04', 4.7); 
+    """
+
+    qt_fn """
+    SELECT
+        id,
+        day,
+        time_val,
+        double_num,
+        running_difference(id) AS delta1,
+        running_difference(day) AS delta2,
+        running_difference(time_val) AS delta3,
+        running_difference(double_num) AS delta4
+    FROM (
+        SELECT
+            id,
+            day,
+            time_val,
+            double_num
+        FROM running_difference_test 
+        ORDER BY id ASC
+    ) as runningDifference
+    """
+
+    qt_fn_2 """
+        SELECT regexp_extract_all('abc=111, def=222, ghi=333','("[^"]+"|\\w+)=("[^"]+"|\\w+)')
+    """
+
+    qt_fn_3 """
+        select split_by_string('a1b1c1d','1'), split_by_string(',,a,b,c,',','), split_by_string(NULL,','), split_by_string(CAST(day as STRING), '-') from running_difference_test;
+    """
 }
 
