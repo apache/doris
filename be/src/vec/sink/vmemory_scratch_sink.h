@@ -60,9 +60,9 @@ public:
     // Blocks until all rows in batch are pushed to the queue
     Status send(RuntimeState* state, Block* batch, bool eos) override;
 
-    Status close(RuntimeState* state, Status exec_status)  override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
-    RuntimeProfile* profile()  override { return _profile; }
+    RuntimeProfile* profile() override { return _profile; }
 
 private:
     Status _prepare_vexpr(RuntimeState* state);
