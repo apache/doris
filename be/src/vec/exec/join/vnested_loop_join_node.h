@@ -163,7 +163,7 @@ private:
                                    const Block& now_process_build_block) const;
 
     template <bool SetBuildSideFlag, bool SetProbeSideFlag>
-    Status _do_filtering_and_update_visited_flags(Block* block, bool materialize, bool filterNull);
+    Status _do_filtering_and_update_visited_flags(Block* block, bool materialize, bool filter_null);
 
     // TODO: replace it as template lambda after support C++20
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>

@@ -516,7 +516,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
 
 template <bool SetBuildSideFlag, bool SetProbeSideFlag>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize,
-                                                                   bool filterNull) {
+                                                                   bool filter_null) {
     auto column_to_keep = block->columns();
     // If we need to set visited flags for build side,
     // 1. Execute conjuncts and get a column with bool type to do filtering.
@@ -545,8 +545,8 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
 
             const size_t size = filter.size();
             for (size_t i = 0; i < size; ++i) {
-                filter_data[i] = filterNull ? (filter_data[i] || null_map[i])
-                                            : (filter_data[i] && !null_map[i]);
+                filter_data[i] = filter_null ? (filter_data[i] || null_map[i])
+                                             : (filter_data[i] && !null_map[i]);
             }
             _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                         SetProbeSideFlag>(
