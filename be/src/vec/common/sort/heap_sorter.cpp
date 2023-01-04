@@ -142,7 +142,7 @@ Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Field HeapSorter::get_top_value() {
-    Field field;
+    Field field {Field::Types::Null};
     // get field from first sort column of top row
     if (_heap->size() >= _heap_size) {
         auto& top = _heap->top();

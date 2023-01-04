@@ -23,7 +23,9 @@ namespace doris {
 
 namespace vectorized {
 
-Status RuntimePredicate::_init(const TypeIndex type) {
+Status RuntimePredicate::init(const PrimitiveType type) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+
     if (_inited) {
         return Status::OK();
     }
@@ -32,71 +34,71 @@ Status RuntimePredicate::_init(const TypeIndex type) {
 
     // set get value function
     switch (type) {
-    case TypeIndex::UInt8: {
+    case PrimitiveType::TYPE_BOOLEAN: {
         _get_value_fn = get_bool_value;
         break;
     }
-    case TypeIndex::Int8: {
+    case PrimitiveType::TYPE_TINYINT: {
         _get_value_fn = get_tinyint_value;
         break;
     }
-    case TypeIndex::Int16: {
+    case PrimitiveType::TYPE_SMALLINT: {
         _get_value_fn = get_smallint_value;
         break;
     }
-    case TypeIndex::Int32: {
+    case PrimitiveType::TYPE_INT: {
         _get_value_fn = get_int_value;
         break;
     }
-    case TypeIndex::Int64: {
+    case PrimitiveType::TYPE_BIGINT: {
         _get_value_fn = get_bigint_value;
         break;
     }
-    case TypeIndex::Int128: {
+    case PrimitiveType::TYPE_LARGEINT: {
         _get_value_fn = get_largeint_value;
         break;
     }
-    case TypeIndex::Float32: {
+    case PrimitiveType::TYPE_FLOAT: {
         _get_value_fn = get_float_value;
         break;
     }
-    case TypeIndex::Float64: {
+    case PrimitiveType::TYPE_DOUBLE: {
         _get_value_fn = get_double_value;
         break;
     }
-    case TypeIndex::String: {
+    case PrimitiveType::TYPE_STRING: {
         _get_value_fn = get_string_value;
         break;
     }
-    case TypeIndex::DateV2: {
+    case PrimitiveType::TYPE_DATEV2: {
         _get_value_fn = get_datev2_value;
         break;
     }
-    case TypeIndex::DateTimeV2: {
+    case PrimitiveType::TYPE_DATETIMEV2: {
         _get_value_fn = get_datetimev2_value;
         break;
     }
-    case TypeIndex::Date: {
+    case PrimitiveType::TYPE_DATE: {
         _get_value_fn = get_date_value;
         break;
     }
-    case TypeIndex::DateTime: {
+    case PrimitiveType::TYPE_DATETIME: {
         _get_value_fn = get_datetime_value;
         break;
     }
-    case TypeIndex::Decimal128: {
-        _get_value_fn = get_decimalv2_value;
-        break;
-    }
-    case TypeIndex::Decimal32: {
+    case PrimitiveType::TYPE_DECIMAL32: {
         _get_value_fn = get_decimal32_value;
         break;
     }
-    case TypeIndex::Decimal64: {
+    case PrimitiveType::TYPE_DECIMAL64: {
         _get_value_fn = get_decimal64_value;
         break;
     }
-    case TypeIndex::Decimal128I: {
+    case PrimitiveType::TYPE_DECIMALV2: {
+        _get_value_fn = get_decimalv2_value;
+        break;
+    }
+    case PrimitiveType::TYPE_DECIMAL128I: {
         _get_value_fn = get_decimalv3_value;
         break;
     }
@@ -108,16 +110,11 @@ Status RuntimePredicate::_init(const TypeIndex type) {
     return Status::OK();
 }
 
-Status RuntimePredicate::update(const Field& value, const String& col_name, const TypeIndex type,
-                                bool is_reverse) {
+Status RuntimePredicate::update(const Field& value, const String& col_name, bool is_reverse) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
-
-    // init will only be called once
-    RETURN_IF_ERROR(_init(type));
 
     bool updated = false;
 
-    // TODO it relies on Field() ctor default type Null
     if (UNLIKELY(_orderby_extrem.is_null())) {
         _orderby_extrem = value;
         updated = true;

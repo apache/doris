@@ -45,6 +45,13 @@ class RuntimePredicate {
 public:
     RuntimePredicate() = default;
 
+    Status init(const PrimitiveType type);
+
+    bool inited() {
+        std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        return _inited;
+    };
+
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         _tablet_schema = tablet_schema;
@@ -55,19 +62,16 @@ public:
         return _predictate;
     }
 
-    Status update(const Field& value, const String& col_name, const TypeIndex type,
-                  bool is_reverse);
+    Status update(const Field& value, const String& col_name, bool is_reverse);
 
 private:
     mutable std::shared_mutex _rwlock;
-    Field _orderby_extrem;
+    Field _orderby_extrem {Field::Types::Null};
     std::shared_ptr<ColumnPredicate> _predictate {nullptr};
     TabletSchemaSPtr _tablet_schema;
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::function<std::string(const Field&)> _get_value_fn;
     bool _inited = false;
-
-    Status _init(const TypeIndex type);
 
     static std::string get_bool_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType;
