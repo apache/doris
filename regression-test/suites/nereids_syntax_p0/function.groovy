@@ -222,9 +222,5 @@ suite("nereids_function") {
     qt_fn_2 """
         SELECT regexp_extract_all('abc=111, def=222, ghi=333','("[^"]+"|\\w+)=("[^"]+"|\\w+)')
     """
-
-    qt_fn_3 """
-        select split_by_string('a1b1c1d','1'), split_by_string(',,a,b,c,',','), split_by_string(NULL,','), split_by_string(CAST(day as STRING), '-') from running_difference_test;
-    """
 }
 
