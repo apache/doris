@@ -497,15 +497,14 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (_is_streaming_preagg) {
-        bool child_eos = false;
-
         RETURN_IF_CANCELLED(state);
-        do {
+        release_block_memory(_preagg_block);
+        while (_preagg_block.rows() == 0 && !_child_eos) {
             release_block_memory(_preagg_block);
             RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    _children[0]->get_next_after_projects(state, &_preagg_block, &child_eos),
-                    _children[0]->get_next_span(), child_eos);
-        } while (_preagg_block.rows() == 0 && !child_eos);
+                    _children[0]->get_next_after_projects(state, &_preagg_block, &_child_eos),
+                    _children[0]->get_next_span(), _child_eos);
+        }
 
         if (_preagg_block.rows() != 0) {
             RETURN_IF_ERROR(_executor.pre_agg(&_preagg_block, block));
