@@ -97,29 +97,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _thread_mgr = new ThreadResourceMgr();
-    if (config::doris_enable_scanner_thread_pool_per_disk &&
-        config::doris_scanner_thread_pool_thread_num >= store_paths.size() &&
-        store_paths.size() > 0) {
-        _scan_thread_pool = new PriorityWorkStealingThreadPool(
-                config::doris_scanner_thread_pool_thread_num, store_paths.size(),
-                config::doris_scanner_thread_pool_queue_size, "olap_scanner");
-        LOG(INFO) << "scan thread pool use PriorityWorkStealingThreadPool";
-    } else {
-        _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                                   config::doris_scanner_thread_pool_queue_size,
-                                                   "olap_scanner");
-        LOG(INFO) << "scan thread pool use PriorityThreadPool";
-    }
-
-    _remote_scan_thread_pool = new PriorityThreadPool(
-            config::doris_remote_scanner_thread_pool_thread_num,
-            config::doris_remote_scanner_thread_pool_queue_size, "remote_scan");
-
-    ThreadPoolBuilder("LimitedScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-            .build(&_limited_scan_thread_pool);
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -323,9 +300,6 @@ void ExecEnv::init_download_cache_required_components() {
 }
 
 void ExecEnv::_register_metrics() {
-    REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size,
-                         [this]() { return _scan_thread_pool->get_queue_size(); });
-
     REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
                          [this]() { return _send_batch_thread_pool->num_threads(); });
 
@@ -366,8 +340,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_cgroups_mgr);
-    SAFE_DELETE(_scan_thread_pool);
-    SAFE_DELETE(_remote_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);

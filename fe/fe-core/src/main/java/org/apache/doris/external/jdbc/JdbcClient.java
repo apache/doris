@@ -496,4 +496,32 @@ public class JdbcClient {
         }
         return dorisTableSchema;
     }
+
+    private String computeObjectChecksum() {
+        if (FeConstants.runningUnitTest) {
+            // skip checking checksum when running ut
+            return "";
+        }
+
+        InputStream inputStream = null;
+        try {
+            inputStream = Util.getInputStreamFromUrl(driverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] buf = new byte[4096];
+            int bytesRead = 0;
+            do {
+                bytesRead = inputStream.read(buf);
+                if (bytesRead < 0) {
+                    break;
+                }
+                digest.update(buf, 0, bytesRead);
+            } while (true);
+            return Hex.encodeHexString(digest.digest());
+        } catch (IOException e) {
+            throw new JdbcClientException("compute driver checksum from url: " + driverUrl + " meet an IOException.", e);
+        } catch (NoSuchAlgorithmException e) {
+            throw new JdbcClientException(
+                    "compute driver checksum from url: " + driverUrl + " could not find algorithm.", e);
+        }
+    }
 }
