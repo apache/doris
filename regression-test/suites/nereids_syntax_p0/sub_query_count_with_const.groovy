@@ -17,6 +17,7 @@
 
 suite("sub_query_count_with_const") {
     sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
     sql """
         DROP TABLE IF EXISTS sub_query_count_with_const

@@ -17,6 +17,7 @@
 
 suite("sub_query_join_where_pushdown") {
     sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
     sql """
         DROP TABLE IF EXISTS sub_query_join_where_pushdown1
