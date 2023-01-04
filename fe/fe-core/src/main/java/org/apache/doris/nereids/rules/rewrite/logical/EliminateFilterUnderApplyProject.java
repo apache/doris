@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -82,8 +83,7 @@ public class EliminateFilterUnderApplyProject extends OneRewriteRuleFactory {
                     Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
                     List<NamedExpression> projects = new ArrayList<>();
                     projects.addAll(project.getProjects());
-                    correlatedPredicate.stream()
-                            .map(ExpressionUtils::extractConjunction)
+                    ExpressionUtils.collect(correlatedPredicate, SlotReference.class::isInstance).stream()
                             .filter(e -> filter.child().getOutput().contains(e))
                             .filter(e -> !projects.contains(e))
                             .map(NamedExpression.class::cast)

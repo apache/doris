@@ -241,35 +241,26 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     }
 
     @Test
-    public void testInSql4AfterPushProjectRule() {
-        PlanChecker.from(connectContext)
-                .analyze(sql4)
-                .applyBottomUp(new PushApplyUnderProject())
-                .matches(
-                        logicalProject(
-                                logicalApply().when(FieldChecker.check("correlationFilter", Optional.empty()))
-                                        .when(FieldChecker.check("correlationSlot", ImmutableList.of(
-                                                new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6")))))
-                        ).when(FieldChecker.check("projects", ImmutableList.of(
-                                new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")),
-                                new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")))))
-                );
-    }
-
-    @Test
-    public void testInSql4AfterPushFilterRule() {
+    public void testInSql4AfterEliminateFilterUnderApplyProjectRule() {
         PlanChecker.from(connectContext)
                 .analyze(sql4)
                 .applyBottomUp(new EliminateFilterUnderApplyProject())
                 .matches(
-                        logicalApply().when(FieldChecker.check("correlationFilter", Optional.of(
+                        logicalApply(
+                                any(),
+                                logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
+                                        new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t7")),
+                                        new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t7")))))
+                        ).when(FieldChecker.check("correlationFilter", Optional.of(
                                 new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                         ImmutableList.of("default_cluster:test", "t7")),
                                         new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6"))))))
+                                .when(FieldChecker.check("correlationSlot", ImmutableList.of(
+                                        new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t6")))))
                 );
     }
 
