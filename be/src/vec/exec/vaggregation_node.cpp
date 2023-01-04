@@ -522,21 +522,21 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (_is_streaming_preagg) {
-        bool child_eos = false;
-
         RETURN_IF_CANCELLED(state);
         do {
             release_block_memory(_preagg_block);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    _children[0]->get_next_after_projects(
-                            state, &_preagg_block, &child_eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[0], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    _children[0]->get_next_span(), child_eos);
-        } while (_preagg_block.rows() == 0 && !child_eos);
+            if (!_child_eos) {
+                RETURN_IF_ERROR_AND_CHECK_SPAN(
+                        _children[0]->get_next_after_projects(
+                                state, &_preagg_block, &_child_eos,
+                                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
+                                                               bool*)) &
+                                                  ExecNode::get_next,
+                                          _children[0], std::placeholders::_1,
+                                          std::placeholders::_2, std::placeholders::_3)),
+                        _children[0]->get_next_span(), _child_eos);
+            }
+        } while (_preagg_block.rows() == 0 && !_child_eos);
         {
             SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
             if (_preagg_block.rows() != 0) {
