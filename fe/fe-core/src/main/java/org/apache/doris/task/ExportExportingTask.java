@@ -161,18 +161,17 @@ public class ExportExportingTask extends MasterTask {
             }
         }
 
-        // release snapshot
-        Status releaseSnapshotStatus = job.releaseSnapshotPaths();
-        if (!releaseSnapshotStatus.ok()) {
-            // even if release snapshot failed, do nothing cancel this job.
-            // snapshot will be removed by GC thread on BE, finally.
-            LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
-                    releaseSnapshotStatus.getErrorMsg());
-        }
-
         if (job.updateState(ExportJob.JobState.FINISHED)) {
             LOG.warn("export job success. job: {}", job);
             registerProfile();
+            // release snapshot
+            Status releaseSnapshotStatus = job.releaseSnapshotPaths();
+            if (!releaseSnapshotStatus.ok()) {
+                // even if release snapshot failed, do not cancel this job.
+                // snapshot will be removed by GC thread on BE, finally.
+                LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
+                        releaseSnapshotStatus.getErrorMsg());
+            }
         }
 
         synchronized (this) {
@@ -336,12 +335,9 @@ public class ExportExportingTask extends MasterTask {
             }
         }
 
-        if (!failed) {
-            exportedFiles.clear();
-            job.addExportedFiles(newFiles);
-            ClientPool.brokerPool.returnObject(address, client);
-        }
-
+        exportedFiles.clear();
+        job.addExportedFiles(newFiles);
+        ClientPool.brokerPool.returnObject(address, client);
         return Status.OK;
     }
 }
