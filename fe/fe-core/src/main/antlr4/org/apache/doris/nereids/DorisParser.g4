@@ -58,8 +58,8 @@ query
 
 queryTerm
     : queryPrimary                                                                       #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
-      setQuantifier? right=queryTerm                                                     #setOperation
+    | left=queryTerm queryOrganization operator=(UNION | EXCEPT | INTERSECT)
+      setQuantifier? right=queryTerm queryOrganization                                                     #setOperation
     ;
 
 setQuantifier

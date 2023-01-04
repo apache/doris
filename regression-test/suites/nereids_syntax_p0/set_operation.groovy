@@ -139,8 +139,7 @@ suite("test_nereids_set_operation") {
             select * from (select k1, k2 from setOperationTableNotNullable union all select k1, k5 from setOperationTable) t;
     """
 
-    order_qt_select21 """
-            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
+    order_qt_select21 """            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
     """
 
     order_qt_select24 """select * from (select 1 a, 2 b 
@@ -241,5 +240,10 @@ suite("test_nereids_set_operation") {
     (SELECT k1 FROM setOperationTable WHERE k3 = 2
     INTERSECT
     SELECT k1 FROM setOperationTable WHERE k2 > 0)
+    """
+
+    order_qt_select43 """
+        SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all 
+            select k1, k5 from setOperationTable) t;
     """
 }
