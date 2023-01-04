@@ -100,8 +100,9 @@ Status ScannerScheduler::submit(ScannerContext* ctx) {
     return Status::OK();
 }
 
-std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(ThreadPool::ExecutionMode mode, int max_concurrency) {
-   return _limited_scan_thread_pool->new_token(mode, max_concurrency); 
+std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
+        ThreadPool::ExecutionMode mode, int max_concurrency) {
+    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
 void ScannerScheduler::_schedule_thread(int queue_id) {

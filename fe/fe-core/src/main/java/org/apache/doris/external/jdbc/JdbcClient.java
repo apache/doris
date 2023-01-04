@@ -518,7 +518,8 @@ public class JdbcClient {
             } while (true);
             return Hex.encodeHexString(digest.digest());
         } catch (IOException e) {
-            throw new JdbcClientException("compute driver checksum from url: " + driverUrl + " meet an IOException.", e);
+            throw new JdbcClientException("compute driver checksum from url: " + driverUrl + " meet an IOException.",
+                    e);
         } catch (NoSuchAlgorithmException e) {
             throw new JdbcClientException(
                     "compute driver checksum from url: " + driverUrl + " could not find algorithm.", e);
