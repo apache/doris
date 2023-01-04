@@ -96,6 +96,10 @@ Status RuntimePredicate::_init(const TypeIndex type) {
         _get_value_fn = get_decimal64_value;
         break;
     }
+    case TypeIndex::Decimal128I: {
+        _get_value_fn = get_decimalv3_value;
+        break;
+    }
     default:
         return Status::InvalidArgument("unsupported runtime predicate type {}", type);
     }

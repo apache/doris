@@ -163,6 +163,12 @@ private:
         ValueType value = field.get<ValueType>();
         return cast_to_string<TYPE_DECIMAL64, ValueType>(value, 0);
     }
+
+    static std::string get_decimalv3_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType;
+        ValueType value = field.get<ValueType>();
+        return cast_to_string<TYPE_DECIMAL128I, ValueType>(value, 0);
+    }
 };
 
 } // namespace vectorized
