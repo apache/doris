@@ -76,7 +76,8 @@ Add function `substring_index`. [#15373](https://github.com/apache/doris/pull/15
 
 ### Known Issues
 
-Do not use JDK11 as the runtime JDK of BE, it will cause BE Crash.
+- Do not use JDK11 as the runtime JDK of BE, it will cause BE Crash.
+- The reading performance of the csv format in this version has declined, which will affect the import and reading efficiency of the csv format. We will fix it as soon as possible in the next three-digit version
 
 ### Behavior Changed
 
