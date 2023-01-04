@@ -167,9 +167,23 @@ Status CsvReader::init_reader(bool is_load) {
 
     _is_load = is_load;
     if (!_is_load) {
-        // For query task, we need to save the mapping from table schema to file column
+        // For query task, there are 2 slot mapping.
+        // One is from file slot to values in line.
+        //      eg, the file_slot_descs is k1, k3, k5, and values in line are k1, k2, k3, k4, k5
+        //      the _col_idxs will save: 0, 2, 4
+        // The other is from file slot to columns in output block
+        //      eg, the file_slot_descs is k1, k3, k5, and columns in block are p1, k1, k3, k5
+        //      where "p1" is the partition col which does not exist in file
+        //      the _file_slot_idx_map will save: 1, 2, 3
         DCHECK(_params.__isset.column_idxs);
         _col_idxs = _params.column_idxs;
+        int idx = 0;
+        for (const auto& slot_info : _params.required_slots) {
+            if (slot_info.is_file_slot) {
+                _file_slot_idx_map.push_back(idx);
+            }
+            idx++;
+        }
     } else {
         // For load task, the column order is same as file column order
         int i = 0;
@@ -177,6 +191,7 @@ Status CsvReader::init_reader(bool is_load) {
             _col_idxs.push_back(i++);
         }
     }
+
 
     _line_reader_eof = false;
     return Status::OK();
@@ -317,16 +332,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     if (_is_load) {
         for (int i = 0; i < _file_slot_descs.size(); ++i) {
             auto src_slot_desc = _file_slot_descs[i];
-            // int col_idx = _col_idxs[i];
+            int col_idx = _col_idxs[i];
             // col idx is out of range, fill with null.
-            const Slice& value = i < _split_values.size() ? _split_values[i] : _s_null_slice;
-            // IColumn* col_ptr =
-            //         const_cast<IColumn*>(block->get_by_name(src_slot_desc->col_name()).column.get());
-            // _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-            //                                   false);
-
-            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
-                                                 value.size);
+            const Slice& value = col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            // For load task, we always read "string" from file, so use "write_string_column"
+            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data, value.size);
         }
     } else {
         // if _split_values.size > _file_slot_descs.size()
@@ -335,12 +345,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             auto src_slot_desc = _file_slot_descs[i];
             int col_idx = _col_idxs[i];
             // col idx is out of range, fill with null.
-            const Slice& value =
-                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-            IColumn* col_ptr = const_cast<IColumn*>(
-                    block->get_by_name(src_slot_desc->col_name()).column.get());
-            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-                                              false);
+            const Slice& value = col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            IColumn* col_ptr = const_cast<IColumn*>(block->get_by_position(_file_slot_idx_map[i]).column.get());
+            // For query task, we will convert values to final column type, so use "write_vec_column"
+            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true, false);
         }
     }
     ++(*rows);

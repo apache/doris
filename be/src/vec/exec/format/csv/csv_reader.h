@@ -78,6 +78,11 @@ private:
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
+    // Only for query task, save the file slot to columns in block map.
+    // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
+    // and this 3 columns in block are k2, k3, k1,
+    // the _file_slot_idx_map will save: 2, 0, 1
+    std::vector<int> _file_slot_idx_map;
     // Only for query task, save the columns' index which need to be read.
     // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
     // and the corresponding position in file is 0, 3, 5.
