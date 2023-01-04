@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -172,7 +173,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
 
         if (newInPredicate.getOptions().stream().map(Expression::getDataType)
-                .allMatch(dt -> dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
+                .allMatch(dt -> dt.equals(NullType.INSTANCE)
+                        || dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
             return newInPredicate;
         }
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(newInPredicate.children()
