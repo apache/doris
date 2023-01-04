@@ -26,7 +26,7 @@ suite("alter_policy") {
         CREATE RESOURCE "has_resouce_policy_alter"
         PROPERTIES(
             "type"="s3",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
