@@ -37,11 +37,10 @@ import java.util.List;
 public class RegexpExtractAll extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
-    );
+    public static final List<FunctionSignature> SIGNATURES = FunctionSignature.multi()
+            .ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+            .ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
+            .build();
 
     /**
      * constructor with 2 arguments.
