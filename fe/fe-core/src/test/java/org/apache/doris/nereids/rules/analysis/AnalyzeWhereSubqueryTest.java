@@ -285,7 +285,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
-                                                new SlotReference(new ExprId(2), "k1", BigIntType.INSTANCE, false,
+                                                new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, false,
                                                         ImmutableList.of("default_cluster:test", "t7"))),
                                         new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")),
