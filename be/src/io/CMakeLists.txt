@@ -58,7 +58,6 @@ set(IO_FILES
     cloud/cloud_file_cache_factory.cpp
     cloud/cloud_lru_file_cache.cpp
     cloud/cached_remote_file_reader.cpp
-    cloud/tmp_file_mgr.cpp
 )
 
 add_library(IO STATIC
