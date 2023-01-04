@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
@@ -134,7 +133,7 @@ public class S3Resource extends Resource {
         propertiesPing.put("AWS_SECRET_KEY", properties.getOrDefault(S3_SECRET_KEY, ""));
         propertiesPing.put("AWS_ENDPOINT", "http://" + properties.getOrDefault(S3_ENDPOINT, ""));
         propertiesPing.put("AWS_REGION", properties.getOrDefault(S3_REGION, ""));
-        propertiesPing.put(S3Storage.USE_PATH_STYLE, "false");
+        propertiesPing.put(S3Resource.USE_PATH_STYLE, "false");
         S3Storage storage = new S3Storage(propertiesPing);
 
         String testFile = bucket + properties.getOrDefault(S3_ROOT_PATH, "") + "/test-object-valid.txt";
