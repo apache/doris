@@ -31,10 +31,9 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -81,13 +80,15 @@ public class EliminateFilterUnderApplyProject extends OneRewriteRuleFactory {
                     }
 
                     Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
-                    ImmutableList.Builder<NamedExpression> projectBuilder = new Builder<>();
-                    projectBuilder.addAll(project.getProjects());
+                    List<NamedExpression> projects = new ArrayList<>();
+                    projects.addAll(project.getProjects());
                     correlatedPredicate.stream()
+                            .map(ExpressionUtils::extractConjunction)
                             .filter(e -> filter.child().getOutput().contains(e))
+                            .filter(e -> !projects.contains(e))
                             .map(NamedExpression.class::cast)
-                            .forEach(projectBuilder::add);
-                    LogicalProject newProject = new LogicalProject(projectBuilder.build(), child);
+                            .forEach(projects::add);
+                    LogicalProject newProject = new LogicalProject(projects, child);
                     return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                             ExpressionUtils.optionalAnd(correlatedPredicate),
                             apply.left(), newProject);
