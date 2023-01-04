@@ -201,8 +201,9 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
-        NewEsScanner* scanner = new NewEsScanner(_state, this, _limit_per_scanner, _tuple_id,
-                                                 properties, _docvalue_context, doc_value_mode, _state->runtime_profile());
+        NewEsScanner* scanner =
+                new NewEsScanner(_state, this, _limit_per_scanner, _tuple_id, properties,
+                                 _docvalue_context, doc_value_mode, _state->runtime_profile());
 
         _scanner_pool.add(scanner);
         RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
