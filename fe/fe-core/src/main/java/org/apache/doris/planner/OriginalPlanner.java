@@ -196,7 +196,9 @@ public class OriginalPlanner extends Planner {
         singleNodePlan.finalize(analyzer);
 
         // check and set flag for topn detail query opt
-        checkTopnOpt(singleNodePlan);
+        if (VectorizedUtil.isVectorized()) {
+            checkTopnOpt(singleNodePlan);
+        }
 
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
