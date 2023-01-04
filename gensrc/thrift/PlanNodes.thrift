@@ -426,10 +426,6 @@ struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
 }
 
-struct TMetadataScanNode {
-    1: optional Types.TTupleId tuple_id
-}
-
 struct TEsScanNode {
     1: required Types.TTupleId tuple_id
     2: optional map<string,string> properties
@@ -518,10 +514,6 @@ struct TSchemaScanNode {
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-  2: required string table_name
-  3: optional string db
-  4: optional string table
-  5: optional string user
 }
 
 struct TSortInfo {
@@ -1041,7 +1033,6 @@ struct TPlanNode {
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
-  103: optional TMetadataScanNode metadata_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -58,7 +58,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
-                throw new AnalysisException(key + " is invalid property");
+                throw new AnalysisException("'" + key + "' is invalid property");
             }
             // check ctl db tbl
             validParams.put(key.toLowerCase(), params.get(key));
@@ -68,7 +68,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         if (tableName == null || queryType == null) {
             throw new AnalysisException("Invalid iceberg metadata query");
         }
-        if (SUPPORTED_QUERY_TYPES.contains(queryType)) {
+        if (!SUPPORTED_QUERY_TYPES.contains(queryType)) {
             throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
         }
         String[] names = tableName.split("\\.");
