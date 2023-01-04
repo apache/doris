@@ -320,5 +320,65 @@ private:
     ColumnWriterOptions _opts;
 };
 
+
+class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
+public:
+    explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+                             ScalarColumnWriter* offset_writer,
+                             ScalarColumnWriter* null_writer,
+                             std::unique_ptr<ColumnWriter> key_writer,
+                             std::unique_ptr<ColumnWriter> value_writer);
+    ~MapColumnWriter() override = default;
+
+    Status init() override;
+
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+    Status write_inverted_index() override;
+    Status append_nulls(size_t num_rows) override;
+
+    Status finish_current_page() override;
+
+    Status write_zone_map() override {
+        if (_opts.need_zone_map) {
+            return Status::NotSupported("map not support zone map");
+        }
+        return Status::OK();
+    }
+
+    Status write_bitmap_index() override {
+        if (_opts.need_bitmap_index) {
+            return Status::NotSupported("map not support bitmap index");
+        }
+        return Status::OK();
+    }
+    Status write_bloom_filter_index() override {
+        if (_opts.need_bloom_filter) {
+            return Status::NotSupported("map not support bloom filter index");
+        }
+        return Status::OK();
+    }
+    ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
+
+private:
+    Status put_extra_info_in_page(DataPageFooterPB* header) override;
+    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    bool has_empty_items() const { return _offset_writer->get_next_rowid() == 0; }
+
+private:
+    std::unique_ptr<ScalarColumnWriter> _offset_writer;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<ColumnWriter> _key_writer;
+    std::unique_ptr<ColumnWriter> _value_writer;
+
+    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    ColumnWriterOptions _opts;
+};
+
 } // namespace segment_v2
 } // namespace doris

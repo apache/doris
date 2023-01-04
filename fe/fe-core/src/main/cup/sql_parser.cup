@@ -617,7 +617,7 @@ terminal String
     KW_MTMV,
     KW_TYPECAST;
 
-terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
+terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
 terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
@@ -688,7 +688,7 @@ nonterminal SelectList select_clause, select_list, select_sublist;
 nonterminal SelectListItem select_list_item, star_expr;
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
-nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
+nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values, kv_list;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
@@ -726,6 +726,7 @@ nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
 nonterminal Expr function_call_expr, array_expr;
 nonterminal ArrayLiteral array_literal;
+nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
 nonterminal ArrayList<StructField> struct_field_list;
 nonterminal AnalyticWindow opt_window_clause;
@@ -927,6 +928,7 @@ precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
+precedence right LBRACE;
 precedence left KW_ENGINE;
 
 // unused
@@ -5824,6 +5826,33 @@ array_expr ::=
   :}
   ;
 
+kv_list ::=
+  expr:k COLON expr:v
+  {:
+     ArrayList<Expr> list = new ArrayList<Expr>();
+     list.add(k);
+     list.add(v);
+     RESULT = list ;
+  :}
+  |kv_list:list COMMA expr:k COLON expr:v
+  {:
+       list.add(k);
+       list.add(v);
+       RESULT = list;
+  :}
+  ;
+
+map_literal ::=
+  LBRACE RBRACE
+  {:
+    RESULT = new MapLiteral();
+  :}
+  | LBRACE kv_list:list RBRACE
+  {:
+    RESULT = new MapLiteral(list.toArray(new LiteralExpr[0]));
+  :}
+  ;
+
 struct_field ::=
   ident:name COLON type:type
   {: RESULT = new StructField(name, type); :}
@@ -5862,6 +5891,8 @@ non_pred_expr ::=
   | array_expr:a
   {: RESULT = a; :}
   | array_literal:a
+  {: RESULT = a; :}
+  | map_literal:a
   {: RESULT = a; :}
   | function_call_expr:e
   {: RESULT = e; :}

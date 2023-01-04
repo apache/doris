@@ -300,6 +300,12 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
     }
+    if (tcolumn.column_type.type == TPrimitiveType::MAP) {
+        ColumnPB* key_column = column->add_children_columns();
+        init_column_from_tcolumn(0, tcolumn.children_column[0], key_column);
+        ColumnPB* val_column = column->add_children_columns();
+        init_column_from_tcolumn(0, tcolumn.children_column[1], val_column);
+    }
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {

@@ -20,8 +20,10 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_map.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_map.h"
 
 namespace doris {
 
@@ -372,6 +374,23 @@ private:
                                const DataTypeArray* data_type_array);
         OlapColumnDataConvertorBaseUPtr _item_convertor;
     };
+
+    class OlapColumnDataConvertorMap
+            : public OlapColumnDataConvertorPaddedPODArray<MapValue> {
+    public:
+        OlapColumnDataConvertorMap(OlapColumnDataConvertorBaseUPtr key_convertor,
+                                     OlapColumnDataConvertorBaseUPtr value_convertor)
+                : _key_convertor(std::move(key_convertor)), _value_convertor(std::move(value_convertor)) {}
+
+        Status convert_to_olap() override;
+
+    private:
+        Status convert_to_olap(const UInt8* null_map, const ColumnMap* column_map,
+                               const DataTypeMap* data_type_map);
+        OlapColumnDataConvertorBaseUPtr _key_convertor;
+        OlapColumnDataConvertorBaseUPtr _value_convertor;
+    };//OlapColumnDataConvertorMap
+
 
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;

@@ -49,6 +49,7 @@ set(RUNTIME_FILES
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
+    map_value.cpp
     tuple.cpp
     tuple_row.cpp
     fragment_mgr.cpp

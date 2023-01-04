@@ -60,6 +60,9 @@ enum TExprNodeType {
 
   // for fulltext search
   MATCH_PRED,
+
+  // for map 
+  MAP_LITERAL,
 }
 
 //enum TAggregationOp {

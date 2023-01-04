@@ -17,18 +17,25 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
+
+import java.util.Objects;
 
 /**
  * Describes a MAP type. MAP types have a scalar key and an arbitrarily-typed value.
  */
 public class MapType extends Type {
+
+    @SerializedName(value = "keyType")
     private final Type keyType;
+    @SerializedName(value = "valueType")
     private final Type valueType;
 
     public MapType() {
@@ -76,6 +83,30 @@ public class MapType extends Type {
     }
 
     @Override
+    public boolean matchesType(Type t) {
+        if (equals(t)) {
+            return true;
+        }
+
+        if (!t.isArrayType()) {
+            return false;
+        }
+
+        if ((keyType.isNull() || ((MapType) t).getKeyType().isNull())
+                && (valueType.isNull() || ((MapType) t).getKeyType().isNull())) {
+            return true;
+        }
+
+        return keyType.matchesType(((MapType) t).keyType)
+            && (valueType.matchesType(((MapType) t).valueType));
+    }
+
+    @Override
+    public String toString() {
+        return  toSql(0).toUpperCase();
+    }
+
+    @Override
     protected String prettyPrint(int lpad) {
         String leftPadding = Strings.repeat(" ", lpad);
         if (!valueType.isStructType()) {
@@ -88,6 +119,11 @@ public class MapType extends Type {
         return String.format("%sMAP<%s,%s>", leftPadding, keyType.toSql(), structStr);
     }
 
+    public static boolean canCastTo(MapType type, MapType targetType) {
+        return Type.canCastTo(type.getKeyType(), targetType.getKeyType())
+            && Type.canCastTo(type.getValueType(), targetType.getValueType());
+    }
+
     @Override
     public void toThrift(TTypeDesc container) {
         TTypeNode node = new TTypeNode();
@@ -97,5 +133,17 @@ public class MapType extends Type {
         node.setType(TTypeNodeType.MAP);
         keyType.toThrift(container);
         valueType.toThrift(container);
+    }
+
+    @Override
+    public TColumnType toColumnTypeThrift() {
+        TColumnType thrift = new TColumnType();
+        thrift.type = PrimitiveType.MAP.toThrift();
+        return thrift;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(keyType, valueType);
     }
 }

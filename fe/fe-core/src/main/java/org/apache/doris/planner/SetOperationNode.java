@@ -185,6 +185,9 @@ public abstract class SetOperationNode extends PlanNode {
         // corresponding output slot isn't being materialized)
         materializedResultExprLists.clear();
         Preconditions.checkState(resultExprLists.size() == children.size());
+        if (analyzer.getDescTbl().getTupleDesc(tupleId) == null) {
+            return;
+        }
         List<SlotDescriptor> slots = analyzer.getDescTbl().getTupleDesc(tupleId).getSlots();
         for (int i = 0; i < resultExprLists.size(); ++i) {
             List<Expr> exprList = resultExprLists.get(i);

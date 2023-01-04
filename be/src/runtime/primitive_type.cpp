@@ -21,6 +21,7 @@
 #include "runtime/collection_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/map_value.h"
 #include "runtime/string_value.h"
 
 namespace doris {
@@ -53,6 +54,8 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_BOOLEAN;
     case FunctionContext::Type::TYPE_ARRAY:
         return PrimitiveType::TYPE_ARRAY;
+    case FunctionContext::Type::TYPE_MAP:
+        return PrimitiveType::TYPE_MAP;
     case FunctionContext::Type::TYPE_OBJECT:
         return PrimitiveType::TYPE_OBJECT;
     case FunctionContext::Type::TYPE_HLL:
@@ -262,6 +265,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::ARRAY:
         return TYPE_ARRAY;
 
+    case TPrimitiveType::MAP:
+        return TYPE_MAP;
+
     default:
         return INVALID_TYPE;
     }
@@ -355,7 +361,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_ARRAY:
         return TPrimitiveType::ARRAY;
-
+    case TYPE_MAP:
+        return  TPrimitiveType::MAP;
     default:
         return TPrimitiveType::INVALID_TYPE;
     }
@@ -449,7 +456,8 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_ARRAY:
         return "ARRAY";
-
+    case TYPE_MAP:
+        return "MAP";
     default:
         return "";
     };
@@ -589,7 +597,8 @@ int get_slot_size(PrimitiveType type) {
         return sizeof(JsonBinaryValue);
     case TYPE_ARRAY:
         return sizeof(CollectionValue);
-
+    case TYPE_MAP:
+        return sizeof(MapValue);
     case TYPE_NULL:
     case TYPE_BOOLEAN:
     case TYPE_TINYINT:

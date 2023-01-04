@@ -498,6 +498,8 @@ import org.apache.doris.qe.SqlModeHelper;
     tokenIdMap.put(new Integer(SqlParserSymbols.RPAREN), ")");
     tokenIdMap.put(new Integer(SqlParserSymbols.LBRACKET), "[");
     tokenIdMap.put(new Integer(SqlParserSymbols.RBRACKET), "]");
+    tokenIdMap.put(new Integer(SqlParserSymbols.LBRACE), "{");
+    tokenIdMap.put(new Integer(SqlParserSymbols.RBRACE), "}");
     tokenIdMap.put(new Integer(SqlParserSymbols.COLON), ":");
     tokenIdMap.put(new Integer(SqlParserSymbols.SEMICOLON), ";");
     tokenIdMap.put(new Integer(SqlParserSymbols.FLOATINGPOINT_LITERAL),
@@ -659,6 +661,8 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 "!" { return newToken(SqlParserSymbols.NOT, null); }
 "<" { return newToken(SqlParserSymbols.LESSTHAN, null); }
 ">" { return newToken(SqlParserSymbols.GREATERTHAN, null); }
+"{" { return newToken(SqlParserSymbols.LBRACE, null); }
+"}" { return newToken(SqlParserSymbols.RBRACE, null); }
 "\"" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "'" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "`" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }

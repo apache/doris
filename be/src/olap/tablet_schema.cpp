@@ -312,6 +312,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
+    case TPrimitiveType::MAP:
+        return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::DECIMAL32:
         return 4;
     case TPrimitiveType::DECIMAL64:
@@ -409,6 +411,15 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         child_column.init_from_pb(column.children_columns(0));
         add_sub_column(child_column);
     }
+    if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
+        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        TabletColumn key_column;
+	TabletColumn value_column;
+        key_column.init_from_pb(column.children_columns(0));
+        value_column.init_from_pb(column.children_columns(1));
+        add_sub_column(key_column);
+        add_sub_column(value_column);
+    }
 }
 
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
@@ -439,6 +450,13 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);
+    }
+    if (_type == OLAP_FIELD_TYPE_MAP) {
+        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        ColumnPB* child_key = column->add_children_columns();
+        _sub_columns[0].to_schema_pb(child_key);
+        ColumnPB* child_val = column->add_children_columns();
+        _sub_columns[1].to_schema_pb(child_val);
     }
 }
 

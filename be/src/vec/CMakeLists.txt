@@ -54,6 +54,7 @@ set(VEC_FILES
   columns/column_nullable.cpp
   columns/column_string.cpp
   columns/column_vector.cpp
+  columns/column_map.cpp
   columns/columns_common.cpp
   common/demangle.cpp
   common/exception.cpp
@@ -85,6 +86,7 @@ set(VEC_FILES
   data_types/data_type_number_base.cpp
   data_types/data_type_string.cpp
   data_types/data_type_decimal.cpp
+  data_types/data_type_map.cpp
   data_types/get_least_supertype.cpp
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
@@ -133,6 +135,7 @@ set(VEC_FILES
   exprs/vexpr_context.cpp
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
+  exprs/vmap_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
   exprs/vbitmap_predicate.cpp

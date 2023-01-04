@@ -29,6 +29,7 @@
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcompound_pred.h"
+#include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
@@ -122,6 +123,10 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     case TExprNodeType::ARRAY_LITERAL: {
         *expr = pool->add(new VArrayLiteral(texpr_node));
+        return Status::OK();
+    }
+    case TExprNodeType::MAP_LITERAL: {
+        *expr = pool->add(new VMapLiteral(texpr_node));
         return Status::OK();
     }
     case doris::TExprNodeType::SLOT_REF: {

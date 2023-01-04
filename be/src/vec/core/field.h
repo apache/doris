@@ -85,6 +85,7 @@ using FieldVector = std::vector<Field>;
 
 DEFINE_FIELD_VECTOR(Array);
 DEFINE_FIELD_VECTOR(Tuple);
+DEFINE_FIELD_VECTOR(Map);
 
 #undef DEFINE_FIELD_VECTOR
 
@@ -308,6 +309,7 @@ public:
             AggregateFunctionState = 22,
             JSONB = 23,
             Decimal128I = 24,
+	    Map = 25,
         };
 
         static const int MIN_NON_POD = 16;
@@ -334,6 +336,8 @@ public:
                 return "Array";
             case Tuple:
                 return "Tuple";
+	    case Map:
+                return "Map";
             case Decimal32:
                 return "Decimal32";
             case Decimal64:
@@ -505,6 +509,8 @@ public:
             return get<Array>() < rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() < rhs.get<Tuple>();
+	case Types::Map:
+            return get<Map>() < rhs.get<Map>();
         case Types::Decimal32:
             return get<DecimalField<Decimal32>>() < rhs.get<DecimalField<Decimal32>>();
         case Types::Decimal64:
@@ -550,6 +556,8 @@ public:
             return get<Array>() <= rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() <= rhs.get<Tuple>();
+        case Types::Map:
+            return get<Map>() < rhs.get<Map>();
         case Types::Decimal32:
             return get<DecimalField<Decimal32>>() <= rhs.get<DecimalField<Decimal32>>();
         case Types::Decimal64:
@@ -587,6 +595,8 @@ public:
             return get<Array>() == rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() == rhs.get<Tuple>();
+        case Types::Map:
+            return get<Map>() < rhs.get<Map>();
         case Types::UInt128:
             return get<UInt128>() == rhs.get<UInt128>();
         case Types::Int128:
@@ -677,6 +687,9 @@ private:
         case Types::Tuple:
             f(field.template get<Tuple>());
             return;
+        case Types::Map:
+            f(field.template get<Map>());
+	    return;
         case Types::Decimal32:
             f(field.template get<DecimalField<Decimal32>>());
             return;
@@ -749,6 +762,9 @@ private:
         case Types::Tuple:
             destroy<Tuple>();
             break;
+        case Types::Map:
+            destroy<Map>();
+            break;
         case Types::AggregateFunctionState:
             destroy<AggregateFunctionStateData>();
             break;
@@ -808,6 +824,10 @@ struct Field::TypeToEnum<Array> {
 template <>
 struct Field::TypeToEnum<Tuple> {
     static const Types::Which value = Types::Tuple;
+};
+template <>
+struct Field::TypeToEnum<Map> {
+    static const Types::Which value = Types::Map;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal32>> {
@@ -871,6 +891,10 @@ struct Field::EnumToType<Field::Types::Tuple> {
     using Type = Tuple;
 };
 template <>
+struct Field::EnumToType<Field::Types::Map> {
+    using Type = Map;
+};
+template <>
 struct Field::EnumToType<Field::Types::Decimal32> {
     using Type = DecimalField<Decimal32>;
 };
@@ -918,6 +942,10 @@ struct TypeName<Array> {
 template <>
 struct TypeName<Tuple> {
     static std::string get() { return "Tuple"; }
+};
+template <>
+struct TypeName<Map> {
+    static std::string get() { return "Map"; }
 };
 template <>
 struct TypeName<AggregateFunctionStateData> {
@@ -1045,6 +1073,10 @@ struct NearestFieldTypeImpl<Array> {
 template <>
 struct NearestFieldTypeImpl<Tuple> {
     using Type = Tuple;
+};
+template <>
+struct NearestFieldTypeImpl<Map> {
+    using Type = Map;
 };
 template <>
 struct NearestFieldTypeImpl<bool> {
