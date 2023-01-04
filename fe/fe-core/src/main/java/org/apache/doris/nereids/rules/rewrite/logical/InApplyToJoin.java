@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,7 +35,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.amazonaws.services.dynamodbv2.xspec.N;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -60,11 +63,14 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
                                 apply.getInSubqueryOutput().get().toSlot()),
                         apply.getCorrelationFilter().get());
-                List<NamedExpression> projects = new ImmutableList.Builder<NamedExpression>()
-                        .add(apply.getInSubqueryOutput().get())
-                        .addAll(apply.right().getOutput())
-                        .build();
-                right = new LogicalProject(projects, apply.right());
+                ImmutableList.Builder<NamedExpression> projectBuilder = ImmutableList.builder();
+                if (apply.right().getOutput().contains(apply.getInSubqueryOutput().get())) {
+                    projectBuilder.addAll(apply.right().getOutput());
+                } else {
+                    projectBuilder.add(apply.getInSubqueryOutput().get())
+                            .addAll(apply.right().getOutput());
+                }
+                right = new LogicalProject(projectBuilder.build(), apply.right());
             } else {
                 predicate = new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
                         apply.right().getOutput().get(0));
