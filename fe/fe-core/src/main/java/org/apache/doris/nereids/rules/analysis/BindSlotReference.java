@@ -227,8 +227,20 @@ public class BindSlotReference implements AnalysisRuleFactory {
                      group by key cannot bind with agg func
                      plan:
                         agg(group_by v, output sum(k) as v)
-
                      throw AnalysisException
+
+                    CASE 4
+                     sql:
+                        `select count(1) from t1 join t2 group by a`
+                     we cannot bind `group by a`, because it is ambiguous (t1.a and t2.a)
+
+                    CASE 5
+                     following case 4, if t1.a is in agg.output, we can bind `group by a` to t1.a
+                     sql
+                        select t1.a
+                        from t1 join t2 on t1.a = t2.a
+                        group by a
+                     group_by_key is bound on t1.a
                     */
                     duplicatedSlotNames.stream().forEach(dup -> childOutputsToExpr.remove(dup));
                     Map<String, Expression> aliasNameToExpr = output.stream()
@@ -261,8 +273,23 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 }
                                 return groupBy;
                             }).collect(Collectors.toList());
+                    /*
+                    according to case 4 and case 5, we construct boundSlots
+                    */
+                    List<Slot> boundSlots = agg.child().getOutputSet().stream()
+                            .filter(slot -> !duplicatedSlotNames.contains(slot.getName()))
+                            .collect(Collectors.toList());
+                    List<Slot> outputSlots = output.stream()
+                            .filter(SlotReference.class::isInstance)
+                            .map(NamedExpression::toSlot).collect(
+                                    Collectors.toList());
+                    boundSlots.addAll(outputSlots);
+                    SlotBinder binder = new SlotBinder(toScope(boundSlots), agg, ctx.cascadesContext);
 
-                    List<Expression> groupBy = bind(replacedGroupBy, agg.children(), agg, ctx.cascadesContext);
+                    List<Expression> groupBy = replacedGroupBy.stream()
+                            .map(expression -> binder.bind(expression))
+                            .collect(Collectors.toList());
+
                     List<Expression> unboundGroupBys = Lists.newArrayList();
                     boolean hasUnbound = groupBy.stream().anyMatch(
                             expression -> {
