@@ -249,8 +249,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     ++current_offset;
                     assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
                             .get_data()
-                            .resize_fill(mcol[mcol.size() - 1]->size() + 1,
-                                         !find_result.is_found());
+                            .template push_back(!find_result.is_found());
                 } else {
                     if (!find_result.is_found()) {
                         ++current_offset;
@@ -261,7 +260,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     ++current_offset;
                     assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
                             .get_data()
-                            .resize_fill(mcol[mcol.size() - 1]->size() + 1, find_result.is_found());
+                            .template push_back(find_result.is_found());
                 } else {
                     if (find_result.is_found()) {
                         ++current_offset;
@@ -593,6 +592,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                                           .column->assume_mutable()))
                                                 .get_data();
 
+                    // For mark join, we only filter rows which have duplicate join keys.
+                    // And then, we set matched_map to the join result to do the mark join's filtering.
                     for (size_t i = 1; i < column->size(); ++i) {
                         if (!same_to_prev[i]) {
                             matched_map.push_back(filter_map[i - 1]);
