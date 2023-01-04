@@ -25,7 +25,8 @@
 namespace doris {
 namespace io {
 class FileSystem;
-}
+class FileReaderOptions;
+} // namespace io
 class ExecEnv;
 class TNetworkAddress;
 class RuntimeProfile;
@@ -84,20 +85,23 @@ public:
                                      std::shared_ptr<FileReader>& file_reader);
 
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
-                                     io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader);
+                                     io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader,
+                                     const io::FileReaderOptions& reader_options);
 
     static Status create_hdfs_writer(const std::map<std::string, std::string>& properties,
                                      const std::string& path, std::unique_ptr<FileWriter>& writer);
 
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
                                    const std::string& path, io::FileSystem** s3_file_system,
-                                   io::FileReaderSPtr* reader);
+                                   io::FileReaderSPtr* reader,
+                                   const io::FileReaderOptions& reader_options);
 
     static Status create_broker_reader(const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop,
                                        const FileDescription& file_description,
                                        io::FileSystem** hdfs_file_system,
-                                       io::FileReaderSPtr* reader);
+                                       io::FileReaderSPtr* reader,
+                                       const io::FileReaderOptions& reader_options);
 
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {

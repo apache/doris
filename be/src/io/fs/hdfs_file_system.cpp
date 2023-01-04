@@ -123,7 +123,6 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
         }
     }
     *reader = std::make_shared<HdfsFileReader>(path, file_len, _namenode, hdfs_file, this);
-    *reader = std::make_shared<CachedRemoteFileReader>(std::move(*reader), nullptr);
     return Status::OK();
 }
 

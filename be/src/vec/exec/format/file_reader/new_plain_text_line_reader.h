@@ -31,7 +31,7 @@ public:
     NewPlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
                            Decompressor* decompressor, size_t length,
                            const std::string& line_delimiter, size_t line_delimiter_length,
-                           size_t current_offset);
+                           size_t current_offset, const IOContext& io_ctx);
 
     ~NewPlainTextLineReader() override;
 
@@ -87,6 +87,8 @@ private:
     size_t _more_output_bytes;
 
     size_t _current_offset;
+
+    const IOContext& _io_ctx;
 
     // Profile counters
     RuntimeProfile::Counter* _bytes_read_counter;

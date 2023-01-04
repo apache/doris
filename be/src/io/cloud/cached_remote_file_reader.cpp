@@ -17,22 +17,13 @@
 
 #include "io/cloud/cached_remote_file_reader.h"
 
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
-
-#include <memory>
-#include <utility>
-
 #include "io/cloud/cloud_file_cache.h"
 #include "io/cloud/cloud_file_cache_factory.h"
-#include "io/cloud/cloud_file_cache_fwd.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/s3_common.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "util/async_io.h"
 #include "util/doris_metrics.h"
-#include "vec/common/sip_hash.h"
 
 namespace doris {
 namespace io {
@@ -40,7 +31,7 @@ namespace io {
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                metrics_hook metrics)
         : _remote_file_reader(std::move(remote_file_reader)), _metrics(metrics) {
-    _cache_key = IFileCache::hash(path().filename().native());
+    _cache_key = IFileCache::hash(path().native());
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
     _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
 }
@@ -68,20 +59,17 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
 
 Status CachedRemoteFileReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                                        size_t* bytes_read) {
-    OlapReaderStatistics tmp_statistics;
-    TUniqueId query_id;
-    IOState state(&query_id, &tmp_statistics, false, false, false);
     if (bthread_self() == 0) {
-        return read_at_impl(offset, result, bytes_read, &state);
+        return read_at_impl(offset, result, io_ctx, bytes_read);
     }
     Status s;
-    auto task = [&] { s = read_at_impl(offset, result, bytes_read, &state); };
+    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
     AsyncIO::run_task(task, io::FileSystemType::S3);
     return s;
 }
 
-Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                            IOState* state) {
+Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
+                                            size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > size()) {
         return Status::IOError(
@@ -94,27 +82,24 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
-    CloudFileCachePtr cache = !state                        ? _cache
-                              : state->use_disposable_cache ? _disposable_cache
-                                                            : _cache;
+    CloudFileCachePtr cache = io_ctx.use_disposable_cache ? _disposable_cache : _cache;
     // cache == nullptr since use_disposable_cache = true and don't set  disposable cache in conf
-    IOContext io_ctx;
     if (cache == nullptr) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
     }
     ReadStatistics stats;
     stats.bytes_read = bytes_req;
     // if state == nullptr, the method is called for read footer
-    // if state->read_segmeng_index, read all the end of file
+    // if state->read_segment_index, read all the end of file
     size_t align_left = offset, align_size = size() - offset;
-    if (state && !state->read_segmeng_index) {
+    if (!io_ctx.read_segment_index) {
         auto pair = _align_size(offset, bytes_req);
         align_left = pair.first;
         align_size = pair.second;
         DCHECK((align_left % config::file_cache_max_file_segment_size) == 0);
     }
-    bool is_persistent = state ? state->is_persistent : true;
-    TUniqueId query_id = state && state->query_id ? *state->query_id : TUniqueId();
+    bool is_persistent = io_ctx.is_persistent;
+    TUniqueId query_id = io_ctx.query_id ? *(io_ctx.query_id) : TUniqueId();
     FileSegmentsHolder holder =
             cache->get_or_set(_cache_key, align_left, align_size, is_persistent, query_id);
     std::vector<FileSegmentSPtr> empty_segments;
@@ -137,7 +122,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_end = empty_segments.back()->range().right;
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
-        IOContext io_ctx;
         RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), io_ctx,
                                                      &size));
         for (auto& segment : empty_segments) {
@@ -210,30 +194,28 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         current_offset = right + 1;
     }
     DCHECK(*bytes_read == bytes_req);
-    _update_state(stats, state);
+    _update_state(stats, io_ctx.file_cache_stats);
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
-    if (state != nullptr && _metrics != nullptr) {
-        _metrics(state->stats);
+    if (io_ctx.file_cache_stats != nullptr && _metrics != nullptr) {
+        _metrics(io_ctx.file_cache_stats);
     }
     return Status::OK();
 }
 
-void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats, IOState* state) const {
-    if (state == nullptr) {
+void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
+                                           FileCacheStatistics* statis) const {
+    if (statis == nullptr) {
         return;
     }
-    auto stats = state->stats;
-    stats->file_cache_stats.num_io_total++;
-    stats->file_cache_stats.num_io_bytes_read_total += read_stats.bytes_read;
-    stats->file_cache_stats.num_io_bytes_written_in_file_cache +=
-            read_stats.bytes_write_in_file_cache;
+    statis->num_io_total++;
+    statis->num_io_bytes_read_total += read_stats.bytes_read;
+    statis->num_io_bytes_written_in_file_cache += read_stats.bytes_write_in_file_cache;
     if (read_stats.hit_cache) {
-        stats->file_cache_stats.num_io_hit_cache++;
+        statis->num_io_hit_cache++;
     }
-    stats->file_cache_stats.num_io_bytes_read_from_file_cache +=
-            read_stats.bytes_read_from_file_cache;
-    stats->file_cache_stats.num_io_written_in_file_cache += read_stats.write_in_file_cache;
-    stats->file_cache_stats.num_io_bytes_skip_cache += read_stats.bytes_skip_cache;
+    statis->num_io_bytes_read_from_file_cache += read_stats.bytes_read_from_file_cache;
+    statis->num_io_written_in_file_cache += read_stats.write_in_file_cache;
+    statis->num_io_bytes_skip_cache += read_stats.bytes_skip_cache;
 }
 
 } // namespace io

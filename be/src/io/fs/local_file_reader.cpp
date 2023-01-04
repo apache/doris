@@ -20,7 +20,6 @@
 #include <atomic>
 
 #include "util/doris_metrics.h"
-#include "util/errno.h"
 
 namespace doris {
 namespace io {
@@ -48,7 +47,7 @@ Status LocalFileReader::close() {
     return Status::OK();
 }
 
-Status LocalFileReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
+Status LocalFileReader::read_at(size_t offset, Slice result, const IOContext& /*io_ctx*/,
                                 size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > _file_size) {

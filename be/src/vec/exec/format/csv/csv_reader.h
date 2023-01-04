@@ -18,6 +18,7 @@
 #pragma once
 
 #include "io/fs/file_reader.h"
+#include "olap/iterators.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -34,10 +35,11 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs);
+              const std::vector<SlotDescriptor*>& file_slot_descs, const IOContext& io_ctx);
 
     CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
+              const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
+              const IOContext& io_ctx);
     ~CsvReader() override;
 
     Status init_reader(bool is_query);
@@ -112,6 +114,8 @@ private:
     int _value_separator_length;
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
+
+    const IOContext& _io_ctx;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;

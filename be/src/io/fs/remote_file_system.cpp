@@ -19,6 +19,7 @@
 
 #include "gutil/strings/stringpiece.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/cloud/cached_remote_file_reader.h"
 #include "io/fs/file_reader_options.h"
 
 namespace doris {
@@ -44,11 +45,11 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
         *reader = cache_reader;
         break;
     }
-    case io::FileCacheType::FILE_BLOCK_CACHE: {
-        return Status::NotSupported("add file block cache reader");
+    case io::FileCacheType::REMOTE_FILE_CACHE: {
+        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), nullptr);
+        break;
     }
     default: {
-        // TODO: add file block cache reader
         return Status::InternalError("Unknown cache type: {}", reader_options.cache_type);
     }
     }

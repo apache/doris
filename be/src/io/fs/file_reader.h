@@ -17,12 +17,9 @@
 
 #pragma once
 
-#include <memory>
-
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/path.h"
-#include "olap/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -30,21 +27,6 @@ namespace doris {
 struct IOContext;
 
 namespace io {
-
-struct IOState {
-    IOState(const TUniqueId* query_id, OlapReaderStatistics* stats, bool is_presistent,
-            bool use_disposable_cache, bool read_segmeng_index)
-            : query_id(query_id),
-              stats(stats),
-              is_persistent(is_presistent),
-              use_disposable_cache(use_disposable_cache),
-              read_segmeng_index(read_segmeng_index) {}
-    const TUniqueId* query_id = nullptr;
-    OlapReaderStatistics* stats = nullptr;
-    bool is_persistent = false;
-    bool use_disposable_cache = false;
-    bool read_segmeng_index = false;
-};
 
 class FileReader {
 public:

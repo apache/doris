@@ -23,6 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include "io/fs/file_reader.h"
+#include "olap/iterators.h"
 #include "vec/exec/format/generic_reader.h"
 namespace doris {
 
@@ -143,6 +144,9 @@ private:
     bool* _scanner_eof;
 
     size_t _current_offset;
+
+    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
+    IOContext _io_ctx;
 
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;

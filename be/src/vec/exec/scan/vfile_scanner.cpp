@@ -75,6 +75,10 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
 
+    _file_cache_statistics.reset(new FileCacheStatistics());
+    _io_ctx.file_cache_stats = _file_cache_statistics.get();
+    _io_ctx.query_id = &_state->query_id();
+
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
         RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
@@ -518,8 +522,8 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_PROTO: {
-            _cur_reader.reset(
-                    new CsvReader(_state, _profile, &_counter, _params, range, _file_slot_descs));
+            _cur_reader.reset(new CsvReader(_state, _profile, &_counter, _params, range,
+                                            _file_slot_descs, _io_ctx));
             init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
             break;
         }

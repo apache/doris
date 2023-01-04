@@ -31,7 +31,7 @@ namespace io {
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    using metrics_hook = std::function<void(OlapReaderStatistics*)>;
+    using metrics_hook = std::function<void(FileCacheStatistics*)>;
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, metrics_hook);
 
     ~CachedRemoteFileReader() override;
@@ -41,7 +41,7 @@ public:
     Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
                    size_t* bytes_read) override;
 
-    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read, IOState* state);
+    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
 
     const Path& path() const override { return _remote_file_reader->path(); }
 
@@ -68,7 +68,7 @@ private:
         int64_t write_in_file_cache = 0;
         int64_t bytes_skip_cache = 0;
     };
-    void _update_state(const ReadStatistics& stats, IOState* state) const;
+    void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
     metrics_hook _metrics;
 };
 

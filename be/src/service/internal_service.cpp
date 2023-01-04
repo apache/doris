@@ -340,6 +340,9 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
 
     std::unique_ptr<vectorized::GenericReader> reader(nullptr);
     std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
+    IOContext io_ctx;
+    FileCacheStatistics file_cache_statis;
+    io_ctx.file_cache_stats = &file_cache_statis;
     switch (params.format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_CSV_GZ:
@@ -349,7 +352,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     case TFileFormatType::FORMAT_CSV_DEFLATE: {
         // file_slots is no use
         std::vector<SlotDescriptor*> file_slots;
-        reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots));
+        reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots, io_ctx));
         break;
     }
     case TFileFormatType::FORMAT_PARQUET: {

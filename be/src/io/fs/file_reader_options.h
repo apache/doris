@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <string>
-
-#include "common/status.h"
+#include "olap/olap_common.h"
 
 namespace doris {
 namespace io {
@@ -28,7 +26,7 @@ enum class FileCacheType : uint8_t {
     NO_CACHE,
     SUB_FILE_CACHE,
     WHOLE_FILE_CACHE,
-    FILE_BLOCK_CACHE,
+    REMOTE_FILE_CACHE,
 };
 
 FileCacheType cache_type_from_string(const std::string& type);
@@ -57,6 +55,11 @@ public:
         // cache path is: {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}/
         return path.substr(0, path.size() - 4) + "/";
     }
+};
+
+class RemoteFileCachePathPolicy : public CachePathPolicy {
+public:
+    RemoteFileCachePathPolicy() = default;
 };
 
 class FileReaderOptions {
