@@ -39,6 +39,8 @@ under the License.
 
 - 支持更完备的精度推演，对于不同的表达式，应用不同的精度推演规则对结果的精度进行推演。
 
+[DecimalV3](https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/DECIMALV3)
+
 ### 支持 Iceberg V2
 
 支持 Iceberg V2 (仅支持 Position Delete， Equality Delete 会在后续版本支持)，可以通过 Multi-Catalog 功能访问 Iceberg V2 格式的表。
