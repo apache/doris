@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vjdbc_table_sink.h"
+#include "vec/sink/vmemory_scratch_sink.h"
 #include "vec/sink/vmysql_table_sink.h"
 #include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
@@ -109,7 +110,17 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         break;
     }
     case TDataSinkType::MEMORY_SCRATCH_SINK: {
-        RETURN_ERROR_IF_NON_VEC;
+        if (!thrift_sink.__isset.memory_scratch_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+
+        if (state->enable_vectorized_exec()) {
+            tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs,
+                                                         thrift_sink.memory_scratch_sink, pool);
+        } else {
+            RETURN_ERROR_IF_NON_VEC;
+        }
+        sink->reset(tmp_sink);
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK: {

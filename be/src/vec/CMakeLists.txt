@@ -240,6 +240,7 @@ set(VEC_FILES
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
+  sink/vmemory_scratch_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
   sink/vodbc_table_sink.cpp
