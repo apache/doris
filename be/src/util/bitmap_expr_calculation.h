@@ -35,7 +35,7 @@ public:
 
     void bitmap_calculation_init(std::string& inputStr) {
         _polish = reversePolish(inputStr);
-        std::string bitmapKey = "";
+        std::string bitmapKey;
         for (int i = 0; i < _polish.length(); i++) {
             char c = _polish.at(i);
             if (c != '&' && c != '|' && c != '^' && c != '-' && c != ' ' && c != '\\') {
@@ -60,7 +60,7 @@ public:
     // 计算表达式的值
     BitmapValue bitmap_calculate() {
         std::stack<BitmapValue> values;
-        std::string bitmapKey = "";
+        std::string bitmapKey;
         for (int i = 0; i < _polish.length(); i++) {
             char c = _polish.at(i);
             if (c == ' ') {
@@ -125,7 +125,7 @@ private:
 
     template <class T>
     std::string printStack(std::stack<T> stack) {
-        std::string result = "";
+        std::string result;
         while (!stack.empty()) {
             result = stack.top() + result;
             stack.pop();
