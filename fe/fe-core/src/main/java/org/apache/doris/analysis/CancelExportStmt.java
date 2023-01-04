@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.ExportJob;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
@@ -31,11 +31,11 @@ import java.util.Set;
 
 
 /**
- * CANCEL LOAD statement used to cancel load job.
+ * CANCEL EXPORT statement used to cancel export job.
  * syntax:
- *     CANCEL LOAD [FROM db] WHERE load_label (= "xxx" | LIKE "xxx")
+ *     CANCEL EXPORT [FROM db] WHERE [LABEL = "export_label" | LABEL like "label_pattern" | STATE = "PENDING/EXPORTING"]
  **/
-public class CancelLoadStmt extends DdlStmt {
+public class CancelExportStmt extends DdlStmt {
 
     private static final Set<String> SUPPORT_COLUMNS = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
 
@@ -53,7 +53,7 @@ public class CancelLoadStmt extends DdlStmt {
 
     private Expr whereClause;
 
-    public CancelLoadStmt(String dbName, Expr whereClause) {
+    public CancelExportStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
         this.whereClause = whereClause;
         this.SUPPORT_COLUMNS.add("label");
@@ -63,34 +63,33 @@ public class CancelLoadStmt extends DdlStmt {
     private void checkColumn(Expr expr, boolean like) throws AnalysisException {
         String inputCol = ((SlotRef) expr.getChild(0)).getColumnName();
         if (!SUPPORT_COLUMNS.contains(inputCol)) {
-            throw new AnalysisException("Current not support " + inputCol);
+            throw new AnalysisException("Current only support label and state, invalid column: " + inputCol);
         }
         if (!(expr.getChild(1) instanceof StringLiteral)) {
-            throw new AnalysisException("Value must is string");
+            throw new AnalysisException("Value must be a string");
         }
 
         String inputValue = expr.getChild(1).getStringValue();
         if (Strings.isNullOrEmpty(inputValue)) {
-            throw new AnalysisException("Value can't is null");
+            throw new AnalysisException("Value can't be null");
         }
-        if (like && !inputValue.contains("%")) {
-            inputValue = "%" + inputValue + "%";
-        }
+
         if (inputCol.equalsIgnoreCase("label")) {
             label = inputValue;
         }
+
         if (inputCol.equalsIgnoreCase("state")) {
             if (like) {
                 throw new AnalysisException("Only label can use like");
             }
             state = inputValue;
             try {
-                JobState jobState = JobState.valueOf(state);
-                if (jobState != JobState.PENDING && jobState != JobState.ETL && jobState != JobState.LOADING) {
-                    throw new AnalysisException("invalid state: " + state);
+                ExportJob.JobState jobState = ExportJob.JobState.valueOf(state);
+                if (jobState != ExportJob.JobState.PENDING && jobState != ExportJob.JobState.EXPORTING) {
+                    throw new AnalysisException("Only support PENDING/EXPORTING, invalid state: " + state);
                 }
             } catch (IllegalArgumentException e) {
-                throw new AnalysisException("invalid state: " + state);
+                throw new AnalysisException("Only support PENDING/EXPORTING, invalid state: " + state);
             }
         }
     }
@@ -118,7 +117,7 @@ public class CancelLoadStmt extends DdlStmt {
 
     private void compoundCheck(Expr expr) throws AnalysisException {
         if (expr == null) {
-            throw new AnalysisException("Where clause can't is null");
+            throw new AnalysisException("Where clause can't be null");
         }
         if (expr instanceof CompoundPredicate) {
             // current only support label and state
@@ -129,7 +128,7 @@ public class CancelLoadStmt extends DdlStmt {
             for (int i = 0; i < 2; i++) {
                 Expr child = compoundPredicate.getChild(i);
                 if (child instanceof CompoundPredicate) {
-                    throw new AnalysisException("Current only support label and state");
+                    throw new AnalysisException("Current not support nested clause");
                 }
                 likeCheck(child);
                 binaryCheck(child);
@@ -150,8 +149,6 @@ public class CancelLoadStmt extends DdlStmt {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
-        // check auth after we get real load job
-        // analyze expr
         likeCheck(whereClause);
         binaryCheck(whereClause);
         compoundCheck(whereClause);
@@ -160,7 +157,7 @@ public class CancelLoadStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("CANCEL LOAD ");
+        stringBuilder.append("CANCEL EXPORT ");
         if (!Strings.isNullOrEmpty(dbName)) {
             stringBuilder.append("FROM ").append(dbName);
         }
