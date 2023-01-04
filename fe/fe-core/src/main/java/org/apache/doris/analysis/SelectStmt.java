@@ -957,6 +957,13 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
+    private boolean isContainInBitmap(Expr expr) {
+        List<Expr> inPredicates = Lists.newArrayList();
+        expr.collect(InPredicate.class, inPredicates);
+        return inPredicates.stream().anyMatch(e -> e.getChild(1) instanceof Subquery
+                && ((Subquery) e.getChild(1)).getStatement().getResultExprs().get(0).getType().isBitmapType());
+    }
+
     /**
      * Analyze aggregation-relevant components of the select block (Group By clause,
      * select list, Order By clause),
@@ -1016,6 +1023,10 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                         "HAVING clause must not contain analytic expressions: "
                                 + analyticExpr.toSql());
+            }
+            if (isContainInBitmap(havingClauseAfterAnaylzed)) {
+                throw new AnalysisException(
+                        "HAVING clause dose not support in bitmap syntax: " + havingClauseAfterAnaylzed.toSql());
             }
         }
 
