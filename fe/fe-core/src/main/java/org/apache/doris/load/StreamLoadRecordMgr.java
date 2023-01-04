@@ -208,6 +208,49 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         writeUnlock();
     }
 
+    public void cleanLabel(long dbId, String label) {
+        writeLock();
+        try {
+            if (!dbIdToLabelToStreamLoadRecord.containsKey(dbId)) {
+                return;
+            }
+            Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(dbId);
+            Iterator<Map.Entry<String, StreamLoadRecord>> iterRecord
+                                                            = labelToStreamLoadRecord.entrySet().iterator();
+            while (iterRecord.hasNext()) {
+                String deLabel = iterRecord.next().getKey();
+                if (!Strings.isNullOrEmpty(label)) {
+                    if (deLabel.equals(label)) {
+                        iterRecord.remove();
+                        break;
+                    }
+                } else {
+                    iterRecord.remove();
+                }
+            }
+            Queue<StreamLoadItem> tmpStreamLoadRecordHeap = new PriorityQueue<>(new StreamLoadComparator());
+            while (!streamLoadRecordHeap.isEmpty()) {
+                StreamLoadItem record = streamLoadRecordHeap.poll();
+                if (record != null) {
+                    String deLabel = record.getLabel();
+                    long deDbId = record.getDbId();
+                    if (!Strings.isNullOrEmpty(label)) {
+                        if (deDbId != dbId || !deLabel.equals(label)) {
+                            tmpStreamLoadRecordHeap.offer(record);
+                        }
+                    } else {
+                        if (deDbId != dbId) {
+                            tmpStreamLoadRecordHeap.offer(record);
+                        }
+                    }
+                }
+            }
+            streamLoadRecordHeap = tmpStreamLoadRecordHeap;
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public boolean isQueueFull() {
         return streamLoadRecordHeap.size() >= Config.max_stream_load_record_size;
     }

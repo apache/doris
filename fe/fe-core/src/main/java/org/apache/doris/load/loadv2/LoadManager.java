@@ -43,6 +43,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
@@ -600,48 +601,44 @@ public class LoadManager implements Writable {
         int counter = 0;
         writeLock();
         try {
-            if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
-                // no label in this db, just return
-                return;
-            }
-            Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
-            if (Strings.isNullOrEmpty(label)) {
-                // clean all labels in this db
-                Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
-                while (iter.hasNext()) {
-                    List<LoadJob> jobs = iter.next().getValue();
-                    Iterator<LoadJob> innerIter = jobs.iterator();
-                    while (innerIter.hasNext()) {
-                        LoadJob job = innerIter.next();
-                        if (!job.isCompleted()) {
-                            continue;
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
+                if (Strings.isNullOrEmpty(label)) {
+                    // clean all labels in this db
+                    Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
+                    while (iter.hasNext()) {
+                        List<LoadJob> jobs = iter.next().getValue();
+                        Iterator<LoadJob> innerIter = jobs.iterator();
+                        while (innerIter.hasNext()) {
+                            LoadJob job = innerIter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            innerIter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
                         }
-                        innerIter.remove();
-                        idToLoadJob.remove(job.getId());
-                        ++counter;
+                        if (jobs.isEmpty()) {
+                            iter.remove();
+                        }
                     }
-                    if (jobs.isEmpty()) {
-                        iter.remove();
+                } else {
+                    List<LoadJob> jobs = labelToJob.get(label);
+                    if (jobs != null) {
+                        Iterator<LoadJob> iter = jobs.iterator();
+                        while (iter.hasNext()) {
+                            LoadJob job = iter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            iter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
+                        }
+                        if (jobs.isEmpty()) {
+                            labelToJob.remove(label);
+                        }
                     }
-                }
-            } else {
-                List<LoadJob> jobs = labelToJob.get(label);
-                if (jobs == null) {
-                    // no job for this label, just return
-                    return;
-                }
-                Iterator<LoadJob> iter = jobs.iterator();
-                while (iter.hasNext()) {
-                    LoadJob job = iter.next();
-                    if (!job.isCompleted()) {
-                        continue;
-                    }
-                    iter.remove();
-                    idToLoadJob.remove(job.getId());
-                    ++counter;
-                }
-                if (jobs.isEmpty()) {
-                    labelToJob.remove(label);
                 }
             }
         } finally {
@@ -649,7 +646,11 @@ public class LoadManager implements Writable {
         }
         LOG.info("clean {} labels on db {} with label '{}' in load mgr.", counter, dbId, label);
 
-        // 2. Remove from DatabaseTransactionMgr
+        // 2. Remove from streamLoadMgr
+        StreamLoadRecordMgr streamLoadRecordMgr = Env.getCurrentEnv().getStreamLoadRecordMgr();
+        streamLoadRecordMgr.cleanLabel(dbId, label);
+
+        // 3. Remove from DatabaseTransactionMgr
         try {
             DatabaseTransactionMgr dbTxnMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
             dbTxnMgr.cleanLabel(label);
