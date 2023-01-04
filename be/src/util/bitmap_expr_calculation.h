@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-#include <string>
 #include <stack>
+#include <string>
 
 #include "util/bitmap_intersect.h"
 
@@ -25,7 +25,7 @@ namespace doris {
 // Compute the intersection union difference set of two or more bitmaps
 // Usage: orthogonal_bitmap_parse_calculate(bitmap_column, filter_column, input_string)
 // Example: orthogonal_bitmap_expr_calculate(user_id, event, '(A|B)&(C-D)'), meaning find the intersection union difference set of user_id in all A/B/C/D 4 bitmaps
-// Operation symbol: 
+// Operation symbol:
 // the operator '|' stands for union, the operator '&' stands for intersection, the operator '-' indicates the difference set, the operator '^' stands for xor
 class BitmapExprCalculation : public BitmapIntersect<std::string> {
 public:
@@ -123,7 +123,7 @@ private:
         }
     }
 
-    template<class T> 
+    template <class T>
     std::string printStack(std::stack<T> stack) {
         std::string result = "";
         while (!stack.empty()) {
