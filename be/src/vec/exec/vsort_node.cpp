@@ -53,8 +53,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         // init runtime predicate
         if (_use_topn_opt) {
             auto query_ctx = state->get_query_fragments_ctx();
-            auto first_sort_expr_node =
-                tnode.sort_node.sort_info.sort_tuple_slot_exprs[0].nodes[0];
+            auto first_sort_expr_node = tnode.sort_node.sort_info.sort_tuple_slot_exprs[0].nodes[0];
             if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
                 auto first_sort_slot = first_sort_expr_node.slot_ref;
                 for (auto tuple_desc : row_desc.tuple_descriptors()) {
@@ -64,7 +63,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
                     for (auto slot : tuple_desc->slots()) {
                         if (slot->id() == first_sort_slot.slot_id) {
                             RETURN_IF_ERROR(
-                                query_ctx->get_runtime_predicate().init(slot->type().type));
+                                    query_ctx->get_runtime_predicate().init(slot->type().type));
                             break;
                         }
                     }
@@ -127,8 +126,8 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 auto col = input_block->get_by_position(sort_description[0].column_number);
                 bool is_reverse = sort_description[0].direction < 0;
                 auto query_ctx = _runtime_state->get_query_fragments_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top, col.name,
-                                                                          is_reverse));
+                RETURN_IF_ERROR(
+                        query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
                 old_top = std::move(new_top);
             }
         }

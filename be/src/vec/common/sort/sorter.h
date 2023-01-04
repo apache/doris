@@ -79,7 +79,7 @@ public:
 
     // for topn runtime predicate
     const SortDescription& get_sort_description() { return _sort_description; }
-    virtual Field get_top_value() { return Field{Field::Types::Null}; }
+    virtual Field get_top_value() { return Field {Field::Types::Null}; }
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block);
