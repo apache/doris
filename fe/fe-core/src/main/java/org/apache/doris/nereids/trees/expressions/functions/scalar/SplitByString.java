@@ -37,8 +37,8 @@ import java.util.List;
 public class SplitByString extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = FunctionSignature.multi()
-            .ret(ArrayType.of(StringType.INSTANCE)).args(StringType.INSTANCE, StringType.INSTANCE)
-            .ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT)).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+            .ret(ArrayType.SYSTEM_DEFAULT).args(StringType.INSTANCE, StringType.INSTANCE)
+            .ret(ArrayType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
             .build();
 
     /**
