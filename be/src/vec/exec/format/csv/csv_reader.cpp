@@ -192,7 +192,6 @@ Status CsvReader::init_reader(bool is_load) {
         }
     }
 
-
     _line_reader_eof = false;
     return Status::OK();
 }
@@ -334,9 +333,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             auto src_slot_desc = _file_slot_descs[i];
             int col_idx = _col_idxs[i];
             // col idx is out of range, fill with null.
-            const Slice& value = col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            const Slice& value =
+                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
             // For load task, we always read "string" from file, so use "write_string_column"
-            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data, value.size);
+            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                 value.size);
         }
     } else {
         // if _split_values.size > _file_slot_descs.size()
@@ -345,10 +346,13 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             auto src_slot_desc = _file_slot_descs[i];
             int col_idx = _col_idxs[i];
             // col idx is out of range, fill with null.
-            const Slice& value = col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-            IColumn* col_ptr = const_cast<IColumn*>(block->get_by_position(_file_slot_idx_map[i]).column.get());
+            const Slice& value =
+                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            IColumn* col_ptr = const_cast<IColumn*>(
+                    block->get_by_position(_file_slot_idx_map[i]).column.get());
             // For query task, we will convert values to final column type, so use "write_vec_column"
-            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true, false);
+            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
+                                              false);
         }
     }
     ++(*rows);
