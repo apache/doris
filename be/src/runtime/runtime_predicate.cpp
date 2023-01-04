@@ -104,8 +104,8 @@ Status RuntimePredicate::_init(const TypeIndex type) {
     return Status::OK();
 }
 
-Status RuntimePredicate::update(const Field& value, const String& col_name,
-                                const TypeIndex type, bool is_reverse) {
+Status RuntimePredicate::update(const Field& value, const String& col_name, const TypeIndex type,
+                                bool is_reverse) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     // init will only be called once

@@ -83,7 +83,7 @@ private:
         using ValueType = typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType;
         return cast_to_string<TYPE_SMALLINT, ValueType>(field.get<ValueType>(), 0);
     }
-    
+
     static std::string get_int_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_INT>::CppType;
         return cast_to_string<TYPE_INT, ValueType>(field.get<ValueType>(), 0);
@@ -109,9 +109,7 @@ private:
         return cast_to_string<TYPE_DOUBLE, ValueType>(field.get<ValueType>(), 0);
     }
 
-    static std::string get_string_value(const Field& field) {
-        return field.get<String>();
-    }
+    static std::string get_string_value(const Field& field) { return field.get<String>(); }
 
     static std::string get_date_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
@@ -122,7 +120,7 @@ private:
         value.cast_to_date();
         return cast_to_string<TYPE_DATE, ValueType>(value, 0);
     }
-    
+
     static std::string get_datetime_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
         ValueType value;
@@ -138,13 +136,13 @@ private:
         return cast_to_string<TYPE_DATEV2, ValueType>(
                 binary_cast<UInt32, ValueType>(field.get<UInt32>()), 0);
     }
-    
+
     static std::string get_datetimev2_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
         return cast_to_string<TYPE_DATETIMEV2, ValueType>(
                 binary_cast<UInt64, ValueType>(field.get<UInt64>()), 0);
     }
-    
+
     static std::string get_decimalv2_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
         ValueType value;
@@ -159,7 +157,7 @@ private:
         ValueType value = field.get<ValueType>();
         return cast_to_string<TYPE_DECIMAL32, ValueType>(value, 0);
     }
-    
+
     static std::string get_decimal64_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType;
         ValueType value = field.get<ValueType>();
