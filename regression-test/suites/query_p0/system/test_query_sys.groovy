@@ -17,7 +17,8 @@
 
 suite("test_query_sys", "query,p0") {
     sql "use test_query_db;"
-
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
     def tableName = "test"
     sql "SELECT DATABASE();"
     sql "SELECT \"welecome to my blog!\";"
