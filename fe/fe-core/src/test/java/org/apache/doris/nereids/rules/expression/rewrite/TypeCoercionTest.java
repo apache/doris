@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -196,6 +197,17 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
 
         Expression actual2 = new Add(new IntegerLiteral(1), new Add(BooleanLiteral.TRUE, new StringLiteral("x")));
         Assertions.assertThrows(IllegalStateException.class, () -> assertRewrite(actual2, null));
+    }
+
+    /**
+     * 1 in (2, null)
+     * type coercion does not cast null to IntegerLiteral.
+     */
+    @Test
+    public void testInListNull() {
+        Expression inPredicate = new InPredicate(new IntegerLiteral(1),
+                Lists.newArrayList(new IntegerLiteral(2), new NullLiteral()));
+        assertRewrite(inPredicate, inPredicate);
     }
 
     private DataType checkAndGetDataType(Expression expression) {
