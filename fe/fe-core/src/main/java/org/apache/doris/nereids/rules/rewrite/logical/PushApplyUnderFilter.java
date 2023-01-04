@@ -69,7 +69,7 @@ public class PushApplyUnderFilter extends OneRewriteRuleFactory {
 
             Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
             return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                    ExpressionUtils.optionalAnd(correlatedPredicate), apply.getInSubqueryOutput(),
+                    ExpressionUtils.optionalAnd(correlatedPredicate),
                     apply.left(), child);
         }).toRule(RuleType.PUSH_APPLY_UNDER_FILTER);
     }

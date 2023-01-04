@@ -24,17 +24,13 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -49,29 +45,15 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply().when(LogicalApply::isIn).then(apply -> {
-            if (apply.isCorrelated() && !apply.getInSubqueryOutput().isPresent()) {
-                throw new AnalysisException("Correlated InSubquery output can't empty");
-            }
-
             Expression predicate;
-            Plan right;
             if (apply.isCorrelated()) {
                 predicate = ExpressionUtils.and(
                         new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
-                                apply.getInSubqueryOutput().get().toSlot()),
+                                apply.right().getOutput().get(0)),
                         apply.getCorrelationFilter().get());
-                ImmutableList.Builder<NamedExpression> projectBuilder = ImmutableList.builder();
-                if (apply.right().getOutput().contains(apply.getInSubqueryOutput().get())) {
-                    projectBuilder.addAll(apply.right().getOutput());
-                } else {
-                    projectBuilder.add(apply.getInSubqueryOutput().get())
-                            .addAll(apply.right().getOutput());
-                }
-                right = new LogicalProject(projectBuilder.build(), apply.right());
             } else {
                 predicate = new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
                         apply.right().getOutput().get(0));
-                right = apply.right();
             }
 
             //TODO nereids should support bitmap runtime filter in future
@@ -84,12 +66,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE,
-                        apply.left(), right);
+                        apply.left(), apply.right());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE,
-                        apply.left(), right);
+                        apply.left(), apply.right());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnProjectUnderAgg;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilterUnderApplyProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
@@ -262,8 +263,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     public void testInSql4AfterPushFilterRule() {
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .applyBottomUp(new PushApplyUnderProject())
-                .applyBottomUp(new PushApplyUnderFilter())
+                .applyBottomUp(new EliminateFilterUnderApplyProject())
                 .matches(
                         logicalApply().when(FieldChecker.check("correlationFilter", Optional.of(
                                 new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
@@ -277,8 +277,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     public void testInSql4AfterInToJoin() {
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .applyBottomUp(new PushApplyUnderProject())
-                .applyBottomUp(new PushApplyUnderFilter())
+                .applyBottomUp(new EliminateFilterUnderApplyProject())
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
