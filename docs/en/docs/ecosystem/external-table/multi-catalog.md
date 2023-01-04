@@ -295,15 +295,15 @@ The following example creates a Catalog connection named es to the specified ES 
 -- 1.2.0+ Version
 CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
-    "elasticsearch.nodes_discovery"="false"
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
 );
 CREATE CATALOG es WITH RESOURCE es_resource;
 
 -- 1.2.0 Version
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -376,11 +376,11 @@ The following example creates a Catalog connection named jdbc. This jdbc Catalog
 -- 1.2.0+ Version
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
@@ -397,11 +397,11 @@ Where `jdbc.driver_url` can be a remote jar package
 ```sql
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
 
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
