@@ -18,7 +18,6 @@
 suite("query_on_specific_partition") {
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
     sql """
         DROP TABLE IF EXISTS t_p;
@@ -41,8 +40,13 @@ suite("query_on_specific_partition") {
         );
     """
 
+    sql """ALTER TABLE t_p ADD TEMPORARY PARTITION tp1 VALUES [("15"), ("20"));"""
+
     sql "INSERT INTO t_p VALUES(1, 1,'1')"
     sql "INSERT INTO t_p VALUES(7, 1,'3')"
+    sql "INSERT INTO t_p TEMPORARY PARTITION(tp1) values(16,1234, 't');"
+
+    sql "SET enable_fallback_to_original_planner=false"
 
     qt_sql "SELECT * FROM t_p PARTITION p1"
 
@@ -51,4 +55,10 @@ suite("query_on_specific_partition") {
     order_qt_sql "SELECT * FROM t_p PARTITIONS (p2, p1)"
 
     order_qt_sql "SELECT * FROM t_p PARTITIONS (p2, p1) WHERE id > 1"
+
+    qt_sql """select * from t_p temporary partition(tp1);"""
+
+    qt_sql """select * from t_p temporary partitions(tp1);"""
+
+    qt_sql """select * from t_p temporary partition tp1;"""
 }
