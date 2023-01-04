@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "util/bitmap_intersect.h"
 #include "util/bitmap_expr_calculation.h"
+#include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
@@ -188,7 +188,6 @@ public:
         const auto& data_col = static_cast<const ColVecData&>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
         std::string update_key = data_col.get_data_at(row_num).to_string();
-        
         bitmap_expr_cal.update(update_key, bitmap_value);
     }
 
@@ -198,7 +197,6 @@ public:
             const auto& col = static_cast<const ColVecData&>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
-            
             first_init = false;
         }
     }

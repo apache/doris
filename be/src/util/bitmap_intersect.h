@@ -16,11 +16,12 @@
 // under the License.
 #pragma once
 #include <parallel_hashmap/phmap.h>
-#include <string>
+
 #include <sstream>
+#include <string>
+#include "runtime/string_value.h"
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -60,7 +61,6 @@ public:
         buffer << item;
         return buffer.str();
     }
-
 };
 
 template <>

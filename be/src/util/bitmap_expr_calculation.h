@@ -15,30 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-#include "util/bitmap_intersect.h"
 #include <string>
 #include <stack>
+
+#include "util/bitmap_intersect.h"
 
 namespace doris {
 
 // Compute the intersection union difference set of two or more bitmaps
 // Usage: orthogonal_bitmap_parse_calculate(bitmap_column, filter_column, input_string)
-// Example: orthogonal_bitmap_expr_calculate(user_id, event, 'A|B&C-D'), meaning find the intersection union difference set of user_id in all A/B/C/D 4 bitmaps
-// Operation symbol: the operator '|' said and set, the operator '&' stands for intersection, the operator '-' indicates the difference set
-class BitmapExprCalculation: public BitmapIntersect<std::string> {
+// Example: orthogonal_bitmap_expr_calculate(user_id, event, '(A|B)&(C-D)'), meaning find the intersection union difference set of user_id in all A/B/C/D 4 bitmaps
+// Operation symbol: 
+// the operator '|' stands for union, the operator '&' stands for intersection, the operator '-' indicates the difference set, the operator '^' stands for xor
+class BitmapExprCalculation : public BitmapIntersect<std::string> {
 public:
     BitmapExprCalculation() = default;
 
     explicit BitmapExprCalculation(const char* src) { deserialize(src); }
-    
-    void bitmap_calculation_init(std::string &inputStr) {
+
+    void bitmap_calculation_init(std::string& inputStr) {
         _polish = reversePolish(inputStr);
         std::string bitmapKey = "";
         for (int i = 0; i < _polish.length(); i++) {
             char c = _polish.at(i);
-            if (c != '&' && c != '|' &&
-                       c != '^' && c != '-' &&
-                       c != ' ' && c != '\\') {
+            if (c != '&' && c != '|' && c != '^' && c != '-' && c != ' ' && c != '\\') {
                 bitmapKey += c;
             } else if (i != 0 && _polish.at(i - 1) == '\\') {
                 bitmapKey += c;
@@ -56,7 +56,7 @@ public:
             bitmapKey.clear();
         }
     }
-    
+
     // 计算表达式的值
     BitmapValue bitmap_calculate() {
         std::stack<BitmapValue> values;
@@ -68,9 +68,7 @@ public:
                     values.push(_bitmaps[bitmapKey]);
                     bitmapKey.clear();
                 }
-            } else if (c != '&' && c != '|' &&
-                     c != '^' && c != '-' && 
-                     c != '\\') {
+            } else if (c != '&' && c != '|' && c != '^' && c != '-' && c != '\\') {
                 bitmapKey += c;
             } else if (i != 0 && _polish.at(i - 1) == '\\') {
                 bitmapKey += c;
@@ -90,7 +88,6 @@ public:
                     bitmapCalculate(opA, opB, c, calResult);
                     values.push(calResult);
                 }
-                
             }
         }
         BitmapValue result;
@@ -99,10 +96,9 @@ public:
         } else if (!values.empty()) {
             result |= values.top();
         }
-        LOG(WARNING) << "bitmap_calculate,"<< "result:" << result.cardinality();
         return result;
     }
-    
+
     // calculate the bitmap value by expr bitmap calculate
     int64_t bitmap_calculate_count() {
         if (_bitmaps.empty()) {
@@ -110,35 +106,33 @@ public:
         }
         return bitmap_calculate().cardinality();
     }
-    
+
 private:
-    
     int priority(char c) {
-        switch (c)
-        {
-            case '&':
-                return 1;
-            case '|':
-                return 1;
-            case '^':
-                return 1;
-            case '-':
-                return 1;
-            default:
-                return 0;
+        switch (c) {
+        case '&':
+            return 1;
+        case '|':
+            return 1;
+        case '^':
+            return 1;
+        case '-':
+            return 1;
+        default:
+            return 0;
         }
     }
-    
-    template<class T> std::string printStack(std::stack<T> stack) {
+
+    template<class T> 
+    std::string printStack(std::stack<T> stack) {
         std::string result = "";
-        while (!stack.empty())
-        {
-            result = stack.top()+result;
+        while (!stack.empty()) {
+            result = stack.top() + result;
             stack.pop();
         }
         return result;
     }
-    
+
     std::string reversePolish(std::string inputStr) {
         std::stack<char> polish;
         std::stack<char> opStack;
@@ -146,12 +140,11 @@ private:
         for (int i = 0; i < inputStr.length(); i++) {
             char curChar = inputStr.at(i);
             // 如果是字符串
-            if (curChar != '&' && curChar != '|' &&
-                    curChar != '^' && curChar != '-' &&
-                    curChar != '(' && curChar != ')' &&
-                    curChar != ' ' && curChar != '\t') {
-                if (!lastIsChar)
+            if (curChar != '&' && curChar != '|' && curChar != '^' && curChar != '-' &&
+                curChar != '(' && curChar != ')' && curChar != ' ' && curChar != '\t') {
+                if (!lastIsChar) {
                     polish.push(' ');
+                }
                 polish.push(curChar);
                 lastIsChar = true;
                 continue;
@@ -160,7 +153,7 @@ private:
             else if (i != 0 && inputStr.at(i - 1) == '\\') {
                 polish.push(curChar);
                 lastIsChar = true;
-                continue;   
+                continue;
             }
             // 为空格
             else if (curChar == ' ' || curChar == '\t') {
@@ -170,10 +163,8 @@ private:
             // 否则为操作符
             else if (curChar == '(') {
                 opStack.push(curChar);
-            }
-            else if (!opStack.empty() && curChar == ')') {
-                while (!opStack.empty() && opStack.top() != '(')
-                {
+            } else if (!opStack.empty() && curChar == ')') {
+                while (!opStack.empty() && opStack.top() != '(') {
                     polish.push(opStack.top());
                     opStack.pop();
                 }
@@ -185,10 +176,10 @@ private:
                     if (!opStack.empty() && priority(curChar) > priority(opStack.top())) {
                         opStack.push(curChar);
                     } else {
-                        while (!opStack.empty())
-                        {
-                            if (opStack.top() == '(')
+                        while (!opStack.empty()) {
+                            if (opStack.top() == '(') {
                                 break;
+                            }
                             if (priority(curChar) <= priority(opStack.top())) {
                                 polish.push(opStack.top());
                                 opStack.pop();
@@ -209,31 +200,30 @@ private:
         }
         return printStack(polish);
     }
-    
+
     // bitmap交并差运算 因为数据是放在堆栈中 所以前一个操作数是opB 后一个操作数是opA
-    void bitmapCalculate(BitmapValue & opA, BitmapValue & opB, char op, BitmapValue & result) {
+    void bitmapCalculate(BitmapValue& opA, BitmapValue& opB, char op, BitmapValue& result) {
         result |= opB;
-        switch (op)
-        {
-            // 交集计算
-            case '&':
-                result &= opA;
-                break;
-            // 并集计算
-            case '|':
-                result |= opA;
-                break;
-            // 差集计算
-            case '-':
-                result -= opA;
-                break;
-            // 异或计算
-            case '^':
-                result ^= opA;
-                break;
+        switch (op) {
+        // 交集计算
+        case '&':
+            result &= opA;
+            break;
+        // 并集计算
+        case '|':
+            result |= opA;
+            break;
+        // 差集计算
+        case '-':
+            result -= opA;
+            break;
+        // 异或计算
+        case '^':
+            result ^= opA;
+            break;
         }
     }
-    
+
     std::string _polish;
 };
 
