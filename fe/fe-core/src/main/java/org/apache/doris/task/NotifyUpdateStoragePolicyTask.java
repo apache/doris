@@ -44,8 +44,8 @@ public class NotifyUpdateStoragePolicyTask extends AgentTask {
 
         ret.policy_name = policyName;
         // cooldown_datetime in BE is in seconds
-        ret.cooldown_datetime = Long.parseLong(properties.get(StoragePolicy.COOLDOWN_DATETIME)) / 1000;
-        ret.cooldown_ttl = Long.parseLong(properties.get(StoragePolicy.COOLDOWN_TTL));
+        ret.setCooldownDatetime(Long.parseLong(properties.get(StoragePolicy.COOLDOWN_DATETIME)) / 1000);
+        ret.setCooldownTtl(Long.parseLong(properties.get(StoragePolicy.COOLDOWN_TTL)));
         ret.s3_storage_param = new TS3StorageParam();
         ret.s3_storage_param.s3_max_conn = Integer.parseInt(
                 properties.getOrDefault(S3Resource.S3_MAX_CONNECTIONS,
