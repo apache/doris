@@ -99,9 +99,9 @@ public class AlterPolicyStmt extends DdlStmt {
 
         if (properties.containsKey(StoragePolicy.COOLDOWN_TTL)) {
             hasCooldownTtl = true;
-            if (Integer.parseInt(properties.get(StoragePolicy.COOLDOWN_TTL)) < 0) {
-                throw new AnalysisException("cooldown_ttl must >= 0.");
-            }
+            // support 1h, 1hour to 3600s
+            properties.put(StoragePolicy.COOLDOWN_TTL, String.valueOf(
+                    StoragePolicy.getMsByCooldownTtl(properties.get(StoragePolicy.COOLDOWN_TTL)) / 1000));
         }
 
         if (hasCooldownDatetime && hasCooldownTtl) {
