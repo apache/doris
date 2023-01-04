@@ -122,7 +122,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     /**
      * Whether the expression is a constant.
      */
-    public final boolean isConstant() {
+    public boolean isConstant() {
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
