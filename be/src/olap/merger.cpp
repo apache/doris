@@ -239,7 +239,7 @@ Status Merger::vertical_compact_one_group(
         stats_output->merged_rows = reader.merged_rows();
         stats_output->filtered_rows = reader.filtered_rows();
     }
-    RETURN_IF_ERROR(dst_rowset_writer->flush_columns());
+    RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));
 
     return Status::OK();
 }
