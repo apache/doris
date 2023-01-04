@@ -65,11 +65,12 @@ public:
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
-        if (col_haystack_const && col_needles_vector)
+        if (col_haystack_const && col_needles_vector) {
             return Status::InvalidArgument(
                     "function '{}' doesn't support search with non-constant needles "
                     "in constant haystack",
                     name);
+        }
 
         using ResultType = typename Impl::ResultType;
         auto col_res = ColumnVector<ResultType>::create();
@@ -79,17 +80,20 @@ public:
         auto& offsets_res = col_offsets->get_data();
 
         Status status;
-        if (col_needles_const)
+        if (col_needles_const) {
             status = Impl::vector_constant(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
                     col_needles_const->get_value<Array>(), vec_res, offsets_res);
-        else
+        } else {
             status = Impl::vector_vector(col_haystack_vector->get_chars(),
                                          col_haystack_vector->get_offsets(),
                                          col_needles_vector->get_data(),
                                          col_needles_vector->get_offsets(), vec_res, offsets_res);
+        }
 
-        if (!status.ok()) return status;
+        if (!status.ok()) {
+            return status;
+        }
 
         auto nullable_col =
                 ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_res->size(), 0));

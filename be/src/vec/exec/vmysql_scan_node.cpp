@@ -98,15 +98,14 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
 }
 
 Status VMysqlScanNode::open(RuntimeState* state) {
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     VLOG_CRITICAL << "MysqlScanNode::Open";
-
-    if (nullptr == state) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
 
     if (!_is_init) {
         return Status::InternalError("used before initialize.");
@@ -146,11 +145,15 @@ Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescri
 }
 
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    if (state == NULL || block == NULL || eos == NULL) {
+        return Status::InternalError("input is NULL pointer");
+    }
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
-    if (state == NULL || block == NULL || eos == NULL)
-        return Status::InternalError("input is NULL pointer");
-    if (!_is_init) return Status::InternalError("used before initialize.");
+
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
