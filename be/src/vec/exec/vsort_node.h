@@ -72,6 +72,8 @@ private:
     RuntimeProfile::Counter* _sort_blocks_memory_usage;
 
     bool _use_topn_opt = false;
+    // topn top value
+    Field old_top;
 
     bool _reuse_mem;
 

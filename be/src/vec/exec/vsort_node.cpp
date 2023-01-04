@@ -94,6 +94,23 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
+
+        // runtime predicate
+        if (_use_topn_opt) {
+            Field new_top = _sorter->get_top_value();
+            if (!new_top.is_null() && new_top != old_top) {
+                auto& sort_description = _sorter->get_sort_description();
+                auto col = input_block->get_by_position(sort_description[0].column_number);
+                auto type = remove_nullable(col.type)->get_type_id();
+                bool is_reverse = sort_description[0].direction < 0;
+                auto query_ctx = _runtime_state->get_query_fragments_ctx();
+                std::vector<vectorized::Field> values = {new_top};
+                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(values, col.name,
+                                                                            type, is_reverse));
+                old_top = std::move(new_top);
+            }
+        }
+
         if (!_reuse_mem) {
             input_block->clear();
         }
@@ -116,7 +133,6 @@ Status VSortNode::open(RuntimeState* state) {
     // The final merge is done on-demand as rows are requested in get_next().
     bool eos = false;
     std::unique_ptr<Block> upstream_block(new Block());
-    Field old_top;
     do {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 child(0)->get_next_after_projects(
@@ -126,34 +142,6 @@ Status VSortNode::open(RuntimeState* state) {
                                   _children[0], std::placeholders::_1, std::placeholders::_2,
                                   std::placeholders::_3)),
                 child(0)->get_next_span(), eos);
-
-        if (upstream_block->rows() != 0) {
-            RETURN_IF_ERROR(_sorter->append_block(upstream_block.get()));
-            RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
-
-            // runtime predicate
-            // SCOPED_TIMER(_update_runtime_predicate_timer);
-            if (_use_topn_opt) {
-                Field new_top = _sorter->get_top_value();
-                if (!new_top.is_null() && new_top != old_top) {
-                    auto& sort_description = _sorter->get_sort_description();
-                    auto col = upstream_block->get_by_position(sort_description[0].column_number);
-                    auto type = remove_nullable(col.type)->get_type_id();
-                    bool is_reverse = sort_description[0].direction < 0;
-                    auto query_ctx = _runtime_state->get_query_fragments_ctx();
-                    std::vector<vectorized::Field> values = {new_top};
-                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(values, col.name,
-                                                                              type, is_reverse));
-                    old_top = std::move(new_top);
-                }
-            }
-
-            if (!_reuse_mem) {
-                upstream_block.reset(new Block());
-            }
-        }
-
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
     } while (!eos);
