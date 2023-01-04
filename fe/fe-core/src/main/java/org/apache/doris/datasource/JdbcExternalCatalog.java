@@ -50,7 +50,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private String jdbcUrl;
     private String driverUrl;
     private String driverClass;
-    private String checkSum;
+    private String checkSum = "";
 
     public JdbcExternalCatalog(
             long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
@@ -84,6 +84,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         driverUrl = properties.getOrDefault(JdbcResource.DRIVER_URL, "");
         driverClass = properties.getOrDefault(JdbcResource.DRIVER_CLASS, "");
+        checkSum = properties.getOrDefault(JdbcResource.CHECK_SUM, "");
         return properties;
     }
 
@@ -119,7 +120,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         jdbcClient = new JdbcClient(jdbcUser, jdbcPasswd, jdbcUrl, driverUrl, driverClass);
         databaseTypeName = jdbcClient.getDbType();
-        checkSum = jdbcClient.getCheckSum();
+        if (checkSum.isEmpty()) {
+            checkSum = jdbcClient.getCheckSum();
+        }
     }
 
     @Override

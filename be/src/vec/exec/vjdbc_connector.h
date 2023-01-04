@@ -79,8 +79,8 @@ private:
                                    vectorized::IColumn* column_ptr, int column_index,
                                    std::string_view column_name);
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
-    int64_t _jobject_to_date(JNIEnv* env, jobject jobj);
-    int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
+    int64_t _jobject_to_date(JNIEnv* env, jobject jobj, bool is_date_v2);
+    int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj, bool is_datetime_v2);
     Status _cast_string_to_array(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                  int rows);
 

@@ -395,10 +395,10 @@ public class JdbcClient {
             case "BIGINT":
                 return Type.BIGINT;
             case "DATE":
-                return Type.DATE;
+                return ScalarType.getDefaultDateType(Type.DATE);
             case "TIMESTAMP":
             case "DATETIME":
-                return Type.DATETIME;
+                return ScalarType.getDefaultDateType(Type.DATETIME);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
@@ -479,9 +479,9 @@ public class JdbcClient {
                 return charType;
             case "timestamp":
             case "timestamptz":
-                return Type.DATETIME;
+                return ScalarType.getDefaultDateType(Type.DATETIME);
             case "date":
-                return Type.DATE;
+                return ScalarType.getDefaultDateType(Type.DATE);
             case "bool":
                 return Type.BOOLEAN;
             case "bit":

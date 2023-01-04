@@ -451,11 +451,11 @@ jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`
 -- 1.2.0+ 版本
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
@@ -471,13 +471,13 @@ CREATE CATALOG jdbc PROPERTIES (
 
 ```sql
 -- 1.2.0+ 版本
-CREATE CATALOG pg_resource PROPERTIES (
+CREATE RESOURCE pg_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="postgres",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-    "jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
-    "jdbc.driver_class" = "org.postgresql.Driver"
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
@@ -543,7 +543,7 @@ MySQL [(none)]> show databases;
 9 rows in set (0.67 sec)
 ```
 
-⚠️注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
+> 注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
 
 查看`db1`数据库下的表，并查询：
 ```sql

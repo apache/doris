@@ -378,11 +378,11 @@ The following example creates a Catalog connection named jdbc. This jdbc Catalog
 -- 1.2.0+ Version
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
@@ -398,13 +398,13 @@ CREATE CATALOG jdbc PROPERTIES (
 
 ```sql
 -- 1.2.0+ Version
-CREATE CATALOG pg_resource PROPERTIES (
+CREATE RESOURCE pg_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="postgres",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-    "jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
-    "jdbc.driver_class" = "org.postgresql.Driver"
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
@@ -421,11 +421,11 @@ Where `jdbc.driver_url` can be a remote jar package
 ```sql
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
 
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -448,7 +448,7 @@ MySQL [(none)]> show catalogs;
 2 rows in set (0.02 sec)
 ```
 
-⚠️Note: In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
+> Note: In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
 
 Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
 

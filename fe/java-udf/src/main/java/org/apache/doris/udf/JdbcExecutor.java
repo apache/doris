@@ -204,19 +204,21 @@ public class JdbcExecutor {
         }
     }
 
-    public long convertDateToLong(Object obj) {
+    public long convertDateToLong(Object obj, boolean isDateV2) {
         LocalDate date;
         if (obj instanceof LocalDate) {
             date = (LocalDate) obj;
         } else {
             date = ((Date) obj).toLocalDate();
         }
-        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        if (isDateV2) {
+            return UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
+        }
+        return UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 0, 0, 0, true);
-        return time;
     }
 
-    public long convertDateTimeToLong(Object obj) {
+    public long convertDateTimeToLong(Object obj, boolean isDateTimeV2) {
         LocalDateTime date;
         // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
         if (obj instanceof LocalDateTime) {
@@ -224,9 +226,12 @@ public class JdbcExecutor {
         } else {
             date = ((Timestamp) obj).toLocalDateTime();
         }
-        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        if (isDateTimeV2) {
+            return UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                    date.getHour(), date.getMinute(), date.getSecond());
+        }
+        return UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 date.getHour(), date.getMinute(), date.getSecond(), false);
-        return time;
     }
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,

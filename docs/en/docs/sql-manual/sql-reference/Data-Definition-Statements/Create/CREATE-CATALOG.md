@@ -135,11 +135,11 @@ CREATE CATALOG catalog_name PROPERTIES (
 	-- 1.2.0 Version
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"user"="root",
-		"password"="123456",
-		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-		"driver_class" = "com.mysql.cj.jdbc.Driver"
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
 	```
 
@@ -147,13 +147,13 @@ CREATE CATALOG catalog_name PROPERTIES (
 
 	```sql
 	-- 1.2.0+ Version
-	CREATE CATALOG pg_resource PROPERTIES (
+	CREATE RESOURCE pg_resource PROPERTIES (
 		"type"="jdbc",
-		"jdbc.user"="postgres",
-		"jdbc.password"="123456",
-		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
-		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
-		"jdbc.driver_class" = "org.postgresql.Driver"
+		"user"="postgres",
+		"password"="123456",
+		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"driver_class" = "org.postgresql.Driver"
 	);
 	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
