@@ -98,7 +98,6 @@ Status VSortNode::prepare(RuntimeState* state) {
     _sort_blocks_memory_usage = ADD_COUNTER(memory_usage, "SortBlocks", TUnit::BYTES);
 
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
-    _runtime_state = state;
     return Status::OK();
 }
 
@@ -125,7 +124,7 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 auto& sort_description = _sorter->get_sort_description();
                 auto col = input_block->get_by_position(sort_description[0].column_number);
                 bool is_reverse = sort_description[0].direction < 0;
-                auto query_ctx = _runtime_state->get_query_fragments_ctx();
+                auto query_ctx = state->get_query_fragments_ctx();
                 RETURN_IF_ERROR(
                         query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
                 old_top = std::move(new_top);

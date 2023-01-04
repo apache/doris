@@ -73,15 +73,13 @@ private:
 
     bool _use_topn_opt = false;
     // topn top value
-    Field old_top;
+    Field old_top {Field::Types::Null};
 
     bool _reuse_mem;
 
     std::unique_ptr<Sorter> _sorter;
 
     static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;
-
-    RuntimeState* _runtime_state = nullptr;
 };
 
 } // namespace doris::vectorized
