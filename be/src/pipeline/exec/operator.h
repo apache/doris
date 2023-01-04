@@ -168,7 +168,7 @@ public:
     /**
      * Release all resources once this operator done its work.
      */
-    virtual Status close(RuntimeState* state) = 0;
+    virtual Status close(RuntimeState* state);
 
     Status set_child(OperatorPtr child) {
         if (is_source()) {

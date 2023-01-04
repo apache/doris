@@ -718,7 +718,9 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
+        RETURN_IF_ERROR(child(1)->close(state));
     } else {
+        RETURN_IF_ERROR(child(1)->close(state));
         RETURN_IF_ERROR(sink(state, nullptr, eos));
     }
     return Status::OK();
@@ -768,9 +770,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
     if (_should_build_hash_table && eos) {
         // For pipeline engine, children should be closed once this pipeline task is finished.
-        if (!state->enable_pipeline_exec()) {
-            child(1)->close(state);
-        }
         if (!_build_side_mutable_block.empty()) {
             if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                 return Status::NotSupported(
@@ -815,10 +814,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         }
     } else if (!_should_build_hash_table &&
                ((state->enable_pipeline_exec() && eos) || !state->enable_pipeline_exec())) {
-        // TODO: For pipeline engine, we should finish this pipeline task if _should_build_hash_table is false
-        if (!state->enable_pipeline_exec()) {
-            child(1)->close(state);
-        }
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");

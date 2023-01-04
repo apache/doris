@@ -376,6 +376,10 @@ struct TExecPlanFragmentParams {
   // it will wait for the FE to send the "start execution" command before it is actually executed.
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
+
+  21: optional bool build_hash_table_for_broadcast_join = false;
+
+  22: optional list<Types.TUniqueId> instances_sharing_hash_table;
 }
 
 struct TExecPlanFragmentParamsList {

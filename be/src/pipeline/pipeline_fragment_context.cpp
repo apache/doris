@@ -34,6 +34,7 @@
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/empty_source_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -451,7 +452,13 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::HASH_JOIN_NODE: {
         auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
         auto new_pipe = add_pipeline();
-        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        if (join_node->should_build_hash_table()) {
+            RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        } else {
+            OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
+                    next_operator_builder_id(), node->child(1)->row_desc());
+            new_pipe->add_operator(builder);
+        }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));

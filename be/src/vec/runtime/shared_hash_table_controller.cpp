@@ -22,10 +22,28 @@
 namespace doris {
 namespace vectorized {
 
+void SharedHashTableController::set_builder_and_consumers(TUniqueId builder,
+                                                          const std::vector<TUniqueId>& consumers,
+                                                          int node_id) {
+    // Only need to set builder and consumers with pipeline engine enabled.
+    DCHECK(_pipeline_engine_enabled);
+    std::lock_guard<std::mutex> lock(_mutex);
+    DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
+    _builder_fragment_ids.insert({node_id, builder});
+    _ref_fragments[node_id].assign(consumers.cbegin(), consumers.cend());
+}
+
 bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,
                                                         int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _builder_fragment_ids.find(my_node_id);
+    if (_pipeline_engine_enabled) {
+        if (it != _builder_fragment_ids.cend()) {
+            return it->second == fragment_instance_id;
+        }
+        return false;
+    }
+
     if (it == _builder_fragment_ids.cend()) {
         _builder_fragment_ids.insert({my_node_id, fragment_instance_id});
         return true;
