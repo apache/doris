@@ -64,6 +64,107 @@ private:
     std::shared_ptr<ColumnPredicate> _predictate {nullptr};
     TabletSchemaSPtr _tablet_schema;
     std::unique_ptr<MemPool> _predicate_mem_pool;
+    std::function<std::string(const Field&)> _get_value_fn;
+    bool _inited = false;
+
+    Status _init(const TypeIndex type);
+
+    static std::string get_bool_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType;
+        return cast_to_string<TYPE_BOOLEAN, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_tinyint_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType;
+        return cast_to_string<TYPE_TINYINT, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_smallint_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType;
+        return cast_to_string<TYPE_SMALLINT, ValueType>(field.get<ValueType>(), 0);
+    }
+    
+    static std::string get_int_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_INT>::CppType;
+        return cast_to_string<TYPE_INT, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_bigint_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType;
+        return cast_to_string<TYPE_BIGINT, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_largeint_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType;
+        return cast_to_string<TYPE_LARGEINT, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_float_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType;
+        return cast_to_string<TYPE_FLOAT, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_double_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
+        return cast_to_string<TYPE_DOUBLE, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_string_value(const Field& field) {
+        return field.get<String>();
+    }
+
+    static std::string get_date_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
+        ValueType value;
+        Int64 v = field.get<Int64>();
+        VecDateTimeValue* p = (VecDateTimeValue*)&v;
+        value.from_olap_date(p->to_olap_date());
+        value.cast_to_date();
+        return cast_to_string<TYPE_DATE, ValueType>(value, 0);
+    }
+    
+    static std::string get_datetime_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
+        ValueType value;
+        Int64 v = field.get<Int64>();
+        VecDateTimeValue* p = (VecDateTimeValue*)&v;
+        value.from_olap_datetime(p->to_olap_datetime());
+        value.to_datetime();
+        return cast_to_string<TYPE_DATETIME, ValueType>(value, 0);
+    }
+
+    static std::string get_datev2_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType;
+        return cast_to_string<TYPE_DATEV2, ValueType>(
+                binary_cast<UInt32, ValueType>(field.get<UInt32>()), 0);
+    }
+    
+    static std::string get_datetimev2_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
+        return cast_to_string<TYPE_DATETIMEV2, ValueType>(
+                binary_cast<UInt64, ValueType>(field.get<UInt64>()), 0);
+    }
+    
+    static std::string get_decimalv2_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
+        ValueType value;
+        auto v = field.get<DecimalField<Decimal128>>();
+        value.from_olap_decimal(v.get_value(), v.get_scale());
+        int scale = v.get_scale();
+        return cast_to_string<TYPE_DECIMALV2, ValueType>(value, scale);
+    }
+
+    static std::string get_decimal32_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType;
+        ValueType value = field.get<ValueType>();
+        return cast_to_string<TYPE_DECIMAL32, ValueType>(value, 0);
+    }
+    
+    static std::string get_decimal64_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType;
+        ValueType value = field.get<ValueType>();
+        return cast_to_string<TYPE_DECIMAL64, ValueType>(value, 0);
+    }
 };
 
 } // namespace vectorized
