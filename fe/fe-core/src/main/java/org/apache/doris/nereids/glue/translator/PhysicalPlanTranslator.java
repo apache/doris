@@ -523,7 +523,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setTable(table);
 
         SchemaScanNode scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
-
+        scanNode.finalizeForNereids();
         context.getScanNodes().add(scanNode);
         PlanFragment planFragment =
                 new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);

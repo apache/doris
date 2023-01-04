@@ -54,7 +54,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -173,19 +172,19 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitCurrentUser(CurrentUser currentUser, ExpressionRewriteContext context) {
-        String res = ConnectContext.get().getCurrentUserIdentity().toString();
+        String res = context.connectContext.get().getCurrentUserIdentity().toString();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitUser(User user, ExpressionRewriteContext context) {
-        String res = ConnectContext.get().getUserIdentity().toString();
+        String res = context.connectContext.get().getUserIdentity().toString();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
-        return new BigIntLiteral(context.connectContext.getConnectionId());
+        return new BigIntLiteral(context.connectContext.get().getConnectionId());
     }
 
     @Override

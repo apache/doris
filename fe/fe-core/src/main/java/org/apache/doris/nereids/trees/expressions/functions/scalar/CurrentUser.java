@@ -26,7 +26,6 @@ import org.apache.doris.nereids.types.BigIntType;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,7 +39,7 @@ public class CurrentUser extends ScalarFunction
     );
 
     public CurrentUser() {
-        super("current_user", new ArrayList<>());
+        super("current_user", ImmutableList.of());
     }
 
     @Override

@@ -26,7 +26,6 @@ import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,7 +39,7 @@ public class Database extends ScalarFunction
     );
 
     public Database() {
-        super("database", new ArrayList<>());
+        super("database", ImmutableList.of());
     }
 
     @Override

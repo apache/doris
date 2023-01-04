@@ -26,7 +26,6 @@ import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,7 +39,7 @@ public class ConnectionId extends ScalarFunction
     );
 
     public ConnectionId() {
-        super("connection_id", new ArrayList<>());
+        super("connection_id", ImmutableList.of());
     }
 
     @Override
