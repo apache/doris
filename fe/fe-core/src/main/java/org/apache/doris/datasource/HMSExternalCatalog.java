@@ -224,4 +224,22 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         return currentNotificationEventId.getEventId();
     }
+
+    @Override
+    public void dropDatabase(String dbName) {
+        LOG.debug("drop database [{}]", dbName);
+        Long dbId = dbNameToId.remove(dbName);
+        if (dbId == null) {
+            LOG.warn("drop database [{}] failed", dbName);
+        }
+        idToDb.remove(dbId);
+    }
+
+    @Override
+    public void createDatabase(long dbId, String dbName) {
+        LOG.debug("create database [{}]", dbName);
+        dbNameToId.put(dbName, dbId);
+        HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
+        idToDb.put(dbId, db);
+    }
 }

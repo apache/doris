@@ -35,6 +35,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -303,5 +304,13 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public void addDatabaseForTest(ExternalDatabase db) {
         idToDb.put(db.getId(), db);
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+    }
+
+    public void dropDatabase(String dbName) {
+        throw new NotImplementedException();
+    }
+
+    public void createDatabase(long dbId, String dbName) {
+        throw new NotImplementedException();
     }
 }

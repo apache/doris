@@ -707,6 +707,9 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_REFRESH_EXTERNAL_DB:
             case OperationType.OP_DROP_EXTERNAL_TABLE:
+            case OperationType.OP_CREATE_EXTERNAL_TABLE:
+            case OperationType.OP_DROP_EXTERNAL_DB:
+            case OperationType.OP_CREATE_EXTERNAL_DB:
             case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                 data = ExternalObjectLog.read(in);
                 isRead = true;

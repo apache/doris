@@ -84,6 +84,8 @@ public class DropTableEvent extends MetastoreTableEvent {
         } catch (DdlException e) {
             LOG.warn("DropExternalTable failed,dbName:[{}],tableName:[{}],catalogName:[{}].", dbName, tableName,
                     catalogName, e);
+            throw new MetastoreNotificationException(
+                    debugString("Failed to process drop table event"));
         }
     }
 }

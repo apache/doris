@@ -40,8 +40,14 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "dbId")
     private long dbId;
 
+    @SerializedName(value = "dbName")
+    private String dbName;
+
     @SerializedName(value = "tableId")
     private long tableId;
+
+    @SerializedName(value = "tableName")
+    private String tableName;
 
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
