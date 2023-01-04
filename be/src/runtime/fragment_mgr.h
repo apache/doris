@@ -107,9 +107,11 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe);
+    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe,
+                  bool enable_pipeline_engine);
 
-    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
+    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id,
+                                                 bool enable_pipeline_engine);
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);

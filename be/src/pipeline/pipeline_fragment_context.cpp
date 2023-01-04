@@ -116,6 +116,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+        if (_pipe != nullptr) {
+            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        }
         _cancel_reason = reason;
         _cancel_msg = msg;
         // To notify wait_for_start()

@@ -537,7 +537,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, pipe));
 
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
-        set_pipe(params.params.fragment_instance_id, pipe);
+        set_pipe(params.params.fragment_instance_id, pipe,
+                 params.txn_conf.__isset.enable_pipeline_txn_load &&
+                         params.txn_conf.enable_pipeline_txn_load);
         return Status::OK();
     } else {
         return exec_plan_fragment(params, empty_function);
@@ -561,8 +563,14 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 }
 
 void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
-                           std::shared_ptr<io::StreamLoadPipe> pipe) {
-    {
+                           std::shared_ptr<io::StreamLoadPipe> pipe, bool enable_pipeline_engine) {
+    if (enable_pipeline_engine) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _pipeline_map.find(fragment_instance_id);
+        if (iter != _pipeline_map.end()) {
+            _pipeline_map[fragment_instance_id]->set_pipe(std::move(pipe));
+        }
+    } else {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
@@ -571,14 +579,24 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
     }
 }
 
-std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
+std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id,
+                                                          bool enable_pipeline_engine) {
     {
         std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _fragment_map.find(fragment_instance_id);
-        if (iter != _fragment_map.end()) {
-            return _fragment_map[fragment_instance_id]->get_pipe();
+        if (enable_pipeline_engine) {
+            auto iter = _pipeline_map.find(fragment_instance_id);
+            if (iter != _pipeline_map.end()) {
+                return _pipeline_map[fragment_instance_id]->get_pipe();
+            } else {
+                return nullptr;
+            }
         } else {
-            return nullptr;
+            auto iter = _fragment_map.find(fragment_instance_id);
+            if (iter != _fragment_map.end()) {
+                return _fragment_map[fragment_instance_id]->get_pipe();
+            } else {
+                return nullptr;
+            }
         }
     }
 }

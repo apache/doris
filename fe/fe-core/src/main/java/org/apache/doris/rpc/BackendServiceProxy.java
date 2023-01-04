@@ -254,6 +254,7 @@ public class BackendServiceProxy {
 
         final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
         pRequest.setFragmentInstanceId(fragmentInstanceId);
+        pRequest.setEnablePipelineEngine(Config.enable_pipeline_load);
         pRequest.addAllData(data);
         try {
             final BackendServiceClient client = getProxy(address);
@@ -267,7 +268,8 @@ public class BackendServiceProxy {
     public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
             throws RpcException {
         final InternalService.PRollbackRequest pRequest = InternalService.PRollbackRequest.newBuilder()
-                .setFragmentInstanceId(fragmentInstanceId).build();
+                .setFragmentInstanceId(fragmentInstanceId)
+                .setEnablePipelineEngine(Config.enable_pipeline_load).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.rollback(pRequest);
@@ -280,7 +282,8 @@ public class BackendServiceProxy {
     public Future<InternalService.PCommitResult> commit(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
             throws RpcException {
         final InternalService.PCommitRequest pRequest = InternalService.PCommitRequest.newBuilder()
-                .setFragmentInstanceId(fragmentInstanceId).build();
+                .setFragmentInstanceId(fragmentInstanceId)
+                .setEnablePipelineEngine(Config.enable_pipeline_load).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.commit(pRequest);

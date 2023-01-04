@@ -351,6 +351,7 @@ message PDataRow {
 message PSendDataRequest {
     required PUniqueId fragment_instance_id = 1;
     repeated PDataRow data = 2;
+    optional bool enable_pipeline_engine = 3;
 }
 
 message PSendDataResult {
@@ -359,6 +360,7 @@ message PSendDataResult {
 
 message PCommitRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional bool enable_pipeline_engine = 2;
 }
 
 message PCommitResult {
@@ -367,6 +369,7 @@ message PCommitResult {
 
 message PRollbackRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional bool enable_pipeline_engine = 2;
 }
 
 message PRollbackResult {

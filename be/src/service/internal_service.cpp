@@ -509,7 +509,11 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
     TUniqueId fragment_instance_id;
     fragment_instance_id.hi = request->fragment_instance_id().hi();
     fragment_instance_id.lo = request->fragment_instance_id().lo();
-    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+
+    bool enable_pipeline_engine =
+            request->has_enable_pipeline_engine() && request->enable_pipeline_engine();
+
+    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id, enable_pipeline_engine);
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs("pipe is null");
@@ -531,7 +535,10 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
     TUniqueId fragment_instance_id;
     fragment_instance_id.hi = request->fragment_instance_id().hi();
     fragment_instance_id.lo = request->fragment_instance_id().lo();
-    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+
+    bool enable_pipeline_engine =
+            request->has_enable_pipeline_engine() && request->enable_pipeline_engine();
+    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id, enable_pipeline_engine);
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs("pipe is null");
@@ -548,7 +555,10 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
     TUniqueId fragment_instance_id;
     fragment_instance_id.hi = request->fragment_instance_id().hi();
     fragment_instance_id.lo = request->fragment_instance_id().lo();
-    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+
+    bool enable_pipeline_engine =
+            request->has_enable_pipeline_engine() && request->enable_pipeline_engine();
+    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id, enable_pipeline_engine);
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs("pipe is null");
