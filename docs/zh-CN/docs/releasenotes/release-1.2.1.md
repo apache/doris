@@ -82,7 +82,9 @@ under the License.
 
 ### 已知问题
 
-请勿使用 JDK11 作为 BE 的运行时 JDK，会导致 BE Crash。
+- 请勿使用 JDK11 作为 BE 运行时 JDK，会导致 BE Crash。
+
+- 该版本对 csv 格式的读取性能有下降，会影响 csv 格式的导入和读取效率，我们会在下一个三位版本尽快修复
 
 ### 行为改变
 
