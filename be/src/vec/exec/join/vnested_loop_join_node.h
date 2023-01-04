@@ -74,6 +74,10 @@ public:
 private:
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status _generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants) {
+        constexpr bool ignore_null = JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
+                                     JoinOpType::value == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                     JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN;
+
         MutableBlock mutable_join_block(&_join_block);
 
         while (_join_block.rows() < state->batch_size() && !_matched_rows_done) {
@@ -101,9 +105,10 @@ private:
             }
 
             if constexpr (set_probe_side_flag) {
-                auto status = _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                                     set_probe_side_flag>(
-                        &_join_block, !_is_left_semi_anti, _is_anti_join);
+                auto status =
+                        _do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                               set_probe_side_flag, ignore_null>(
+                                &_join_block, !_is_left_semi_anti);
                 _update_additional_flags(&_join_block);
                 if (!status.ok()) {
                     return status;
@@ -136,9 +141,10 @@ private:
         }
 
         if constexpr (!set_probe_side_flag) {
-            Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                                   set_probe_side_flag>(
-                    &_join_block, !_is_right_semi_anti, _is_anti_join);
+            Status status =
+                    _do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
+                                                           ignore_null>(&_join_block,
+                                                                        !_is_right_semi_anti);
             _update_additional_flags(&_join_block);
             mutable_join_block = MutableBlock(&_join_block);
             if (!status.ok()) {
@@ -162,8 +168,8 @@ private:
     void _process_left_child_block(MutableBlock& mutable_block,
                                    const Block& now_process_build_block) const;
 
-    template <bool SetBuildSideFlag, bool SetProbeSideFlag>
-    Status _do_filtering_and_update_visited_flags(Block* block, bool materialize, bool filter_null);
+    template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
+    Status _do_filtering_and_update_visited_flags(Block* block, bool materialize);
 
     // TODO: replace it as template lambda after support C++20
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>

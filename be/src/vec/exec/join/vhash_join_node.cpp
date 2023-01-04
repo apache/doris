@@ -864,7 +864,11 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     if (eos || (!_should_build_hash_table && !state->enable_pipeline_exec())) {
         _process_hashtable_ctx_variants_init(state);
     }
-    if (eos && !_build_blocks->empty() && _is_anti_join) {
+
+    // Since the comparison of null values is meaningless, left anti join should not output null
+    // when the build side is not empty.
+    if (eos && !_build_blocks->empty() &&
+        (_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)) {
         _probe_ignore_null = true;
     }
     return Status::OK();

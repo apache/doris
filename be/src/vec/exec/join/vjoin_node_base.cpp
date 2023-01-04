@@ -47,9 +47,6 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
           _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
                              _join_op == TJoinOp::LEFT_SEMI_JOIN ||
                              _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
-          _is_anti_join(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
-                        _join_op == TJoinOp::LEFT_ANTI_JOIN ||
-                        _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe),
           _is_mark_join(tnode.__isset.nested_loop_join_node
                                 ? (tnode.nested_loop_join_node.__isset.is_mark
