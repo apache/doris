@@ -25,6 +25,7 @@
 #     --run --filter=xx  build and run specified ut
 #     -j                 build parallel
 #     -h                 print this help message
+#     --skipBuild         skip build be
 #
 # All BE tests must use "_test" as the file suffix, and add the file
 # to be/test/CMakeLists.txt.
@@ -48,6 +49,7 @@ Usage: $0 <options>
   Optional options:
      --benchmark        build benchmark-tool
      --clean            clean and build ut
+     --skipBuild        skip build
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
      -j                 build parallel
@@ -62,13 +64,14 @@ Usage: $0 <options>
     $0 --run --filter=-*DeathTest.*                                 runs all non-death tests
     $0 --run --filter=FooTest.*-FooTest.Bar                         runs everything in test suite FooTest except FooTest.Bar
     $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
+    $0 --run --skipBuild                                            run tests without building
     $0 --clean                                                      clean and build tests
     $0 --clean --run                                                clean, build and run all tests
   "
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l benchmark,run,clean,filter,skipBuild: -- "$@")"; then
     usage
 fi
 
@@ -77,12 +80,17 @@ eval set -- "${OPTS}"
 CLEAN=0
 RUN=0
 BUILD_BENCHMARK_TOOL='OFF'
+BUILD_BE=1
 FILTER=""
 if [[ "$#" != 1 ]]; then
     while true; do
         case "$1" in
         --clean)
             CLEAN=1
+            shift
+            ;;
+        --skipBuild)
+            BUILD_BE=0
             shift
             ;;
         --run)
@@ -123,10 +131,13 @@ CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    skipBuild           -- ${BUILD_BE}
 "
-echo "Build Backend UT"
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+if [[ "${BUILD_BE}" -eq 1 ]]; then
+echo "Build Backend UT"
+
 if [[ "${CLEAN}" -eq 1 ]]; then
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
@@ -187,6 +198,7 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
+fi
 
 if [[ "${RUN}" -ne 1 ]]; then
     echo "Finished"
