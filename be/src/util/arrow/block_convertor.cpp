@@ -45,8 +45,6 @@
 
 namespace doris {
 
-using strings::Substitute;
-
 // Convert RowBatch to an Arrow::Array
 // We should keep this function to keep compatible with arrow's type visitor
 // Now we inherit TypeVisitor to use default Visit implementation
@@ -196,7 +194,6 @@ private:
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
 
-private:
     const vectorized::Block& _block;
     const std::shared_ptr<arrow::Schema>& _schema;
     arrow::MemoryPool* _pool;
