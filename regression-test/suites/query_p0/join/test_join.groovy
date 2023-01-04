@@ -23,6 +23,9 @@ suite("test_join", "query,p0") {
     def tbName3 = "bigtable"
     def empty_name = "empty"
 
+    sql"drop view if exists empty"
+    sql"create view empty as select * from baseall where k1 = 0"
+
     order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
     order_sql """select * from (select j.k1 j1, j.k2 j2, j.k3 j3, j.k4 j4, j.k5 j5, j.k6 j6, j.k10 j10, j.k11 j11, 
@@ -799,13 +802,9 @@ suite("test_join", "query,p0") {
 
     qt_right_anti_join_with_other_pred "select t.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by t.k1"
 
-//     qt_right_anti_join_null_1 "select b.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 order by b.k1"
+    qt_right_anti_join_null_1 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
-//     qt_right_anti_join_null_2 "select b.k1 from ${tbName2} b right anti join ${empty_name} t on b.k1 = t.k1 order by b.k1"
-
-    qt_right_anti_join_null_3 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
-
-    qt_right_anti_join_null_4 "select b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+    qt_right_anti_join_null_2 "select b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
     // join with no join keyword
     for (s in selected){
@@ -849,8 +848,6 @@ suite("test_join", "query,p0") {
     }
 
     // join with empty table
-    sql"drop view if exists empty"
-    sql"create view empty as select * from baseall where k1 = 0"
     qt_join_with_emptyTable1"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a join ${empty_name} b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
     qt_join_with_emptyTable2"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a inner join ${empty_name} b on a.k1 = b.k1 
