@@ -271,8 +271,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
     uint64_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
 
-    auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(),
-                                           _context.tablet_schema->columns().size());
+    auto schema = std::make_shared<Schema>(_context.tablet_schema);
     std::unique_ptr<OlapReaderStatistics> stat(new OlapReaderStatistics());
     uint64_t merged_row_stat = 0;
     auto reader_ptr = _get_segcompaction_reader(segments, schema, stat.get(), &merged_row_stat);
