@@ -55,12 +55,12 @@ public:
         return _predictate;
     }
 
-    Status update(std::vector<Field>& values, const String& col_name, const TypeIndex type,
+    Status update(const Field& value, const String& col_name, const TypeIndex type,
                   bool is_reverse);
 
 private:
     mutable std::shared_mutex _rwlock;
-    std::vector<vectorized::Field> _orderby_extrems;
+    Field _orderby_extrem;
     std::shared_ptr<ColumnPredicate> _predictate {nullptr};
     TabletSchemaSPtr _tablet_schema;
     std::unique_ptr<MemPool> _predicate_mem_pool;

@@ -23,7 +23,7 @@ namespace doris {
 
 namespace vectorized {
 
-Status RuntimePredicate::update(std::vector<Field>& values, const String& col_name,
+Status RuntimePredicate::update(const Field& value, const String& col_name,
                                 const TypeIndex type, bool is_reverse) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
@@ -33,17 +33,18 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
 
     bool updated = false;
 
-    if (UNLIKELY(_orderby_extrems.size() == 0)) {
-        _orderby_extrems.push_back(values[0]);
+    // TODO it relies on Field() ctor default type Null
+    if (UNLIKELY(_orderby_extrem.is_null())) {
+        _orderby_extrem = value;
         updated = true;
     } else if (is_reverse) {
-        if (values[0] > _orderby_extrems[0]) {
-            _orderby_extrems[0] = values[0];
+        if (value > _orderby_extrem) {
+            _orderby_extrem = value;
             updated = true;
         }
     } else {
-        if (values[0] < _orderby_extrems[0]) {
-            _orderby_extrems[0] = values[0];
+        if (value < _orderby_extrem) {
+            _orderby_extrem = value;
             updated = true;
         }
     }
@@ -57,7 +58,7 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
     condition.__set_column_unique_id(_tablet_schema->column(col_name).unique_id());
     condition.__set_condition_op(is_reverse ? ">=" : "<=");
 
-    Field& field = _orderby_extrems[0];
+    Field& field = _orderby_extrem;
     String str_value;
     int scale = 0;
 

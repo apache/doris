@@ -104,9 +104,8 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 auto type = remove_nullable(col.type)->get_type_id();
                 bool is_reverse = sort_description[0].direction < 0;
                 auto query_ctx = _runtime_state->get_query_fragments_ctx();
-                std::vector<vectorized::Field> values = {new_top};
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(values, col.name,
-                                                                            type, is_reverse));
+                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top, col.name,
+                                                                          type, is_reverse));
                 old_top = std::move(new_top);
             }
         }
