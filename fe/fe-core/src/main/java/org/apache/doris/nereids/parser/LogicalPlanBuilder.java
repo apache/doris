@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
@@ -84,6 +85,7 @@ import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
+import org.apache.doris.nereids.DorisParser.SystemVariableContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
@@ -92,6 +94,7 @@ import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
+import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
@@ -139,6 +142,7 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -515,6 +519,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return expression;
             }
         });
+    }
+
+    @Override
+    public Expression visitSystemVariable(SystemVariableContext ctx) {
+        if (ctx.kind == null) {
+            return new VariableDesc(SetType.SESSION, ctx.identifier().getText());
+        }
+        switch (ctx.kind.getType()) {
+            case DorisParser.GLOBAL:
+                return new VariableDesc(SetType.GLOBAL, ctx.identifier().getText());
+            case DorisParser.SESSION:
+                return new VariableDesc(SetType.SESSION, ctx.identifier().getText());
+            default:
+                throw new ParseException("Unsupported system variable: " + ctx.getText(), ctx);
+        }
+    }
+
+    @Override
+    public Expression visitUserVariable(UserVariableContext ctx) {
+        throw new ParseException("Unsupported user variable :" + ctx.getText(), ctx);
     }
 
     /**
