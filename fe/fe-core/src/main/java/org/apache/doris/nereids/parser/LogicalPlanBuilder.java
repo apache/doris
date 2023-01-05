@@ -573,9 +573,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression right = getExpression(ctx.right);
 
             switch (ctx.operator.getType()) {
+                case DorisParser.LOGICALAND:
                 case DorisParser.AND:
                     return new And(left, right);
                 case DorisParser.OR:
+                case DorisParser.CONCAT_PIPE:
                     return new Or(left, right);
                 default:
                     throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);

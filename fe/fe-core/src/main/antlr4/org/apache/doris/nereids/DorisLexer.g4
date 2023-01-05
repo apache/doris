@@ -413,6 +413,7 @@ SLASH: '/';
 PERCENT: '%';
 TILDE: '~';
 AMPERSAND: '&';
+LOGICALAND: '&&';
 PIPE: '|';
 CONCAT_PIPE: '||';
 HAT: '^';
