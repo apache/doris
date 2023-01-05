@@ -519,6 +519,7 @@ nonReserved
     | LAST
     | LAZY
     | LEADING
+    | LEFT
     | LIKE
     | ILIKE
     | LIMIT
@@ -591,6 +592,7 @@ nonReserved
     | RESTRICT
     | REVOKE
     | REWRITTEN
+    | RIGHT
     | RLIKE
     | ROLE
     | ROLES
