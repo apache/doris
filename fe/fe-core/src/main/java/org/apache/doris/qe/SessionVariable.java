@@ -254,6 +254,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
+    public static final String IGNORE_UNSUPPORTED_COLUMN = "ignore_unsupported_column";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -652,6 +654,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
+
+    // If set to true, the query process will ignore columns with "UNSUPPORTED" type.
+    // If set to false, when querying unsupported type column, error will be thrown.
+    @VariableMgr.VarAttr(name = IGNORE_UNSUPPORTED_COLUMN, needForward = true)
+    public boolean ignoreUnsupportedColumn = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1317,6 +1324,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
+    }
+
+    public boolean ignoreUnsupportedColumn() {
+        return ignoreUnsupportedColumn;
     }
 
     /**
