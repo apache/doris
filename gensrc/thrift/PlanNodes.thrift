@@ -370,8 +370,16 @@ struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
-struct TMetaScanRange {
+enum TIcebergMetadataType {
+  SNAPSHOTS = 0,
+}
 
+struct TIcebergMetadataParams {
+  1: optional TIcebergMetadataType metadata_type
+}
+
+struct TMetaScanRange {
+  1: optional TIcebergMetadataParams iceberg_params
 }
 
 // Specification of an individual data range which is held in its entirety

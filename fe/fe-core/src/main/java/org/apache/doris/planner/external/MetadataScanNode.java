@@ -26,6 +26,8 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
+import org.apache.doris.thrift.TIcebergMetadataParams;
+import org.apache.doris.thrift.TIcebergMetadataType;
 import org.apache.doris.thrift.TMetaScanNode;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -79,22 +81,28 @@ public class MetadataScanNode extends ScanNode {
     private void buildScanRanges() {
         if (tvf.getMetaType() == MetadataTableValuedFunction.MetaType.ICEBERG) {
             IcebergTableValuedFunction icebergTvf = (IcebergTableValuedFunction) tvf;
-            TScanRangeLocations locations = createTvfLocations(icebergTvf);
+            // todo: split
+            TScanRangeLocations locations = createIcebergTvfLocations(icebergTvf);
             scanRangeLocations.add(locations);
         }
     }
 
-    private TScanRangeLocations createTvfLocations(IcebergTableValuedFunction icebergTvf) {
-        TScanRangeLocations result = new TScanRangeLocations();
+    private TScanRangeLocations createIcebergTvfLocations(IcebergTableValuedFunction icebergTvf) {
         TScanRange scanRange = new TScanRange();
         TMetaScanRange metaScanRange = new TMetaScanRange();
+        // set iceberg metadata params
+        TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
+        int metadataType = icebergTvf.getMetaQueryType().ordinal();
+        icebergMetadataParams.setMetadataType(TIcebergMetadataType.findByValue(metadataType));
+        metaScanRange.setIcebergParams(icebergMetadataParams);
         scanRange.setMetaScanRange(metaScanRange);
-
+        // set location
         TScanRangeLocation location = new TScanRangeLocation();
         Backend backend = backendPolicy.getNextBe();
         location.setBackendId(backend.getId());
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
 
+        TScanRangeLocations result = new TScanRangeLocations();
         result.addToLocations(location);
         result.setScanRange(scanRange);
         return result;

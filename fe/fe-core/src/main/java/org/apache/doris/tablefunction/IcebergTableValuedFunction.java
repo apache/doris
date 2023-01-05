@@ -35,6 +35,8 @@ import java.util.Map;
  */
 public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
 
+    public enum MetadataType { SNAPSHOTS }
+
     public static final String NAME = "iceberg_meta";
     private static final String TABLE = "table";
     private static final String QUERY_TYPE = "query_type";
@@ -50,7 +52,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             .add(SNAPSHOTS)
             .build();
 
-    private final String queryType;
+    private final MetadataType queryType;
     private final TableName tableName;
 
     public IcebergTableValuedFunction(Map<String, String> params) throws AnalysisException {
@@ -68,15 +70,16 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         if (tableName == null || queryType == null) {
             throw new AnalysisException("Invalid iceberg metadata query");
         }
-        if (!SUPPORTED_QUERY_TYPES.contains(queryType)) {
-            throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
-        }
         String[] names = tableName.split("\\.");
         if (names.length != 3) {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
         }
         this.tableName = new TableName(names[0], names[1], names[2]);
-        this.queryType = queryType;
+        try {
+            this.queryType = MetadataType.valueOf(queryType.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
+        }
     }
 
     @Override
@@ -88,14 +91,14 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         return tableName;
     }
 
-    public String getMetaQueryType() {
+    public MetadataType getMetaQueryType() {
         return queryType;
     }
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         List<Column> resColumns = new ArrayList<>();
-        if (queryType.equals(SNAPSHOTS)) {
+        if (queryType == MetadataType.SNAPSHOTS) {
             resColumns.add(new Column("committed_at", PrimitiveType.STRING, false));
             resColumns.add(new Column("snapshot_id", PrimitiveType.BIGINT, false));
             resColumns.add(new Column("parent_id", PrimitiveType.BIGINT, false));

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
@@ -47,6 +48,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -85,6 +87,7 @@ import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TIcebergMetadataType;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -100,6 +103,7 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -131,11 +135,17 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1008,14 +1018,67 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TFetchSchemaTableDataResult getIcebergMetadataTable(TFetchSchemaTableDataRequest request) {
+        if (!request.isSetMetadaTableParams()) {
+            return errorResult("Metadata table params is not set. ");
+        }
+        TMetadataTableRequestParams params = request.getMetadaTableParams();
+        if (!params.isSetIcebergMetadataParams()) {
+            return errorResult("Iceberg metadata params is not set. ");
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+                .getCatalog(params.getCatalog());
+        org.apache.iceberg.Table table;
+        try {
+            table = getIcebergTable(catalog, params.getTable(), params.getDatabase());
+        } catch (MetaNotFoundException e) {
+            return errorResult(e.getMessage());
+        }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        TRow trow = new TRow();
-        // iceberg api
-        dataBatch.add(trow);
+        TIcebergMetadataType metadataType = params.getIcebergMetadataParams().getMetadataType();
+        switch (metadataType) {
+            case SNAPSHOTS:
+                for (Snapshot snapshot : table.snapshots()) {
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setLongVal(snapshot.timestampMillis()));
+                    trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
+                    trow.addToColumnValue(new TCell().setLongVal(snapshot.parentId()));
+                    trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
+                    trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
+                    dataBatch.add(trow);
+                }
+                break;
+            default:
+                return errorResult("Unsupported metadata inspect type: " + metadataType);
+        }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    @NotNull
+    private TFetchSchemaTableDataResult errorResult(String msg) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
+        result.status.addToErrorMsgs(msg);
+        return result;
+    }
+
+    private org.apache.iceberg.Table getIcebergTable(HMSExternalCatalog catalog, String db, String tbl)
+                throws MetaNotFoundException {
+        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> properties = catalog.getCatalogProperty().getHadoopProperties();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        hiveCatalog.setConf(conf);
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, catalog.getHiveMetastoreUris());
+        catalogProperties.put("uri", catalog.getHiveMetastoreUris());
+        hiveCatalog.initialize("hive", catalogProperties);
+        return hiveCatalog.loadTable(TableIdentifier.of(db, tbl));
     }
 
     private TFetchSchemaTableDataResult getBackendsSchemaTable(TFetchSchemaTableDataRequest request) {
