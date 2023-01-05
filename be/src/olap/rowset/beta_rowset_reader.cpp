@@ -227,7 +227,9 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (_empty) return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+    if (_empty) {
+        return Status::Error<END_OF_FILE>();
+    }
     
     do {
         auto s = _iterator->next_batch(block);
