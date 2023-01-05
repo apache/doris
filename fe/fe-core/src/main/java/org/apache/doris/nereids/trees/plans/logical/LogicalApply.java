@@ -101,7 +101,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     }
 
     public boolean alreadyExecutedEliminateFilter() {
-        return isIn() && correlationFilter.isPresent();
+        return correlationFilter.isPresent();
     }
 
     @Override

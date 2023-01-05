@@ -52,8 +52,8 @@ public class PushApplyUnderProject extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalApply(group(), logicalProject(any()))
                 .when(LogicalApply::isCorrelated)
-                .whenNot(apply -> apply.right().child() instanceof LogicalFilter
-                        && apply.alreadyExecutedEliminateFilter())
+                .whenNot(apply -> apply.right().child() instanceof LogicalFilter && apply.isIn())
+                .whenNot(LogicalApply::alreadyExecutedEliminateFilter)
                 .then(apply -> {
                     LogicalProject<Plan> project = apply.right();
                     LogicalApply newCorrelate = new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
