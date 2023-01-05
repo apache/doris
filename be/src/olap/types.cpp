@@ -173,8 +173,8 @@ const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
     type_infos.reserve(field_types.size());
     for(FieldType& type : field_types) {
         if (is_scalar_type(type)) {
-            type_infos.push_back(std::move(
-                    create_static_type_info_ptr(get_scalar_type_info(type))));
+            type_infos.push_back(
+                    std::move(create_static_type_info_ptr(get_scalar_type_info(type))));
         } else {
             // TODO(xy): Not supported nested complex type now
         }

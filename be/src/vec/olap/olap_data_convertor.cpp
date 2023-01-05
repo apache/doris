@@ -19,8 +19,8 @@
 
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_struct.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_struct.h"

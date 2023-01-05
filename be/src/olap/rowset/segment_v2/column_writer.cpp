@@ -618,8 +618,7 @@ StructColumnWriter::StructColumnWriter(
         const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
         ScalarColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
-         _opts(opts) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
         _sub_column_writers.push_back(std::move(sub_column_writer));
     }
