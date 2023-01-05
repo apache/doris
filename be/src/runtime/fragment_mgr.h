@@ -110,8 +110,7 @@ public:
     void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe,
                   bool enable_pipeline_engine);
 
-    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id,
-                                                 bool enable_pipeline_engine);
+    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
