@@ -509,6 +509,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
     TUniqueId fragment_instance_id;
     fragment_instance_id.hi = request->fragment_instance_id().hi();
     fragment_instance_id.lo = request->fragment_instance_id().lo();
+
     auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
@@ -531,6 +532,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
     TUniqueId fragment_instance_id;
     fragment_instance_id.hi = request->fragment_instance_id().hi();
     fragment_instance_id.lo = request->fragment_instance_id().lo();
+
     auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
@@ -548,6 +550,7 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
     TUniqueId fragment_instance_id;
     fragment_instance_id.hi = request->fragment_instance_id().hi();
     fragment_instance_id.lo = request->fragment_instance_id().lo();
+
     auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);

@@ -81,6 +81,7 @@ public class S3ResourceTest {
         s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", s3Bucket);
+        s3Properties.put("s3_validity_check", "false");
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
@@ -115,6 +116,7 @@ public class S3ResourceTest {
         s3Properties.put("AWS_MAX_CONNECTIONS", "100");
         s3Properties.put("AWS_REQUEST_TIMEOUT_MS", "2000");
         s3Properties.put("AWS_CONNECTION_TIMEOUT_MS", "2000");
+        s3Properties.put("s3_validity_check", "false");
         stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
 
@@ -167,6 +169,7 @@ public class S3ResourceTest {
         properties.put("AWS_ACCESS_KEY", "xxx");
         properties.put("AWS_SECRET_KEY", "yyy");
         properties.put("AWS_BUCKET", "test-bucket");
+        properties.put("s3_validity_check", "false");
         S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);

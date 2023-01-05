@@ -36,6 +36,8 @@ public class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("IA", "IA");
         assertRewriteAfterTypeCoercion("IA + 1", "IA + 1");
         assertRewriteAfterTypeCoercion("IA + IB", "IA + IB");
+        assertRewriteAfterTypeCoercion("1 * 3 / IA", "(3.0 / cast(IA as DOUBLE))");
+        assertRewriteAfterTypeCoercion("1 - IA", "1 - IA");
         assertRewriteAfterTypeCoercion("1 + 1", "2");
         assertRewriteAfterTypeCoercion("IA + 2 - 1", "cast(IA as bigint) + 1");
         assertRewriteAfterTypeCoercion("IA + 2 - (1 - 1)", "cast(IA as bigint) + 2");

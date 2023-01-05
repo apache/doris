@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BitmapFilterPredicate;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotId;
@@ -335,6 +336,9 @@ public final class RuntimeFilter {
             Preconditions.checkNotNull(targetSlots);
             if (targetSlots.isEmpty()) {
                 return null;
+            }
+            while (targetExpr instanceof CastExpr && targetExpr.getChild(0).getType().isIntegerType()) {
+                targetExpr = targetExpr.getChild(0);
             }
 
             RuntimeFilter runtimeFilter =

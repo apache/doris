@@ -1159,8 +1159,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     Optional.ofNullable(iter.getCooldownTtl()).ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
                     rEntry.setCooldownTtl(ttlCoolDown[0]);
 
+                    //timestamp : ms -> s
                     rEntry.setCooldownDatetime(
-                            iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 100);
+                            iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 1000);
 
                     Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
                     TS3StorageParam s3Info = new TS3StorageParam();

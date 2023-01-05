@@ -115,13 +115,13 @@ Status VerticalBetaRowsetWriter::_flush_columns(
     return Status::OK();
 }
 
-Status VerticalBetaRowsetWriter::flush_columns() {
+Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
     if (_segment_writers.empty()) {
         return Status::OK();
     }
 
     DCHECK(_segment_writers[_cur_writer_idx]);
-    RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
+    RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], is_key));
     _cur_writer_idx = 0;
     return Status::OK();
 }

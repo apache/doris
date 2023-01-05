@@ -48,11 +48,12 @@ suite("use_default_storage_policy") {
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_SECRET_KEY" = "aaaa",
                 "AWS_ACCESS_KEY" = "bbba",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
         def create_succ_1 = try_sql """

@@ -116,6 +116,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+        if (_pipe != nullptr) {
+            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        }
         _cancel_reason = reason;
         _cancel_msg = msg;
         // To notify wait_for_start()
@@ -270,8 +273,9 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
         RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
-
-    _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    if (_sink) {
+        _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    }
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 

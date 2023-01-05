@@ -32,6 +32,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -140,6 +141,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -447,6 +449,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .build();
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
+
+        // Use column with the same name in selected materialized index meta for slot desc,
+        // to get the correct col unique id.
+        if (olapScan.getSelectedIndexId() != olapTable.getBaseIndexId()) {
+            Map<String, Column> indexCols = olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
+                    .stream()
+                    .collect(Collectors.toMap(Column::getName, Function.identity()));
+            tupleDescriptor.getSlots().forEach(slotDesc -> {
+                Column column = slotDesc.getColumn();
+                if (column != null && indexCols.containsKey(column.getName())) {
+                    slotDesc.setColumn(indexCols.get(column.getName()));
+                }
+            });
+        }
+
         tupleDescriptor.setTable(olapTable);
 
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
@@ -1422,7 +1439,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot);
+            context.createSlotDesc(tupleDescriptor, (SlotReference) slot, table);
         }
         return tupleDescriptor;
     }
@@ -1535,9 +1552,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         DistributionSpecHash leftDistributionSpec
                 = (DistributionSpecHash) physicalHashJoin.left().getPhysicalProperties().getDistributionSpec();
         Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(physicalHashJoin);
-        List<ExprId> rightPartitionExprIds = Lists.newArrayList(onClauseUsedSlots.second);
-        for (int i = 0; i < onClauseUsedSlots.first.size(); i++) {
-            int idx = leftDistributionSpec.getExprIdToEquivalenceSet().get(onClauseUsedSlots.first.get(i));
+        List<ExprId> rightPartitionExprIds = Lists.newArrayList(leftDistributionSpec.getOrderedShuffledColumns());
+        for (int i = 0; i < leftDistributionSpec.getOrderedShuffledColumns().size(); i++) {
+            int idx = leftDistributionSpec.getExprIdToEquivalenceSet()
+                    .get(leftDistributionSpec.getOrderedShuffledColumns().get(i));
             rightPartitionExprIds.set(idx, onClauseUsedSlots.second.get(i));
         }
         // assemble fragment

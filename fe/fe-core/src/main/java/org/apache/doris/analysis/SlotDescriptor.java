@@ -325,13 +325,15 @@ public class SlotDescriptor {
     }
 
     public String getExplainString(String prefix) {
-        StringBuilder builder = new StringBuilder();
-        String colStr = (column == null ? "null" : column.getName());
-        String typeStr = (type == null ? "null" : type.toString());
-        builder.append(prefix).append("SlotDescriptor{")
-                .append("id=").append(id).append(", col=").append(colStr).append(", type=").append(typeStr)
-                .append(", nullable=").append(isNullable).append("}");
-        return builder.toString();
+        return new StringBuilder()
+                .append(prefix).append("SlotDescriptor{")
+                .append("id=").append(id)
+                .append(", col=").append(column == null ? "null" : column.getName())
+                .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
+                .append(", type=").append(type == null ? "null" : type.toString())
+                .append(", nullable=").append(isNullable)
+                .append("}")
+                .toString();
     }
 
     public boolean isScanSlot() {

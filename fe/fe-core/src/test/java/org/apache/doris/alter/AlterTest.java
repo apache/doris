@@ -140,7 +140,7 @@ public class AlterTest {
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
                         + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
-                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\",  \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
         createRemoteStorageResource(
@@ -149,7 +149,7 @@ public class AlterTest {
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
                         + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
-                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\", \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
         createRemoteStoragePolicy(

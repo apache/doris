@@ -152,7 +152,8 @@ template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType
 Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_ctx,
                                                      ConstNullMapPtr null_map,
                                                      MutableBlock& mutable_block,
-                                                     Block* output_block, size_t probe_rows) {
+                                                     Block* output_block, size_t probe_rows,
+                                                     bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
@@ -244,14 +245,29 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
             if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                           JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-                if (!find_result.is_found()) {
+                if (is_mark_join) {
                     ++current_offset;
+                    assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
+                            .get_data()
+                            .template push_back(!find_result.is_found());
+                } else {
+                    if (!find_result.is_found()) {
+                        ++current_offset;
+                    }
                 }
             } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-                if (find_result.is_found()) {
+                if (is_mark_join) {
                     ++current_offset;
+                    assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
+                            .get_data()
+                            .template push_back(find_result.is_found());
+                } else {
+                    if (find_result.is_found()) {
+                        ++current_offset;
+                    }
                 }
             } else {
+                DCHECK(!is_mark_join);
                 if (find_result.is_found()) {
                     auto& mapped = find_result.get_mapped();
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
@@ -335,7 +351,7 @@ template <int JoinOpType>
 template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         HashTableType& hash_table_ctx, ConstNullMapPtr null_map, MutableBlock& mutable_block,
-        Block* output_block, size_t probe_rows) {
+        Block* output_block, size_t probe_rows, bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
@@ -499,6 +515,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                      last_probe_index, probe_index - last_probe_index,
                                      all_match_one, true);
         }
+        auto num_cols = mutable_block.columns();
         output_block->swap(mutable_block.to_block());
 
         // dispose the other join conjunct exec
@@ -569,6 +586,23 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                         filter_map.push_back(false);
                     }
                 }
+                if (is_mark_join) {
+                    auto& matched_map = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                                                *(output_block->get_by_position(num_cols - 1)
+                                                          .column->assume_mutable()))
+                                                .get_data();
+
+                    // For mark join, we only filter rows which have duplicate join keys.
+                    // And then, we set matched_map to the join result to do the mark join's filtering.
+                    for (size_t i = 1; i < column->size(); ++i) {
+                        if (!same_to_prev[i]) {
+                            matched_map.push_back(filter_map[i - 1]);
+                            filter_map[i - 1] = true;
+                        }
+                    }
+                    matched_map.push_back(filter_map[filter_map.size() - 1]);
+                    filter_map[filter_map.size() - 1] = true;
+                }
 
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
@@ -596,13 +630,29 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     }
                 }
 
-                // Same to the semi join, but change the last value to opposite value
-                for (int i = 1; i < same_to_prev.size(); ++i) {
-                    if (!same_to_prev[i]) {
-                        filter_map[i - 1] = !filter_map[i - 1];
+                if (is_mark_join) {
+                    auto& matched_map =
+                            assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                                    *(output_block->get_by_position(output_block->columns() - 1)
+                                              .column->assume_mutable()))
+                                    .get_data();
+                    for (int i = 1; i < same_to_prev.size(); ++i) {
+                        if (!same_to_prev[i]) {
+                            matched_map.push_back(!filter_map[i - 1]);
+                            filter_map[i - 1] = true;
+                        }
                     }
+                    matched_map.push_back(filter_map[filter_map.size() - 1]);
+                    filter_map[filter_map.size() - 1] = true;
+                } else {
+                    // Same to the semi join, but change the last value to opposite value
+                    for (int i = 1; i < same_to_prev.size(); ++i) {
+                        if (!same_to_prev[i]) {
+                            filter_map[i - 1] = !filter_map[i - 1];
+                        }
+                    }
+                    filter_map[same_to_prev.size() - 1] = !filter_map[same_to_prev.size() - 1];
                 }
-                filter_map[same_to_prev.size() - 1] = !filter_map[same_to_prev.size() - 1];
 
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
@@ -634,7 +684,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                               JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
                     orig_columns = right_col_idx;
                 }
-                Block::filter_block(output_block, result_column_id, orig_columns);
+                if (is_mark_join) {
+                    Block::filter_block(output_block, result_column_id, output_block->columns());
+                } else {
+                    Block::filter_block(output_block, result_column_id, orig_columns);
+                }
             }
         }
 
@@ -743,36 +797,44 @@ struct ExtractType<T(U)> {
     template Status                                                                           \
     ProcessHashTableProbe<JoinOpType>::do_process<false, false, ExtractType<void(T)>::Type>(  \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
     template Status                                                                           \
     ProcessHashTableProbe<JoinOpType>::do_process<false, true, ExtractType<void(T)>::Type>(   \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
     template Status                                                                           \
     ProcessHashTableProbe<JoinOpType>::do_process<true, false, ExtractType<void(T)>::Type>(   \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
     template Status                                                                           \
     ProcessHashTableProbe<JoinOpType>::do_process<true, true, ExtractType<void(T)>::Type>(    \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
                                                                                               \
     template Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts<  \
             false, false, ExtractType<void(T)>::Type>(                                        \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
     template Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts<  \
             false, true, ExtractType<void(T)>::Type>(                                         \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
     template Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts<  \
             true, false, ExtractType<void(T)>::Type>(                                         \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
     template Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts<  \
             true, true, ExtractType<void(T)>::Type>(                                          \
             ExtractType<void(T)>::Type & hash_table_ctx, ConstNullMapPtr null_map,            \
-            MutableBlock & mutable_block, Block * output_block, size_t probe_rows);           \
+            MutableBlock & mutable_block, Block * output_block, size_t probe_rows,            \
+            bool is_mark_join);                                                               \
                                                                                               \
     template Status                                                                           \
     ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable<ExtractType<void(T)>::Type>( \

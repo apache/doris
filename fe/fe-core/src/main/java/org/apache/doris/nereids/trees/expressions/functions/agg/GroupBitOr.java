@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -36,8 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** min agg function. */
-public class GroupBitOr extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExplicitlyCastableSignature {
+public class GroupBitOr extends NullableAggregateFunction implements UnaryExpression, ExplicitlyCastableSignature {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
@@ -47,7 +45,11 @@ public class GroupBitOr extends AggregateFunction
     );
 
     public GroupBitOr(Expression child) {
-        super("group_bit_or", child);
+        this(child, false);
+    }
+
+    private GroupBitOr(Expression child, boolean isAlwaysNullable) {
+        super("group_bit_or", isAlwaysNullable, child);
     }
 
     @Override
@@ -63,12 +65,17 @@ public class GroupBitOr extends AggregateFunction
     @Override
     public GroupBitOr withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitOr(children.get(0));
+        return new GroupBitOr(children.get(0), isAlwaysNullable);
     }
 
     @Override
     public GroupBitOr withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         return withChildren(children);
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new GroupBitOr(children.get(0), isAlwaysNullable);
     }
 
     @Override

@@ -521,7 +521,7 @@ public class ExportJob implements Writable {
         return whereExpr;
     }
 
-    public JobState getState() {
+    public synchronized JobState getState() {
         return state;
     }
 
@@ -651,11 +651,12 @@ public class ExportJob implements Writable {
     }
 
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
-        releaseSnapshotPaths();
         if (msg != null) {
             failMsg = new ExportFailMsg(type, msg);
         }
-        updateState(ExportJob.JobState.CANCELLED, false);
+        if (updateState(ExportJob.JobState.CANCELLED, false)) {
+            releaseSnapshotPaths();
+        }
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState) {
@@ -663,6 +664,9 @@ public class ExportJob implements Writable {
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState, boolean isReplay) {
+        if (isFinalState()) {
+            return false;
+        }
         state = newState;
         switch (newState) {
             case PENDING:
@@ -684,6 +688,10 @@ public class ExportJob implements Writable {
             Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
+    }
+
+    public synchronized boolean isFinalState() {
+        return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
     }
 
     public Status releaseSnapshotPaths() {
