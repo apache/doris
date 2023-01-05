@@ -64,6 +64,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(join -> JoinReorderCommon.checkProject(join.left()))
                 .then(topJoin -> {
 
                     /* ********** init ********** */
