@@ -995,18 +995,36 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
+
+            // according to mysql
+            // having clause should use column name inside group by clause, prior to alias.
+            // case1: having clause use column name table.v1, because v1 inside group by clause
+            //     select id, sum(v1) v1 from table group by id,v1 having(v1>1);
+            // case2: having clause use alias name v2, because v2 is not inside group by clause
+            //     select id, sum(v1) v1, sum(v2) v2 from table group by id,v1 having(v1>1 AND v2>1);
+            // case3: having clause use alias name v, because table do not have column name v
+            //     select id, floor(v1) v, sum(v2) v2 from table group by id,v having(v>1 AND v2>1);
             if (groupByClause != null) {
-                // according to mysql
-                // if there is a group by clause, the having clause should use column name not alias
-                // this is the same as group by clause
-                try {
-                    // use col name from tableRefs first
-                    havingClauseAfterAnaylzed = havingClause.clone();
-                    havingClauseAfterAnaylzed.analyze(analyzer);
-                } catch (AnalysisException ex) {
-                    // then consider alias name
-                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                ExprSubstitutionMap excludeGroupByaliasSMap = aliasSMap.clone();
+                // according to case2, maybe some having slots inside group by clause, some do not
+                List<Expr> groupBySlots = Lists.newArrayList();
+                for (Expr expr : groupByClause.getGroupingExprs()) {
+                    expr.collect(SlotRef.class, groupBySlots);
                 }
+                for (Expr expr : groupBySlots) {
+                    if (excludeGroupByaliasSMap.get(expr) == null) {
+                        continue;
+                    }
+                    try {
+                        // try to use column name firstly
+                        expr.clone().analyze(analyzer);
+                        // analyze success means column name exist, do not use alias name
+                        excludeGroupByaliasSMap.removeByLhsExpr(expr);
+                    } catch (AnalysisException ex) {
+                        // according to case3, column name do not exist, keep alias name inside alias map
+                    }
+                }
+                havingClauseAfterAnaylzed = havingClause.substitute(excludeGroupByaliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
