@@ -174,7 +174,7 @@ const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
     for(FieldType& type : field_types) {
         if (is_scalar_type(type)) {
             type_infos.push_back(std::move(
-                    create_static_type_info_ptr(get_scalar_type_info(type)));
+                    create_static_type_info_ptr(get_scalar_type_info(type))));
         } else {
             // TODO(xy): Not supported nested complex type now
         }
@@ -250,21 +250,20 @@ TypeInfoPtr clone_type_info(const TypeInfo* type_info) {
     if (is_scalar_type(type_info->type())) {
         return create_static_type_info_ptr(type_info);
     } else {
-        switch (type_info->type()) {
-        case OLAP_FIELD_TYPE_STRUCT:
+        auto type = type_info->type();
+        if (type == OLAP_FIELD_TYPE_STRUCT) {
             const auto struct_type_info = dynamic_cast<const StructTypeInfo*>(type_info);
             std::vector<TypeInfoPtr> clone_type_infos;
-            clone_type_infos.reserve(struct_type_info->type_infos().size());
-            for (TypeInfoPtr& sub_type_info : struct_type_info->type_infos()) {
-                clone_type_infos.push_back(std::move(clone_type_info(sub_type_info.get())));
+            const std::vector<TypeInfoPtr>* sub_type_infos = struct_type_info->type_infos();
+            clone_type_infos.reserve(sub_type_infos->size());
+            for (size_t i = 0; i < sub_type_infos->size(); i++) {
+                clone_type_infos.push_back(std::move(clone_type_info((*sub_type_infos)[i].get())));
             }
             return create_dynamic_type_info_ptr(new StructTypeInfo(clone_type_infos));
-        case OLAP_FIELD_TYPE_ARRAY:
+        } else {
             const auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
             return create_dynamic_type_info_ptr(
                     new ArrayTypeInfo(clone_type_info(array_type_info->item_type_info())));
-        default:
-            return nullptr;
         }
     }
 }

@@ -282,6 +282,7 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
+    Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -298,7 +299,7 @@ public:
         }
         return Status::OK();
     }
-
+    Status write_inverted_index() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("struct not support bloom filter index");
@@ -313,7 +314,7 @@ private:
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _sub_column_writers;
     ColumnWriterOptions _opts;
-}
+};
 
 class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:

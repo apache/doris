@@ -145,7 +145,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.need_bitmap_index = false;
 
                 TabletColumn null_column = TabletColumn(
-                        OLAP_FIELD_AGGREGATION_NONE, null_type, length_options.meta->is_nullable(),
+                        OLAP_FIELD_AGGREGATION_NONE, null_type, null_options.meta->is_nullable(),
                         null_options.meta->unique_id(), null_options.meta->length());
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
@@ -655,14 +655,15 @@ Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_
 }
 
 Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    const auto data_cursor = reinterpret_cast<const void**>(*ptr);
-    const auto null_map_cursor = data_cursor + _num_sub_column_writers;
+    auto data_cursor = reinterpret_cast<const void**>(ptr);
+    auto null_map_cursor = data_cursor + _num_sub_column_writers;
     for (auto& column_writer : _sub_column_writers) {
         RETURN_IF_ERROR(column_writer->append(
                 reinterpret_cast<const uint8_t*>(*null_map_cursor), *data_cursor, num_rows));
         data_cursor++;
         null_map_cursor++;
     }
+    return Status::OK();
 }
 
 uint64_t StructColumnWriter::estimate_buffer_size() {
@@ -671,6 +672,7 @@ uint64_t StructColumnWriter::estimate_buffer_size() {
         size += column_writer->estimate_buffer_size();
     }
     size += is_nullable() ? _null_writer->estimate_buffer_size() : 0;
+    return Status::OK();
 }
 
 Status StructColumnWriter::finish() {
@@ -694,7 +696,6 @@ Status StructColumnWriter::write_data() {
 }
 
 Status StructColumnWriter::write_ordinal_index() {
-    RETURN_IF_ERROR(_offset_writer->write_ordinal_index());
     for (auto& column_writer : _sub_column_writers) {
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }

@@ -52,7 +52,7 @@ public:
 
     // size_t get_byte_size(const TypeDescriptor& type) const;
 
-    const void** values() const { return _values; }
+    const void** values() const { return const_cast<const void**>(_values); }
     void** mutable_values() { return _values; }
     void set_values(void** values) { _values = values; }
     const void* child_value(uint32_t index) const { return _values[index]; }

@@ -31,6 +31,7 @@
 #include "util/rle_encoding.h" // for RleDecoder
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_struct.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
@@ -57,9 +58,11 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
                     new ColumnReader(opts, meta, num_rows, file_reader));
             struct_reader->_sub_readers.resize(meta.children_columns_size());
             for (size_t i = 0; i < meta.children_columns_size(); i++) {
+                std::unique_ptr<ColumnReader> sub_reader;
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
                                                      meta.children_columns(i).num_rows(), file_reader,
-                                                     &_sub_readers[i]));
+                                                     &sub_reader));
+                struct_reader->_sub_readers[i] = std::move(sub_reader);
             }
             *reader = std::move(struct_reader);
             return Status::OK();
@@ -415,7 +418,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         switch (type) {
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             std::vector<ColumnIterator*> sub_column_iterators;
-            size_t child_size = is_nullable() ? _sub_readers.size() - 1, _sub_readers.size();
+            size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
             sub_column_iterators.resize(child_size);
             for (size_t i = 0; i < child_size; i++) {
                 RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterators[i]));
@@ -501,6 +504,8 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
         RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         DCHECK(num_read == *n);
     }
+
+    return Status::OK();
 }
 
 Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {

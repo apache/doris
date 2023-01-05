@@ -19,9 +19,11 @@
 
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 
@@ -115,10 +117,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Float64>>();
     }
     case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-        const std::vector<OlapColumnDataConvertorBaseUPtr>& sub_convertors;
-        for (uint32_t i = 0; i < column->get_subtype_count(); i++) {
-            const TabletColumn& sub_column = column->get_sub_column(i);
-            sub_convertors.push_back(std::move(create_olap_column_data_convertor(sub_column)));
+        std::vector<OlapColumnDataConvertorBaseUPtr> sub_convertors;
+        for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
+            const TabletColumn& sub_column = column.get_sub_column(i);
+            sub_convertors.emplace_back(create_olap_column_data_convertor(sub_column));
         }
         return std::make_unique<OlapColumnDataConvertorStruct>(sub_convertors);
     }
@@ -654,7 +656,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorStruct::set_source_column(
 }
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorStruct::get_data() const {
-    return _results.data();
+    return _results[0];
 }
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorStruct::get_data_at(
@@ -682,16 +684,17 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
     assert(column_struct);
     assert(data_type_struct);
 
-    auto data_cursor = reinterpret_cast<void**>(_results.data());
-    auto null_map_cursor = column_cursor + column_struct->tuple_size();
-    for (size_t i = 0; i < column_struct->tuple_size(); i++) {
+    size_t data_size = column_struct->tuple_size();
+    size_t data_cursor = 0;
+    size_t null_map_cursor = data_cursor + data_size;
+    for (size_t i = 0; i < data_size; i++) {
         ColumnPtr sub_column = column_struct->get_column_ptr(i);
         DataTypePtr sub_type = data_type_struct->get_element(i);
         ColumnWithTypeAndName sub_typed_column = {sub_column, sub_type, ""};
         _sub_convertors[i]->set_source_column(sub_typed_column, _row_pos, _num_rows);
         _sub_convertors[i]->convert_to_olap();
-        *data_cursor = _sub_convertors[i]->get_data();
-        *null_map_cursor = _sub_convertors[i]->get_nullmap();
+        _results[data_cursor] = _sub_convertors[i]->get_data();
+        _results[null_map_cursor] = _sub_convertors[i]->get_nullmap();
         data_cursor++;
         null_map_cursor++;
     }

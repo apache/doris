@@ -398,7 +398,7 @@ public:
         for (auto& column_iterator : _sub_column_iterators) {
             RETURN_IF_ERROR(column_iterator->seek_to_first());
         }
-        if (_array_reader->is_nullable()) {
+        if (_struct_reader->is_nullable()) {
             RETURN_IF_ERROR(_null_iterator->seek_to_first());
         }
         return Status::OK();
@@ -413,7 +413,7 @@ public:
 private:
     ColumnReader* _struct_reader;
     std::unique_ptr<ColumnIterator> _null_iterator;
-    std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators
+    std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {

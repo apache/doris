@@ -19,7 +19,6 @@
 
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -48,6 +47,7 @@ public:
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
+    OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
@@ -366,7 +366,7 @@ private:
                 _sub_convertors.push_back(std::move(sub_convertor));
             }
             size_t allocate_size = _sub_convertors.size() * 2;
-            _results.resize(sizeof(void*) * (allocate_size));
+            _results.resize(allocate_size);
         }
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
@@ -376,7 +376,7 @@ private:
 
     private:
         std::vector<OlapColumnDataConvertorBaseUPtr> _sub_convertors;
-        PaddedPODArray<char> _results;
+        std::vector<const void*> _results;
     };
 
     class OlapColumnDataConvertorArray
