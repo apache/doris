@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.ShowResultSet;
@@ -29,8 +30,11 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -53,26 +57,70 @@ public class AutoBucketUtilsTest {
     private ConnectContext connectContext;
 
     // // create backends by be num, disk num, disk capacity
-    private static void createBackends(int beNum, int diskNum, long diskCapacity) throws Exception {
+    private static void createClusterWithBackends(int beNum, int diskNum, long diskCapacity) throws Exception {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, beNum);
-
         // must set disk info, or the tablet scheduler won't work
         backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         for (Backend be : backends) {
-            Map<String, TDisk> backendDisks = Maps.newHashMap();
-            for (int i = 0; i < diskNum; ++i) {
-                TDisk disk = new TDisk();
-                disk.setRootPath("/home/doris/" + UUID.randomUUID().toString());
-                disk.setDiskTotalCapacity(diskCapacity);
-                disk.setDataUsedCapacity(0);
-                disk.setUsed(true);
-                disk.setDiskAvailableCapacity(disk.disk_total_capacity - disk.data_used_capacity);
-                disk.setPathHash(random.nextLong());
-                disk.setStorageMedium(TStorageMedium.HDD);
-                backendDisks.put(disk.getRootPath(), disk);
-            }
-            be.updateDisks(backendDisks);
+            setDiskInfos(diskNum, diskCapacity, be);
         }
+    }
+
+    private static ImmutableMap<Long, Backend> createBackends(int beNum, int diskNum, long diskCapacity)
+            throws Exception {
+        // must set disk info, or the tablet scheduler won't work
+        Map<Long, Backend> backends = Maps.newHashMap();
+        for (int i = 0; i < beNum; ++i) {
+            Backend be = new Backend(10000 + i, "127.0.0." + (i + 1), 9000 + i);
+            be.setAlive(true);
+            backends.put(be.getId(), be);
+        }
+        for (Backend be : backends.values()) {
+            setDiskInfos(diskNum, diskCapacity, be);
+        }
+        return ImmutableMap.copyOf(backends);
+    }
+
+    private static void setDiskInfos(int diskNum, long diskCapacity, Backend be) {
+        Map<String, TDisk> backendDisks = Maps.newHashMap();
+        for (int i = 0; i < diskNum; ++i) {
+            TDisk disk = new TDisk();
+            disk.setRootPath("/home/doris/" + UUID.randomUUID().toString());
+            disk.setDiskTotalCapacity(diskCapacity);
+            disk.setDataUsedCapacity(0);
+            disk.setUsed(true);
+            disk.setDiskAvailableCapacity(disk.disk_total_capacity - disk.data_used_capacity);
+            disk.setPathHash(random.nextLong());
+            disk.setStorageMedium(TStorageMedium.HDD);
+            backendDisks.put(disk.getRootPath(), disk);
+        }
+        be.updateDisks(backendDisks);
+    }
+
+    private void expectations(Env env, EditLog editLog, SystemInfoService systemInfoService,
+            ImmutableMap<Long, Backend> backends) {
+        new Expectations() {
+            {
+                Env.getCurrentSystemInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                systemInfoService.getBackendsInCluster(null);
+                minTimes = 0;
+                result = backends;
+
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getEditLog();
+                minTimes = 0;
+                result = editLog;
+
+                editLog.logBackendStateChange((Backend) any);
+                minTimes = 0;
+            }
+        };
     }
 
     @Before
@@ -162,7 +210,7 @@ public class AutoBucketUtilsTest {
                 + "\"disable_auto_compaction\" = \"false\"\n"
                 + ");";
 
-        createBackends(1, 1, 2000000000);
+        createClusterWithBackends(1, 1, 2000000000);
 
         createTable(sql);
         ShowResultSet showCreateTableResult = UtFrameUtils.showCreateTableByName(connectContext, tableName);
@@ -172,65 +220,83 @@ public class AutoBucketUtilsTest {
     }
 
     @Test
-    public void test100MB() throws Exception {
+    public void test100MB(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = AutoBucketUtils.SIZE_100MB;
-        createBackends(10, 3, 2000000000);
+        ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2000000000);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(1, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test500MB() throws Exception {
+    public void test500MB(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = 5 * AutoBucketUtils.SIZE_100MB;
-        createBackends(10, 3, 2000000000);
+        ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2000000000);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(1, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test1G() throws Exception {
+    public void test1G(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = AutoBucketUtils.SIZE_1GB;
-        createBackends(3, 2, 500 * AutoBucketUtils.SIZE_1GB);
+        ImmutableMap<Long, Backend> backends = createBackends(3, 2, 500 * AutoBucketUtils.SIZE_1GB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(2, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test100G() throws Exception {
+    public void test100G(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = 100 * AutoBucketUtils.SIZE_1GB;
-        createBackends(3, 2, 500 * AutoBucketUtils.SIZE_1GB);
+        ImmutableMap<Long, Backend> backends = createBackends(3, 2, 500 * AutoBucketUtils.SIZE_1GB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(20, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test500G_0() throws Exception {
+    public void test500G_0(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = 500 * AutoBucketUtils.SIZE_1GB;
-        createBackends(3, 1, AutoBucketUtils.SIZE_1TB);
+        ImmutableMap<Long, Backend> backends = createBackends(3, 1, AutoBucketUtils.SIZE_1TB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(63, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test500G_1() throws Exception {
+    public void test500G_1(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = 500 * AutoBucketUtils.SIZE_1GB;
-        createBackends(10, 3, 2 * AutoBucketUtils.SIZE_1TB);
+        ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2 * AutoBucketUtils.SIZE_1TB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(100, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test500G_2() throws Exception {
+    public void test500G_2(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = 500 * AutoBucketUtils.SIZE_1GB;
-        createBackends(1, 1, 100 * AutoBucketUtils.SIZE_1TB);
+        ImmutableMap<Long, Backend> backends = createBackends(1, 1, 100 * AutoBucketUtils.SIZE_1TB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(100, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test1T_0() throws Exception {
+    public void test1T_0(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
-        createBackends(10, 3, 2 * AutoBucketUtils.SIZE_1TB);
+        ImmutableMap<Long, Backend> backends = createBackends(10, 3, 2 * AutoBucketUtils.SIZE_1TB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(128, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 
     @Test
-    public void test1T_1() throws Exception {
+    public void test1T_1(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
-        createBackends(200, 7, 4 * AutoBucketUtils.SIZE_1TB);
+        ImmutableMap<Long, Backend> backends = createBackends(200, 7, 4 * AutoBucketUtils.SIZE_1TB);
+        expectations(env, editLog, systemInfoService, backends);
         Assert.assertEquals(200, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 }

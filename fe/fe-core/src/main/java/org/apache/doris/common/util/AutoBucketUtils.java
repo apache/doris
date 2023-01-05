@@ -54,7 +54,7 @@ public class AutoBucketUtils {
         int buckets = 0;
         for (Backend backend : backends.values()) {
             if (!backend.isLoadAvailable()) {
-                break;
+                continue;
             }
 
             ImmutableMap<String, DiskInfo> disks = backend.getDisks();
