@@ -35,6 +35,10 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    Status _fetch_metadata_batch();
+
+private:
+    std::vector<TRow> _batch_data;
 };
 } // namespace doris::vectorized
 

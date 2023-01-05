@@ -16,6 +16,12 @@
 // under the License.
 
 #include "vmeta_scanner.h"
+#include <gen_cpp/FrontendService_types.h>
+#include "gen_cpp/FrontendService.h"
+#include <gen_cpp/HeartbeatService_types.h>
+
+#include "runtime/client_cache.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris::vectorized {
 
@@ -25,6 +31,7 @@ VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, const Tup
 
 Status VMetaScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
+    _fetch_metadata_batch();
     return Status::OK();
 }
 
@@ -33,6 +40,32 @@ Status VMetaScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_p
 }
 
 Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    return Status::OK();
+}
+
+Status VMetaScanner::_fetch_metadata_batch() {
+    TFetchSchemaTableDataRequest request;
+    request.cluster_name = "";
+    request.__isset.cluster_name = true;
+    request.schema_table_name = TSchemaTableName::ICEBERG_TABLE_META;
+    request.__isset.schema_table_name = true;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    // TODO(ftw): if result will too large?
+    TFetchSchemaTableDataResult result;
+
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->fetchSchemaTableData(result, request);
+            },
+            config::txn_commit_rpc_timeout_ms));
+
+    Status status(result.status);
+    if (!status.ok()) {
+        LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
+        return status;
+    }
+    _batch_data = std::move(result.data_batch);
     return Status::OK();
 }
 
