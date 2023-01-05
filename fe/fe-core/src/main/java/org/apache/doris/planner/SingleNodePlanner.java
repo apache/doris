@@ -2063,7 +2063,7 @@ public class SingleNodePlanner {
             ojConjuncts = analyzer.getUnassignedSemiAntiJoinNoNullAwareConjuncts(innerRef);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
-        if (eqJoinConjuncts.isEmpty() || innerRef.isMark()) {
+        if (eqJoinConjuncts.isEmpty()) {
             NestedLoopJoinNode result =
                     new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
             List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);

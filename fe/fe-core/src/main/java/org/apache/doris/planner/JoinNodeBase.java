@@ -87,6 +87,10 @@ public abstract class JoinNodeBase extends PlanNode {
         }
     }
 
+    public boolean isMarkJoin() {
+        return innerRef != null && innerRef.isMark();
+    }
+
     public JoinOperator getJoinOp() {
         return joinOp;
     }
@@ -479,6 +483,10 @@ public abstract class JoinNodeBase extends PlanNode {
         // so need replace the outsmap in nullableTupleID
         replaceOutputSmapForOuterJoin();
         computeStats(analyzer);
+
+        if (isMarkJoin() && !joinOp.supportMarkJoin()) {
+            throw new UserException("Mark join is supported only for LEFT SEMI JOIN/LEFT ANTI JOIN/CROSS JOIN");
+        }
     }
 
     /**
