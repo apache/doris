@@ -74,4 +74,27 @@
     sql """
         DROP TABLE IF EXISTS `tb_holiday`;
     """
+
+    sql """ DROP TABLE IF EXISTS `test_having_alias_tb`; """
+    sql """
+         CREATE TABLE `test_having_alias_tb` (
+          `id` int(11) NULL,
+          `v1` bigint(20) NULL,
+          `v2` bigint(20) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+    sql """ INSERT INTO test_having_alias_tb values(1,1,1),(2,2,2),(2,3,3); """
+    qt_case1 """ SELECT id, sum(v1) v1 FROM test_having_alias_tb GROUP BY id,v1 having(v1>1) ORDER BY id,v1; """
+    qt_case2 """ SELECT id, sum(v1) v1, sum(v2) v2 FROM test_having_alias_tb GROUP BY id,v1 having(v1!=2 AND v2>1) ORDER BY id,v1; """
+    qt_case3 """ SELECT id, v1-2 as v, sum(v2) v2 FROM test_having_alias_tb GROUP BY id,v having(v>0 AND v2>1) ORDER BY id,v; """
+    sql """ DROP TABLE IF EXISTS `test_having_alias_tb`; """
  } 
