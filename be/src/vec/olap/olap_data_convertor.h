@@ -361,7 +361,8 @@ private:
 
     class OlapColumnDataConvertorStruct : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorStruct(std::vector<OlapColumnDataConvertorBaseUPtr>& sub_convertors) {
+        OlapColumnDataConvertorStruct(
+                std::vector<OlapColumnDataConvertorBaseUPtr>& sub_convertors) {
             for (auto& sub_convertor : sub_convertors) {
                 _sub_convertors.push_back(std::move(sub_convertor));
             }

@@ -432,7 +432,7 @@ private:
     const size_t _item_size;
 };
 
-class StructTypeInfo: public TypeInfo {
+class StructTypeInfo : public TypeInfo {
 public:
     explicit StructTypeInfo(std::vector<TypeInfoPtr>& type_infos) {
         for (TypeInfoPtr& type_info : type_infos) {
@@ -483,7 +483,8 @@ public:
 
         if (!l_value->has_null() && !r_value->has_null()) {
             while (cur < l_size && cur < r_size) {
-                int result = _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
+                int result =
+                        _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
                 if (result != 0) {
                     return result;
                 }
@@ -498,8 +499,8 @@ public:
                 } else if (r_value->is_null_at(cur)) { // left is not null & right is null
                     return 1;
                 } else { // both are not null
-                    int result =
-                            _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
+                    int result = _type_infos[cur]->cmp(l_value->child_value(cur),
+                                                       r_value->child_value(cur));
                     if (result != 0) {
                         return result;
                     }
@@ -556,8 +557,8 @@ public:
         // copy children value
         for (size_t i = 0; i < src_value->size(); ++i) {
             if (src_value->is_null_at(i)) continue;
-            _type_infos[i]->deep_copy(
-                    dest_value->mutable_child_value(i), src_value->child_value(i), mem_pool);
+            _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
+                                      mem_pool);
         }
     }
 
@@ -594,10 +595,10 @@ public:
             auto src_address = src_value->child_value(i);
             if (_type_infos[i]->type() == OLAP_FIELD_TYPE_STRUCT) {
                 dynamic_cast<const StructTypeInfo*>(_type_infos[i].get())
-                ->direct_copy(base, dest_address, src_address);
+                        ->direct_copy(base, dest_address, src_address);
             } else if (_type_infos[i]->type() == OLAP_FIELD_TYPE_ARRAY) {
                 dynamic_cast<const ArrayTypeInfo*>(_type_infos[i].get())
-                ->direct_copy(base, dest_address, src_address);
+                        ->direct_copy(base, dest_address, src_address);
             } else {
                 if (is_olap_string_type(_type_infos[i]->type())) {
                     auto dest_slice = reinterpret_cast<Slice*>(dest_address);
@@ -654,8 +655,7 @@ public:
             if (struct_value->is_null_at(i)) {
                 result = seed * result;
             } else {
-                result = seed * result + _type_infos[i]->hash_code(
-                        struct_value->values()[i], seed);
+                result = seed * result + _type_infos[i]->hash_code(struct_value->values()[i], seed);
             }
         }
         return result;

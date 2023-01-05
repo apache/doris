@@ -120,8 +120,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                     }
                 }
                 std::unique_ptr<ColumnWriter> sub_column_writer;
-                RETURN_IF_ERROR(
-                        ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
+                RETURN_IF_ERROR(ColumnWriter::create(column_options, &sub_column, file_writer,
+                                                     &sub_column_writer));
                 sub_column_writers.push_back(std::move(sub_column_writer));
             }
 
@@ -154,8 +154,9 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                         new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
             }
 
-            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-                    new StructColumnWriter(opts, std::move(field), null_writer, sub_column_writers));
+            std::unique_ptr<ColumnWriter> writer_local =
+                    std::unique_ptr<ColumnWriter>(new StructColumnWriter(
+                            opts, std::move(field), null_writer, sub_column_writers));
             *writer = std::move(writer_local);
             return Status::OK();
         }
@@ -613,10 +614,11 @@ Status ScalarColumnWriter::finish_current_page() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-StructColumnWriter::StructColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                       ScalarColumnWriter* null_writer,
-                                       std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
-       : ColumnWriter(std::move(field), opts.meta->is_nullable()),
+StructColumnWriter::StructColumnWriter(
+        const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+        ScalarColumnWriter* null_writer,
+        std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
          _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
         _sub_column_writers.push_back(std::move(sub_column_writer));
@@ -648,7 +650,7 @@ Status StructColumnWriter::write_inverted_index() {
 }
 
 Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                     size_t num_rows) {
+                                           size_t num_rows) {
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
     return Status::OK();
@@ -658,8 +660,8 @@ Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     auto data_cursor = reinterpret_cast<const void**>(ptr);
     auto null_map_cursor = data_cursor + _num_sub_column_writers;
     for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->append(
-                reinterpret_cast<const uint8_t*>(*null_map_cursor), *data_cursor, num_rows));
+        RETURN_IF_ERROR(column_writer->append(reinterpret_cast<const uint8_t*>(*null_map_cursor),
+                                              *data_cursor, num_rows));
         data_cursor++;
         null_map_cursor++;
     }

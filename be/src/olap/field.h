@@ -51,7 +51,7 @@ public:
               _unique_id(column.unique_id()) {
         if (column.type() == OLAP_FIELD_TYPE_STRUCT) {
             _agg_info = get_aggregate_info(column.aggregation(), column.type());
-        } else if(column.type() == OLAP_FIELD_TYPE_ARRAY) {
+        } else if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
             _agg_info = get_aggregate_info(column.aggregation(), column.type(),
                                            column.get_sub_column(0).type());
         } else {
@@ -786,7 +786,8 @@ public:
             case OLAP_FIELD_TYPE_STRUCT: {
                 auto* local = new StructField(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-                    std::unique_ptr<Field> sub_field(FieldFactory::create(column.get_sub_column(i)));
+                    std::unique_ptr<Field> sub_field(
+                            FieldFactory::create(column.get_sub_column(i)));
                     local->add_sub_field(std::move(sub_field));
                 }
                 return local;
@@ -834,7 +835,8 @@ public:
             case OLAP_FIELD_TYPE_STRUCT: {
                 auto* local = new StructField(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-                    std::unique_ptr<Field> sub_field(FieldFactory::create(column.get_sub_column(i)));
+                    std::unique_ptr<Field> sub_field(
+                            FieldFactory::create(column.get_sub_column(i)));
                     local->add_sub_field(std::move(sub_field));
                 }
                 return local;

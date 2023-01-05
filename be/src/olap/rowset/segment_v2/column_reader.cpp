@@ -60,8 +60,8 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             for (size_t i = 0; i < meta.children_columns_size(); i++) {
                 std::unique_ptr<ColumnReader> sub_reader;
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
-                                                     meta.children_columns(i).num_rows(), file_reader,
-                                                     &sub_reader));
+                                                     meta.children_columns(i).num_rows(),
+                                                     file_reader, &sub_reader));
                 struct_reader->_sub_readers[i] = std::move(sub_reader);
             }
             *reader = std::move(struct_reader);
@@ -456,9 +456,10 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-StructFileColumnIterator::StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                                   std::vector<ColumnIterator*>& sub_column_iterators)
-                                                   : _struct_reader(reader) {
+StructFileColumnIterator::StructFileColumnIterator(
+        ColumnReader* reader, ColumnIterator* null_iterator,
+        std::vector<ColumnIterator*>& sub_column_iterators)
+        : _struct_reader(reader) {
     _sub_column_iterators.resize(sub_column_iterators.size());
     for (size_t i = 0; i < sub_column_iterators.size(); i++) {
         _sub_column_iterators[i].reset(sub_column_iterators[i]);
@@ -483,7 +484,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, boo
 }
 
 Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                           bool* has_null) {
+                                            bool* has_null) {
     const auto* column_struct = vectorized::check_and_get_column<vectorized::ColumnStruct>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
             : *dst);
@@ -491,8 +492,8 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
         size_t num_read = *n;
         auto sub_column_ptr = column_struct->get_column(i).assume_mutable();
         bool column_has_null = false;
-        RETURN_IF_ERROR(_sub_column_iterators[i]->next_batch(&num_read, sub_column_ptr,
-                                                             &column_has_null));
+        RETURN_IF_ERROR(
+                _sub_column_iterators[i]->next_batch(&num_read, sub_column_ptr, &column_has_null));
         DCHECK(num_read == *n);
     }
 
@@ -519,7 +520,7 @@ Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 }
 
 Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                               vectorized::MutableColumnPtr& dst) {
+                                                vectorized::MutableColumnPtr& dst) {
     for (size_t i = 0; i < count; ++i) {
         RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
         size_t num_read = 1;

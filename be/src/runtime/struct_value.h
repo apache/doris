@@ -29,7 +29,8 @@ public:
 
     explicit StructValue(uint32_t size) : _values(nullptr), _size(size), _has_null(false) {}
     StructValue(void** values, uint32_t size) : _values(values), _size(size), _has_null(false) {}
-    StructValue(void** values, uint32_t size, bool has_null) : _values(values), _size(size), _has_null(has_null) {}
+    StructValue(void** values, uint32_t size, bool has_null) :
+            _values(values), _size(size), _has_null(has_null) {}
 
     //void to_struct_val(StructVal* val) const;
     //static StructValue from_struct_val(const StructVal& val);
@@ -38,7 +39,9 @@ public:
     void set_size(uint32_t size) { _size = size; }
     bool has_null() const { return _has_null; }
     void set_has_null(bool has_null) { _has_null = has_null; }
-    bool is_null_at(uint32_t index) const { return this->_has_null && this->_values[index] == nullptr; }
+    bool is_null_at(uint32_t index) const {
+        return this->_has_null && this->_values[index] == nullptr;
+    }
 
     void shallow_copy(const StructValue* other);
 

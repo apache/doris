@@ -676,7 +676,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
                 nullable_column->get_nested_column_ptr().get());
         data_type_struct = assert_cast<const DataTypeStruct*>(
                 (assert_cast<const DataTypeNullable*>(_typed_column.type.get())->get_nested_type())
-                .get());
+                        .get());
     } else {
         column_struct = assert_cast<const vectorized::ColumnStruct*>(_typed_column.column.get());
         data_type_struct = assert_cast<const DataTypeStruct*>(_typed_column.type.get());
