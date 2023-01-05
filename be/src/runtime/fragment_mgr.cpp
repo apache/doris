@@ -584,11 +584,11 @@ std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragm
         std::lock_guard<std::mutex> lock(_lock);
         auto pipeline_iter = _pipeline_map.find(fragment_instance_id);
         if (pipeline_iter != _pipeline_map.end()) {
-            return pipeline_iter->get_pipe();
+            return _pipeline_map[fragment_instance_id]->get_pipe();
         } else {
             auto fragment_iter = _fragment_map.find(fragment_instance_id);
             if (fragment_iter != _fragment_map.end()) {
-                return fragment_iter->get_pipe();
+                return _fragment_map[fragment_instance_id]->get_pipe();
             } else {
                 return nullptr;
             }
