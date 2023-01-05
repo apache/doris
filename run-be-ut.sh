@@ -136,68 +136,68 @@ echo "Get params:
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
 if [[ "${SKIP_BUILD}" -ne 1 ]]; then
-echo "Build Backend UT"
+    echo "Build Backend UT"
 
-if [[ "${CLEAN}" -eq 1 ]]; then
-    rm -rf "${CMAKE_BUILD_DIR}"
-    rm -rf "${DORIS_HOME}/be/output"
-fi
-
-if [[ ! -d "${CMAKE_BUILD_DIR}" ]]; then
-    mkdir -p "${CMAKE_BUILD_DIR}"
-fi
-
-if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        GLIBC_COMPATIBILITY='ON'
-    else
-        GLIBC_COMPATIBILITY='OFF'
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        rm -rf "${CMAKE_BUILD_DIR}"
+        rm -rf "${DORIS_HOME}/be/output"
     fi
-fi
 
-if [[ -z "${USE_LIBCPP}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_LIBCPP='OFF'
-    else
-        USE_LIBCPP='ON'
+    if [[ ! -d "${CMAKE_BUILD_DIR}" ]]; then
+        mkdir -p "${CMAKE_BUILD_DIR}"
     fi
-fi
 
-if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_MEM_TRACKER='ON'
-    else
-        USE_MEM_TRACKER='OFF'
+    if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
+        if [[ "$(uname -s)" != 'Darwin' ]]; then
+            GLIBC_COMPATIBILITY='ON'
+        else
+            GLIBC_COMPATIBILITY='OFF'
+        fi
     fi
-fi
 
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
-fi
+    if [[ -z "${USE_LIBCPP}" ]]; then
+        if [[ "$(uname -s)" != 'Darwin' ]]; then
+            USE_LIBCPP='OFF'
+        else
+            USE_LIBCPP='ON'
+        fi
+    fi
 
-MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
-echo "-- Make program: ${MAKE_PROGRAM}"
-echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
-echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+    if [[ -z "${USE_MEM_TRACKER}" ]]; then
+        if [[ "$(uname -s)" != 'Darwin' ]]; then
+            USE_MEM_TRACKER='ON'
+        else
+            USE_MEM_TRACKER='OFF'
+        fi
+    fi
 
-cd "${CMAKE_BUILD_DIR}"
-"${CMAKE_CMD}" -G "${GENERATOR}" \
-    -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
-    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
-    -DMAKE_TEST=ON \
-    -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
-    -DUSE_LIBCPP="${USE_LIBCPP}" \
-    -DBUILD_META_TOOL=OFF \
-    -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
-    -DWITH_MYSQL=OFF \
-    -DUSE_DWARF="${USE_DWARF}" \
-    -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
-    -DUSE_JEMALLOC=OFF \
-    -DSTRICT_MEMORY_USE=OFF \
-    -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
-    ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
-    "${DORIS_HOME}/be"
-"${BUILD_SYSTEM}" -j "${PARALLEL}"
+    if [[ -z "${USE_DWARF}" ]]; then
+        USE_DWARF='OFF'
+    fi
+
+    MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+    echo "-- Make program: ${MAKE_PROGRAM}"
+    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+    echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+
+    cd "${CMAKE_BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
+        -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+        -DMAKE_TEST=ON \
+        -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
+        -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DBUILD_META_TOOL=OFF \
+        -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
+        -DWITH_MYSQL=OFF \
+        -DUSE_DWARF="${USE_DWARF}" \
+        -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
+        -DUSE_JEMALLOC=OFF \
+        -DSTRICT_MEMORY_USE=OFF \
+        -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+        "${DORIS_HOME}/be"
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
 fi
 
 if [[ "${RUN}" -ne 1 ]]; then
