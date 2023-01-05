@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -362,8 +363,10 @@ public class TypeCoercionUtils {
     /**
      * cast input type if input's datatype is not same with dateType.
      */
-    public static Expression castIfNotSameType(Expression input, DataType dataType) {
-        if (input.getDataType().equals(dataType)) {
+    public static Expression castIfNotSameTypeAndNotNull(Expression input, DataType dataType) {
+        if (input instanceof NullLiteral) {
+            return input;
+        } else if (input.getDataType().equals(dataType)) {
             return input;
         } else {
             if (input instanceof Literal) {

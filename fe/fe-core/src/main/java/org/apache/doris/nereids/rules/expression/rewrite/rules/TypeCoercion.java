@@ -112,8 +112,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 .filter(ct -> op.inputType().acceptsType(ct))
                 .filter(ct -> !left.getDataType().equals(ct) || !right.getDataType().equals(ct))
                 .map(commonType -> {
-                    Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
-                    Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
+                    Expression newLeft = TypeCoercionUtils.castIfNotSameTypeAndNotNull(left, commonType);
+                    Expression newRight = TypeCoercionUtils.castIfNotSameTypeAndNotNull(right, commonType);
                     return op.withChildren(newLeft, newRight);
                 })
                 .orElse(op.withChildren(left, right));
@@ -132,8 +132,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 && (commonType.isBigIntType() || commonType.isLargeIntType())) {
             commonType = DoubleType.INSTANCE;
         }
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
+        Expression newLeft = TypeCoercionUtils.castIfNotSameTypeAndNotNull(left, commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameTypeAndNotNull(right, commonType);
         return divide.withChildren(newLeft, newRight);
     }
 
@@ -156,10 +156,10 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     List<Expression> newChildren
                             = newCaseWhen.getWhenClauses().stream()
                             .map(wc -> wc.withChildren(wc.getOperand(),
-                                    TypeCoercionUtils.castIfNotSameType(wc.getResult(), commonType)))
+                                    TypeCoercionUtils.castIfNotSameTypeAndNotNull(wc.getResult(), commonType)))
                             .collect(Collectors.toList());
                     newCaseWhen.getDefaultValue()
-                            .map(dv -> TypeCoercionUtils.castIfNotSameType(dv, commonType))
+                            .map(dv -> TypeCoercionUtils.castIfNotSameTypeAndNotNull(dv, commonType))
                             .ifPresent(newChildren::add);
                     return newCaseWhen.withChildren(newChildren);
                 })
@@ -183,7 +183,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = newInPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
+                            .map(e -> TypeCoercionUtils.castIfNotSameTypeAndNotNull(e, commonType)
+                            )
                             .collect(Collectors.toList());
                     return newInPredicate.withChildren(newChildren);
                 })
@@ -238,7 +239,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
             DataType argType = child.getDataType();
             Optional<DataType> castType = castTypes.get(childIndex);
             if (castType.isPresent() && !castType.get().equals(argType)) {
-                return TypeCoercionUtils.castIfNotSameType(child, castType.get());
+                return TypeCoercionUtils.castIfNotSameTypeAndNotNull(child, castType.get());
             } else {
                 return child;
             }
@@ -248,8 +249,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitIntegralDivide(IntegralDivide integralDivide, ExpressionRewriteContext context) {
         DataType commonType = BigIntType.INSTANCE;
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(integralDivide.left(), commonType);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(integralDivide.right(), commonType);
+        Expression newLeft = TypeCoercionUtils.castIfNotSameTypeAndNotNull(integralDivide.left(), commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameTypeAndNotNull(integralDivide.right(), commonType);
         return integralDivide.withChildren(newLeft, newRight);
     }
 }

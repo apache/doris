@@ -136,8 +136,9 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
                 Optional<DataType> tightestCommonType =
                         TypeCoercionUtils.findTightestCommonType(null, left.getDataType(), right.getDataType());
                 if (tightestCommonType.isPresent()) {
-                    Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, tightestCommonType.get());
-                    Expression newRight = TypeCoercionUtils.castIfNotSameType(right, tightestCommonType.get());
+                    Expression newLeft = TypeCoercionUtils.castIfNotSameTypeAndNotNull(left, tightestCommonType.get());
+                    Expression newRight = TypeCoercionUtils.castIfNotSameTypeAndNotNull(right,
+                            tightestCommonType.get());
                     newLeftOutputs.add(newLeft);
                     newRightOutpus.add(newRight);
                     hasPushed = true;

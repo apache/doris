@@ -1374,7 +1374,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (int i = 0; i < outputs.size(); ++i) {
             Slot right = childOutputs.get(i);
             DataType tightestCommonType = outputs.get(i).getDataType();
-            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, tightestCommonType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameTypeAndNotNull(right, tightestCommonType);
             newChildOutputs.add(newRight);
         }
         return ImmutableList.copyOf(newChildOutputs);

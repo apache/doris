@@ -199,8 +199,8 @@ public class TypeCoercionUtilsTest {
     @Test
     public void testCastIfNotSameType() {
         Assertions.assertEquals(new DoubleLiteral(5L),
-                TypeCoercionUtils.castIfNotSameType(new DoubleLiteral(5L), DoubleType.INSTANCE));
+                TypeCoercionUtils.castIfNotSameTypeAndNotNull(new DoubleLiteral(5L), DoubleType.INSTANCE));
         Assertions.assertEquals(new Cast(new DoubleLiteral(5L), BooleanType.INSTANCE),
-                TypeCoercionUtils.castIfNotSameType(new DoubleLiteral(5L), BooleanType.INSTANCE));
+                TypeCoercionUtils.castIfNotSameTypeAndNotNull(new DoubleLiteral(5L), BooleanType.INSTANCE));
     }
 }
