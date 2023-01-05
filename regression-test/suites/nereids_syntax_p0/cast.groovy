@@ -136,18 +136,18 @@ suite("cast") {
     qt_group25 "select k2, min(k8) from test group by k2 having k2<=1989 order by k2, min(k8)" 
     qt_group26 "select k2, max(k8) from test group by k2 having k2<=1989 order by k2, max(k8)" 
     qt_group27 "select count(ALL *) from test where k5 is not null group by k1%10 order by 1"
-    qt_group28 "select k5, k5*2, count(*) from test group by 1, 2 order by 1, 2,3"
-    qt_group29 "select k1%3, k2%3, count(*) from test where k4>0 group by 2, 1 order by 1, 2, 3"
-    qt_group30 "select k1%2, k2%2, k3%3, k4%3, k11, count(*) from test where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00') and k5 is not null group by 1, 2, 3, 4, 5 order by 1, 2, 3, 4, 5" 
+    qt_group28 "select k5, k5 * 2, count(*) from test group by 1, 2 order by 1, 2,3"
+    qt_group29 "select k1 % 3, k2 % 3, count(*) from test where k4 > 0 group by 2, 1 order by 1, 2, 3"
+    qt_group30 "select k1 % 2, k2 % 2, k3 % 3, k4 % 3, k11, count(*) from test where (k11 = '2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00') and k5 is not null group by 1, 2, 3, 4, 5 order by 1, 2, 3, 4, 5" 
     qt_group31 "select count(*) from test where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00') and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by 1"
     qt_group32 "select count(*), min(k1), max(k1), sum(k1), avg(k1) from test where k1=10000 order by 1"
-    qt_group33 "select k1 % 7, count(*), avg(k1) from test where k4>0 group by 1 having avg(k1) > 2 or count(*)>5 order by 1, 2, 3"
-    qt_group34 "select k10, count(*) from test where k5 is not null group by k10 having k10<cast('2010-01-01 01:05:20' as datetime) order by 1, 2"
-    qt_group35 "select k1*k1, k1+k1 as c from test group by k1*k1, k1+k1, k1*k1 having (c)<5 order by 1, 2 limit 10"
+    qt_group33 "select k1 % 7, count(*), avg(k1) from test where k4 > 0 group by 1 having avg(k1) > 2 or count(*) > 5 order by 1, 2, 3"
+    qt_group34 "select k10, count(*) from test where k5 is not null group by k10 having k10 < cast('2010-01-01 01:05:20' as datetime) order by 1, 2"
+    qt_group35 "select k1 * k1, k1 + k1 as c from test group by k1 * k1, k1 + k1, k1 * k1 having (c) < 5 order by 1, 2 limit 10"
     qt_group36 "select 1 from (select count(k4) c from test having min(k1) is not null) as t where c is not null"
-    qt_group37 "select count(k1), sum(k1*k2) from test order by 1, 2"
-    qt_group38 "select k1%2, k2+1, k3 from test where k3>10000 group by 1,2,3 order by 1,2,3" 
-    qt_group39 "select extract(year from k10) as wj, extract(month from k10) as dyk, sum(k1) from test group by 1, 2 order by 1,2,3"
+    qt_group37 "select count(k1), sum(k1 * k2) from test order by 1, 2"
+    qt_group38 "select k1 % 2, k2 + 1, k3 from test where k3 > 10000 group by 1,2,3 order by 1,2,3" 
+    qt_group39 "select extract(year from k10) as wj, extract(month from k10) as dyk, sum(k1) from test group by 1, 2 order by 1, 2, 3"
 
     // with having
     qt_group40 "select avg(k1) as a from test group by k2 having a > 10 order by a"
@@ -185,7 +185,7 @@ suite("cast") {
     qt_orderBy_withNull_9 "select k4 + k5 as nu from test order by nu nulls last"
 
     //null 和非null
-    qt_orderBy_withNull_10 " select a.k1 ak1, b.k1 bk1 from test a right join baseall b on a.k1=b.k1 and b.k1>10 order by ak1 nulls last, bk1"
+    qt_orderBy_withNull_10 " select a.k1 ak1, b.k1 bk1 from test a right join baseall b on a.k1=b.k1 and b.k1 > 10 order by ak1 nulls last, bk1"
 
     qt_group31 "select count(*) from test where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00') and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by count(*)"
 }
