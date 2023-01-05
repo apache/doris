@@ -614,7 +614,9 @@ struct THashJoinNode {
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  10: optional bool is_broadcast_join;
+  10: optional bool is_broadcast_join
+
+  11: optional bool is_mark
 }
 
 struct TNestedLoopJoinNode {

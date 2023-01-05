@@ -706,6 +706,7 @@ public class HashJoinNode extends JoinNodeBase {
         msg.hash_join_node = new THashJoinNode();
         msg.hash_join_node.join_op = joinOp.toThrift();
         msg.hash_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
+        msg.hash_join_node.setIsMark(isMarkJoin());
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
                     eqJoinPredicate.getChild(1).treeToThrift());
