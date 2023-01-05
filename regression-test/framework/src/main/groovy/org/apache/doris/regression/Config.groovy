@@ -80,12 +80,13 @@ class Config {
     public Integer parallel
     public Integer suiteParallel
 
-    public String repo
-    public String testBranch
-    public String serverUrl
-    public String pipelineId
-    public String buildId
 
+    public String testRepoName
+    public String testBranch
+    public String teamcityServerUrl
+    public String teamcityPipelineId
+    public String teamcityBuildId
+    
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
@@ -96,8 +97,8 @@ class Config {
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
-           String testDirectories, String excludeDirectories, String pluginPath,String repo,
-           String testBranch, String serverUrl, String pipelineId, String buildId) {
+           String testDirectories, String excludeDirectories, String pluginPath,String testRepoName,
+           String testBranch, String teamcityServerUrl, String teamcityPipelineId, String teamcityBuildId) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -117,11 +118,11 @@ class Config {
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
         this.pluginPath = pluginPath
-        this.repo=repo
-        this.buildId=buildId
-        this.serverUrl=serverUrl
+        this.testRepoName=testRepoName
+        this.teamcityBuildId=teamcityBuildId
+        this.teamcityServerUrl=teamcityServerUrl
         this.testBranch=testBranch
-        this.pipelineId=pipelineId
+        this.teamcityPipelineId=teamcityPipelineId
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -140,6 +141,7 @@ class Config {
                 ConfigObject custConfigObj = configSlurper.parse(new File(customConfFilePath).toURI().toURL())
                 configObj.merge(custConfigObj)
             }
+            // config = fromConfigObject(configObj)
             config = Config.fromConfigObject(configObj)
         }
         fillDefaultConfig(config)
@@ -216,11 +218,11 @@ class Config {
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
         config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "10"))
 
-        config.repo = cmd.getOptionValue(repoOpt, "Not Configured Yet")
+        config.testRepoName = cmd.getOptionValue(testRepoNameOpt, "Not Configured Yet")
         config.testBranch = cmd.getOptionValue(testBranchOpt, "Not Configured Yet")
-        config.serverUrl = cmd.getOptionValue(serverUrlOpt, "Not Configured Yet")
-        config.pipelineId = cmd.getOptionValue(pipelineIdOpt, "Not Configured Yet")
-        config.buildId = cmd.getOptionValue(buildIdOpt, "Not Configured Yet")
+        config.teamcityServerUrl = cmd.getOptionValue(teamcityServerUrlOpt, "Not Configured Yet")
+        config.teamcityPipelineId = cmd.getOptionValue(teamcityPipelineIdOpt, "Not Configured Yet")
+        config.teamcityBuildId = cmd.getOptionValue(teamcityBuildIdOpt, "Not Configured Yet")
 
 
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
@@ -265,11 +267,11 @@ class Config {
             configToString(obj.testDirectories),
             configToString(obj.excludeDirectories),
             configToString(obj.pluginPath),
-            configToString(obj.repo),
+            configToString(obj.testRepoName),
             configToString(obj.testBranch),
-            configToString(obj.serverUrl),
-            configToString(obj.pipelineId),
-            configToString(obj.buildId)
+            configToString(obj.teamcityServerUrl),
+            configToString(obj.teamcityPipelineId),
+            configToString(obj.teamcityBuildId)
         )
 
         def declareFileNames = config.getClass()
@@ -393,25 +395,25 @@ class Config {
         }
 
 
-        if (config.repo == null) {
-            config.repo = ""
-            log.info("Set repo to empty string because not specify.".toString())
+        if (config.testRepoName == null) {
+            config.testRepoName = ""
+            log.info("Set testRepoName to empty string because not specify.".toString())
         }
         if (config.testBranch == null) {
             config.testBranch = ""
             log.info("Set testBranch to empty string because not specify.".toString())
         }
-        if (config.serverUrl == null) {
-            config.serverUrl = ""
-            log.info("Set serverUrl to empty string because not specify.".toString())
+        if (config.teamcityServerUrl == null) {
+            config.teamcityServerUrl = ""
+            log.info("Set teamcityServerUrl to empty string because not specify.".toString())
         }
-        if (config.pipelineId == null) {
-            config.pipelineId = ""
-            log.info("Set pipelineId to empty string because not specify.".toString())
+        if (config.teamcityPipelineId == null) {
+            config.teamcityPipelineId = ""
+            log.info("Set teamcityPipelineId to empty string because not specify.".toString())
         }
-        if (config.buildId == null) {
-            config.buildId = ""
-            log.info("Set buildId to empty string because not specify.".toString())
+        if (config.teamcityBuildId == null) {
+            config.teamcityBuildId = ""
+            log.info("Set teamcityBuildId to empty string because not specify.".toString())
         }
 
         if (config.actionParallel == null) {

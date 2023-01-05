@@ -46,8 +46,8 @@ class RecorderEventListener implements EventListener {
     private final Recorder recorder
 
     static String formatNow() {
-        Date d = new Date();
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Date d = new Date()
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
         return sdf.format(d)
     }
 
@@ -117,16 +117,16 @@ class RecorderEventListener implements EventListener {
         def stackTrace = Throwables.getStackTraceAsString(t)
 
         // these params delivered by teamcity settings after run-regression-test.sh
-        log.info(config.repo.toString())
-        def repo = config.repo.toString()
+        log.info(config.testRepoName.toString())
+        def repo = config.testRepoName.toString()
         log.info(config.testBranch.toString())
         def testBranch=config.testBranch.toString()
-        log.info(config.serverUrl.toString())
-        def serverUrl = config.serverUrl.toString()
-        log.info(config.pipelineId.toString())
-        def pipelineId = config.pipelineId.toString()
-        log.info(config.buildId.toString())
-        def buildId = config.buildId.toString()
+        log.info(config.teamcityServerUrl.toString())
+        def serverUrl = config.teamcityServerUrl.toString()
+        log.info(config.teamcityPipelineId.toString())
+        def pipelineId = config.teamcityPipelineId.toString()
+        log.info(config.teamcityBuildId.toString())
+        def buildId = config.teamcityBuildId.toString()
 
         def teamcityLink
         if (serverUrl.startsWith("http") is true) {
@@ -138,13 +138,13 @@ class RecorderEventListener implements EventListener {
         // these params id defined in regression-conf.groovy
         log.info(config.feHttpAddress.toString())
         def feInfo = config.feHttpAddress.toString()
-        log.info(config.jdbcUrl.toString()[13..26])
-        def beInfo =config.jdbcUrl.toString()[13..26]
+//        log.info(config.jdbcUrl.toString()[13..26])
+//        def beInfo =config.jdbcUrl.toString()[13..26]
 
         if(suiteContext.config.otherConfigs.get("alertOn").toString().equalsIgnoreCase("on")) {
             def webhook = suiteContext.config.otherConfigs.get("webhook").toString()
             if(!webhook.isEmpty()){
-                def params = new HashMap();
+                def params = new HashMap()
                 params.put("msg_type","post")
 
                 def colList = new ArrayList()
@@ -176,10 +176,6 @@ class RecorderEventListener implements EventListener {
                 branchCol.put("text","[BRANCH]:  ${testBranch}\n")
                 colList.add(branchCol)
 
-//                def beInfoCol = new HashMap()
-//                beInfoCol.put("tag","text")
-//                beInfoCol.put("text","【BEINFO】:  ${beInfo}\n")
-//                colList.add(beInfoCol)
                 def feInfoCol = new HashMap()
                 feInfoCol.put("tag","text")
                 feInfoCol.put("text","[FEINFO]:  ${feInfo}\n\n")

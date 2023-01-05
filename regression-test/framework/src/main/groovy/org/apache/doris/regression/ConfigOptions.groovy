@@ -59,11 +59,11 @@ class ConfigOptions {
     static Option withOutLoadDataOpt
     static Option dryRunOpt
 
-    static Option repoOpt
+    static Option testRepoNameOpt
     static Option testBranchOpt
-    static Option serverUrlOpt
-    static Option pipelineIdOpt
-    static Option buildIdOpt
+    static Option teamcityServerUrlOpt
+    static Option teamcityPipelineIdOpt
+    static Option teamcityBuildIdOpt
 
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
@@ -314,7 +314,7 @@ class ConfigOptions {
                 .desc("just print cases and does not run")
                 .build()
 
-        repoOpt = Option.builder("repo")
+        testRepoNameOpt = Option.builder("repo")
                 .argName("repo")
                 .required(false)
                 .hasArg(true)
@@ -330,7 +330,7 @@ class ConfigOptions {
                 .longOpt("test_branch")
                 .desc("test_branch name")
                 .build()
-        serverUrlOpt = Option.builder("serverUrl")
+        teamcityServerUrlOpt = Option.builder("serverUrl")
                 .argName("serverUrl")
                 .required(false)
                 .hasArg(true)
@@ -338,7 +338,7 @@ class ConfigOptions {
                 .longOpt("server_url")
                 .desc("teamcity server_url")
                 .build()
-        pipelineIdOpt = Option.builder("pipelineId")
+        teamcityPipelineIdOpt = Option.builder("pipelineId")
                 .argName("pipelineId")
                 .required(false)
                 .hasArg(true)
@@ -346,7 +346,7 @@ class ConfigOptions {
                 .longOpt("pipeline_id")
                 .desc("teamcity pipeline_id")
                 .build()
-        buildIdOpt = Option.builder("buildId")
+        teamcityBuildIdOpt = Option.builder("buildId")
                 .argName("buildId")
                 .required(false)
                 .hasArg(true)
@@ -385,11 +385,11 @@ class ConfigOptions {
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
                 .addOption(dryRunOpt)
-                .addOption(repoOpt)
+                .addOption(testRepoNameOpt)
                 .addOption(testBranchOpt)
-                .addOption(serverUrlOpt)
-                .addOption(pipelineIdOpt)
-                .addOption(buildIdOpt)
+                .addOption(teamcityServerUrlOpt)
+                .addOption(teamcityPipelineIdOpt)
+                .addOption(teamcityBuildIdOpt)
 
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
