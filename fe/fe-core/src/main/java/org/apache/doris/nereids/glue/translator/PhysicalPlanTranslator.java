@@ -1552,9 +1552,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         DistributionSpecHash leftDistributionSpec
                 = (DistributionSpecHash) physicalHashJoin.left().getPhysicalProperties().getDistributionSpec();
         Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(physicalHashJoin);
-        List<ExprId> rightPartitionExprIds = Lists.newArrayList(onClauseUsedSlots.second);
-        for (int i = 0; i < onClauseUsedSlots.first.size(); i++) {
-            int idx = leftDistributionSpec.getExprIdToEquivalenceSet().get(onClauseUsedSlots.first.get(i));
+        List<ExprId> rightPartitionExprIds = Lists.newArrayList(leftDistributionSpec.getOrderedShuffledColumns());
+        for (int i = 0; i < leftDistributionSpec.getOrderedShuffledColumns().size(); i++) {
+            int idx = leftDistributionSpec.getExprIdToEquivalenceSet()
+                    .get(leftDistributionSpec.getOrderedShuffledColumns().get(i));
             rightPartitionExprIds.set(idx, onClauseUsedSlots.second.get(i));
         }
         // assemble fragment

@@ -28,21 +28,32 @@ public abstract class SqlTestBase extends TestWithFeService implements PatternMa
         connectContext.setDatabase("default_cluster:test");
 
         createTables(
+                "CREATE TABLE IF NOT EXISTS T0 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id, score) BUCKETS 10\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\", \n"
+                        + "  \"colocate_with\" = \"T0\"\n"
+                        + ")\n",
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
                         + "    id bigint,\n"
                         + "    score bigint\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "DISTRIBUTED BY HASH(id, score) BUCKETS 10\n"
                         + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
+                        + "  \"replication_num\" = \"1\", \n"
+                        + "  \"colocate_with\" = \"T0\"\n"
                         + ")\n",
                 "CREATE TABLE IF NOT EXISTS T2 (\n"
                         + "    id bigint,\n"
                         + "    score bigint\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\"\n"
                         + ")\n",
