@@ -21,15 +21,7 @@
 
 #include "runtime/primitive_type.h"
 
-namespace doris_udf {
-    class FunctionContext;
-    struct AnyVal;
-} // namespace doris_udf
-
 namespace doris {
-
-using doris_udf::FunctionContext;
-using doris_udf::AnyVal;
 
 class StructValue {
 public:
