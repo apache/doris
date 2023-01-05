@@ -110,4 +110,56 @@ suite("test_clean_label") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    def tbName = "test_unique_table_debug_data_for_clean_label"
+    try {
+        sql "DROP TABLE IF EXISTS ${tbName}"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tbName} (
+                    a int, b int
+                )
+                unique key (a)
+                distributed by hash(a) buckets 16
+                properties(
+                    "replication_allocation" = "tag.location.default:1",
+                    "disable_auto_compaction" = "true"
+                );
+            """
+        // curl --location-trusted -uroot: -H "column_separator:|" -H "columns:a, b" -H "label: test_unique_table_debug_data_for_clean_label" -T delete.csv http://127.0.0.1:8030/api/test_skip/t1/_stream_load
+        streamLoad {
+            table "${tbName}"
+
+            set 'column_separator', '|'
+            set 'columns', 'a, b'
+            set 'label', 'test_unique_table_debug_data_for_clean_label'
+
+            file 'test_unique_table_debug_data_delete.csv'
+
+            time 10000 // limit inflight 10s
+        }
+
+        test {
+            sql "clean label test_unique_table_debug_data_for_clean_label from ${dbName};"
+        }
+
+        // curl --location-trusted -uroot: -H "column_separator:|" -H "columns:a, b" -H "label: test_unique_table_debug_data_for_clean_label" -T delete.csv http://127.0.0.1:8030/api/test_skip/t1/_stream_load
+        streamLoad {
+            table "${tbName}"
+
+            set 'column_separator', '|'
+            set 'columns', 'a, b'
+            set 'label', 'test_unique_table_debug_data_for_clean_label'
+
+            file 'test_unique_table_debug_data_delete.csv'
+
+            time 10000 // limit inflight 10s
+        }
+
+        test {
+            sql "clean label from ${dbName};"
+        }
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${tbName}")
+    }
 }
+
