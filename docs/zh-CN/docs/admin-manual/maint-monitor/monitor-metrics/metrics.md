@@ -79,7 +79,8 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_counter_hit_sql_block_rule`|| Num| 被 SQL BLOCK RULE 拦截的查询数量 |  | |
 |`doris_fe_edit_log_clean`| {type="failed"} | Num| 清理历史元数据日志失败的次数 | 不应失败，如失败，需人工介入 | P0|
 || {type="success"} | Num| 清理历史元数据日志成功的次数 | |
-|`doris_fe_edit_log`| {type="bytes"} |字节 | 元数据日志写入量的累计值 | 通过计算斜率可以获得写入速率，来观察是否元数据写入有延迟 | P0 |
+|`doris_fe_edit_log`| {type="accumulated_bytes"} |字节 | 元数据日志写入量的累计值 | 通过计算斜率可以获得写入速率，来观察是否元数据写入有延迟 | P0 |
+|| {type="current_bytes"} |字节 | 元数据日志当前值 | 用于监控editlog 大小。如果大小超限，需人工介入 | P0 |
 || {type="read"} |Num| 元数据日志读取次数的计数 | 通过斜率观察元数据读取频率是否正常 |P0 |
 || {type="write"} |Num | 元数据日志写入次数的计数 |通过斜率观察元数据写入频率是否正常  |P0 |
 |`doris_fe_editlog_write_latency_ms`| | 毫秒| 元数据日志写入延迟的百分位统计。如 {quantile="0.75"} 表示 75 分位的写入延迟 | |

@@ -265,6 +265,7 @@ public class Checkpoint extends MasterDaemon {
                 editLog.deleteJournals(deleteVersion + 1);
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_EDIT_LOG_CLEAN_SUCCESS.increase(1L);
+                    MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.reset();
                 }
                 LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}",
                         deleteVersion, checkPointVersion, minOtherNodesJournalId);
