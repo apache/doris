@@ -70,8 +70,8 @@ suite("test_pg_jdbc_catalog", "p0") {
 
         sql """ use ${ex_schema_name2}"""
         order_qt_test12  """ select * from test10 order by id; """
-        order_qt_test12  """ select * from test11 order by id; """
-        order_qt_test12  """ select * from test12 order by id; """
+        order_qt_test13  """ select * from test11 order by id; """
+        order_qt_test14  """ select * from test12 order by id; """
 
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists jdbc_resource_catalog_pg"""

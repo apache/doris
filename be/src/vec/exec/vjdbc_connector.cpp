@@ -498,7 +498,9 @@ Status JdbcConnector::_insert_column_data(JNIEnv* env, jobject jobj, const TypeD
     }
     case TYPE_DATEV2: {
         int64_t num = _jobject_to_date(env, jobj, true);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
+        uint32_t num2 = static_cast<uint32_t>(num);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(
+                num2);
         break;
     }
     case TYPE_DATETIME: {
@@ -508,7 +510,9 @@ Status JdbcConnector::_insert_column_data(JNIEnv* env, jobject jobj, const TypeD
     }
     case TYPE_DATETIMEV2: {
         int64_t num = _jobject_to_datetime(env, jobj, true);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
+        uint64_t num2 = static_cast<uint64_t>(num);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(
+                num2);
         break;
     }
     case TYPE_LARGEINT: {
