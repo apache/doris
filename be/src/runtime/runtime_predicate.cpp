@@ -99,7 +99,7 @@ Status RuntimePredicate::init(const PrimitiveType type) {
         break;
     }
     case PrimitiveType::TYPE_DECIMAL128I: {
-        _get_value_fn = get_decimalv3_value;
+        _get_value_fn = get_decimal128_value;
         break;
     }
     default:
