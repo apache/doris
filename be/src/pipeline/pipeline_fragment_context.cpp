@@ -270,8 +270,9 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
         RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
-
-    _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    if (_sink) {
+        _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    }
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
