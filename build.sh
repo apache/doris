@@ -228,7 +228,12 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
-    "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+    else
+        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
 fi
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then

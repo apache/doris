@@ -107,7 +107,6 @@ if [[ "$#" != 1 ]]; then
             ;;
         *)
             usage
-            exit 0
             ;;
         esac
     done
@@ -128,6 +127,10 @@ echo "Build Backend UT"
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
 if [[ "${CLEAN}" -eq 1 ]]; then
+    pushd "${DORIS_HOME}/gensrc"
+    make clean
+    popd
+
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
 fi
