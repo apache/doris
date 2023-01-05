@@ -15,29 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.tablefunction;
+#pragma once
 
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.MetadataScanNode;
+#include "runtime/runtime_state.h"
+#include "vec/exec/scan/vscan_node.h"
 
-public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf {
+namespace doris::vectorized {
 
-    public enum MetaType { ICEBERG }
+class VMetaScanNode : public VScanNode {
+public:
+    VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ~VMetaScanNode() override = default;
 
-    private final MetaType metaType;
+    //    std::string get_name() override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-    public MetadataTableValuedFunction(MetaType metaType) {
-        this.metaType = metaType;
-    }
+private:
+    Status _init_profile() override;
+    Status _init_scanners(std::list<VScanner*>* scanners) override;
 
-    public MetaType getMetaType() {
-        return metaType;
-    }
+private:
+    TupleId _tuple_id;
+};
 
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new MetadataScanNode(id, desc, this);
-    }
-}
+} // namespace doris::vectorized

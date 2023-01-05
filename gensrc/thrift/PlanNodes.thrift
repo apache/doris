@@ -370,6 +370,10 @@ struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
+struct TMetaScanRange {
+
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
@@ -380,6 +384,7 @@ struct TScanRange {
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
   9: optional TDataGenScanRange data_gen_scan_range
+  10: optional TMetaScanRange meta_scan_range
 }
 
 struct TMySQLScanNode {

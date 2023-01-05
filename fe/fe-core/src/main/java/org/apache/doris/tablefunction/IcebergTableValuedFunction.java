@@ -79,6 +79,11 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         this.queryType = queryType;
     }
 
+    @Override
+    public String getTableName() {
+        return "IcebergMetadataTableValuedFunction";
+    }
+
     public TableName getIcebergTableName() {
         return tableName;
     }

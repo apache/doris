@@ -38,6 +38,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
+#include "vec/exec/scan/meta_scan_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -361,6 +362,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::DATA_GEN_SCAN_NODE:
         case TPlanNodeType::FILE_SCAN_NODE:
         case TPlanNodeType::JDBC_SCAN_NODE:
+        case TPlanNodeType::META_SCAN_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -422,6 +424,14 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::SCHEMA_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
+        } else {
+            RETURN_ERROR_IF_NON_VEC;
+        }
+        return Status::OK();
+
+    case TPlanNodeType::META_SCAN_NODE:
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VMetaScanNode(pool, tnode, descs));
         } else {
             RETURN_ERROR_IF_NON_VEC;
         }
@@ -668,7 +678,8 @@ void ExecNode::try_do_aggregate_serde_improve() {
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
         typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
         typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
+        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
+        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();
