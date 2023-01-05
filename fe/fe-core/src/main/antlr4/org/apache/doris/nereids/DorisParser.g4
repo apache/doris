@@ -53,13 +53,13 @@ planType
 
 //  -----------------Query-----------------
 query
-    : cte? queryTerm queryOrganization
+    : cte? queryTerm
     ;
 
 queryTerm
-    : queryPrimary                                                                       #queryTermDefault
-    | left=queryTerm queryOrganization operator=(UNION | EXCEPT | INTERSECT)
-      setQuantifier? right=queryTerm queryOrganization                                                     #setOperation
+    : queryPrimary queryOrganization                                                                      #queryTermDefault
+    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
+      setQuantifier? right=queryTerm                                                     #setOperation
     ;
 
 setQuantifier
@@ -70,7 +70,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                    #queryPrimaryDefault
     | TABLE multipartIdentifier                                             #table
-    | LEFT_PAREN query RIGHT_PAREN                                          #subquery
+    | LEFT_PAREN queryTerm RIGHT_PAREN                                      #subquery
     ;
 
 querySpecification

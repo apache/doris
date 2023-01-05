@@ -70,6 +70,7 @@ import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
+import org.apache.doris.nereids.DorisParser.QueryTermDefaultContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
@@ -346,6 +347,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
             query = withCte(query, ctx.cte());
+            return query;
+        });
+    }
+
+    @Override
+    public Object visitQueryTermDefault(QueryTermDefaultContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan query = plan(ctx.queryPrimary());
             return withQueryOrganization(query, ctx.queryOrganization());
         });
     }
@@ -380,7 +389,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitSubquery(SubqueryContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> visitQuery(ctx.query()));
+        return ParserUtils.withOrigin(ctx, () -> plan(ctx.queryTerm()));
     }
 
     @Override
