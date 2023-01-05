@@ -74,6 +74,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -276,15 +277,24 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     /*
                     according to case 4 and case 5, we construct boundSlots
                     */
-                    List<Slot> boundSlots = agg.child().getOutputSet().stream()
-                            .filter(slot -> !duplicatedSlotNames.contains(slot.getName()))
-                            .collect(Collectors.toList());
-                    List<Slot> outputSlots = output.stream()
+                    Set<String> outputSlotNames = Sets.newHashSet();
+                    Set<Slot> outputSlots = output.stream()
                             .filter(SlotReference.class::isInstance)
+                            .peek(slot -> outputSlotNames.add(slot.getName()))
                             .map(NamedExpression::toSlot).collect(
-                                    Collectors.toList());
+                                    Collectors.toSet());
+                    //suppose group by key is a.
+                    // if both t1.a and t2.a are in agg.child.output, and t1.a in agg.output,
+                    // bind group_by_key a with t1.a
+                    // ` .filter(slot -> !outputSlotNames.contains(slot.getName()))`
+                    // is used to avoid add t2.a into boundSlots
+                    Set<Slot> boundSlots = agg.child().getOutputSet().stream()
+                            .filter(slot -> !outputSlotNames.contains(slot.getName()))
+                            .collect(Collectors.toSet());
+
                     boundSlots.addAll(outputSlots);
-                    SlotBinder binder = new SlotBinder(toScope(boundSlots), agg, ctx.cascadesContext);
+                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)),
+                            agg, ctx.cascadesContext);
 
                     List<Expression> groupBy = replacedGroupBy.stream()
                             .map(expression -> binder.bind(expression))
