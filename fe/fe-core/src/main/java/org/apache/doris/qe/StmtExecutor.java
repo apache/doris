@@ -1239,7 +1239,8 @@ public class StmtExecutor implements ProfileWriter {
                 return;
             }
             TTxnParams txnParams = new TTxnParams();
-            txnParams.setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
+            txnParams.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 txnParams.setMaxFilterRatio(0);
             } else {
