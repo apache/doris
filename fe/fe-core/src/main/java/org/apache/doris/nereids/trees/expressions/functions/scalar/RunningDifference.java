@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionSignatureBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -46,7 +46,7 @@ import java.util.List;
  */
 public class RunningDifference extends ScalarFunction implements UnaryExpression, ExplicitlyCastableSignature,
         PropagateNullable {
-    public static final List<FunctionSignature> SIGNATURES = FunctionSignature.multi()
+    public static final List<FunctionSignature> SIGNATURES = new FunctionSignatureBuilder()
             .ret(SmallIntType.INSTANCE).args(TinyIntType.INSTANCE)
             .ret(IntegerType.INSTANCE).args(SmallIntType.INSTANCE)
             .ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE)
@@ -55,9 +55,6 @@ public class RunningDifference extends ScalarFunction implements UnaryExpression
             .ret(DoubleType.INSTANCE).args(FloatType.INSTANCE)
             .ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
             .ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT)
-            .ret(DecimalV3Type.DEFAULT_DECIMAL32).args(DecimalV3Type.DEFAULT_DECIMAL32)
-            .ret(DecimalV3Type.DEFAULT_DECIMAL64).args(DecimalV3Type.DEFAULT_DECIMAL64)
-            .ret(DecimalV3Type.DEFAULT_DECIMAL128).args(DecimalV3Type.DEFAULT_DECIMAL128)
             .ret(IntegerType.INSTANCE).args(DateType.INSTANCE)
             .ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE)
             .ret(DoubleType.INSTANCE).args(DateTimeType.INSTANCE)
