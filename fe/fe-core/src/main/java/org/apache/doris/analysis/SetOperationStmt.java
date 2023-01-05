@@ -492,6 +492,12 @@ public class SetOperationStmt extends QueryStmt {
                             (ScalarType) selectTypeWithNullable.get(j).first,
                             (ScalarType) operands.get(i).getQueryStmt().getResultExprs().get(j).getType());
                 }
+                if (selectTypeWithNullable.get(j).first.isDecimalV3()
+                        && operands.get(i).getQueryStmt().getResultExprs().get(j).getType().isDecimalV3()) {
+                    selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleDecimalV3Type(
+                            (ScalarType) selectTypeWithNullable.get(j).first,
+                            (ScalarType) operands.get(i).getQueryStmt().getResultExprs().get(j).getType());
+                }
             }
         }
 

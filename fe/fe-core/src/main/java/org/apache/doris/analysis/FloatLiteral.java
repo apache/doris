@@ -194,8 +194,8 @@ public class FloatLiteral extends LiteralExpr {
             return new DecimalLiteral(BigDecimal.valueOf(value));
         } else if (targetType.isDecimalV3()) {
             DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-            res.setType(ScalarType.createDecimalV3Type(res.getType().getPrecision(),
-                    ((ScalarType) res.getType()).decimalScale()));
+            res.setType(ScalarType.createDecimalV3Type(targetType.getPrecision(),
+                    ((ScalarType) targetType).decimalScale()));
             return res;
         }
         return this;

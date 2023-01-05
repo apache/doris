@@ -1074,6 +1074,12 @@ public class ScalarType extends Type {
                 targetPrecision, targetScale);
     }
 
+    public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
+        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
+        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
+    }
+
     /**
      * Returns true t1 can be implicitly cast to t2, false otherwise.
      * If strict is true, only consider casts that result in no loss of precision.
