@@ -105,7 +105,11 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSchemaScanNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::open");
     if (!_is_init) {
         span->SetStatus(opentelemetry::trace::StatusCode::kError, "Open before Init.");
         return Status::InternalError("Open before Init.");
@@ -138,9 +142,9 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     if (nullptr == state) {
-        return Status::InternalError("input pointer is nullptr.");
+        return Status::InternalError("state pointer is nullptr.");
     }
-
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::prepare");
     RETURN_IF_ERROR(ScanNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
@@ -244,13 +248,13 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
 }
 
 Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    if (state == nullptr || block == nullptr || eos == nullptr) {
+        return Status::InternalError("input is NULL pointer");
+    }
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSchemaScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
-    if (state == nullptr || block == nullptr || eos == nullptr) {
-        return Status::InternalError("input is NULL pointer");
-    }
     if (!_is_init) {
         return Status::InternalError("used before initialize.");
     }
