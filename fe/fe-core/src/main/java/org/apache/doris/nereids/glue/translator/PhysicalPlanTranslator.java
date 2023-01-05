@@ -971,7 +971,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 
-            if (nestedLoopJoinNode.getConjuncts().isEmpty()
+            if (nestedLoopJoin.getOtherJoinConjuncts().isEmpty()
                     && (joinType == JoinType.LEFT_ANTI_JOIN
                         || joinType == JoinType.LEFT_SEMI_JOIN
                         || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
@@ -983,7 +983,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     leftIntermediateSlotDescriptor.add(sd);
                 }
-            } else if (nestedLoopJoinNode.getConjuncts().isEmpty()
+            } else if (nestedLoopJoin.getOtherJoinConjuncts().isEmpty()
                     && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
                 for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                     if (!rightSlotDescriptor.isMaterialized()) {
