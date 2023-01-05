@@ -19,6 +19,8 @@
 
 #include <type_traits>
 
+#include "runtime/primitive_type.h"
+
 namespace doris_udf {
     class FunctionContext;
     struct AnyVal;
@@ -37,44 +39,34 @@ public:
     StructValue(void** values, uint32_t size) : _values(values), _size(size), _has_null(false) {}
     StructValue(void** values, uint32_t size, bool has_null) : _values(values), _size(size), _has_null(has_null) {}
 
-    void to_struct_val(StructVal* val) const;
-    static StructValue from_struct_val(const StructVal& val);
+    //void to_struct_val(StructVal* val) const;
+    //static StructValue from_struct_val(const StructVal& val);
 
     uint32_t size() const { return _size; }
     void set_size(uint32_t size) { _size = size; }
-
+    bool has_null() const { return _has_null; }
+    void set_has_null(bool has_null) { _has_null = has_null; }
     bool is_null_at(uint32_t index) const { return this->_has_null && this->_values[index] == nullptr; }
 
     void shallow_copy(const StructValue* other);
 
     // size_t get_byte_size(const TypeDescriptor& type) const;
 
-    // Deep copy collection.
-    // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
-    // copy data from origin collection value).
-//    static void deep_copy_collection(StructValue* shallow_copied_sv,
-//                                     const TypeDescriptor& item_type,
-//                                     const GenMemFootprintFunc& gen_mem_footprint,
-//                                     bool convert_ptrs);
-
-//    static void deserialize_collection(CollectionValue* cv, const char* tuple_data,
-//                                       const TypeDescriptor& item_type);
-
     const void** values() const { return _values; }
     void** mutable_values() { return _values; }
     void set_values(void** values) { _values = values; }
-    const void* child_value(uint32_t index) const { return _values[i]; }
-    void* mutable_child_value(uint32_t index) { return _values[i]; }
-    void set_child_value(void* value, uint32_t index) { _values[i] = value; }
+    const void* child_value(uint32_t index) const { return _values[index]; }
+    void* mutable_child_value(uint32_t index) { return _values[index]; }
+    void set_child_value(void* value, uint32_t index) { _values[index] = value; }
 
 private:
     // pointer to the start of the vector of children pointers. These pointers are
     // point to children values where a null pointer means that this child is NULL.
     void** _values;
-    // the number of values.
+    // the number of values in this struct value.
     uint32_t _size;
     // child has no null value if has_null is false.
-    // child ```may``` has null value if has_null is true.
+    // child may has null value if has_null is true.
     bool _has_null;
 };
 

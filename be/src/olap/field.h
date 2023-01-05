@@ -473,7 +473,6 @@ public:
         struct_v->set_values(reinterpret_cast<void**>(variable_ptr));
         variable_ptr += _length;
         for (size_t i = 0; i < get_sub_field_count(); i++) {
-            struct_v->set_child_value(variable_ptr, i);
             variable_ptr += get_sub_field(i)->get_variable_len();
         }
         return variable_ptr;

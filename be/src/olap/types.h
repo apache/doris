@@ -208,7 +208,7 @@ public:
 
         if (!l_value->has_null() && !r_value->has_null()) {
             for (size_t i = 0; i < size; ++i) {
-                if (!_type_infos[i]->equal(l_value->child_value(i), r_value->child_value(i)) {
+                if (!_type_infos[i]->equal(l_value->child_value(i), r_value->child_value(i))) {
                     return false;
                 }
             }
@@ -223,7 +223,7 @@ public:
                 } else if (r_value->is_null_at(i)) { // left is not null & right is null
                     return false;
                 }
-                if (!_type_infos[i]->equal(l_value->child_value(i), r_value->child_value(i)) {
+                if (!_type_infos[i]->equal(l_value->child_value(i), r_value->child_value(i))) {
                     return false;
                 }
             }
@@ -240,7 +240,7 @@ public:
 
         if (!l_value->has_null() && !r_value->has_null()) {
             while (cur < l_size && cur < r_size) {
-                int result = _type_infos[i]->cmp(l_value->child_value(cur), r_value->child_value(cur));
+                int result = _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
                 if (result != 0) {
                     return result;
                 }
@@ -256,7 +256,7 @@ public:
                     return 1;
                 } else { // both are not null
                     int result =
-                            _type_infos[i]->cmp(l_value->child_value(cur), r_value->child_value(cur));
+                            _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
                     if (result != 0) {
                         return result;
                     }
@@ -290,17 +290,24 @@ public:
         }
 
         dest_value->set_size(src_value->size());
-
-        size_t allocate_size = src_value->size() * sizeof(void*);
-        dest_value->set_values((void**)(mem_pool->allocate(allocate_size));
         dest_value->set_has_null(src_value->has_null());
 
+        size_t allocate_size = src_value->size() * sizeof(*src_value->values());
         // allocate memory for children value
         for (size_t i = 0; i < src_value->size(); ++i) {
-            dest_value->set_child_value(nullptr);
             if (src_value->is_null_at(i)) continue;
-            size_t child_size = _type_infos[i]->size();
-            dest_value->set_child_value(mem_pool->allocate(child_size), i);
+            allocate_size += _type_infos[i]->size();
+        }
+
+        dest_value->set_values((void**)mem_pool->allocate(allocate_size));
+        auto ptr = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
+        ptr += dest_value->size() * sizeof(*dest_value->values());
+
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            dest_value->set_child_value(nullptr, i);
+            if (src_value->is_null_at(i)) continue;
+            dest_value->set_child_value(ptr, i);
+            ptr += _type_infos[i]->size();
         }
 
         // copy children value
@@ -328,10 +335,17 @@ public:
 
         dest_value->set_size(src_value->size());
         dest_value->set_has_null(src_value->has_null());
-        *base += src_value->size() * sizeof(void*);
+        *base += src_value->size() * sizeof(*src_value->values());
 
         for (size_t i = 0; i < src_value->size(); ++i) {
-            if (src_value->is_null_at(i)) {
+            dest_value->set_child_value(nullptr, i);
+            if (src_value->is_null_at(i)) continue;
+            dest_value->set_child_value(*base, i);
+            *base += _type_infos[i]->size();
+        }
+
+        for (size_t i = 0; i < src_value->size(); ++i) {
+            if (dest_value->is_null_at(i)) {
                 continue;
             }
             auto dest_address = dest_value->mutable_child_value(i);
@@ -372,7 +386,7 @@ public:
         std::string result = "{";
 
         for (size_t i = 0; i < src_value->size(); ++i) {
-            std::string field_value = _type_infos[i]->to_string(src_value->values()[i]);
+            std::string field_value = _type_infos[i]->to_string(src_value->child_value(i));
             result += field_value;
             if (i < src_value->size() - 1) {
                 result += ", ";

@@ -166,7 +166,8 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
     return array_type_Info_arr[leaf_type][iterations];
 }
 
-// TODO(xy): Support nested complex type
+// Produce a struct type info
+// TODO(xy): Need refactor to this produce method
 const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
     std::vector<TypeInfoPtr> type_infos;
     type_infos.reserve(field_types.size());
@@ -223,7 +224,6 @@ TypeInfoPtr create_type_info_ptr(const TypeInfo* type_info, bool should_reclaim_
 }
 
 // TODO: Support the type info of the nested array with more than 9 depths.
-// TODO(xy): Support the type info of the nested struct
 TypeInfoPtr get_type_info(const TabletColumn* col) {
     auto type = col->type();
     if (UNLIKELY(type == OLAP_FIELD_TYPE_STRUCT)) {
