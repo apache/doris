@@ -51,6 +51,7 @@ public abstract class Type {
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
+    public static final ScalarType UNSUPPORTED = new ScalarType(PrimitiveType.INVALID_TYPE);
     public static final ScalarType NULL = new ScalarType(PrimitiveType.NULL_TYPE);
     public static final ScalarType BOOLEAN = new ScalarType(PrimitiveType.BOOLEAN);
     public static final ScalarType TINYINT = new ScalarType(PrimitiveType.TINYINT);
