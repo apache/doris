@@ -105,7 +105,10 @@ public abstract class ScanNode extends PlanNode {
     protected Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
         PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
         PrimitiveType srcType = expr.getType().getPrimitiveType();
-        if (dstType != srcType) {
+        if (PrimitiveType.typeWithPrecision.contains(dstType) && PrimitiveType.typeWithPrecision.contains(srcType)
+                && !slotDesc.getType().equals(expr.getType())) {
+            return expr.castTo(slotDesc.getType());
+        } else if (dstType != srcType) {
             return expr.castTo(slotDesc.getType());
         } else {
             return expr;
