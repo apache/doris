@@ -362,8 +362,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Set<Slot> projectOutput = sort.child().getOutputSet();
                     SlotBinder strictBinderOnProject = new SlotBinder(toScope(Lists.newArrayList(projectOutput)),
                             sort, true, ctx.cascadesContext);
-                    SlotBinder looseBinderOnProject = new SlotBinder(toScope(Lists.newArrayList(projectOutput)),
-                            sort, false, ctx.cascadesContext);
+                    //SlotBinder looseBinderOnProject = new SlotBinder(toScope(Lists.newArrayList(projectOutput)),
+                    //        sort, false, ctx.cascadesContext);
 
                     Set<Slot> projectChildrenOutput = sort.child().children().stream()
                             .flatMap(plan -> plan.getOutputSet().stream())
@@ -371,16 +371,16 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     SlotBinder strictBinderOnProjectChild = new SlotBinder(
                             toScope(Lists.newArrayList(projectChildrenOutput)),
                             sort, true, ctx.cascadesContext);
-                    SlotBinder looseBinderOnProjectChild = new SlotBinder(
-                            toScope(Lists.newArrayList(projectChildrenOutput)),
-                            sort, false, ctx.cascadesContext);
+                    //SlotBinder looseBinderOnProjectChild = new SlotBinder(
+                    //        toScope(Lists.newArrayList(projectChildrenOutput)),
+                    //        sort, false, ctx.cascadesContext);
                     List<OrderKey> sortItemList = sort.getOrderKeys()
                             .stream()
                             .map(orderKey -> {
                                 Expression item = strictBinderOnProject.bind(orderKey.getExpr());
                                 item = strictBinderOnProjectChild.bind(item);
-                                item = looseBinderOnProjectChild.bind(item);
-                                item = looseBinderOnProject.bind(item);
+                                //item = looseBinderOnProjectChild.bind(item);
+                                //item = looseBinderOnProject.bind(item);
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
 
@@ -564,7 +564,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private boolean strict;
 
         public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {
-            this(scope, plan, false, cascadesContext);
+            this(scope, plan, true, cascadesContext);
         }
 
         public SlotBinder(Scope scope, Plan plan, boolean strict, CascadesContext cascadesContext) {
@@ -599,9 +599,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
             if (!foundInThisScope && getScope().getOuterScope().isPresent()) {
                 boundedOpt = Optional.of(bindSlot(unboundSlot,
                         getScope()
-                        .getOuterScope()
-                        .get()
-                        .getSlots()));
+                                .getOuterScope()
+                                .get()
+                                .getSlots()));
             }
             List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
@@ -634,7 +634,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return bindQualifiedStar(qualifier);
                 default:
                     throw new AnalysisException("Not supported qualifier: "
-                        + StringUtils.join(qualifier, "."));
+                            + StringUtils.join(qualifier, "."));
             }
         }
 
@@ -648,14 +648,15 @@ public class BindSlotReference implements AnalysisRuleFactory {
                         List<String> boundSlotQualifier = boundSlot.getQualifier();
                         switch (boundSlotQualifier.size()) {
                             // bound slot is `column` and no qualified
-                            case 0: return false;
+                            case 0:
+                                return false;
                             case 1: // bound slot is `table`.`column`
                                 return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0));
                             case 2:// bound slot is `db`.`table`.`column`
                                 return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(1));
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
-                                    + StringUtils.join(qualifierStar, "."));
+                                        + StringUtils.join(qualifierStar, "."));
                         }
                     case 2: // db.table.*
                         boundSlotQualifier = boundSlot.getQualifier();
@@ -669,11 +670,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                         && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
-                                    + StringUtils.join(qualifierStar, ".") + ".*");
+                                        + StringUtils.join(qualifierStar, ".") + ".*");
                         }
                     default:
                         throw new AnalysisException("Not supported name: "
-                            + StringUtils.join(qualifierStar, ".") + ".*");
+                                + StringUtils.join(qualifierStar, ".") + ".*");
                 }
             }).collect(Collectors.toList());
 
@@ -683,42 +684,29 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
             return boundSlots.stream().filter(boundSlot -> {
                 List<String> nameParts = unboundSlot.getNameParts();
-                if (nameParts.size() == 1) {
-
+                int qualifierSize = boundSlot.getQualifier().size();
+                int namePartsSize = nameParts.size();
+                if (namePartsSize > qualifierSize + 1) {
+                    return false;
+                }
+                if (namePartsSize == 1) {
                     return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
-                } else if (nameParts.size() <= 3) {
-                    int size = nameParts.size();
-                    // if nameParts.size() == 3, nameParts.get(0) is cluster name.
-                    return handleNamePartsTwoOrThree(boundSlot, nameParts.subList(size - 2, size));
+                }
+                if (namePartsSize == 2) {
+                    String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 1);
+                    return qualifierDbName.equalsIgnoreCase(nameParts.get(0))
+                            && boundSlot.getName().equalsIgnoreCase(nameParts.get(1));
+                } else if (nameParts.size() == 3) {
+                    String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 1);
+                    String qualifierClusterName = boundSlot.getQualifier().get(qualifierSize - 2);
+                    return qualifierClusterName.equalsIgnoreCase(nameParts.get(0))
+                            && qualifierDbName.equalsIgnoreCase(nameParts.get(1))
+                            && boundSlot.getName().equalsIgnoreCase(nameParts.get(2));
                 }
                 //TODO: handle name parts more than three.
                 throw new AnalysisException("Not supported name: "
                         + StringUtils.join(nameParts, "."));
             }).collect(Collectors.toList());
-        }
-
-        private boolean handleNamePartsTwoOrThree(Slot boundSlot, List<String> nameParts) {
-            List<String> qualifier = boundSlot.getQualifier();
-            if (strict && qualifier.size() < nameParts.size()) {
-                return false;
-            }
-            String name = boundSlot.getName();
-            switch (qualifier.size()) {
-                case 2:
-                    // qualifier is `db`.`table`
-                    return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                            && nameParts.get(1).equalsIgnoreCase(name);
-                case 1:
-                    // qualifier is `table`
-                    return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                            && nameParts.get(1).equalsIgnoreCase(name);
-                case 0:
-                    // has no qualifiers
-                    return nameParts.get(1).equalsIgnoreCase(name);
-                default:
-                    throw new AnalysisException("Not supported qualifier: "
-                            + StringUtils.join(qualifier, "."));
-            }
         }
     }
 
