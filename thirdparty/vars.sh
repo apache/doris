@@ -61,10 +61,10 @@ LIBEVENT_SOURCE=libevent-release-2.1.12-stable
 LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
 
 # openssl
-OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1m.tar.gz"
-OPENSSL_NAME=openssl-OpenSSL_1_1_1m.tar.gz
-OPENSSL_SOURCE=openssl-OpenSSL_1_1_1m
-OPENSSL_MD5SUM="710c2368d28f1a25ab92e25b5b9b11ec"
+OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
+OPENSSL_NAME=openssl-OpenSSL_1_1_1s.tar.gz
+OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
+OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
 THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
