@@ -227,7 +227,7 @@ bool VRepeatNode::need_more_input_data() const {
 
 Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
-        return Status::InternalError("input is NULL pointer");
+        return Status::InternalError("input is nullptr");
     }
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VRepeatNode::get_next");
     VLOG_CRITICAL << "VRepeatNode::get_next";

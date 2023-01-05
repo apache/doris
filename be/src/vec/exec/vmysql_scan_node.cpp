@@ -145,8 +145,8 @@ Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescri
 }
 
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    if (state == NULL || block == NULL || eos == NULL) {
-        return Status::InternalError("input is NULL pointer");
+    if (state == nullptr || block == nullptr || eos == nullptr) {
+        return Status::InternalError("input is nullptr");
     }
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
@@ -176,8 +176,8 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                 break;
             }
 
-            char** data = NULL;
-            unsigned long* length = NULL;
+            char** data = nullptr;
+            unsigned long* length = nullptr;
             RETURN_IF_ERROR(_mysql_scanner->get_next_row(&data, &length, &mysql_eos));
 
             if (mysql_eos) {
