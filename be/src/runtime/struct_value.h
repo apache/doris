@@ -29,8 +29,8 @@ public:
 
     explicit StructValue(uint32_t size) : _values(nullptr), _size(size), _has_null(false) {}
     StructValue(void** values, uint32_t size) : _values(values), _size(size), _has_null(false) {}
-    StructValue(void** values, uint32_t size, bool has_null) :
-            _values(values), _size(size), _has_null(has_null) {}
+    StructValue(void** values, uint32_t size, bool has_null)
+           : _values(values), _size(size), _has_null(has_null) {}
 
     //void to_struct_val(StructVal* val) const;
     //static StructValue from_struct_val(const StructVal& val);
