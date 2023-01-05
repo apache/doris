@@ -552,14 +552,3 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
     默认的改写OR to IN的OR数量阈值。默认值为2，即表示有2个OR的时候，如果可以合并，则会改写成IN。
 	
-* `ignore_unsupported_column`
-
-    <version since="dev">
-
-    默认为 false。当设置为 true 时，对于 `select *` 这种查询任务会自动忽略类型为 UNSUPPORTED 的列。
-
-    UNSUPPORTED 目前只会出现在外表中，当 Doris 自动同步外表的 schema 时，对于一些不支持的列类型，会使用 UNSUPPORTED 类型代替。
-
-    如果设置为 true，则遇到 UNSUPPORTED 类型时，会报错。
-    	
-    </version>

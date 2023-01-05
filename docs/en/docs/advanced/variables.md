@@ -564,14 +564,3 @@ Translated with www.DeepL.com/Translator (free version)
 
     The default threshold of rewriting OR to IN. The default value is 2, which means that when there are 2 ORs, if they can be compact, they will be rewritten as IN predicate.
 
-* `ignore_unsupported_column`
-
-    <version since="dev">
-
-    The default is false. When set to true, columns of type UNSUPPORTED are automatically ignored for query tasks such as `select *`.
-
-    UNSUPPORTED column currently only appears in the external table. When Doris automatically synchronizes the schema of the external table, for some unsupported column types, the UNSUPPORTED type will be used instead.
-
-    If set to true, an error will be reported when an UNSUPPORTED type is encountered.
-
-    </version>

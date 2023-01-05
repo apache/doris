@@ -952,11 +952,6 @@ public class SelectStmt extends QueryStmt {
      */
     private void expandStar(TableName tblName, TupleDescriptor desc) {
         for (Column col : desc.getTable().getBaseSchema()) {
-            // ignore supported type column is session variable ignore_unsupported_column is true.
-            if (!col.getType().isSupported() && ConnectContext.get() != null && ConnectContext.get()
-                    .getSessionVariable().ignoreUnsupportedColumn()) {
-                continue;
-            }
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
         }
