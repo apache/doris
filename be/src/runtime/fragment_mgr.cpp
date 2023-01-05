@@ -582,20 +582,15 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
 std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
     {
         std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(fragment_instance_id);
-        if (iter != _pipeline_map.end()) {
-            return _pipeline_map[fragment_instance_id]->get_pipe();
+        auto pipeline_iter = _pipeline_map.find(fragment_instance_id);
+        if (pipeline_iter != _pipeline_map.end()) {
+            return pipeline_iter->get_pipe();
         } else {
-            iter = _fragment_map.find(fragment_instance_id);
-            if (iter != _fragment_map.end()) {
-                return _fragment_map[fragment_instance_id]->get_pipe();
+            auto fragment_iter = _fragment_map.find(fragment_instance_id);
+            if (fragment_iter != _fragment_map.end()) {
+                return fragment_iter->get_pipe();
             } else {
-                iter = _fragment_map.find(fragment_instance_id);
-                if (iter != _fragment_map.end()) {
-                    return _fragment_map[fragment_instance_id]->get_pipe();
-                } else {
-                    return nullptr;
-                }
+                return nullptr;
             }
         }
     }
