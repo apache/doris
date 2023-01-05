@@ -1,3 +1,4 @@
+package suites.external_table_emr_p2.mysql
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,8 +25,16 @@ suite("test_external_resource_mysql", "p2") {
         String extMysqlUser = context.config.otherConfigs.get("extMysqlUser")
         String extMysqlPassword = context.config.otherConfigs.get("extMysqlPassword")
         String mysqlResourceName = "jdbc_resource_mysql_57"
-        String mysqlDatabaseName01 = "external_mysql_database01"
-        String mysqlTableName01 = "external_mysql_table01"
+        String mysqlDatabaseName01 = "external_mysql_database_ssb"
+        String mysqlTableNameLineOrder = "external_mysql_table_lineorder"
+        String mysqlTableNameCustomer = "external_mysql_table_customer"
+        String mysqlTableNameSupplier = "external_mysql_table_supplier"
+
+
+
+        sql """drop database if exists ${mysqlDatabaseName01};"""
+        sql """create database ${mysqlDatabaseName01};"""
+        sql """use ${mysqlDatabaseName01};"""
 
         sql """drop resource if exists ${mysqlResourceName};"""
         sql """
@@ -34,33 +43,103 @@ suite("test_external_resource_mysql", "p2") {
                 "type"="jdbc",
                 "user"="${extMysqlUser}",
                 "password"="${extMysqlPassword}",
-                "jdbc_url"="jdbc:mysql://${extMysqlHost}:${extMysqlPort}/doris_test?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true&serverTimezone=Asia/Shanghai&useSSL=false",
+                "jdbc_url"="jdbc:mysql://${extMysqlHost}:${extMysqlPort}/ssb?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true&serverTimezone=Asia/Shanghai&useSSL=false",
                 "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """
-        sql """drop database if exists ${mysqlDatabaseName01};"""
-        sql """create database ${mysqlDatabaseName01};"""
-        sql """use ${mysqlDatabaseName01};"""
-        sql """drop table if exists ${mysqlTableName01}"""
+
+        sql """drop table if exists ${mysqlTableNameLineOrder}"""
         sql """
-            CREATE EXTERNAL TABLE ${mysqlTableName01} (
-                `id` int,
-                `name` varchar(128)
+            CREATE EXTERNAL TABLE ${mysqlTableNameLineOrder} (
+                  `lo_orderkey` bigint(20) NOT NULL COMMENT "",
+                  `lo_linenumber` bigint(20) NOT NULL COMMENT "",
+                  `lo_custkey` int(11) NOT NULL COMMENT "",
+                  `lo_partkey` int(11) NOT NULL COMMENT "",
+                  `lo_suppkey` int(11) NOT NULL COMMENT "",
+                  `lo_orderdate` int(11) NOT NULL COMMENT "",
+                  `lo_orderpriority` varchar(16) NOT NULL COMMENT "",
+                  `lo_shippriority` int(11) NOT NULL COMMENT "",
+                  `lo_quantity` bigint(20) NOT NULL COMMENT "",
+                  `lo_extendedprice` bigint(20) NOT NULL COMMENT "",
+                  `lo_ordtotalprice` bigint(20) NOT NULL COMMENT "",
+                  `lo_discount` bigint(20) NOT NULL COMMENT "",
+                  `lo_revenue` bigint(20) NOT NULL COMMENT "",
+                  `lo_supplycost` bigint(20) NOT NULL COMMENT "",
+                  `lo_tax` bigint(20) NOT NULL COMMENT "",
+                  `lo_commitdate` bigint(20) NOT NULL COMMENT "",
+                  `lo_shipmode` varchar(11) NOT NULL COMMENT ""
             ) ENGINE=JDBC
             PROPERTIES (
             "resource" = "${mysqlResourceName}",
-            "table" = "ex_tb0",
+            "table" = "lineorder",
             "table_type"="mysql"
             );
             """
 
-        def res = sql """select count(*) from ${mysqlTableName01};"""
+        def res = sql """select * from ${mysqlTableNameLineOrder} limit 10;"""
         logger.info("recoding select: " + res.toString())
 
-        sql """drop table if exists ${mysqlTableName01}"""
-        sql """drop database if exists ${mysqlDatabaseName01};"""
 
+        sql """drop table if exists ${mysqlTableNameCustomer}"""
+        sql """
+            CREATE EXTERNAL TABLE ${mysqlTableNameCustomer} (
+                    `c_custkey` int(11) DEFAULT NULL,
+                    `c_name` varchar(25) NOT NULL,
+                    `c_address` varchar(40) NOT NULL,
+                    `c_city` varchar(10) NOT NULL,
+                    `c_nation` varchar(15) NOT NULL,
+                    `c_region` varchar(12) NOT NULL,
+                    `c_phone` varchar(15) NOT NULL
+            ) ENGINE=JDBC
+            PROPERTIES (
+            "resource" = "${mysqlResourceName}",
+            "table" = "customer",
+            "table_type"="mysql"
+            );
+            """
+
+        def res1 = sql """select * from ${mysqlTableNameCustomer} where c_custkey >100 limit 10;"""
+        logger.info("recoding select: " + res1.toString())
+
+        def res2 = sql """select * from ${mysqlTableNameCustomer} order by c_custkey desc limit 10;"""
+        logger.info("recoding select: " + res2.toString())
+
+//        def res3 = sql """select AVG(lo_discount) from ${mysqlTableNameCustomer} limit 10;"""
+//        logger.info("recoding select: " + res3.toString())
+//
+//        def res4 = sql """select MAX(lo_discount) from ${mysqlTableNameCustomer} limit 10;"""
+//        logger.info("recoding select: " + res4.toString())
+
+        def res5 = sql """select count(*) from ${mysqlTableNameCustomer};"""
+        logger.info("recoding select: " + res5.toString())
+
+        sql """drop table if exists ${mysqlTableNameSupplier}"""
+        sql """
+            CREATE EXTERNAL TABLE ${mysqlTableNameSupplier} (
+                `s_suppkey` int(11) DEFAULT NULL,
+                `s_name` varchar(25) NOT NULL,
+                `s_address` varchar(25) NOT NULL,
+                `s_city` varchar(10) NOT NULL,
+                `s_nation` varchar(15) NOT NULL,
+                `s_region` varchar(12) NOT NULL,
+                `s_phone` varchar(15) NOT NULL
+            ) ENGINE=JDBC
+            PROPERTIES (
+            "resource" = "${mysqlResourceName}",
+            "table" = "customer",
+            "table_type"="mysql"
+            );
+            """
+        def res6 = sql """select count(*) from ${mysqlTableNameSupplier};"""
+        logger.info("recoding select: " + res6.toString())
+
+        def res7 = sql """select * from ${mysqlTableNameCustomer} a  join ${mysqlTableNameSupplier} b on a.c_nation =b.s_nation limit 5;"""
+        logger.info("recoding select: " + res7.toString())
+
+
+        sql """drop table if exists ${mysqlTableNameLineOrder}"""
+        sql """drop database if exists ${mysqlDatabaseName01};"""
     }
 }
 

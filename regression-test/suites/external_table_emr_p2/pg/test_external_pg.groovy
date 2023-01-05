@@ -1,3 +1,4 @@
+package suites.external_table_emr_p2.pg
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,7 +26,10 @@ suite("test_external_pg", "p2") {
         String extPgPassword = context.config.otherConfigs.get("extPgPassword")
         String jdbcResourcePg14 = "jdbc_resource_pg_14"
         String jdbcPg14Database1 = "jdbc_pg_14_database1"
-        String jdbcPg14Table1 = "jdbc_pg_14_table1"
+        String pgTableNameLineOrder = "jdbc_pg_14_table1"
+        String pgTableNameCustomer = "jdbc_pg_14_customer"
+        String pgTableNameSupplier = "jdbc_pg_14_supplier"
+
 
 
         sql """drop database if exists ${jdbcPg14Database1};"""
@@ -38,29 +42,95 @@ suite("test_external_pg", "p2") {
                 "type"="jdbc",
                 "user"="${extPgUser}",
                 "password"="${extPgPassword}",
-                "jdbc_url"="jdbc:postgresql://${extPgHost}:${extPgPort}/exter_test?currentSchema=public",
+                "jdbc_url"="jdbc:postgresql://${extPgHost}:${extPgPort}/ssb?currentSchema=ssb",
                 "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
                 "driver_class"="org.postgresql.Driver"
             );
             """
 
-        sql """drop table if exists ${jdbcPg14Table1}"""
+        sql """drop table if exists ${pgTableNameLineOrder}"""
         sql """
-            CREATE EXTERNAL TABLE ${jdbcPg14Table1} (
-                id int,
-                name char(100)              
+            CREATE EXTERNAL TABLE ${pgTableNameLineOrder} (
+               `lo_orderkey` bigint(20) NOT NULL COMMENT "",
+                  `lo_linenumber` bigint(20) NOT NULL COMMENT "",
+                  `lo_custkey` int(11) NOT NULL COMMENT "",
+                  `lo_partkey` int(11) NOT NULL COMMENT "",
+                  `lo_suppkey` int(11) NOT NULL COMMENT "",
+                  `lo_orderdate` int(11) NOT NULL COMMENT "",
+                  `lo_orderpriority` varchar(16) NOT NULL COMMENT "",
+                  `lo_shippriority` int(11) NOT NULL COMMENT "",
+                  `lo_quantity` bigint(20) NOT NULL COMMENT "",
+                  `lo_extendedprice` bigint(20) NOT NULL COMMENT "",
+                  `lo_ordtotalprice` bigint(20) NOT NULL COMMENT "",
+                  `lo_discount` bigint(20) NOT NULL COMMENT "",
+                  `lo_revenue` bigint(20) NOT NULL COMMENT "",
+                  `lo_supplycost` bigint(20) NOT NULL COMMENT "",
+                  `lo_tax` bigint(20) NOT NULL COMMENT "",
+                  `lo_commitdate` bigint(20) NOT NULL COMMENT "",
+                  `lo_shipmode` varchar(11) NOT NULL COMMENT ""          
             ) ENGINE=JDBC
             PROPERTIES (
             "resource" = "${jdbcResourcePg14}",
-            "table" = "ext_pg0",
+            "table" = "lineorder",
             "table_type"="postgresql"
             );
             """
 
-        def res = sql """SELECT id, name FROM ${jdbcPg14Table1};"""
+        sql """drop table if exists ${pgTableNameCustomer}"""
+        sql """
+            CREATE EXTERNAL TABLE ${pgTableNameCustomer} (
+                    `c_custkey` int(11) DEFAULT NULL,
+                    `c_name` varchar(25) NOT NULL,
+                    `c_address` varchar(40) NOT NULL,
+                    `c_city` varchar(10) NOT NULL,
+                    `c_nation` varchar(15) NOT NULL,
+                    `c_region` varchar(12) NOT NULL,
+                    `c_phone` varchar(15) NOT NULL
+            ) ENGINE=JDBC
+            PROPERTIES (
+            "resource" = "${jdbcResourcePg14}",
+            "table" = "customer",
+            "table_type"="mysql"
+            );
+            """
+
+        sql """drop table if exists ${pgTableNameSupplier}"""
+        sql """
+            CREATE EXTERNAL TABLE ${pgTableNameSupplier} (
+                `s_suppkey` int(11) DEFAULT NULL,
+                `s_name` varchar(25) NOT NULL,
+                `s_address` varchar(25) NOT NULL,
+                `s_city` varchar(10) NOT NULL,
+                `s_nation` varchar(15) NOT NULL,
+                `s_region` varchar(12) NOT NULL,
+                `s_phone` varchar(15) NOT NULL
+            ) ENGINE=JDBC
+            PROPERTIES (
+            "resource" = "${jdbcResourcePg14}",
+            "table" = "customer",
+            "table_type"="mysql"
+            );
+            """
+
+        def res = sql """select count(*) from ${pgTableNameCustomer};"""
         logger.info("recoding select: " + res.toString())
 
-        sql """drop table if exists ${jdbcPg14Table1}"""
+        def res1 = sql """select * from ${pgTableNameSupplier} limit 10"""
+        logger.info("recoding select: " + res1.toString())
+
+        def res2 = sql """select * from ${pgTableNameSupplier} order by s_suppkey desc limit 10;"""
+        logger.info("recoding select: " + res2.toString())
+
+        def res3 = sql """select * from ${pgTableNameSupplier} where s_suppkey>100 limit 10;"""
+        logger.info("recoding select: " + res3.toString())
+
+        def res4 = sql """select * from ${pgTableNameCustomer} a  join ${pgTableNameSupplier} b on a.c_nation =b.s_nation limit 5;"""
+        logger.info("recoding select: " + res4.toString())
+
+        sql """drop table if exists ${pgTableNameLineOrder}"""
+        sql """drop table if exists ${pgTableNameCustomer}"""
+        sql """drop table if exists ${pgTableNameSupplier}"""
+
         sql """drop database if exists ${jdbcPg14Database1};"""
         sql """drop resource if exists ${jdbcResourcePg14};"""
 

@@ -16,7 +16,7 @@ package suites.external_table_emr_p2.es
 // specific language governing permissions and limitations
 // under the License.
 //import org.postgresql.Driver
-suite("test_external_es", "p2") {
+suite("test_external_catalog_es", "p2") {
 
     String enabled = context.config.otherConfigs.get("enableExternalEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -24,34 +24,37 @@ suite("test_external_es", "p2") {
         String extEsPort = context.config.otherConfigs.get("extEsPort")
         String extEsUser = context.config.otherConfigs.get("extEsUser")
         String extEsPassword = context.config.otherConfigs.get("extEsPassword")
+        String esCatalogName ="es7_catalog_name"
+
         String jdbcPg14Database1 = "jdbc_es_14_database1"
-        String jdbcPg14Table1 = "jdbc_es_14_table1"
+        String jdbcPg14Table1 = "accounts"
 
-
-        sql """drop database if exists ${jdbcPg14Database1};"""
-        sql """create database ${jdbcPg14Database1};"""
-        sql """use ${jdbcPg14Database1};"""
-        sql """drop table if exists ${jdbcPg14Table1};"""
+        sql """drop catalog if exists ${esCatalogName}"""
 
         sql """
-            CREATE EXTERNAL TABLE `${jdbcPg14Table1}` (
-              `name` varchar(20) COMMENT "",
-              `age` varchar(20) COMMENT ""
-            ) ENGINE=ELASTICSEARCH
-            PROPERTIES (
-            "hosts" = "http://${extEsHost}:${extEsPort}",
-            "index" = "helloworld",
-            "user" = "${extEsUser}",
-            "password" = "${extEsPassword}"
+            CREATE CATALOG ${esCatalogName} PROPERTIES (
+                    "type"="es",
+                    "elasticsearch.hosts"="http://${extEsHost}:${extEsPort}",
+                    "elasticsearch.nodes_discovery"="false",
+                    "elasticsearch.username"="${extEsUser}",
+                    "elasticsearch.username"="${extEsPassword}",
             );
             """
-        def res=sql """show create table ${jdbcPg14Table1};"""
-        logger.info("recoding desc res: "+ res.toString())
 
-        def res1=sql "select * from ${jdbcPg14Table1};"
+        sql """
+            SWITCH ${esCatalogName};
+            """
+        sql """
+            SHOW DATABASES;
+            """
+
+        def res1=sql "select * from ${jdbcPg14Table1} limit 10;"
         logger.info("recoding all: " + res1.toString())
 
         sql """drop table if exists ${jdbcPg14Table1};"""
         sql """drop database if exists ${jdbcPg14Database1};"""
+
+        sql """switch internal;"""
+
     }
 }
