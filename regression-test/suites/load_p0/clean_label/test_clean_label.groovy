@@ -113,8 +113,11 @@ suite("test_clean_label") {
 
     def tbName = "test_unique_table_debug_data_for_clean_label"
     try {
-        sql "DROP TABLE IF EXISTS ${tbName}"
-        sql """
+	test {
+            sql "DROP TABLE IF EXISTS ${tbName}"
+        }
+        test {
+	    sql """
                 CREATE TABLE IF NOT EXISTS ${tbName} (
                     a int, b int
                 )
@@ -125,7 +128,7 @@ suite("test_clean_label") {
                     "disable_auto_compaction" = "true"
                 );
             """
-        // curl --location-trusted -uroot: -H "column_separator:|" -H "columns:a, b" -H "label: test_unique_table_debug_data_for_clean_label" -T delete.csv http://127.0.0.1:8030/api/test_skip/t1/_stream_load
+	}
         streamLoad {
             table "${tbName}"
 
@@ -142,7 +145,6 @@ suite("test_clean_label") {
             sql "clean label test_unique_table_debug_data_for_clean_label from ${dbName};"
         }
 
-        // curl --location-trusted -uroot: -H "column_separator:|" -H "columns:a, b" -H "label: test_unique_table_debug_data_for_clean_label" -T delete.csv http://127.0.0.1:8030/api/test_skip/t1/_stream_load
         streamLoad {
             table "${tbName}"
 
