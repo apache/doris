@@ -70,7 +70,6 @@ import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
-import org.apache.doris.nereids.DorisParser.QueryTermDefaultContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
@@ -347,14 +346,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
             query = withCte(query, ctx.cte());
-            return query;
-        });
-    }
-
-    @Override
-    public Object visitQueryTermDefault(QueryTermDefaultContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan query = plan(ctx.queryPrimary());
             return withQueryOrganization(query, ctx.queryOrganization());
         });
     }
@@ -389,7 +380,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitSubquery(SubqueryContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> plan(ctx.queryTerm()));
+        return ParserUtils.withOrigin(ctx, () -> plan(ctx.query()));
     }
 
     @Override
@@ -413,7 +404,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         Optional.ofNullable(ctx.havingClause())
                 );
             }
-
+            selectPlan = withCte(selectPlan, ctx.cte());
+            selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
     }
@@ -1133,6 +1125,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
+        if (ctx == null) {
+            return inputPlan;
+        }
         Optional<SortClauseContext> sortClauseContext = Optional.ofNullable(ctx.sortClause());
         Optional<LimitClauseContext> limitClauseContext = Optional.ofNullable(ctx.limitClause());
         LogicalPlan sort = withSort(inputPlan, sortClauseContext);

@@ -246,4 +246,21 @@ suite("test_nereids_set_operation") {
         SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all 
             select k1, k5 from setOperationTable) t;
     """
+
+    order_qt_select44 """
+    select k1, k3 from setOperationTableNotNullable order by k3 union all 
+            select k1, k5 from setOperationTable
+    """
+
+    order_qt_select45 """
+    (select k1, k3 from setOperationTableNotNullable order by k3) union all 
+            (select k1, k5 from setOperationTable)
+    """
+
+    order_qt_select46 """
+    (with cte AS (select k1, k3 from setOperationTableNotNullable) select * from cte order by k3) union all 
+            (select k1, k5 from setOperationTable)
+    """
+
+
 }
