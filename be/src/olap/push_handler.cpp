@@ -242,13 +242,18 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             // 3. Init Row
-            uint8_t* tuple_buf = reader->mem_pool()->allocate(schema->schema_size());
-            ContiguousRow row(schema.get(), tuple_buf);
+            std::unique_ptr<uint8_t[]> tuple_buf(new uint8_t[schema->schema_size()]);
+            ContiguousRow row(schema.get(), tuple_buf.get());
 
             // 4. Read data from broker and write into cur_tablet
             // Convert from raw to delta
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
+                if (reader->mem_pool()->mem_tracker()->consumption() >
+                    config::flush_size_for_sparkload) {
+                    RETURN_NOT_OK(rowset_writer->flush());
+                    reader->mem_pool()->free_all();
+                }
                 res = reader->next(&row);
                 if (!res.ok()) {
                     LOG(WARNING) << "read next row failed."
@@ -824,7 +829,9 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_pool.reset(new MemPool());
+    _mem_pool.reset(new MemPool(_runtime_state->scanner_mem_tracker().get()));
+    _tuple_buffer_pool.reset(new MemPool(_runtime_state->scanner_mem_tracker().get()));
+
     _counter.reset(new ScannerCounter());
 
     // init scanner
@@ -856,7 +863,7 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     }
 
     int tuple_buffer_size = _tuple_desc->byte_size();
-    void* tuple_buffer = _mem_pool->allocate(tuple_buffer_size);
+    void* tuple_buffer = _tuple_buffer_pool->allocate(tuple_buffer_size);
     if (tuple_buffer == nullptr) {
         LOG(WARNING) << "Allocate memory for tuple failed";
         return Status::Error<PUSH_INIT_ERROR>();
