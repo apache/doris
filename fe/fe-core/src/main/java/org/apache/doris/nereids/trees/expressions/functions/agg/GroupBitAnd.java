@@ -51,18 +51,18 @@ public class GroupBitAnd extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public GroupBitAnd(Expression arg) {
-        super("group_bit_and", arg);
+        this(false, false, arg);
     }
 
     /**
      * constructor with 1 argument.
      */
     public GroupBitAnd(boolean distinct, Expression arg) {
-        super("group_bit_and", distinct, arg);
+        this(distinct, false, arg);
     }
 
-    private GroupBitAnd(boolean distinct, boolean isAlwaysNullable, Expression child) {
-        super("group_bit_and", distinct, isAlwaysNullable, child);
+    private GroupBitAnd(boolean distinct, boolean alwaysNullable, Expression child) {
+        super("group_bit_and", distinct, alwaysNullable, child);
     }
 
     /**
@@ -71,12 +71,12 @@ public class GroupBitAnd extends NullableAggregateFunction
     @Override
     public GroupBitAnd withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitAnd(distinct, isAlwaysNullable, children.get(0));
+        return new GroupBitAnd(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new GroupBitAnd(distinct, isAlwaysNullable, children.get(0));
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new GroupBitAnd(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

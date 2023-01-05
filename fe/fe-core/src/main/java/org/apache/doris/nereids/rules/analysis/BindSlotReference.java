@@ -238,7 +238,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .filter(alias -> ! alias.child().anyMatch(expr -> {
                                         if (expr instanceof UnboundFunction) {
                                             UnboundFunction unboundFunction = (UnboundFunction) expr;
-                                            return BuiltinAggregateFunctions.aggFuncNames.contains(
+                                            return BuiltinAggregateFunctions.INSTANCE.aggFuncNames.contains(
                                                     unboundFunction.getName().toLowerCase());
                                         }
                                         return false;

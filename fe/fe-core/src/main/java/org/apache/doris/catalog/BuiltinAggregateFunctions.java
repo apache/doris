@@ -62,8 +62,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Builtin aggregate functions.
@@ -117,6 +119,11 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(VarianceSamp.class, "var_samp", "variance_samp"),
             agg(WindowFunnel.class, "window_funnel")
     );
+
+
+    public final Set<String> aggFuncNames = aggregateFunctions.stream()
+            .flatMap(fun -> fun.names.stream())
+            .collect(ImmutableSet.toImmutableSet());
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 

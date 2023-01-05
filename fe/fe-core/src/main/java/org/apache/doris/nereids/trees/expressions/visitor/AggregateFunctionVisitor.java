@@ -73,7 +73,7 @@ public interface AggregateFunctionVisitor<R, C> {
     default R visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction, C context) {
         return visitAggregateFunction(nullableAggregateFunction, context);
     }
-    
+
     default R visitAnyValue(AnyValue anyValue, C context) {
         return visitAggregateFunction(anyValue, context);
     }

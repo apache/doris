@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -52,20 +51,20 @@ public class MultiDistinctCount extends AggregateFunction
                 .collect(Collectors.toList()));
     }
 
-    public MultiDistinctCount(boolean isDistinct, Expression arg0, Expression... varArgs) {
+    public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
         super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
                 .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(Collectors.toList()));
     }
 
     @Override
-    public MultiDistinctCount withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() > 0);
         if (children.size() > 1) {
-            return new MultiDistinctCount(isDistinct, children.get(0),
+            return new MultiDistinctCount(distinct, children.get(0),
                     children.subList(1, children.size()).toArray(new Expression[0]));
         } else {
-            return new MultiDistinctCount(isDistinct, children.get(0));
+            return new MultiDistinctCount(distinct, children.get(0));
         }
     }
 

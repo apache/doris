@@ -23,7 +23,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -36,7 +35,7 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable, ForbiddenMetricTypeArguments {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -56,8 +55,8 @@ public class Count extends AggregateFunction
         this.isStar = false;
     }
 
-    public Count(boolean isDistinct, Expression arg0, Expression... varArgs) {
-        super("count", isDistinct, ExpressionUtils.mergeArguments(arg0, varArgs));
+    public Count(boolean distinct, Expression arg0, Expression... varArgs) {
+        super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
     }
 
@@ -90,16 +89,16 @@ public class Count extends AggregateFunction
     }
 
     @Override
-    public Count withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public Count withDistinctAndChildren(boolean distinct, List<Expression> children) {
         if (children.size() == 0) {
-            if (isDistinct) {
+            if (distinct) {
                 throw new AnalysisException("Can not count distinct empty arguments");
             }
             return new Count();
         } else if (children.size() == 1) {
-            return new Count(isDistinct, children.get(0));
+            return new Count(distinct, children.get(0));
         } else {
-            return new Count(isDistinct, children.get(0),
+            return new Count(distinct, children.get(0),
                     children.subList(1, children.size()).toArray(new Expression[0]));
         }
     }

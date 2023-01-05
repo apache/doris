@@ -17,10 +17,22 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
 /**
  * means the function doesn't accept MetricType Arguments
  *
  * e.g. Count, Min, Max, Ndv etc
  */
-public interface ForbiddenMetricTypeArguments {
+public interface ForbiddenMetricTypeArguments extends FunctionTrait {
+    @Override
+    default void checkLegality() {
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
+    }
 }

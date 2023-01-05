@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -53,18 +52,18 @@ public class GroupBitOr extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public GroupBitOr(Expression arg) {
-        super("group_bit_or", arg);
+        this(false, false, arg);
     }
 
     /**
      * constructor with 1 argument.
      */
     public GroupBitOr(boolean distinct, Expression arg) {
-        super("group_bit_or", distinct, arg);
+        this(distinct, false, arg);
     }
 
-    private GroupBitOr(boolean distinct, boolean isAlwaysNullable, Expression child) {
-        super("group_bit_or", distinct, isAlwaysNullable, child);
+    private GroupBitOr(boolean distinct, boolean alwaysNullable, Expression child) {
+        super("group_bit_or", distinct, alwaysNullable, child);
     }
 
     @Override
@@ -78,12 +77,12 @@ public class GroupBitOr extends NullableAggregateFunction
     @Override
     public GroupBitOr withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitOr(distinct, isAlwaysNullable, children.get(0));
+        return new GroupBitOr(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new GroupBitOr(distinct, isAlwaysNullable, children.get(0));
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new GroupBitOr(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

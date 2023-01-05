@@ -67,7 +67,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return withDistinctAndChildren(distinct, children);
     }
 
-    public abstract AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children);
+    public abstract AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children);
 
     /** getIntermediateTypes */
     public final PartialAggType getIntermediateTypes() {

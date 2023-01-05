@@ -62,18 +62,18 @@ public class Sum extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public Sum(Expression arg) {
-        super("sum", arg);
+        this(false, false, arg);
     }
 
     /**
      * constructor with 1 argument.
      */
     public Sum(boolean distinct, Expression arg) {
-        super("sum", distinct, arg);
+        this(distinct, false, arg);
     }
 
-    private Sum(boolean distinct, boolean isAlwaysNullable, Expression arg) {
-        super("sum", distinct, isAlwaysNullable, arg);
+    private Sum(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("sum", distinct, alwaysNullable, arg);
     }
 
     @Override
@@ -90,12 +90,12 @@ public class Sum extends NullableAggregateFunction
     @Override
     public Sum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(distinct, isAlwaysNullable, children.get(0));
+        return new Sum(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new Sum(distinct, isAlwaysNullable, children.get(0));
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new Sum(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

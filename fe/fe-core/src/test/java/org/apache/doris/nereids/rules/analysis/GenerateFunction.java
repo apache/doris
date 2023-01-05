@@ -74,6 +74,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.commons.text.CaseUtils;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -267,7 +268,7 @@ public class GenerateFunction {
     }
 
     @Test
-    // @Disabled
+    @Disabled
     @Developing
     public void generate() throws IOException {
         Class<? extends Function> catalogFunctionType = ScalarFunction.class;
@@ -290,7 +291,7 @@ public class GenerateFunction {
                 .sorted(Comparator.comparing(Pair::key))
                 .collect(Collectors.toList());
 
-        System.out.println(codeInfos.stream().map(kv -> kv.second.first).collect(Collectors.joining("\n")));
+        // System.out.println(codeInfos.stream().map(kv -> kv.second.first).collect(Collectors.joining("\n")));
 
         generateFunctionsFile(catalogFunctionType, codeInfos);
 

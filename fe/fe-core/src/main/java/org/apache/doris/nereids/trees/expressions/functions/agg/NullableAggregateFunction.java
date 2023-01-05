@@ -28,26 +28,26 @@ import java.util.Objects;
  */
 public abstract class NullableAggregateFunction extends AggregateFunction implements
         PropagateNullable, AlwaysNullable {
-    protected final boolean isAlwaysNullable;
+    protected final boolean alwaysNullable;
 
-    protected NullableAggregateFunction(String name, boolean isAlwaysNullable,
+    protected NullableAggregateFunction(String name, boolean alwaysNullable,
             Expression ...expressions) {
         super(name, false, expressions);
-        this.isAlwaysNullable = isAlwaysNullable;
+        this.alwaysNullable = alwaysNullable;
     }
 
-    protected NullableAggregateFunction(String name, boolean isAlwaysNullable, boolean isDistinct,
+    protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable,
             Expression ...expressions) {
-        super(name, isDistinct, expressions);
-        this.isAlwaysNullable = isAlwaysNullable;
+        super(name, distinct, expressions);
+        this.alwaysNullable = alwaysNullable;
     }
 
     @Override
     public boolean nullable() {
-        return isAlwaysNullable ? AlwaysNullable.super.nullable() : PropagateNullable.super.nullable();
+        return alwaysNullable ? AlwaysNullable.super.nullable() : PropagateNullable.super.nullable();
     }
 
-    public abstract NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable);
+    public abstract NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable);
 
     @Override
     public boolean equals(Object o) {
@@ -61,11 +61,11 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
             return false;
         }
         NullableAggregateFunction that = (NullableAggregateFunction) o;
-        return isAlwaysNullable == that.isAlwaysNullable;
+        return alwaysNullable == that.alwaysNullable;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), isAlwaysNullable);
+        return Objects.hash(super.hashCode(), alwaysNullable);
     }
 }

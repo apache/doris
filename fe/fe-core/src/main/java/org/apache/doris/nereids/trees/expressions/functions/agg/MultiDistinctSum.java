@@ -47,7 +47,7 @@ public class MultiDistinctSum extends AggregateFunction
         super("multi_distinct_sum", true, arg0);
     }
 
-    public MultiDistinctSum(boolean isDistinct, Expression arg0) {
+    public MultiDistinctSum(boolean distinct, Expression arg0) {
         super("multi_distinct_sum", true, arg0);
     }
 
@@ -64,9 +64,9 @@ public class MultiDistinctSum extends AggregateFunction
     }
 
     @Override
-    public MultiDistinctSum withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public MultiDistinctSum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum(isDistinct, children.get(0));
+        return new MultiDistinctSum(distinct, children.get(0));
     }
 
     @Override

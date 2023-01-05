@@ -67,19 +67,19 @@ public class Avg extends NullableAggregateFunction
     /**
      * constructor with 1 argument.
      */
-    public Avg(boolean isDistinct, Expression arg) {
-        this(isDistinct, false, arg);
+    public Avg(boolean distinct, Expression arg) {
+        this(distinct, false, arg);
     }
 
-    private Avg(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
-        super("avg", isAlwaysNullable, isDistinct, arg);
+    private Avg(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("avg", distinct, alwaysNullable, arg);
     }
 
     @Override
     public void checkLegality() {
         DataType argType = child().getDataType();
         if (((!argType.isNumericType() && !argType.isNullType()) || argType.isOnlyMetricType())) {
-            throw new AnalysisException("avg requires a numeric parameter: " + this.toSql());
+            throw new AnalysisException("avg requires a numeric parameter: " + toSql());
         }
     }
 
@@ -96,12 +96,12 @@ public class Avg extends NullableAggregateFunction
     @Override
     public Avg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(distinct, isAlwaysNullable, children.get(0));
+        return new Avg(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new Avg(isDistinct, isAlwaysNullable, children.get(0));
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new Avg(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
