@@ -1416,6 +1416,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         getExpression(ctx.pattern)
                     );
                     break;
+                case DorisParser.RLIKE:
                 case DorisParser.REGEXP:
                     outExpression = new Regexp(
                         valueExpression,
