@@ -15,29 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "runtime/runtime_state.h"
-#include "vec/exec/scan/vscan_node.h"
+#include "vmeta_scanner.h"
 
 namespace doris::vectorized {
 
-class VMetaScanNode : public VScanNode {
-public:
-    VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~VMetaScanNode() override = default;
+VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, const TupleId& tuple_id, int64_t limit)
+    : VScanner(state, static_cast<VScanNode*>(parent), limit) {
+}
 
-    //    std::string get_name() override;
-    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
-    Status prepare(RuntimeState* state) override;
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+Status VMetaScanner::open(RuntimeState* state) {
+    RETURN_IF_ERROR(VScanner::open(state));
+    return Status::OK();
+}
 
-private:
-    Status _init_profile() override;
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+Status VMetaScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+    return Status::OK();
+}
 
-private:
-    TupleId _tuple_id;
-};
+Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    return Status::OK();
+}
 
+Status VMetaScanner::close(RuntimeState* state) {
+    RETURN_IF_ERROR(VScanner::close(state));
+    return Status::OK();
+}
 } // namespace doris::vectorized

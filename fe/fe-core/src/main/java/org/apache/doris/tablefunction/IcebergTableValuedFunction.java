@@ -19,8 +19,13 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -41,15 +46,9 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     private static final String TABLE = "table";
     private static final String QUERY_TYPE = "query_type";
 
-    public static String SNAPSHOTS = "snapshots";
-
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(TABLE)
             .add(QUERY_TYPE)
-            .build();
-
-    private static final ImmutableSet<String> SUPPORTED_QUERY_TYPES = new ImmutableSet.Builder<String>()
-            .add(SNAPSHOTS)
             .build();
 
     private final MetadataType queryType;
@@ -75,6 +74,12 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
         }
         this.tableName = new TableName(names[0], names[1], names[2]);
+        // check auth
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), this.tableName, PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    this.tableName.getDb() + ": " + this.tableName.getTbl());
+        }
         try {
             this.queryType = MetadataType.valueOf(queryType.toUpperCase());
         } catch (IllegalArgumentException e) {

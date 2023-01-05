@@ -14,7 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "meta_scan_node.h"
+
+#include "vmeta_scan_node.h"
+#include "vmeta_scanner.h"
+
 namespace doris::vectorized {
 
 VMetaScanNode::VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -44,6 +47,21 @@ Status VMetaScanNode::_init_profile() {
 }
 
 Status VMetaScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+    if (_eos == true) {
+        return Status::OK();
+    }
+    VMetaScanner* scanner = new VMetaScanner(_state, this, _tuple_id, _limit_per_scanner);
+    _scanner_pool.add(scanner);
+    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
+    scanners->push_back(static_cast<VScanner*>(scanner));
+    return Status::OK();
+}
+
+Status VMetaScanNode::_process_conjuncts() {
+    RETURN_IF_ERROR(VScanNode::_process_conjuncts());
+    if (_eos) {
+        return Status::OK();
+    }
     return Status::OK();
 }
 
