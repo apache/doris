@@ -430,12 +430,12 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
 }
 
 Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
+    DCHECK(_origin_iters.size() == _iterator_init_flags.size());
+    _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     _schema = &(*_origin_iters.begin())->schema();
-    _record_rowids = opts.record_rowids;
 
     auto seg_order = 0;
     // Init contxt depends on _iterator_init_flags
