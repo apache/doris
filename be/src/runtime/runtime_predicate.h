@@ -35,7 +35,6 @@
 #include "util/threadpool.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-// #include "olap/predicate_creator.h"
 
 namespace doris {
 
