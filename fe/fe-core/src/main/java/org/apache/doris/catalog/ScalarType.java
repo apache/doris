@@ -1051,7 +1051,7 @@ public class ScalarType extends Type {
         if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
             return t1.scale > t2.scale ? t1 : t2;
         }
-        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t1.isDatetimeV2() || t1.isDateV2())) {
+        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t2.isDatetimeV2() || t2.isDateV2())) {
             return t1.isDatetimeV2() ? t1 : t2;
         }
         if (strict) {
