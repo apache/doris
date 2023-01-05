@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
@@ -86,6 +87,9 @@ public:
 
     void send_report(bool);
 
+    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
+    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
+
 private:
     // Id of this query
     TUniqueId _query_id;
@@ -132,6 +136,8 @@ private:
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer;
     RuntimeProfile::Counter* _prepare_timer;
+
+    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
