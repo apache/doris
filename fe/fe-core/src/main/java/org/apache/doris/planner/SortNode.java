@@ -62,6 +62,7 @@ public class SortNode extends PlanNode {
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
+    private boolean useTopnOpt;
 
     private boolean  isDefaultLimit;
     // if true, the output of this node feeds an AnalyticNode
@@ -133,6 +134,14 @@ public class SortNode extends PlanNode {
         return info;
     }
 
+    public boolean getUseTopnOpt() {
+        return useTopnOpt;
+    }
+
+    public void setUseTopnOpt(boolean useTopnOpt) {
+        this.useTopnOpt = useTopnOpt;
+    }
+
     @Override
     public void setCompactData(boolean on) {
         this.compactData = on;
@@ -159,6 +168,10 @@ public class SortNode extends PlanNode {
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
         output.append("\n");
+
+        if (useTopnOpt) {
+            output.append(detailPrefix + "TOPN OPT\n");
+        }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
@@ -273,6 +286,7 @@ public class SortNode extends PlanNode {
 
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
+        msg.sort_node.setUseTopnOpt(useTopnOpt);
     }
 
     @Override
