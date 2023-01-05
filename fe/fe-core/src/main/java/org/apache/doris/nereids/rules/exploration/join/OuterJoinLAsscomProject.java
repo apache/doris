@@ -131,6 +131,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             Alias alias = (Alias) expr;
                             Slot outputSlot = alias.toSlot();
                             Expression child = alias.child();
+                            // checkProject already confirmed.
                             Preconditions.checkState(child instanceof Slot);
                             Slot inputSlot = (Slot) child;
                             inputToOutput.put(inputSlot, outputSlot);
