@@ -64,7 +64,7 @@ Usage: $0 <options>
     $0 --run --filter=-*DeathTest.*                                 runs all non-death tests
     $0 --run --filter=FooTest.*-FooTest.Bar                         runs everything in test suite FooTest except FooTest.Bar
     $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
-    $0 --run --skipBuild                                            run tests without building
+    $0 --skipBuild --run                                            run tests without building
     $0 --clean                                                      clean and build tests
     $0 --clean --run                                                clean, build and run all tests
   "
@@ -80,7 +80,7 @@ eval set -- "${OPTS}"
 CLEAN=0
 RUN=0
 BUILD_BENCHMARK_TOOL='OFF'
-BUILD_BE=1
+SKIP_BUILD=0
 FILTER=""
 if [[ "$#" != 1 ]]; then
     while true; do
@@ -90,7 +90,7 @@ if [[ "$#" != 1 ]]; then
             shift
             ;;
         --skipBuild)
-            BUILD_BE=0
+            SKIP_BUILD=1
             shift
             ;;
         --run)
@@ -131,11 +131,11 @@ CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
-    skipBuild           -- ${BUILD_BE}
+    skipBuild           -- ${SKIP_BUILD}
 "
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
-if [[ "${BUILD_BE}" -eq 1 ]]; then
+if [[ "${SKIP_BUILD}" -ne 1 ]]; then
 echo "Build Backend UT"
 
 if [[ "${CLEAN}" -eq 1 ]]; then
