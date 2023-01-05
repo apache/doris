@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.batch;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnProjectUnderAgg;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilterUnderApplyProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
 
@@ -43,6 +44,7 @@ public class AdjustApplyFromCorrelateToUnCorrelateJob extends BatchRulesJob {
                 topDownBatch(ImmutableList.of(
                         new PushApplyUnderProject(),
                         new PushApplyUnderFilter(),
+                        new EliminateFilterUnderApplyProject(),
                         new ApplyPullFilterOnAgg(),
                         new ApplyPullFilterOnProjectUnderAgg()
                 ))));

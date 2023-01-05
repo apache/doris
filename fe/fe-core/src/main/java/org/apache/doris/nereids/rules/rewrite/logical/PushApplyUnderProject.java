@@ -22,8 +22,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.ArrayList;
@@ -49,16 +50,20 @@ import java.util.List;
 public class PushApplyUnderProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(group(), logicalProject()).when(LogicalApply::isCorrelated).then(apply -> {
-            LogicalProject<GroupPlan> project = apply.right();
-            LogicalApply newCorrelate = new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                    apply.getCorrelationFilter(), apply.left(), project.child());
-            List<Slot> newSlots = new ArrayList<>();
-            newSlots.addAll(apply.left().getOutput());
-            if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
-                newSlots.add(apply.right().getOutput().get(0));
-            }
-            return new LogicalProject(newSlots, newCorrelate);
-        }).toRule(RuleType.PUSH_APPLY_UNDER_PROJECT);
+        return logicalApply(group(), logicalProject(any()))
+                .when(LogicalApply::isCorrelated)
+                .whenNot(apply -> apply.right().child() instanceof LogicalFilter && apply.isIn())
+                .whenNot(LogicalApply::alreadyExecutedEliminateFilter)
+                .then(apply -> {
+                    LogicalProject<Plan> project = apply.right();
+                    LogicalApply newCorrelate = new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+                            apply.getCorrelationFilter(), apply.left(), project.child());
+                    List<Slot> newSlots = new ArrayList<>();
+                    newSlots.addAll(apply.left().getOutput());
+                    if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
+                        newSlots.add(apply.right().getOutput().get(0));
+                    }
+                    return new LogicalProject(newSlots, newCorrelate);
+                }).toRule(RuleType.PUSH_APPLY_UNDER_PROJECT);
     }
 }
