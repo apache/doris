@@ -29,7 +29,7 @@ class SubWorkTaskQueue {
 public:
     void push_back(PipelineTask* task) { _queue.emplace(task); }
 
-    PipelineTask* try_take();
+    PipelineTask* try_take(bool is_steal);
 
     void set_factor_for_normal(double factor_for_normal) { _factor_for_normal = factor_for_normal; }
 
@@ -53,9 +53,9 @@ public:
 
     void close();
 
-    PipelineTask* try_take_unprotected();
+    PipelineTask* try_take_unprotected(bool is_steal);
 
-    PipelineTask* try_take();
+    PipelineTask* try_take(bool is_steal);
 
     PipelineTask* take(uint32_t timeout_ms = 0);
 
