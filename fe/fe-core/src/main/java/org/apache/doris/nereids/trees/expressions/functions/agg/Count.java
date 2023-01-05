@@ -66,6 +66,11 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     }
 
     @Override
+    public boolean isConstant() {
+        return false;
+    }
+
+    @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BigIntType.INSTANCE);
     }

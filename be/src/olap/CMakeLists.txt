@@ -54,7 +54,6 @@ add_library(Olap STATIC
     page_cache.cpp
     push_handler.cpp
     reader.cpp
-    row_block2.cpp
     row_cursor.cpp
     version_graph.cpp
     schema.cpp

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
@@ -39,6 +40,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Builtin aggregate functions.
  * <p>
@@ -46,6 +50,7 @@ import com.google.common.collect.ImmutableList;
  * It helps to be clear and concise.
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
+    public static Set<String> aggFuncNames = new HashSet<>();
     public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(ApproxCountDistinct.class, "approx_count_distinct"),
             agg(Avg.class),
@@ -66,7 +71,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Ndv.class),
             agg(Sum.class),
             agg(Variance.class, "variance", "variance_pop", "var_pop"),
-            agg(VarianceSamp.class, "variance_samp", "var_samp")
+            agg(VarianceSamp.class, "variance_samp", "var_samp"),
+            agg(AnyValue.class, "any_value", "any")
     );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();

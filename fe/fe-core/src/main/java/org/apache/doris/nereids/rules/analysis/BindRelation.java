@@ -190,7 +190,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             + "Table: %s is not OLAP table", t.getName()));
         }
         return parts.stream().map(name -> {
-            Partition part = ((OlapTable) t).getPartition(name);
+            Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
             if (part == null) {
                 throw new IllegalStateException(String.format("Partition: %s is not exists", name));
             }

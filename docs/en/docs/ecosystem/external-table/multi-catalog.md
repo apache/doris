@@ -295,15 +295,15 @@ The following example creates a Catalog connection named es to the specified ES 
 -- 1.2.0+ Version
 CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
-    "elasticsearch.nodes_discovery"="false"
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
 );
 CREATE CATALOG es WITH RESOURCE es_resource;
 
 -- 1.2.0 Version
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -376,11 +376,11 @@ The following example creates a Catalog connection named jdbc. This jdbc Catalog
 -- 1.2.0+ Version
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
@@ -397,11 +397,11 @@ Where `jdbc.driver_url` can be a remote jar package
 ```sql
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
 
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -653,5 +653,16 @@ Metadata changes of external data sources, such as creating, dropping tables, ad
 Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
 Automatic synchronization of metadata will be supported soon.
+
+## FAQ
+
+### Iceberg
+
+The following configurations solves the problem `failed to get schema for table xxx in db xxx` and `java.lang.UnsupportedOperationException: Storage schema reading not supported` when reading data from `Hive Metastore`.
+
+- Place iceberg runtime jar in the hive lib directory.
+- hive-site.xml add the property `metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`.
+
+Restart `Hive Metastore` after the configuration is complete. 
 
 </version>

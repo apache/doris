@@ -491,14 +491,15 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
                                                              ? &_null_map_column->get_data()
                                                              : nullptr,
                                                      mutable_join_block, &temp_block,
-                                                     _probe_block.rows());
+                                                     _probe_block.rows(), _is_mark_join);
                             } else {
                                 st = process_hashtable_ctx.template do_process<
                                         need_null_map_for_probe, ignore_null>(
                                         arg,
                                         need_null_map_for_probe ? &_null_map_column->get_data()
                                                                 : nullptr,
-                                        mutable_join_block, &temp_block, _probe_block.rows());
+                                        mutable_join_block, &temp_block, _probe_block.rows(),
+                                        _is_mark_join);
                             }
                         } else {
                             LOG(FATAL) << "FATAL: uninited hash table";

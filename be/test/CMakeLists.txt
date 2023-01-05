@@ -269,6 +269,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp
     vec/core/block_test.cpp
+    vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp

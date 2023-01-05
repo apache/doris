@@ -166,7 +166,7 @@ sortClause
     ;
 
 sortItem
-    :  expression ordering = (ASC | DESC)?
+    :  expression ordering = (ASC | DESC)? (NULLS (FIRST | LAST))?
     ;
 
 limitClause
@@ -312,8 +312,8 @@ qualifiedName
     ;
 
 specifiedPartition
-    : PARTITION identifier
-    | PARTITIONS identifierList
+    : TEMPORARY? PARTITION (identifier | identifierList)
+    | TEMPORARY? PARTITIONS identifierList
     ;
 
 constant

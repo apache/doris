@@ -65,6 +65,14 @@ suite("test_in_expr", "query") {
     // 1.1.2 string + null_in_set
     qt_select "select t1.number from ${nullTableName} t1 left join ${nullTableName} t2 on t1.cid=t2.cid where t2.addr in ('d', null)"
 
+    qt_select "select * from ${nullTableName} where addr not in ('d', null)"
+
+    qt_select "select * from ${nullTableName} where not(addr not in ('d', null))"
+
+    qt_select "select * from ${nullTableName} where addr in ('d', null)"
+
+    qt_select "select * from ${nullTableName} where not(addr in ('d', null))"
+
     // 1.1.3 non-string
     qt_select "select t1.addr from ${nullTableName} t1 left join ${nullTableName} t2 on t1.cid=t2.cid where t2.number in (3)"
 

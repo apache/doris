@@ -67,6 +67,10 @@ suite("test_javaudaf_mysum_int") {
         qt_select1 """ SELECT udaf_my_sum_int(user_id) result FROM ${tableName}; """
 
         qt_select2 """ select user_id, udaf_my_sum_int(user_id) from ${tableName} group by user_id order by user_id; """
+
+        qt_select3 """ select user_id, sum(user_id), udaf_my_sum_int(user_id) from ${tableName} group by user_id order by user_id; """
+
+        qt_select4 """ select user_id, udaf_my_sum_int(user_id), sum(user_id) from ${tableName} group by user_id order by user_id; """
         
         sql """ DROP FUNCTION udaf_my_sum_int(int); """
     } finally {

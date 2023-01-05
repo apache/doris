@@ -1392,12 +1392,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         doris::vectorized::VExprContext* bitmap_target_ctx = nullptr;
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
                                                                    &bitmap_target_ctx));
-        auto type = const_cast<vectorized::VExpr*>(
-                            vectorized::VExpr::expr_without_cast(bitmap_target_ctx->root()))
-                            ->type();
-        // The bitmap filter evaluates only integers.
-        params.column_return_type =
-                type.is_integer_type() ? type.type : bitmap_target_ctx->root()->type().type;
+        params.column_return_type = bitmap_target_ctx->root()->type().type;
 
         if (desc->__isset.bitmap_filter_not_in) {
             params.bitmap_filter_not_in = desc->bitmap_filter_not_in;

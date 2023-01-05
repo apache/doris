@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "olap/delete_handler.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"

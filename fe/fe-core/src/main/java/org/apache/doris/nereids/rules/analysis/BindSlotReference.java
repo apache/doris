@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -194,11 +195,55 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
                     // The columns referenced in group by are first obtained from the child's output,
                     // and then from the node's output
+                    Set<String> duplicatedSlotNames = new HashSet<>();
                     Map<String, Expression> childOutputsToExpr = agg.child().getOutput().stream()
-                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot, (oldExpr, newExpr) -> oldExpr));
+                            .collect(Collectors.toMap(Slot::getName, Slot::toSlot,
+                                    (oldExpr, newExpr) -> {
+                                        duplicatedSlotNames.add(((Slot) oldExpr).getName());
+                                        return oldExpr;
+                                }));
+                    /*
+                    GroupByKey binding priority:
+                    1. child.output
+                    2. agg.output
+                    CASE 1
+                     k is not in agg.output
+                     plan:
+                         agg(group_by: k)
+                          +---child(output t1.k, t2.k)
+
+                     group_by_key: k is ambiguous, t1.k and t2.k are candidate.
+
+                    CASE 2
+                     k is in agg.output
+                     plan:
+                         agg(group_by: k, output (k+1 as k)
+                          +---child(output t1.k, t2.k)
+
+                     it is failed to bind group_by_key with child.output(ambiguous), but group_by_key can be bound with
+                     agg.output
+
+                    CASE 3
+                     group by key cannot bind with agg func
+                     plan:
+                        agg(group_by v, output sum(k) as v)
+
+                     throw AnalysisException
+                    */
+                    duplicatedSlotNames.stream().forEach(dup -> childOutputsToExpr.remove(dup));
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
+                            //agg function cannot be bound with group_by_key
+                            .filter(alias -> ! alias.child().anyMatch(expr -> {
+                                        if (expr instanceof UnboundFunction) {
+                                            UnboundFunction unboundFunction = (UnboundFunction) expr;
+                                            return BuiltinAggregateFunctions.aggFuncNames.contains(
+                                                    unboundFunction.getName().toLowerCase());
+                                        }
+                                        return false;
+                                    }
+                            ))
                             .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
                     aliasNameToExpr.entrySet().stream()
                             .forEach(e -> childOutputsToExpr.putIfAbsent(e.getKey(), e.getValue()));
@@ -218,6 +263,18 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             }).collect(Collectors.toList());
 
                     List<Expression> groupBy = bind(replacedGroupBy, agg.children(), agg, ctx.cascadesContext);
+                    List<Expression> unboundGroupBys = Lists.newArrayList();
+                    boolean hasUnbound = groupBy.stream().anyMatch(
+                            expression -> {
+                                if (expression.anyMatch(UnboundSlot.class::isInstance)) {
+                                    unboundGroupBys.add(expression);
+                                    return true;
+                                }
+                                return false;
+                            });
+                    if (hasUnbound) {
+                        throw new AnalysisException("cannot bind GROUP BY KEY: " + unboundGroupBys.get(0).toSql());
+                    }
                     List<NamedExpression> newOutput = adjustNullableForAgg(agg, output);
                     return agg.withGroupByAndOutput(groupBy, newOutput);
                 })
@@ -332,12 +389,20 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Plan childPlan = having.child();
                     // We should deduplicate the slots, otherwise the binding process will fail due to the
                     // ambiguous slots exist.
-                    Set<Slot> boundSlots = Stream.concat(Stream.of(childPlan), childPlan.children().stream())
-                            .flatMap(plan -> plan.getOutput().stream())
-                            .collect(Collectors.toSet());
-                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), having,
+                    List<Slot> childChildSlots = childPlan.children().stream()
+                            .flatMap(plan -> plan.getOutputSet().stream())
+                            .collect(Collectors.toList());
+                    SlotBinder childChildBinder = new SlotBinder(toScope(childChildSlots), having,
                             ctx.cascadesContext);
-                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(binder::bind)
+                    List<Slot> childSlots = childPlan.getOutputSet().stream()
+                            .collect(Collectors.toList());
+                    SlotBinder childBinder = new SlotBinder(toScope(childSlots), having,
+                            ctx.cascadesContext);
+                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(
+                            expr -> {
+                                expr = childChildBinder.bind(expr);
+                                return childBinder.bind(expr);
+                            })
                             .collect(Collectors.toSet());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
@@ -411,16 +476,30 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
     private Plan bindSortWithAggregateFunction(
             LogicalSort<? extends Plan> sort, Aggregate<? extends Plan> aggregate, CascadesContext ctx) {
-        // We should deduplicate the slots, otherwise the binding process will fail due to the
-        // ambiguous slots exist.
-        Set<Slot> boundSlots = Stream.concat(Stream.of(aggregate), aggregate.children().stream())
-                .flatMap(plan -> plan.getOutput().stream())
-                .collect(Collectors.toSet());
+        // 1. We should deduplicate the slots, otherwise the binding process will fail due to the
+        //    ambiguous slots exist.
+        // 2. try to bound order-key with agg output, if failed, try to bound with output of agg.child
+        //    binding priority example:
+        //        select
+        //        col1 * -1 as col1    # inner_col1 * -1 as alias_col1
+        //        from
+        //                (
+        //                        select 1 as col1
+        //                        union
+        //                        select -2 as col1
+        //                ) t
+        //        group by col1
+        //        order by col1;     # order by order_col1
+        //    bind order_col1 with alias_col1, then, bind it with inner_col1
+        SlotBinder outputBinder = new SlotBinder(
+                toScope(aggregate.getOutputSet().stream().collect(Collectors.toList())), sort, ctx);
+        List<Slot> childOutputSlots = aggregate.child().getOutputSet().stream().collect(Collectors.toList());
+        SlotBinder childOutputBinder = new SlotBinder(toScope(childOutputSlots), sort, ctx);
         List<OrderKey> sortItemList = sort.getOrderKeys()
                 .stream()
                 .map(orderKey -> {
-                    Expression item = new SlotBinder(toScope(new ArrayList<>(boundSlots)), sort, ctx)
-                            .bind(orderKey.getExpr());
+                    Expression item = outputBinder.bind(orderKey.getExpr());
+                    item = childOutputBinder.bind(item);
                     return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                 }).collect(Collectors.toList());
         return new LogicalSort<>(sortItemList, sort.child());

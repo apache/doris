@@ -258,4 +258,9 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     @Override
     public void gsonPostProcess() throws IOException {}
+
+    @Override
+    public void dropTable(String tableName) {
+        throw new NotImplementedException();
+    }
 }

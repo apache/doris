@@ -154,10 +154,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         logicalFilter()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                         new Alias(new ExprId(7),
-                                                new Sum(
+                                                (new Sum(
                                                         new SlotReference(new ExprId(4), "k3",
                                                                 BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7"))),
+                                                                ImmutableList.of(
+                                                                        "default_cluster:test",
+                                                                        "t7")))).withAlwaysNullable(
+                                                                                true),
                                                 "sum(k3)"))))
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
@@ -176,9 +179,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                         logicalApply(
                                 any(),
                                 logicalAggregate().when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                                new Alias(new ExprId(7), new Sum(
+                                                new Alias(new ExprId(7), (new Sum(
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7"))),
+                                                                ImmutableList.of("default_cluster:test", "t7")))).withAlwaysNullable(true),
                                                         "sum(k3)"),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t7"))
@@ -393,9 +396,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         )))
                                     ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
                                         new Alias(new ExprId(8),
-                                                new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
                                                         true,
-                                                        ImmutableList.of("t2"))), "max(aa)")
+                                                        ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
                                     )))
                                     .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
                                 )
@@ -454,8 +457,8 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 logicalAggregate(
                                         logicalProject()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("t2"))), "max(aa)"),
+                                        new Alias(new ExprId(8), (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)"),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")))))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(

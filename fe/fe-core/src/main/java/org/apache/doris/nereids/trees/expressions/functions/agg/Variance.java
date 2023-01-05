@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -40,8 +39,7 @@ import java.util.List;
 /**
  * Variance function
  */
-public class Variance extends AggregateFunction implements UnaryExpression, PropagateNullable,
-        ExplicitlyCastableSignature {
+public class Variance extends NullableAggregateFunction implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -55,11 +53,15 @@ public class Variance extends AggregateFunction implements UnaryExpression, Prop
     );
 
     public Variance(Expression child) {
-        super("variance", child);
+        this(false, child);
     }
 
     public Variance(boolean isDistinct, Expression child) {
-        super("variance", isDistinct, child);
+        this(isDistinct, false, child);
+    }
+
+    private Variance(boolean isDistinct, boolean isAlwaysNullable, Expression child) {
+        super("variance", isAlwaysNullable, isDistinct, child);
     }
 
     @Override
@@ -70,13 +72,18 @@ public class Variance extends AggregateFunction implements UnaryExpression, Prop
     @Override
     public AggregateFunction withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Variance(isDistinct, children.get(0));
+        return new Variance(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Variance(isDistinct, children.get(0));
+        return new Variance(isDistinct, isAlwaysNullable, children.get(0));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new Variance(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
