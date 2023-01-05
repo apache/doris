@@ -672,7 +672,7 @@ uint64_t StructColumnWriter::estimate_buffer_size() {
         size += column_writer->estimate_buffer_size();
     }
     size += is_nullable() ? _null_writer->estimate_buffer_size() : 0;
-    return Status::OK();
+    return size;
 }
 
 Status StructColumnWriter::finish() {

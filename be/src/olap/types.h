@@ -665,7 +665,7 @@ public:
 
     FieldType type() const override { return OLAP_FIELD_TYPE_STRUCT; }
 
-    inline const std::vector<TypeInfoPtr>* type_infos() const { return &:_type_infos; }
+    inline const std::vector<TypeInfoPtr>* type_infos() const { return &_type_infos; }
 
 private:
     std::vector<TypeInfoPtr> _type_infos;
