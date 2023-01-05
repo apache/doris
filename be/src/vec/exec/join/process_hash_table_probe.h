@@ -54,7 +54,8 @@ struct ProcessHashTableProbe {
     // TODO: opt the visited here to reduce the size of hash table
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
+                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows,
+                      bool is_mark_join);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
@@ -63,7 +64,7 @@ struct ProcessHashTableProbe {
     Status do_process_with_other_join_conjuncts(HashTableType& hash_table_ctx,
                                                 ConstNullMapPtr null_map,
                                                 MutableBlock& mutable_block, Block* output_block,
-                                                size_t probe_rows);
+                                                size_t probe_rows, bool is_mark_join);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
