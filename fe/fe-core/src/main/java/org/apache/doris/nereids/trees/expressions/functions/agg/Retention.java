@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -55,6 +56,20 @@ public class Retention extends AggregateFunction
     public Retention(boolean distinct, Expression arg, Expression... varArgs) {
         super("retention", distinct,
                 ExpressionUtils.mergeArguments(arg, varArgs));
+    }
+
+    @Override
+    public void checkLegality() {
+        String functionName = getName();
+        if (this.children.isEmpty()) {
+            throw new AnalysisException("The " + functionName + " function must have at least one param");
+        }
+
+        for (int i = 0; i < children.size(); i++) {
+            if (!getArgumentType(i).isBooleanType()) {
+                throw new AnalysisException("All params of " + functionName + " function must be boolean");
+            }
+        }
     }
 
     /**
