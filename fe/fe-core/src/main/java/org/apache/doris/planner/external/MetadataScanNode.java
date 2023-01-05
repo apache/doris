@@ -46,7 +46,7 @@ public class MetadataScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode planNode) {
-        planNode.setNodeType(TPlanNodeType.METADATA_SCAN_NODE);
+        planNode.setNodeType(TPlanNodeType.META_SCAN_NODE);
         TMetaScanNode metaScanNode = new TMetaScanNode();
         metaScanNode.setTupleId(desc.getId().asInt());
         planNode.setMetaScanNode(metaScanNode);
