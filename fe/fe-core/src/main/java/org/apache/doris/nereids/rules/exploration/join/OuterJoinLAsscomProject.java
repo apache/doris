@@ -66,6 +66,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(join -> JoinReorderCommon.checkProject(join.left()))
                 .then(topJoin -> {
 
                     /* ********** init ********** */
