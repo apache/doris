@@ -885,10 +885,6 @@ CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
 
-// write as cache
-// format: [{"path":"/mnt/disk3/selectdb_cloud/tmp","max_cache_bytes":21474836480,"max_upload_bytes":10737418240}]
-CONF_String(tmp_file_dirs, "");
-
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
