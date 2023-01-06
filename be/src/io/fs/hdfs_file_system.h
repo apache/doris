@@ -119,9 +119,9 @@ public:
     HdfsFileSystemHandle* get_handle();
 
 private:
+    Path _covert_path(const Path& path) const;
     const THdfsParams& _hdfs_params;
     std::string _namenode;
-    std::string _path;
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
     HdfsFileSystemHandle* _fs_handle;

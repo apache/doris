@@ -26,6 +26,9 @@ import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ReferenceType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -56,6 +59,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -103,6 +107,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private void addCatalog(CatalogIf catalog) {
         nameToCatalog.put(catalog.getName(), catalog);
         idToCatalog.put(catalog.getId(), catalog);
+        if (catalog.getResource() != null) {
+            Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource())
+                    .addReference(catalog.getName(), ReferenceType.CATALOG);
+        }
     }
 
     private CatalogIf removeCatalog(long catalogId) {
@@ -112,6 +120,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             nameToCatalog.remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
+            if (catalog.getResource() != null) {
+                Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
+                if (catalogResource != null) {
+                    catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
+                }
+            }
         }
         return catalog;
     }
@@ -222,11 +236,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void createCatalog(CreateCatalogStmt stmt) throws UserException {
         writeLock();
         try {
-            if (stmt.isSetIfNotExists() && nameToCatalog.containsKey(stmt.getCatalogName())) {
-                LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
-                return;
-            }
             if (nameToCatalog.containsKey(stmt.getCatalogName())) {
+                if (stmt.isSetIfNotExists()) {
+                    LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
+                    return;
+                }
                 throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
             }
             long id = Env.getCurrentEnv().getNextId();
@@ -298,6 +312,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            if (catalog instanceof ExternalCatalog) {
+                String resource = ((ExternalCatalog) catalog).getCatalogProperty().getResource();
+                if (resource != null) {
+                    throw new DdlException(String.format(
+                            "Catalog %s has %s resource, please change the resource properties directly.",
+                            stmt.getCatalogName(), resource));
+                }
             }
             if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
                     .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
@@ -371,11 +393,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), catalog.getName());
                 }
+                if (catalog.getResource() != null) {
+                    rows.add(Arrays.asList("resource", catalog.getResource()));
+                }
                 for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
-                    List<String> row = Lists.newArrayList();
-                    row.add(elem.getKey());
-                    row.add(elem.getValue());
-                    rows.add(row);
+                    if (PrintableMap.SENSITIVE_KEY.contains(elem.getKey())) {
+                        rows.add(Arrays.asList(elem.getKey(), PrintableMap.PASSWORD_MASK));
+                    } else {
+                        rows.add(Arrays.asList(elem.getKey(), elem.getValue()));
+                    }
                 }
             }
         } finally {
@@ -414,13 +440,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Refresh the catalog meta and write the meta log.
      */
     public void refreshCatalog(RefreshCatalogStmt stmt) throws UserException {
+        CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+        }
+        CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+        refreshCatalog(log);
+    }
+
+    public void refreshCatalog(CatalogLog log) {
         writeLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
-            if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
-            }
-            CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayRefreshCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
         } finally {
@@ -456,7 +486,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for refresh catalog event.
      */
-    public void replayRefreshCatalog(CatalogLog log) throws DdlException {
+    public void replayRefreshCatalog(CatalogLog log) {
         writeLock();
         try {
             unprotectedRefreshCatalog(log.getCatalogId(), log.isInvalidCache());
@@ -525,6 +555,42 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
         ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
+    }
+
+    public void dropExternalTable(String dbName, String tableName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support drop ExternalCatalog Tables");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        replayDropExternalTable(log);
+        Env.getCurrentEnv().getEditLog().logDropExternalTable(log);
+    }
+
+    public void replayDropExternalTable(ExternalObjectLog log) {
+        LOG.debug("ReplayDropExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(), log.getDbId(),
+                log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        db.dropTable(table.getName());
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }

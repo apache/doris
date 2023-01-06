@@ -45,6 +45,7 @@ suite("aggregate_strategies") {
         sql "SET enable_nereids_planner=true"
         sql "SET enable_fallback_to_original_planner=false"
 
+        order_qt_count_all "select count(ALL *) from $tableName"
         order_qt_count_all "select count(*) from $tableName"
         order_qt_count_all_group_by "select count(*) from $tableName group by id"
         order_qt_count_all_group_by_2 "select count(*) from $tableName group by id, name"

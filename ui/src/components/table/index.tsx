@@ -52,7 +52,7 @@ export default function SortFilterTable(props: any) {
             <Table
                 columns={localColumns}
                 dataSource={tableData}
-                scroll={{x:true}}
+                scroll={{ x: 'max-content' }}
                 size='small'
                 bordered
                 // onChange={onChange}

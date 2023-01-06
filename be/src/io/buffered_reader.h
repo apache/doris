@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "io/file_reader.h"
+#include "io/fs/file_reader.h"
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 
@@ -113,7 +114,7 @@ protected:
 
 class BufferedFileStreamReader : public BufferedStreamReader {
 public:
-    BufferedFileStreamReader(FileReader* file, uint64_t offset, uint64_t length,
+    BufferedFileStreamReader(io::FileReaderSPtr file, uint64_t offset, uint64_t length,
                              size_t max_buf_size);
     ~BufferedFileStreamReader() override = default;
 
@@ -122,7 +123,7 @@ public:
 
 private:
     std::unique_ptr<uint8_t[]> _buf;
-    FileReader* _file;
+    io::FileReaderSPtr _file;
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;
 

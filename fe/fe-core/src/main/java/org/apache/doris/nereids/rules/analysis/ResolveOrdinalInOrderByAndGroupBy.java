@@ -25,11 +25,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,23 +66,26 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                         logicalAggregate().then(agg -> {
                             List<NamedExpression> aggOutput = agg.getOutputExpressions();
                             List<Expression> groupByWithoutOrd = new ArrayList<>();
+                            boolean ordExists = false;
                             for (Expression groupByExpr : agg.getGroupByExpressions()) {
                                 groupByExpr = FoldConstantRule.INSTANCE.rewrite(groupByExpr);
                                 if (groupByExpr instanceof IntegerLikeLiteral) {
                                     IntegerLikeLiteral i = (IntegerLikeLiteral) groupByExpr;
                                     int ord = i.getIntValue();
-                                    Expression aggExpr = aggOutput.get(ord - 1);
-                                    if (!CollectionUtils.isEmpty(aggExpr.children())
-                                            && aggExpr.child(0) instanceof Literal) {
-                                        continue;
-                                    }
                                     checkOrd(ord, aggOutput.size());
+                                    Expression aggExpr = aggOutput.get(ord - 1);
                                     groupByWithoutOrd.add(aggExpr);
+                                    ordExists = true;
                                 } else {
                                     groupByWithoutOrd.add(groupByExpr);
                                 }
                             }
-                            return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), agg.child());
+                            if (ordExists) {
+                                return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), agg.child());
+                            } else {
+                                return agg;
+                            }
+
                         }))).build();
     }
 

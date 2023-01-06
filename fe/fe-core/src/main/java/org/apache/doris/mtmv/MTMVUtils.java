@@ -115,9 +115,12 @@ public class MTMVUtils {
 
     public static TimeUnit getTimeUint(String strTimeUnit) {
         switch (strTimeUnit.toUpperCase()) {
-            case "SECOND": return TimeUnit.SECONDS;
-            case "HOUR": return TimeUnit.HOURS;
-            case "DAY": return TimeUnit.DAYS;
+            case "SECOND":
+                return TimeUnit.SECONDS;
+            case "HOUR":
+                return TimeUnit.HOURS;
+            case "DAY":
+                return TimeUnit.DAYS;
             default:
                 return TimeUnit.DAYS;
         }

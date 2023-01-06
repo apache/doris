@@ -21,6 +21,7 @@
 #include <list>
 
 #include "io/fs/file_writer.h"
+#include "io/fs/s3_file_system.h"
 #include "util/s3_util.h"
 
 namespace Aws::S3 {
@@ -51,6 +52,11 @@ public:
     Status finalize() override;
 
     size_t bytes_appended() const override { return _bytes_appended; }
+
+    FileSystem* fs() const override { return _fs; }
+
+private:
+    S3FileSystem* _fs;
 
 private:
     Status _close();

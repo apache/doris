@@ -179,6 +179,7 @@ public class StreamLoadScanNode extends LoadScanNode {
             params.setLineDelimiter((byte) '\n');
             params.setLineDelimiterLength(1);
         }
+        params.setTrimDoubleQuotes(taskInfo.getTrimDoubleQuotes());
         params.setDestTupleId(desc.getId().asInt());
         brokerScanRange.setParams(params);
 

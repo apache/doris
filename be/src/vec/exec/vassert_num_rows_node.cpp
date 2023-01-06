@@ -95,8 +95,14 @@ Status VAssertNumRowsNode::get_next(RuntimeState* state, Block* block, bool* eos
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
                                  "VAssertNumRowsNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, block, eos),
-                                   child(0)->get_next_span(), *eos);
+    RETURN_IF_ERROR_AND_CHECK_SPAN(
+            child(0)->get_next_after_projects(
+                    state, block, eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[0], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)),
+            child(0)->get_next_span(), *eos);
 
     return pull(state, block, eos);
 }

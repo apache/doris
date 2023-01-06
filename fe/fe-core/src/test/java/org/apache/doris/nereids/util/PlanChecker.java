@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -41,6 +44,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -345,7 +349,7 @@ public class PlanChecker {
 
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
-        assertMatches(memo, () -> GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
@@ -363,7 +367,7 @@ public class PlanChecker {
     private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
         Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
-                        + memo.getRoot().getLogicalExpression().getPlan().treeString()
+                        + memo.copyOut().treeString()
                         + "\n"
         );
         return this;
@@ -414,6 +418,17 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
+        adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN));
+        nereidsPlanner.plan(adapter);
+        consumer.accept(nereidsPlanner);
+        return this;
+    }
+
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
@@ -437,6 +452,38 @@ public class PlanChecker {
 
     public Plan getPlan() {
         return cascadesContext.getMemo().copyOut();
+    }
+
+    private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) {
+        GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
+                () -> new AnalysisException("lowestCostPlans with physicalProperties("
+                        + physicalProperties + ") doesn't exist in root group")).second;
+        List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+        }
+
+        Plan plan = groupExpression.getPlan().withChildren(planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("Result plan must be PhysicalPlan");
+        }
+
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                groupExpression.getOutputProperties(physicalProperties),
+                groupExpression.getOwnerGroup().getStatistics());
+        return physicalPlan;
+    }
+
+    public PhysicalPlan getBestPlanTree() {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
+    }
+
+    public PlanChecker printlnBestPlanTree() {
+        System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
+        System.out.println("-----------------------------");
+        return this;
     }
 
     public PlanChecker printlnTree() {

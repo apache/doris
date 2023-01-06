@@ -18,12 +18,13 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
@@ -107,22 +108,15 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
 
         taskContext.setCtx(ctx);
         taskContext.setRemoteIp(ctx.getRemoteIp());
+        taskContext.setTask(task);
+        taskContext.setJob(job);
 
         Map<String, String> properties = Maps.newHashMap();
         taskContext.setProperties(properties);
         processor.process(taskContext);
-        QueryState queryState = ctx.getState();
-        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-            task.setMessage(queryState.getErrorMessage());
-            int errorCode = -1;
-            if (queryState.getErrorCode() != null) {
-                errorCode = queryState.getErrorCode().getCode();
-            }
-            task.setErrorCode(errorCode);
-            task.setState(TaskState.FAILED);
-            return false;
-        }
-        return true;
+        ChangeMTMVTask changeTask = new ChangeMTMVTask(job.getId(), task, TaskState.RUNNING, task.getState());
+        Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+        return task.getState() == TaskState.SUCCESS;
     }
 
     public ConnectContext getCtx() {

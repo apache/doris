@@ -23,9 +23,10 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 # JDBC External Table Of Doris
+
+<version since="1.2.0">
 
 JDBC External Table Of Doris provides Doris to access external tables through the standard interface (JDBC) of database access. External tables save the tedious data import work, allowing Doris to have the ability to access various databases, and with the help of Doris's capabilities to solve data analysis problems with external tables:
 
@@ -34,6 +35,7 @@ JDBC External Table Of Doris provides Doris to access external tables through th
 
 This document mainly introduces how to use this function.
 
+</version>
 
 ## Instructions
 
@@ -85,11 +87,19 @@ Parameter Description：
 >
 >If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
 
+<version since="1.2.1">
+
+> After 1.2.1, you can put the driver in the `jdbc_drivers` directory of FE/BE, and directly specify the file name, such as: `"driver_url" = "mysql-connector-java-5.1.47.jar "`. The system will automatically look for files in the `jdbc_drivers` directory.
+
+</version>
+
 ### Query usage
 
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
+Because it is possible to use keywords in the database as column name, in order to solve this problem, escape characters will be automatically added to field names and table names in SQL statements according to the standards of each database. For example, MYSQL (``), PostgreSQL (""), SQLServer ([]), and ORACLE (""), But this may cause case sensitivity of field names. You can check the query statements issued to each database after escape through explain SQL.
+
 ### Data write
 
 After the JDBC external table is create in Doris, the data can be written directly by the `insert into` statement, the query results of Doris can be written to the JDBC external table, or the data can be imported from one JDBC table to another.
@@ -204,7 +214,7 @@ There are different data types among different databases. Here is a list of the 
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
-|   REAL   |   FLOAT  |
+|   REAL   |   DOUBLE |
 |   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 
@@ -288,4 +298,4 @@ ALTER TABLE table_name CHARSET=utf8mb4;
 SET NAMES utf8mb4
 
 ```
-</version>
+

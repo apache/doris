@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.analyzer.Relation;
 
 /**
  * Common interface for logical/physical scan.
  */
 public interface Scan extends Relation {
-    Table getTable();
+    TableIf getTable();
 }

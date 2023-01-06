@@ -38,7 +38,8 @@ suite("test_external_brown", "p2") {
               WHERE machine_name IN ('anansi','aragog','urd')
                 AND log_time >= TIMESTAMP '2017-01-11 00:00:00'
             ) AS r
-            GROUP BY machine_name;"""
+            GROUP BY machine_name
+            ORDER BY machine_name;"""
     def averageMetrics = """
             SELECT dt,
                    hr,
@@ -172,7 +173,8 @@ suite("test_external_brown", "p2") {
               AND status_code < 300
               AND request LIKE '%/etc/passwd%'
               AND log_time >= TIMESTAMP '2012-05-06 00:00:00'
-              AND log_time < TIMESTAMP '2012-05-20 00:00:00';"""
+              AND log_time < TIMESTAMP '2012-05-20 00:00:00'
+            ORDER BY log_time;"""
     def powerConsumptionMetrics = """
             SELECT yr,
                    mo,
@@ -225,7 +227,8 @@ suite("test_external_brown", "p2") {
             FROM logs3SUFFIX
             WHERE event_type = 'temperature'
               AND event_value <= 32.0
-              AND log_time >= '2019-11-29 17:00:00.000';"""
+              AND log_time >= '2019-11-29 17:00:00.000'
+            ORDER BY log_time;"""
     def temperatureVariation_order = """
             WITH temperature AS (
               SELECT dt,
@@ -318,7 +321,7 @@ suite("test_external_brown", "p2") {
             qt_12 powerConsumptionMetrics.replace("SUFFIX", format)
             qt_13 serverError.replace("SUFFIX", format)
             qt_14 temperatureReachFreezing.replace("SUFFIX", format)
-            qt_15 temperatureVariation_order.replace("SUFFIX", format)
+            order_qt_15 temperatureVariation_order.replace("SUFFIX", format)
         }
     }
 }

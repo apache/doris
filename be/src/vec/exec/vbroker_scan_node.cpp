@@ -211,8 +211,6 @@ Status VBrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Close
-    _batch_queue.clear();
     return ExecNode::close(state);
 }
 

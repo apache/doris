@@ -24,8 +24,10 @@
 #include "http/action/config_action.h"
 #include "http/action/download_action.h"
 #include "http/action/health_action.h"
+#include "http/action/jeprofile_actions.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
+#include "http/action/pad_rowset_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
 #include "http/action/reset_rpc_channel_action.h"
@@ -65,6 +67,8 @@ Status HttpService::start() {
                                       streamload_action);
     StreamLoad2PCAction* streamload_2pc_action = _pool.add(new StreamLoad2PCAction(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/_stream_load_2pc",
+                                      streamload_2pc_action);
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_2pc",
                                       streamload_2pc_action);
 
     // register download action
@@ -114,6 +118,9 @@ Status HttpService::start() {
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get(), _pool);
+
+    // register jeprof actions
+    JeprofileActions::setup(_env, _ev_http_server.get(), _pool);
 
     // register metrics
     {
@@ -177,6 +184,9 @@ Status HttpService::start() {
             _pool.add(new CheckTabletSegmentAction());
     _ev_http_server->register_handler(HttpMethod::POST, "/api/check_tablet_segment_lost",
                                       check_tablet_segment_action);
+
+    PadRowsetAction* pad_rowset_action = _pool.add(new PadRowsetAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "api/pad_rowset", pad_rowset_action);
 
     _ev_http_server->start();
     return Status::OK();

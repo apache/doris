@@ -30,7 +30,6 @@
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
 #include "olap/options.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/rowset_factory.h"
@@ -142,7 +141,7 @@ protected:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
-        st = segment_v2::Segment::open(fs, path, "", 0, {}, query_schema, res);
+        st = segment_v2::Segment::open(fs, path, 0, {}, query_schema, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
@@ -173,7 +172,7 @@ protected:
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(st.ok()) << st;
     }
 };
 

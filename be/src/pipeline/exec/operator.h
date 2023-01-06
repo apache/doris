@@ -142,7 +142,7 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const = 0;
+    virtual std::string get_name() const { return _operator_builder->get_name(); };
 
     bool is_sink() const;
 
@@ -226,6 +226,7 @@ public:
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
     std::string debug_string() const;
+    int32_t id() const { return _operator_builder->id(); }
 
 protected:
     std::unique_ptr<MemTracker> _mem_tracker;
@@ -237,7 +238,6 @@ protected:
     // TODO pipeline Account for peak memory used by this operator
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
-private:
     bool _is_closed = false;
 };
 
@@ -257,11 +257,10 @@ public:
 
     ~DataSinkOperator() override = default;
 
-    std::string get_name() const override { return "DataSinkOperator"; }
-
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -275,7 +274,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         if (in_block->rows() > 0) {
             return _sink->send(state, in_block, source_state == SourceState::FINISHED);
         }
@@ -283,8 +281,13 @@ public:
     }
 
     Status close(RuntimeState* state) override {
+        if (is_closed()) {
+            return Status::OK();
+        }
         _fresh_exec_timer(_sink);
-        return _sink->close(state, Status::OK());
+        RETURN_IF_ERROR(_sink->close(state, Status::OK()));
+        _is_closed = true;
+        return Status::OK();
     }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
@@ -312,10 +315,9 @@ public:
 
     ~StreamingOperator() override = default;
 
-    std::string get_name() const override { return "StreamingOperator"; }
-
     Status prepare(RuntimeState* state) override {
-        _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
+        _runtime_profile.reset(new RuntimeProfile(
+                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
                                                     _runtime_profile.get());
@@ -336,10 +338,14 @@ public:
     }
 
     Status close(RuntimeState* state) override {
+        if (is_closed()) {
+            return Status::OK();
+        }
         _fresh_exec_timer(_node);
         if (!_node->decrease_ref()) {
             _node->release_resource(state);
         }
+        _is_closed = true;
         return Status::OK();
     }
 
@@ -349,7 +355,10 @@ public:
         DCHECK(_child);
         RETURN_IF_ERROR(_child->get_block(state, block, source_state));
         bool eos = false;
-        RETURN_IF_ERROR(_node->pull(state, block, &eos));
+        RETURN_IF_ERROR(_node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         return Status::OK();
     }
 
@@ -377,13 +386,15 @@ public:
 
     ~SourceOperator() override = default;
 
-    std::string get_name() const override { return "SourceOperator"; }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
+        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
-        RETURN_IF_ERROR(node->pull(state, block, &eos));
+        RETURN_IF_ERROR(node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
         return Status::OK();
     }
@@ -410,32 +421,36 @@ public:
 
     virtual ~StatefulOperator() = default;
 
-    std::string get_name() const override { return "DataStateOperator"; }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
+        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         auto& child = StreamingOperator<OperatorBuilderType>::_child;
 
         if (node->need_more_input_data()) {
+            _child_block->clear_column_data();
             RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
-            if (_child_block->rows() == 0) {
+            if (_child_block->rows() == 0 && _child_source_state != SourceState::FINISHED) {
                 return Status::OK();
             }
             node->prepare_for_next();
-            node->push(state, _child_block.get(), source_state == SourceState::FINISHED);
+            node->push(state, _child_block.get(), _child_source_state == SourceState::FINISHED);
         }
 
-        bool eos = false;
-        RETURN_IF_ERROR(node->pull(state, block, &eos));
-        if (eos) {
-            source_state = SourceState::FINISHED;
-            _child_block->clear_column_data();
-        } else if (!node->need_more_input_data()) {
-            source_state = SourceState::MORE_DATA;
-        } else {
-            _child_block->clear_column_data();
+        if (!node->need_more_input_data()) {
+            bool eos = false;
+            RETURN_IF_ERROR(node->get_next_after_projects(
+                    state, block, &eos,
+                    std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
+            if (eos) {
+                source_state = SourceState::FINISHED;
+            } else if (!node->need_more_input_data()) {
+                source_state = SourceState::MORE_DATA;
+            } else if (source_state == SourceState::MORE_DATA) {
+                source_state = _child_source_state;
+            }
         }
         return Status::OK();
     }

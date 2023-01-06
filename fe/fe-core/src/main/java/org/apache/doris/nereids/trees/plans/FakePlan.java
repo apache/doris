@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -85,6 +87,11 @@ public class FakePlan implements Plan {
     @Override
     public List<Slot> getOutput() {
         return new ArrayList<>();
+    }
+
+    @Override
+    public List<Slot> getNonUserVisibleOutput() {
+        return ImmutableList.of();
     }
 
     @Override

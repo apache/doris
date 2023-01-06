@@ -138,24 +138,18 @@ WITH BROKER "hdfs"
 
 ### Export to object storage (supports S3 protocol)
 
-Create a repository named s3_repo to link cloud storage directly without going through the broker.
-
 ```sql
-CREATE REPOSITORY `s3_repo`
-WITH S3
-ON LOCATION "s3://s3-repo"
-PROPERTIES
-(
-    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
-    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
-    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
-    "AWS_REGION" = "REGION"
-);
+EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
+        "AWS_ENDPOINT" = "http://host",
+        "AWS_ACCESS_KEY" = "AK",
+        "AWS_SECRET_KEY"="SK",
+        "AWS_REGION" = "region"
+    );
 ```
 
-- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：Is your key to access the OSS API.
-- `AWS_ENDPOINT`：Endpoint indicates the access domain name of OSS external services.
-- `AWS_REGION`：Region indicates the region where the OSS data center is located.
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：Is your key to access the object storage API.
+- `AWS_ENDPOINT`：Endpoint indicates the access domain name of object storage external services.
+- `AWS_REGION`：Region indicates the region where the object storage data center is located.
 
 ### View export status
 

@@ -17,10 +17,6 @@
 
 #include <string.h>
 
-#include "gutil/basictypes.h"
-#include "gutil/integral_types.h"
-#include "gutil/type_traits.h"
-
 class Charmap {
 public:
     // Initializes with given uint32 values.  For instance, the first
@@ -73,4 +69,3 @@ protected:
         }
     }
 };
-DECLARE_POD(Charmap);

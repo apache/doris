@@ -38,6 +38,7 @@ import java.util.Map;
 public class CreateCatalogStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final String catalogName;
+    private final String resource;
     private final Map<String, String> properties;
 
     /**
@@ -46,11 +47,23 @@ public class CreateCatalogStmt extends DdlStmt {
     public CreateCatalogStmt(boolean ifNotExists, String catalogName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.catalogName = catalogName;
+        this.resource = null;
         this.properties = properties == null ? new HashMap<>() : properties;
+    }
+
+    public CreateCatalogStmt(boolean ifNotExists, String catalogName, String resource) {
+        this.ifNotExists = ifNotExists;
+        this.catalogName = catalogName;
+        this.resource = resource;
+        this.properties = new HashMap<>();
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public String getResource() {
+        return resource;
     }
 
     public Map<String, String> getProperties() {
@@ -90,6 +103,8 @@ public class CreateCatalogStmt extends DdlStmt {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
             stringBuilder.append("\n)");
+        } else if (resource != null) {
+            stringBuilder.append(" WITH RESOURCE `").append(resource).append("`");
         }
         return stringBuilder.toString();
     }

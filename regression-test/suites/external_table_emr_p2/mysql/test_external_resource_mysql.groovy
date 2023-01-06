@@ -35,6 +35,7 @@ suite("test_external_resource_mysql", "p2") {
         sql """create database ${mysqlDatabaseName01};"""
         sql """use ${mysqlDatabaseName01};"""
 
+
         sql """drop resource if exists ${mysqlResourceName};"""
         sql """
             create external resource ${mysqlResourceName}
@@ -78,7 +79,6 @@ suite("test_external_resource_mysql", "p2") {
 
         def res = sql """select * from ${mysqlTableNameLineOrder} limit 10;"""
         logger.info("recoding select: " + res.toString())
-
 
         sql """drop table if exists ${mysqlTableNameCustomer}"""
         sql """
@@ -141,6 +141,7 @@ suite("test_external_resource_mysql", "p2") {
         sql """drop database if exists ${mysqlDatabaseName01};"""
     }
 }
+
 
 
 

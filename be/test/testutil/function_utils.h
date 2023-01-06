@@ -29,7 +29,6 @@ class RuntimeState;
 class FunctionUtils {
 public:
     FunctionUtils();
-    FunctionUtils(RuntimeState* state);
     FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
                   const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
                   int varargs_buffer_size);

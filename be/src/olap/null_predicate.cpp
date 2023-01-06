@@ -32,46 +32,6 @@ PredicateType NullPredicate::type() const {
     return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
 }
 
-void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-    uint16_t new_size = 0;
-    if (!block->is_nullable() && _is_null) {
-        *size = 0;
-        return;
-    }
-    for (uint16_t i = 0; i < *size; ++i) {
-        uint16_t idx = sel[i];
-        sel[new_size] = idx;
-        new_size += (block->cell(idx).is_null() == _is_null);
-    }
-    *size = new_size;
-}
-
-void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                                bool* flags) const {
-    if (!block->is_nullable() && _is_null) {
-        memset(flags, true, size);
-    } else {
-        for (uint16_t i = 0; i < size; ++i) {
-            if (flags[i]) continue;
-            uint16_t idx = sel[i];
-            flags[i] |= (block->cell(idx).is_null() == _is_null);
-        }
-    }
-}
-
-void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                                 bool* flags) const {
-    if (!block->is_nullable() && _is_null) {
-        return;
-    } else {
-        for (uint16_t i = 0; i < size; ++i) {
-            if (!flags[i]) continue;
-            uint16_t idx = sel[i];
-            flags[i] &= (block->cell(idx).is_null() == _is_null);
-        }
-    }
-}
-
 Status NullPredicate::evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                                roaring::Roaring* roaring) const {
     if (iterator != nullptr) {

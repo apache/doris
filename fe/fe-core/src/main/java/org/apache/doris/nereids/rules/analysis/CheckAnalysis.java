@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
@@ -71,14 +73,21 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private void checkBound(Plan plan) {
-        Set<UnboundSlot> unboundSlots = plan.getExpressions().stream()
-                .<Set<UnboundSlot>>map(e -> e.collect(UnboundSlot.class::isInstance))
+        Set<Unbound> unbounds = plan.getExpressions().stream()
+                .<Set<Unbound>>map(e -> e.collect(Unbound.class::isInstance))
                 .flatMap(Set::stream)
                 .collect(Collectors.toSet());
-        if (!unboundSlots.isEmpty()) {
-            throw new AnalysisException(String.format("Cannot find column %s.",
-                    StringUtils.join(unboundSlots.stream()
-                            .map(UnboundSlot::toSql)
+        if (!unbounds.isEmpty()) {
+            throw new AnalysisException(String.format("unbounded object %s.",
+                    StringUtils.join(unbounds.stream()
+                            .map(unbound -> {
+                                if (unbound instanceof UnboundSlot) {
+                                    return ((UnboundSlot) unbound).toSql();
+                                } else if (unbound instanceof UnboundFunction) {
+                                    return ((UnboundFunction) unbound).toSql();
+                                }
+                                return unbound.toString();
+                            })
                             .collect(Collectors.toSet()), ", ")));
         }
     }

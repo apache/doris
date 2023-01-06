@@ -43,10 +43,9 @@ public class Sm4Decrypt extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT,
                             VarcharType.SYSTEM_DEFAULT,
-                            VarcharType.SYSTEM_DEFAULT,
                             VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -57,10 +56,10 @@ public class Sm4Decrypt extends ScalarFunction
     }
 
     /**
-     * constructor with 4 arguments.
+     * constructor with 3 arguments.
      */
-    public Sm4Decrypt(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
-        super("sm4_decrypt", arg0, arg1, arg2, arg3);
+    public Sm4Decrypt(Expression arg0, Expression arg1, Expression arg2) {
+        super("sm4_decrypt", arg0, arg1, arg2);
     }
 
     /**
@@ -73,7 +72,7 @@ public class Sm4Decrypt extends ScalarFunction
         if (children.size() == 2) {
             return new Sm4Decrypt(children.get(0), children.get(1));
         } else {
-            return new Sm4Decrypt(children.get(0), children.get(1), children.get(2), children.get(3));
+            return new Sm4Decrypt(children.get(0), children.get(1), children.get(2));
         }
     }
 

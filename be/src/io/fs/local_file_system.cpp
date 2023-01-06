@@ -42,7 +42,7 @@ Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     if (-1 == fd) {
         return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
     }
-    *writer = std::make_unique<LocalFileWriter>(std::move(fs_path), fd);
+    *writer = std::make_unique<LocalFileWriter>(std::move(fs_path), fd, this);
     return Status::OK();
 }
 
@@ -144,7 +144,7 @@ Status LocalFileSystem::list(const Path& path, std::vector<Path>* files) {
 
 static FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
 
-FileSystemSPtr global_local_filesystem() {
+const FileSystemSPtr& global_local_filesystem() {
     return local_fs;
 }
 

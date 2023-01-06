@@ -67,6 +67,7 @@ PROPERTIES (
 "table_type"="mysql"
 );
 ```
+
 参数说明：
 
 | 参数           | 说明|
@@ -81,15 +82,22 @@ PROPERTIES (
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
 | **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
 
->**注意：**
+> **注意：**
 >
->如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
+> 如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
+
+<version since="1.2.1">
+
+> 在1.2.1及之后的版本中，可以将 driver 放到 FE/BE 的 `jdbc_drivers` 目录下，并直接指定文件名，如：`"driver_url" = "mysql-connector-java-5.1.47.jar"`。系统会自动在 `jdbc_drivers` 目录寻找文件。
+
+</version>
 
 ### 查询用法
 
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
+由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
 
 ### 数据写入
 
@@ -206,7 +214,7 @@ PROPERTIES (
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
-|   REAL   |   FLOAT  |
+|   REAL   |   DOUBLE |
 |   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 

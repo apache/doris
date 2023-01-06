@@ -568,6 +568,6 @@ public class HdfsStorage extends BlobStorage {
 
     @Override
     public StorageBackend.StorageType getStorageType() {
-        return StorageBackend.StorageType.HDFS;
+        return this.getType();
     }
 }

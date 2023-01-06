@@ -28,7 +28,11 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
+import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
+import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFileScan;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
+import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
+import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
@@ -36,12 +40,15 @@ import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOl
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepeat;
+import org.apache.doris.nereids.rules.implementation.LogicalSchemaScanToPhysicalSchemaScan;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
+import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
@@ -49,6 +56,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggre
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSetOperation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
@@ -83,10 +91,12 @@ public class RuleSet {
             new PushdownExpressionsInHashCondition(),
             new PushdownFilterThroughAggregation(),
             new PushdownFilterThroughRepeat(),
+            new PushdownFilterThroughSetOperation(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
+            new MergeGenerates(),
             new MergeLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -95,6 +105,8 @@ public class RuleSet {
             .add(new LogicalJoinToHashJoin())
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
+            .add(new LogicalSchemaScanToPhysicalSchemaScan())
+            .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalSortToPhysicalQuickSort())
@@ -104,6 +116,10 @@ public class RuleSet {
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
             .add(new AggregateStrategies())
+            .add(new LogicalUnionToPhysicalUnion())
+            .add(new LogicalExceptToPhysicalExcept())
+            .add(new LogicalIntersectToPhysicalIntersect())
+            .add(new LogicalGenerateToPhysicalGenerate())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()

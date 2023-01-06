@@ -105,6 +105,7 @@ public final class MetricRepo {
     public static Histogram HISTO_TXN_EXEC_LATENCY;
     public static Histogram HISTO_TXN_PUBLISH_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_NUM;
+    public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_PUBLISH_TXN_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_REPLICA_NUM;
 
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
@@ -419,7 +420,18 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(txnNum);
         DB_GAUGE_TXN_NUM = addLabeledMetrics("db", () ->
-            new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+                new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+        GaugeMetric<Long> publishTxnNum = new GaugeMetric<Long>("publish_txn_num", MetricUnit.NOUNIT,
+                "number of publish transactions") {
+            @Override
+            public Long getValue() {
+                return Env.getCurrentGlobalTransactionMgr().getAllPublishTxnNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(publishTxnNum);
+        DB_GAUGE_PUBLISH_TXN_NUM = addLabeledMetrics("db",
+                () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT, "number of publish transactions"));
+
         GaugeMetric<Long> txnReplicaNum = new GaugeMetric<Long>("txn_replica_num", MetricUnit.NOUNIT,
                 "number of writing tablets in all running transactions") {
             @Override

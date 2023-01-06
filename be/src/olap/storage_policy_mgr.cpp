@@ -34,9 +34,12 @@ void StoragePolicyMgr::update(const std::string& name, const StoragePolicyPtr& p
             it->second = policy;
             s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
                     io::FileSystemMap::instance()->get(name));
-            DCHECK(s3_fs);
-            s3_fs->set_ak(policy->s3_ak);
-            s3_fs->set_sk(policy->s3_sk);
+            if (s3_fs) {
+                s3_fs->set_ak(policy->s3_ak);
+                s3_fs->set_sk(policy->s3_sk);
+            } else {
+                DCHECK(false) << "s3_fs is null";
+            }
         }
     }
     if (s3_fs) {

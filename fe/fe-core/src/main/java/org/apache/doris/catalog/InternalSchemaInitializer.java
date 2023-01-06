@@ -115,6 +115,7 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
+        columnDefs.add(new ColumnDef("histogram", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";

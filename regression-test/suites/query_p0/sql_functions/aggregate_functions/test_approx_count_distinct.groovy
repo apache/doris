@@ -17,4 +17,8 @@
 
 suite("test_approx_count_distinct") {
     qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
+    sql 'set enable_vectorized_engine=true;'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=true'
+    qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
 }

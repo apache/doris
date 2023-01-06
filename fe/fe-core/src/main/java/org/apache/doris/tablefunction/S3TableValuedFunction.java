@@ -85,7 +85,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         try {
             s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
         } catch (UserException e) {
-            throw new AnalysisException("parse s3 uri failed, uri = " + validParams.get(S3_URI));
+            throw new AnalysisException("parse s3 uri failed, uri = " + validParams.get(S3_URI), e);
         }
         if (forceVirtualHosted) {
             // s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:

@@ -39,8 +39,8 @@ public class SparkDppTest {
 
         DecimalParser decimalParser = new DecimalParser(etlColumn);
         // test max/min
-        Assert.assertTrue(decimalParser.getMaxValue().toString().equals("9.99"));
-        Assert.assertTrue(decimalParser.getMinValue().toString().equals("-9.99"));
+        Assert.assertEquals(decimalParser.getMaxValue().toString(), "9.99");
+        Assert.assertEquals(decimalParser.getMinValue().toString(), "-9.99");
         // normal
         BigDecimal bigDecimal = new BigDecimal("1.21");
         Assert.assertTrue(sparkDpp.validateData(bigDecimal, etlColumn, decimalParser, RowFactory.create(bigDecimal)));

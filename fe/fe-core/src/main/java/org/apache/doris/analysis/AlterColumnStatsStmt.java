@@ -62,6 +62,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
             .add(ColumnStatistic.NUM_NULLS)
             .add(ColumnStatistic.MIN_VALUE)
             .add(ColumnStatistic.MAX_VALUE)
+            .add(ColumnStatistic.HISTOGRAM)
             .add(StatsType.DATA_SIZE)
             .build();
 

@@ -35,6 +35,9 @@ void PipelineTask::_init_profile() {
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
     _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
+    _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
+    _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
 }
 
@@ -46,6 +49,21 @@ Status PipelineTask::prepare(RuntimeState* state) {
     for (auto& o : _operators) {
         RETURN_IF_ERROR(o->prepare(state));
     }
+
+    _task_profile->add_info_string("Sink", fmt::format("{}({})", _sink->get_name(), _sink->id()));
+    fmt::memory_buffer operator_ids_str;
+    for (size_t i = 0; i < _operators.size(); i++) {
+        if (i == 0) {
+            fmt::format_to(operator_ids_str,
+                           fmt::format("[{}({})", _operators[i]->get_name(), _operators[i]->id()));
+        } else {
+            fmt::format_to(operator_ids_str,
+                           fmt::format(", {}({})", _operators[i]->get_name(), _operators[i]->id()));
+        }
+    }
+    fmt::format_to(operator_ids_str, "]");
+    _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
+
     _block.reset(new doris::vectorized::Block());
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
@@ -117,7 +135,7 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     while (!_fragment_context->is_canceled()) {
-        if (!_source->can_read() && _data_state != SourceState::MORE_DATA) {
+        if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
             set_state(BLOCKED_FOR_SOURCE);
             break;
         }
@@ -165,6 +183,7 @@ Status PipelineTask::close() {
     }
     if (_opened) {
         COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
+        COUNTER_UPDATE(_schedule_counts, _schedule_time);
         COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
@@ -190,14 +209,13 @@ void PipelineTask::set_state(PipelineTaskState state) {
             _wait_sink_watcher.stop();
         }
     } else if (_cur_state == RUNNABLE) {
+        COUNTER_UPDATE(_block_counts, 1);
         if (state == BLOCKED_FOR_SOURCE) {
             _wait_source_watcher.start();
-            COUNTER_UPDATE(_block_counts, 1);
+            COUNTER_UPDATE(_block_by_source_counts, 1);
         } else if (state == BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
-            COUNTER_UPDATE(_block_counts, 1);
-        } else if (state == BLOCKED_FOR_DEPENDENCY) {
-            COUNTER_UPDATE(_block_counts, 1);
+            COUNTER_UPDATE(_block_by_sink_counts, 1);
         }
     }
     _cur_state = state;
@@ -211,6 +229,8 @@ std::string PipelineTask::debug_string() const {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
                        _operators[i]->debug_string());
     }
+    fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
+                   _sink->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
@@ -41,7 +42,7 @@ public:
                             ExecEnv* exec_env,
                             std::function<void(RuntimeState*, Status*)> call_back);
 
-    ~PipelineFragmentContext() { _call_back(_runtime_state.get(), &_exec_status); }
+    ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
@@ -57,6 +58,8 @@ public:
     Status prepare(const doris::TExecPlanFragmentParams& request);
 
     Status submit();
+
+    void close_if_prepare_failed();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -84,6 +87,9 @@ public:
 
     void send_report(bool);
 
+    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
+    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
+
 private:
     // Id of this query
     TUniqueId _query_id;
@@ -103,11 +109,13 @@ private:
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic<int> _closed_pipeline_cnt;
+    std::atomic_int _closed_tasks = 0;
+    // After prepared, `_total_tasks` is equal to the size of `_tasks`.
+    // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
+    std::atomic_int _total_tasks = 0;
+    std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
-
-    std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     PipelinePtr _root_pipeline;
 
@@ -126,8 +134,10 @@ private:
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
-    //    RuntimeProfile::Counter* _start_timer;
-    //    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _start_timer;
+    RuntimeProfile::Counter* _prepare_timer;
+
+    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
@@ -136,6 +146,8 @@ private:
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     std::function<void(RuntimeState*, Status*)> _call_back;
+    void _close_action();
+    std::once_flag _close_once_flag;
 };
 } // namespace pipeline
 } // namespace doris

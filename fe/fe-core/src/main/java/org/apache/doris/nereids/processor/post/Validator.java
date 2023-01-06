@@ -27,7 +27,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Collection;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * validator plan.
@@ -50,7 +52,8 @@ public class Validator extends PlanPostProcessor {
 
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
-        Preconditions.checkArgument(filter.getPredicates() != BooleanLiteral.TRUE);
+        Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
+                && filter.getPredicate() != BooleanLiteral.TRUE);
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
@@ -60,7 +63,9 @@ public class Validator extends PlanPostProcessor {
 
         // Check filter is from child output.
         Set<Slot> childOutputSet = child.getOutputSet();
-        Set<Slot> slotsUsedByFilter = filter.getPredicates().collect(Slot.class::isInstance);
+        Set<Slot> slotsUsedByFilter = filter.getConjuncts().stream()
+                .<Set<Slot>>map(expr -> expr.collect(Slot.class::isInstance))
+                .flatMap(Collection::stream).collect(Collectors.toSet());
         for (Slot slot : slotsUsedByFilter) {
             Preconditions.checkState(childOutputSet.contains(slot));
         }

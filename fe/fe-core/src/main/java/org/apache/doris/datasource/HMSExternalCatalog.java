@@ -25,12 +25,17 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,16 +52,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
+    // Record the latest synced event id when processing hive events
+    private long lastSyncedEventId;
 
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(long catalogId, String name, Map<String, String> props) {
+    public HMSExternalCatalog(
+            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
         this.id = catalogId;
         this.name = name;
         this.type = "hms";
-        this.catalogProperty = new CatalogProperty();
-        this.catalogProperty.setProperties(props);
+        if (resource == null) {
+            props.putAll(HMSResource.getPropertiesFromDLF());
+        }
+        catalogProperty = new CatalogProperty(resource, props);
     }
 
     public String getHiveMetastoreUris() {
@@ -95,11 +105,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void notifyPropertiesUpdated() {
+        initLocalObjectsImpl();
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
         HiveConf hiveConf = new HiveConf();
-        for (String key : catalogProperty.getHdfsProperties().keySet()) {
-            String val = catalogProperty.getOrDefault(key, "");
-            hiveConf.set(key, val);
+        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
+            hiveConf.set(kv.getKey(), kv.getValue());
         }
 
         String authentication = catalogProperty.getOrDefault(
@@ -121,13 +135,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
             }
         }
-        // 1. read properties from hive-site.xml.
-        // and then use properties in CatalogProperty to override properties got from hive-site.xml
-        Map<String, String> properties = HiveMetaStoreClientHelper.getPropertiesForDLF(name, hiveConf);
-        properties.putAll(catalogProperty.getProperties());
-        catalogProperty.setProperties(properties);
 
-        // 2. init hms client
         client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
     }
 
@@ -171,5 +179,49 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     true, null, field.getComment(), true, null, -1));
         }
         return tmpSchema;
+    }
+
+    public void setLastSyncedEventId(long lastSyncedEventId) {
+        this.lastSyncedEventId = lastSyncedEventId;
+    }
+
+    public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
+            throws MetastoreNotificationFetchException {
+        makeSureInitialized();
+        if (lastSyncedEventId < 0) {
+            lastSyncedEventId = getCurrentEventId();
+            refreshCatalog(hmsExternalCatalog);
+            LOG.info(
+                    "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
+                            + "lastSyncedEventId is [{}]",
+                    hmsExternalCatalog.getName(), lastSyncedEventId);
+            return null;
+        }
+
+        long currentEventId = getCurrentEventId();
+        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {},lastSyncedEventId is {}",
+                hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
+        if (currentEventId == lastSyncedEventId) {
+            LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
+            return null;
+        }
+        return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+    }
+
+    private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(hmsExternalCatalog.getId());
+        log.setInvalidCache(true);
+        Env.getCurrentEnv().getCatalogMgr().refreshCatalog(log);
+    }
+
+    private long getCurrentEventId() {
+        makeSureInitialized();
+        CurrentNotificationEventId currentNotificationEventId = client.getCurrentNotificationEventId();
+        if (currentNotificationEventId == null) {
+            LOG.warn("Get currentNotificationEventId is null");
+            return -1;
+        }
+        return currentNotificationEventId.getEventId();
     }
 }

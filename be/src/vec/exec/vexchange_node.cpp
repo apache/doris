@@ -37,7 +37,8 @@ VExchangeNode::VExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const Des
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
                                                     tnode.exchange_node.input_row_tuples.size())),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
+          _num_rows_skipped(0) {}
 
 Status VExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -58,8 +59,7 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
-            config::exchg_node_buffer_size_bytes, _runtime_profile.get(), _is_merging,
-            _sub_plan_query_statistics_recvr);
+            _runtime_profile.get(), _is_merging, _sub_plan_query_statistics_recvr);
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
@@ -88,9 +88,6 @@ Status VExchangeNode::open(RuntimeState* state) {
 
     return Status::OK();
 }
-Status VExchangeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VExchange Node::get_next scalar");
-}
 
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExchangeNode::get_next");
@@ -105,12 +102,23 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     }
     auto status = _stream_recvr->get_next(block, eos);
     if (block != nullptr) {
+        if (!_is_merging) {
+            if (_num_rows_skipped + block->rows() < _offset) {
+                _num_rows_skipped += block->rows();
+                block->set_num_rows(0);
+            } else if (_num_rows_skipped < _offset) {
+                auto offset = _offset - _num_rows_skipped;
+                _num_rows_skipped = _offset;
+                block->set_num_rows(block->rows() - offset);
+            }
+        }
         if (_num_rows_returned + block->rows() < _limit) {
             _num_rows_returned += block->rows();
         } else {
             *eos = true;
             auto limit = _limit - _num_rows_returned;
             block->set_num_rows(limit);
+            _num_rows_returned = _limit;
         }
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
@@ -124,6 +132,7 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     if (_is_merging) {
         _vsort_exec_exprs.close(state);
     }
+    ExecNode::release_resource(state);
 }
 
 Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {

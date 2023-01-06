@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 /**
@@ -63,7 +62,6 @@ public class ShowCatalogStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        Util.checkCatalogEnabled();
         super.analyze(analyzer);
     }
 

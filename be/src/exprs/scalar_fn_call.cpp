@@ -151,7 +151,8 @@ Status ScalarFnCall::open(RuntimeState* state, ExprContext* ctx,
     // determines how many decimal places are printed.
     // TODO: revisit this. We should be able to do this if the scale argument is
     // non-constant.
-    if (_fn.name.function_name == "round" && _type.type == TYPE_DOUBLE) {
+    if (_fn.name.function_name == "round" && _fn.__isset.signature &&
+        _fn.signature.find("round_up_to") != std::string::npos) {
         DCHECK_EQ(_children.size(), 2);
         if (_children[1]->is_constant()) {
             IntVal scale_arg = _children[1]->get_int_val(ctx, nullptr);

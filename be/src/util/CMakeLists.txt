@@ -63,7 +63,6 @@ set(UTIL_FILES
   url_coding.cpp
   file_utils.cpp
   mysql_row_buffer.cpp
-  tuple_row_compare.cpp
   error_util.cc
   filesystem_util.cc
   load_error_hub.cpp
@@ -107,6 +106,7 @@ set(UTIL_FILES
   hdfs_util.cpp
   time_lut.cpp
   topn_counter.cpp
+  cityhash102/city.cc
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp

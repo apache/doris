@@ -110,6 +110,8 @@ public:
 
     static vectorized::DataTypePtr get_data_type_ptr(const Field& field);
 
+    static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
+
     static vectorized::IColumn::MutablePtr get_predicate_column_ptr(FieldType type);
 
     static vectorized::IColumn::MutablePtr get_predicate_column_nullable_ptr(const Field& field);

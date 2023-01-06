@@ -84,6 +84,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
+    public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
 
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
@@ -160,6 +161,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case VARCHAR:
                 return createVarcharType();
+            case BINARY:
+                return createStringType();
             case JSONB:
                 return createJsonbType();
             case STRING:
@@ -555,9 +558,6 @@ public class ScalarType extends Type {
                 }
                 break;
             case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append("decimal").append("(").append(precision)
                             .append(", ").append(scale).append(")");
@@ -568,8 +568,22 @@ public class ScalarType extends Type {
                     stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
                 }
                 break;
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                String typeName = Config.enable_decimal_conversion ? "decimal" : "decimalv3";
+                if (Strings.isNullOrEmpty(precisionStr)) {
+                    stringBuilder.append(typeName).append("(").append(precision)
+                        .append(", ").append(scale).append(")");
+                } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
+                    stringBuilder.append(typeName).append("(`").append(precisionStr)
+                        .append("`, `").append(scaleStr).append("`)");
+                } else {
+                    stringBuilder.append(typeName).append("(`").append(precisionStr).append("`)");
+                }
+                break;
             case DATETIMEV2:
-                stringBuilder.append("datetime").append("(").append(scale).append(")");
+                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
             case TIME:
                 stringBuilder.append("time");
@@ -1020,9 +1034,13 @@ public class ScalarType extends Type {
         }
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {
-            return ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
-                            t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
-                            t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
+            ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
+                    t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
+                    t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
+            if (finalType.getPrecision() > MAX_PRECISION) {
+                finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
+            }
+            return finalType;
         }
 
         PrimitiveType smallerType =
@@ -1033,7 +1051,7 @@ public class ScalarType extends Type {
         if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
             return t1.scale > t2.scale ? t1 : t2;
         }
-        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t1.isDatetimeV2() || t1.isDateV2())) {
+        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t2.isDatetimeV2() || t2.isDateV2())) {
             return t1.isDatetimeV2() ? t1 : t2;
         }
         if (strict) {
@@ -1054,6 +1072,12 @@ public class ScalarType extends Type {
         int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
         return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
                 targetPrecision, targetScale);
+    }
+
+    public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
+        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
+        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
     }
 
     /**

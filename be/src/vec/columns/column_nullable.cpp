@@ -268,7 +268,7 @@ void ColumnNullable::insert(const Field& x) {
         _has_null = true;
     } else {
         get_nested_column().insert(x);
-        get_null_map_data().push_back(0);
+        _get_null_map_data().push_back(0);
     }
 }
 
@@ -288,8 +288,7 @@ void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
 void ColumnNullable::insert_range_from_not_nullable(const IColumn& src, size_t start,
                                                     size_t length) {
     get_nested_column().insert_range_from(src, start, length);
-    _get_null_map_data().resize_fill(get_null_map_data().size() + length, 0);
-    _need_update_has_null = true;
+    _get_null_map_data().resize_fill(_get_null_map_data().size() + length, 0);
 }
 
 void ColumnNullable::insert_many_from_not_nullable(const IColumn& src, size_t position,
@@ -417,7 +416,7 @@ void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direct
 
 void ColumnNullable::reserve(size_t n) {
     get_nested_column().reserve(n);
-    get_null_map_data().reserve(n);
+    _get_null_map_data().reserve(n);
 }
 
 void ColumnNullable::resize(size_t n) {

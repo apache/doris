@@ -495,8 +495,8 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public static String removeNamePrefix(String colName) {
-        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
         }
         return colName;
     }
@@ -505,11 +505,11 @@ public class Column implements Writable, GsonPostProcessable {
         if (isShadowColumn(colName)) {
             return colName;
         }
-        return SchemaChangeHandler.SHADOW_NAME_PRFIX + colName;
+        return SchemaChangeHandler.SHADOW_NAME_PREFIX + colName;
     }
 
     public static boolean isShadowColumn(String colName) {
-        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX);
     }
 
     public Expr getDefineExpr() {

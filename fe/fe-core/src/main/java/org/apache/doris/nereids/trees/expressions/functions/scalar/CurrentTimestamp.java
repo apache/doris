@@ -41,7 +41,7 @@ public class CurrentTimestamp extends DateTimeWithPrecision
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeType.INSTANCE).args(),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(IntegerType.INSTANCE)
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(IntegerType.INSTANCE)
     );
 
     /**

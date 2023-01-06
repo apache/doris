@@ -76,34 +76,6 @@ RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
     return new RuntimeState(plan_params.params, TQueryOptions(), TQueryGlobals(), _exec_env);
 }
 
-Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_size,
-                                   RuntimeState** runtime_state) {
-    *runtime_state = create_runtime_state(query_id);
-    if (*runtime_state == nullptr) {
-        return Status::InternalError("Unexpected error creating RuntimeState");
-    }
-
-    std::shared_ptr<BufferedBlockMgr2> mgr;
-    RETURN_IF_ERROR(BufferedBlockMgr2::create(*runtime_state, (*runtime_state)->runtime_profile(),
-                                              _tmp_file_mgr.get(), block_size, &mgr));
-    (*runtime_state)->set_block_mgr2(mgr);
-    // (*runtime_state)->_block_mgr = mgr;
-
-    _query_states.push_back(std::shared_ptr<RuntimeState>(*runtime_state));
-    return Status::OK();
-}
-
-Status TestEnv::create_query_states(int64_t start_query_id, int num_mgrs, int buffers_per_mgr,
-                                    int block_size, std::vector<RuntimeState*>* runtime_states) {
-    for (int i = 0; i < num_mgrs; ++i) {
-        RuntimeState* runtime_state = nullptr;
-        RETURN_IF_ERROR(create_query_state(start_query_id + i, buffers_per_mgr, block_size,
-                                           &runtime_state));
-        runtime_states->push_back(runtime_state);
-    }
-    return Status::OK();
-}
-
 void TestEnv::tear_down_query_states() {
     _query_states.clear();
 }

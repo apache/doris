@@ -157,7 +157,6 @@ private:
     friend class InPredicate;
     friend class RuntimePredicateWrapper;
     friend class BloomFilterPredicate;
-    friend class OlapScanNode;
     friend class EsPredicate;
     friend class RowGroupReader;
 

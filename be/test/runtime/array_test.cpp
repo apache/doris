@@ -31,7 +31,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
-#include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema.h"
@@ -276,39 +275,6 @@ private:
             EXPECT_TRUE(file_writer->close().ok());
         }
         {
-            auto reader = create_column_reader(path, meta, arrays.size());
-            EXPECT_NE(reader, nullptr);
-            auto rblock = create_readable_block(path);
-            EXPECT_NE(rblock, nullptr);
-            OlapReaderStatistics stats;
-            std::unique_ptr<segment_v2::ColumnIterator> iter(
-                    new_iterator(rblock.get(), &stats, reader.get()));
-            EXPECT_NE(iter, nullptr);
-            auto st = iter->seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
-            RowBlockV2 block(schema, 1024);
-            auto col = block.column_block(0);
-            int index = 0;
-            size_t rows_read = 1024;
-            size_t num_rows = 0;
-            do {
-                ColumnBlockView dst(&col);
-                st = iter->next_batch(&rows_read, &dst);
-                EXPECT_TRUE(st.ok());
-                num_rows += rows_read;
-                for (int i = 0; i < rows_read; ++i) {
-                    validate(field, arrays[index++],
-                             reinterpret_cast<const CollectionValue*>(col.cell_ptr(i)));
-                }
-                EXPECT_TRUE(st.ok());
-            } while (rows_read >= 1024);
-            auto type_info = get_type_info(column_pb);
-            auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-            block.set_selected_size(num_rows);
-            test_convert_to_vec_block(block, tuple_desc, field, arrays);
-        }
-        {
             auto type_info = get_type_info(column_pb);
             auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
 
@@ -431,24 +397,6 @@ private:
         test_copy_array(tuple_desc, field, array);
         test_direct_copy_array(field, {array});
         test_write_and_read_column<array_encoding, item_encoding>(column_pb, field, {array});
-    }
-
-    void test_convert_to_vec_block(RowBlockV2& row_block, const TupleDescriptor* tuple_desc,
-                                   const Field* field,
-                                   const std::vector<const CollectionValue*>& arrays) {
-        vectorized::Block block;
-        for (const auto slot_desc : tuple_desc->slots()) {
-            block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->get_data_type_ptr(),
-                                                           slot_desc->col_name()));
-        }
-
-        row_block.convert_to_vec_block(&block);
-        for (int i = 0; i < arrays.size(); ++i) {
-            auto tuple = block.deep_copy_tuple(*tuple_desc, _mem_pool.get(), i, 0, false);
-            auto actual = tuple->get_collection_slot(tuple_desc->slots().front()->tuple_offset());
-            validate(field, arrays[i], actual);
-        }
     }
 
 private:

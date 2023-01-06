@@ -1831,24 +1831,32 @@ visible_functions = [
             '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DOUBLE', ['DOUBLE'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['ceil', 'ceiling', 'dceil'], 'DECIMAL32', ['DECIMAL32'],
             '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32'],
             '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DECIMAL32', ['DECIMAL32'],
             '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DECIMAL32', ['DECIMAL32'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['ceil', 'ceiling', 'dceil'], 'DECIMAL64', ['DECIMAL64'],
             '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['floor', 'dfloor'], 'DECIMAL64', ['DECIMAL64'],
             '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DECIMAL64', ['DECIMAL64'],
             '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DECIMAL64', ['DECIMAL64'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['ceil', 'ceiling', 'dceil'], 'DECIMAL128', ['DECIMAL128'],
             '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['floor', 'dfloor'], 'DECIMAL128', ['DECIMAL128'],
             '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DECIMAL128', ['DECIMAL128'],
             '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DECIMAL128', ['DECIMAL128'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
@@ -1860,6 +1868,18 @@ visible_functions = [
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['round', 'dround'], 'DECIMAL128', ['DECIMAL128', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round_bankers', 'round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DECIMAL32', ['DECIMAL32', 'INT'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DECIMAL64', ['DECIMAL64', 'INT'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['round_bankers'], 'DECIMAL128', ['DECIMAL128', 'INT'],
+            '__ZN5doris13MathFunctions13round_bankersEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
@@ -2404,8 +2424,8 @@ visible_functions = [
     [['running_difference'], 'DECIMAL128', ['DECIMAL128'], '', '', '', 'vec', ''],
     [['running_difference'], 'INT', ['DATE'], '', '', '', 'vec', ''],
     [['running_difference'], 'INT', ['DATEV2'], '', '', '', 'vec', ''],
-    [['running_difference'], 'DOUBLE', ['DATETIME'], '', '', '', 'vec', ''],
-    [['running_difference'], 'DOUBLE', ['DATETIMEV2'], '', '', '', 'vec', ''],
+    [['running_difference'], 'TIME', ['DATETIME'], '', '', '', 'vec', ''],
+    [['running_difference'], 'TIMEV2', ['DATETIMEV2'], '', '', '', 'vec', ''],
 
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],

@@ -64,6 +64,9 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
+    if (nullptr != _param->catalog) {
+        db_params.__set_catalog(*(_param->catalog));
+    }
     if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {

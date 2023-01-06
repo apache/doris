@@ -101,6 +101,8 @@ public:
 
     TExprNodeType::type node_type() const { return _node_type; }
 
+    TExprOpcode::type op() const { return _opcode; }
+
     void add_child(VExpr* expr) { _children.push_back(expr); }
 
     static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
@@ -203,6 +205,8 @@ protected:
                                 const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
+    // Used to check what opcode
+    TExprOpcode::type _opcode;
     TypeDescriptor _type;
     DataTypePtr _data_type;
     std::vector<VExpr*> _children;

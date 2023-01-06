@@ -141,7 +141,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         try {
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
-            throw new AnalysisException("parse file failed, path = " + path);
+            throw new AnalysisException("parse file failed, path = " + path, e);
         }
     }
 

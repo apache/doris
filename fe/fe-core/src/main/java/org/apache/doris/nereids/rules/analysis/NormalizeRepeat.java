@@ -200,7 +200,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
-        if (!pushedExprs.equals(originBottomPlan.getOutputSet())) {
+        if (!pushedExprs.equals(originBottomPlan.getOutputSet()) && !pushedExprs.isEmpty()) {
             return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan);
         }
         return originBottomPlan;
@@ -218,9 +218,16 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
         Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
 
+        // nullable will be different from grouping set and output expressions,
+        // so we can not use the slot in grouping set，but use the equivalent slot in output expressions.
+        List<NamedExpression> outputs = repeat.getOutputExpressions();
+
         Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
         for (Expression expression : sourceExpressions) {
             Optional<NormalizeToSlotTriplet> pushDownTriplet;
+            if (expression instanceof NamedExpression && outputs.contains(expression)) {
+                expression = outputs.get(outputs.indexOf(expression));
+            }
             if (groupingSetExpressions.contains(expression)) {
                 boolean isCommonGroupingSetExpression = commonGroupingSetExpressions.contains(expression);
                 pushDownTriplet = toGroupingSetExpressionPushDownTriplet(

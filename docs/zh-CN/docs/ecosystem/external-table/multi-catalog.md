@@ -67,7 +67,7 @@ under the License.
     
 4. 删除 Catalog
 
-    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
+    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
     
     该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
 
@@ -78,31 +78,52 @@ under the License.
 > 1. hive 支持 2.3.7 以上版本。
 > 2. Iceberg 目前仅支持 V1 版本，V2 版本即将支持。
 > 3. Hudi 目前仅支持 Copy On Write 表的 Snapshot Query，以及 Merge On Read 表的 Read Optimized Query。后续将支持 Incremental Query 和 Merge On Read 表的 Snapshot Query。
+> 4. 支持数据存储在腾讯 CHDFS 上的 hive 表，用法和普通 hive 一样。
 
 以下示例，用于创建一个名为 hive 的 Catalog 连接指定的 Hive MetaStore，并提供了 HDFS HA 连接属性，用于访问对应的 HDFS 中的文件。
 
-```
-CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+**通过 resource 创建 catalog**
+
+`1.2.0` 以后的版本推荐通过 resource 创建 catalog，多个使用场景可以复用相同的 resource。
+```sql
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.service1'='nn1,nn2',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-    'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+CREATE CATALOG hive WITH RESOURCE hms_resource;
+```
+
+**通过 properties 创建 catalog**
+
+`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
 如果需要连接开启了 Kerberos 认证的 Hive MetaStore，示例如下：
 
-```
-CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hive.metastore.sasl.enabled' = 'true',
     'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.service1'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
@@ -111,6 +132,15 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
     'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
+);
+CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.kerberos.xxx' = 'xxx',
+    ...
 );
 ```
 
@@ -261,10 +291,19 @@ Query OK, 1000 rows affected (0.28 sec)
 
 以下示例，用于创建一个名为 es 的 Catalog 连接指定的 ES，并关闭节点发现功能。
 
-```
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE es_resource PROPERTIES (
+    "type"="es",
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
+);
+CREATE CATALOG es WITH RESOURCE es_resource;
+
+-- 1.2.0 版本
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -334,7 +373,7 @@ mysql> select * from test;
 
 1. 创建 hive-site.xml
 
-    创建 hive-site.xml 文件，并将其放置在 `fe/conf` 和 `be/conf` 目录下。
+    创建 hive-site.xml 文件，并将其放置在 `fe/conf` 目录下。
     
     ```
     <?xml version="1.0"?>
@@ -381,43 +420,88 @@ mysql> select * from test;
 
 2. 重启 FE，并通过 `CREATE CATALOG` 语句创建 catalog。
 
-    ```
+    HMS resource 会读取和解析 fe/conf/hive-site.xml
+    ```sql
+    -- 1.2.0+ 版本
+    CREATE RESOURCE dlf_resource PROPERTIES (
+        "type"="hms",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    )
+    CREATE CATALOG dlf WITH RESOURCE dlf_resource;
+
+    -- 1.2.0 版本
     CREATE CATALOG dlf PROPERTIES (
         "type"="hms",
         "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-    );
+    )
     ```
     
     其中 `type` 固定为 `hms`。 `hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
     
-之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
+    之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
 
 ### 连接JDBC
 
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
-jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前只支持MYSQL数据库类型。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL数据库类型。
+
+**MYSQL catalog示例**
+
 ```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+)
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+
+-- 1.2.0 版本
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    ...
+)
+```
+
+**POSTGRESQL catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE pg_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
 );
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
 ```
 
 其中`jdbc.driver_url`可以是远程jar包：
 
 ```sql
-CREATE CATALOG jdbc PROPERTIES (
+CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
-);
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 ```
 
 如果`jdbc.driver_url` 是http形式的远程jar包，Doris对其的处理方式为：
@@ -437,7 +521,7 @@ MySQL [(none)]> show catalogs;
 2 rows in set (0.02 sec)
 ```
 
-通过 SWITCH 命令切换到 es catalog，并查看其中的数据库：
+通过 SWITCH 命令切换到 jdbc catalog，并查看其中的数据库：
 ```sql
 MySQL [(none)]> switch jdbc;
 Query OK, 0 rows affected (0.02 sec)
@@ -458,6 +542,8 @@ MySQL [(none)]> show databases;
 +--------------------+
 9 rows in set (0.67 sec)
 ```
+
+> 注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
 
 查看`db1`数据库下的表，并查询：
 ```sql
@@ -578,6 +664,31 @@ MySQL [db1]> select * from tbl1;
 | CHAR | CHAR | |
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
+| uuid/josnb | STRING | |
+
 ## 权限管理
 
 使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。
@@ -591,5 +702,16 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
 后续会支持元数据的自动同步。
+
+## 常见问题
+
+### Iceberg
+
+下面的配置用来解决Doris使用Hive客户端访问Hive Metastore时出现的`failed to get schema for table xxx in db xxx` 和 `java.lang.UnsupportedOperationException: Storage schema reading not supported`。
+
+- 在hive的lib目录放上iceberg运行时有关的jar包。
+- hive-site.xml配置`metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`。
+  
+配置完成后需要重启Hive Metastore。
 
 </version>

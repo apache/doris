@@ -19,40 +19,31 @@ suite("test_external_hive", "p2") {
 
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
+        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
 
-        try {
-            String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-            String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
+        sql """drop database if exists external_hive_database;"""
+        sql """create database external_hive_database;"""
+        sql """use external_hive_database;"""
+        sql """drop table if exists external_hive_table;"""
 
-            sql """admin set frontend config ("enable_multi_catalog" = "true")"""
+        sql """
+        create table `external_hive_table` (
+        `a` int NOT NULL COMMENT "",
+        `b` char(10) NOT NULL COMMENT ""
+        ) ENGINE=HIVE
+        PROPERTIES
+        (
+        'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
+        'database' = 'test',
+        'table' = 'hive_test'
+        );
+        """
+        def res = sql """select count(*) from external_hive_table"""
+        logger.info("recoding select: " + res.toString())
 
-            sql """drop database if exists external_hive_database;"""
-            sql """create database external_hive_database;"""
-            sql """use external_hive_database;"""
-            sql """drop table if exists external_hive_table;"""
-
-            sql """
-            create table `external_hive_table` (
-            `a` int NOT NULL COMMENT "",
-            `b` char(10) NOT NULL COMMENT ""
-            ) ENGINE=HIVE
-            PROPERTIES
-            (
-            'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
-            'database' = 'test',
-            'table' = 'hive_test'
-            );
-            """
-            def res = sql """select count(*) from external_hive_table"""
-            logger.info("recoding select: " + res.toString())
-
-            sql """drop table if exists external_hive_table;"""
-            sql """drop database if exists external_hive_database;"""
-        } finally {
-            // sql """admin set frontend config ("enable_multi_catalog" = "false")"""
-        }
+        sql """drop table if exists external_hive_table;"""
+        sql """drop database if exists external_hive_database;"""
     }
 }
-
-
 

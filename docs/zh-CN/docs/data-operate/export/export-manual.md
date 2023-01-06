@@ -128,24 +128,21 @@ WITH BROKER "hdfs"
 
 ### 导出到对象存储
 
-创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+通过s3 协议直接将数据导出到指定的存储.
 
 ```sql
-CREATE REPOSITORY `s3_repo`
-WITH S3
-ON LOCATION "s3://s3-repo"
-PROPERTIES
-(
-    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
-    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
-    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
-    "AWS_REGION" = "REGION"
-);
+
+EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
+        "AWS_ENDPOINT" = "http://host",
+        "AWS_ACCESS_KEY" = "AK",
+        "AWS_SECRET_KEY"="SK",
+        "AWS_REGION" = "region"
+    );
 ```
 
-- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问OSS API 的密钥.
-- `AWS_ENDPOINT`：表示OSS的数据中心所在的地域.
-- `AWS_REGION`：Endpoint表示OSS对外服务的访问域名.
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问对象存储的ACCESS_KEY/SECRET_KEY
+- `AWS_ENDPOINT`：表示对象存储数据中心所在的地域.
+- `AWS_REGION`：Endpoint表示对象存储对外服务的访问域名.
 
 
 ### 查看导出状态

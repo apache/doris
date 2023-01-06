@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -45,14 +47,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
 
     public static final String DEFAULT_DB = "default_db";
-
-    public static final String PROP_HOSTS = "elasticsearch.hosts";
-    public static final String PROP_SSL = "elasticsearch.ssl";
-    public static final String PROP_USERNAME = "elasticsearch.username";
-    public static final String PROP_PASSWORD = "elasticsearch.password";
-    public static final String PROP_DOC_VALUE_SCAN = "elasticsearch.doc_value_scan";
-    public static final String PROP_KEYWORD_SNIFF = "elasticsearch.keyword_sniff";
-    public static final String PROP_NODES_DISCOVERY = "elasticsearch.nodes_discovery";
 
     private EsRestClient esRestClient;
 
@@ -73,52 +67,79 @@ public class EsExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for EsExternalCatalog.
      */
-    public EsExternalCatalog(long catalogId, String name, Map<String, String> props) {
+    public EsExternalCatalog(
+            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
         this.id = catalogId;
         this.name = name;
         this.type = "es";
-        setProperties(props);
-        this.catalogProperty = new CatalogProperty();
-        this.catalogProperty.setProperties(props);
+        if (resource == null) {
+            catalogProperty = new CatalogProperty(null, processCompatibleProperties(props));
+        } else {
+            catalogProperty = new CatalogProperty(resource, Collections.emptyMap());
+            processCompatibleProperties(catalogProperty.getProperties());
+        }
     }
 
-    private void setProperties(Map<String, String> properties) {
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) throws DdlException {
+        // Compatible with "Doris On ES" interfaces
+        Map<String, String> properties = Maps.newHashMap();
+        for (Map.Entry<String, String> kv : props.entrySet()) {
+            properties.put(StringUtils.removeStart(kv.getKey(), EsResource.ES_PROPERTIES_PREFIX), kv.getValue());
+        }
+        nodes = properties.get(EsResource.HOSTS).trim().split(",");
+        if (properties.containsKey("ssl")) {
+            properties.put(EsResource.HTTP_SSL_ENABLED, properties.remove("ssl"));
+        }
+        if (properties.containsKey(EsResource.HTTP_SSL_ENABLED)) {
+            enableSsl = EsUtil.getBoolean(properties, EsResource.HTTP_SSL_ENABLED);
+        } else {
+            properties.put(EsResource.HTTP_SSL_ENABLED, String.valueOf(enableSsl));
+        }
+
+        if (properties.containsKey("username")) {
+            properties.put(EsResource.USER, properties.remove("username"));
+        }
+        if (StringUtils.isNotBlank(properties.get(EsResource.USER))) {
+            username = properties.get(EsResource.USER).trim();
+        }
+
+        if (StringUtils.isNotBlank(properties.get(EsResource.PASSWORD))) {
+            password = properties.get(EsResource.PASSWORD).trim();
+        }
+
+        if (properties.containsKey("doc_value_scan")) {
+            properties.put(EsResource.DOC_VALUE_SCAN, properties.remove("doc_value_scan"));
+        }
+        if (properties.containsKey(EsResource.DOC_VALUE_SCAN)) {
+            enableDocValueScan = EsUtil.getBoolean(properties, EsResource.DOC_VALUE_SCAN);
+        } else {
+            properties.put(EsResource.DOC_VALUE_SCAN, String.valueOf(enableDocValueScan));
+        }
+
+        if (properties.containsKey("keyword_sniff")) {
+            properties.put(EsResource.KEYWORD_SNIFF, properties.remove("keyword_sniff"));
+        }
+        if (properties.containsKey(EsResource.KEYWORD_SNIFF)) {
+            enableKeywordSniff = EsUtil.getBoolean(properties, EsResource.KEYWORD_SNIFF);
+        } else {
+            properties.put(EsResource.KEYWORD_SNIFF, String.valueOf(enableKeywordSniff));
+        }
+
+        if (properties.containsKey(EsResource.NODES_DISCOVERY)) {
+            enableNodesDiscovery = EsUtil.getBoolean(properties, EsResource.NODES_DISCOVERY);
+        } else {
+            properties.put(EsResource.NODES_DISCOVERY, String.valueOf(enableNodesDiscovery));
+        }
+        return properties;
+    }
+
+    @Override
+    public void notifyPropertiesUpdated() {
         try {
-            nodes = properties.get(PROP_HOSTS).trim().split(",");
-            if (properties.containsKey(PROP_SSL)) {
-                enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
-            } else {
-                properties.put(PROP_SSL, String.valueOf(enableSsl));
-            }
-
-            if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
-                username = properties.get(PROP_USERNAME).trim();
-            }
-
-            if (StringUtils.isNotBlank(properties.get(PROP_PASSWORD))) {
-                password = properties.get(PROP_PASSWORD).trim();
-            }
-
-            if (properties.containsKey(PROP_DOC_VALUE_SCAN)) {
-                enableDocValueScan = EsUtil.getBoolean(properties, PROP_DOC_VALUE_SCAN);
-            } else {
-                properties.put(PROP_DOC_VALUE_SCAN, String.valueOf(enableDocValueScan));
-            }
-
-            if (properties.containsKey(PROP_KEYWORD_SNIFF)) {
-                enableKeywordSniff = EsUtil.getBoolean(properties, PROP_KEYWORD_SNIFF);
-            } else {
-                properties.put(PROP_KEYWORD_SNIFF, String.valueOf(enableKeywordSniff));
-            }
-
-            if (properties.containsKey(PROP_NODES_DISCOVERY)) {
-                enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
-            } else {
-                properties.put(PROP_NODES_DISCOVERY, String.valueOf(enableNodesDiscovery));
-            }
+            processCompatibleProperties(catalogProperty.getProperties());
+            initLocalObjectsImpl();
         } catch (DdlException e) {
-            // should not happen. the properties are already checked in analysis phase.
-            throw new RuntimeException("should not happen", e);
+            LOG.warn("Failed to notify properties updated to catalog {}", name, e);
         }
     }
 
@@ -160,7 +181,7 @@ public class EsExternalCatalog extends ExternalCatalog {
         EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
         if (db != null && db.isInitialized()) {
             List<String> names = Lists.newArrayList();
-            db.getTables().stream().forEach(table -> names.add(table.getName()));
+            db.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
             return esRestClient.listTable();
@@ -175,7 +196,15 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
-        setProperties(this.catalogProperty.getProperties());
+        try {
+            if (catalogProperty.getResource() == null) {
+                catalogProperty.setProperties(processCompatibleProperties(catalogProperty.getProperties()));
+            } else {
+                processCompatibleProperties(catalogProperty.getProperties());
+            }
+        } catch (DdlException e) {
+            throw new IOException(e);
+        }
     }
 
     @Override

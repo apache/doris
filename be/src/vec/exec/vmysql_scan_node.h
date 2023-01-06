@@ -19,10 +19,10 @@
 
 #include <memory>
 
-#include "exec/mysql_scanner.h"
 #include "exec/scan_node.h"
 #include "exec/text_converter.h"
 #include "runtime/descriptors.h"
+#include "vec/exec/scan/mysql_scanner.h"
 namespace doris {
 
 class TextConverter;
@@ -43,9 +43,6 @@ public:
     // Start MySQL scan using mysql_scanner.
     Status open(RuntimeState* state) override;
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VMysqlScanNode Node::get_next scalar");
-    }
     // Fill the next block by calling next() on the mysql_scanner,
     // converting text data in MySQL cells to binary data.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;

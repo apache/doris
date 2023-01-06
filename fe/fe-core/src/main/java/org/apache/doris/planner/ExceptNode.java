@@ -26,7 +26,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import java.util.List;
 
 public class ExceptNode extends SetOperationNode {
-    protected ExceptNode(PlanNodeId id, TupleId tupleId) {
+    public ExceptNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "EXCEPT");
     }
 

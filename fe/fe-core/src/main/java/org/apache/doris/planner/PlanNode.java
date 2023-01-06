@@ -28,9 +28,11 @@ import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
@@ -80,6 +82,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected PlanNodeId id;  // unique w/in plan tree; assigned by planner
     protected PlanFragmentId fragmentId;  // assigned by planner after fragmentation step
     protected long limit; // max. # of rows to be returned; 0: no limit
+    protected long offset;
 
     // ids materialized by the tree rooted at this node
     protected ArrayList<TupleId> tupleIds;
@@ -149,6 +152,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
+        this.offset = 0;
         // make a copy, just to be on the safe side
         this.tupleIds = Lists.newArrayList(tupleIds);
         this.tblRefIds = Lists.newArrayList(tupleIds);
@@ -175,6 +179,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = node.limit;
+        this.offset = node.offset;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
         this.tblRefIds = Lists.newArrayList(node.tblRefIds);
         this.nullableTupleIds = Sets.newHashSet(node.nullableTupleIds);
@@ -256,6 +261,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return limit;
     }
 
+    public long getOffset() {
+        return offset;
+    }
+
     /**
      * Set the limit to the given limit only if the limit hasn't been set, or the new limit
      * is lower.
@@ -268,8 +277,25 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
     }
 
+    public void setLimitAndOffset(long limit, long offset) {
+        if (this.limit == -1) {
+            this.limit = limit;
+        } else if (limit != -1) {
+            this.limit = Math.min(this.limit - offset, limit);
+        }
+        this.offset += offset;
+    }
+
+    public void setOffset(long offset) {
+        this.offset = offset;
+    }
+
     public boolean hasLimit() {
         return limit > -1;
+    }
+
+    public boolean hasOffset() {
+        return offset != 0;
     }
 
     public void setCardinality(long cardinality) {
@@ -897,18 +923,48 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return sb.toString();
     }
 
-    public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {
+    public ScanNode getScanNodeInOneFragmentBySlotRef(SlotRef slotRef) {
+        TupleId tupleId = slotRef.getDesc().getParent().getId();
         if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
             return (ScanNode) this;
+        } else if (this instanceof HashJoinNode) {
+            HashJoinNode hashJoinNode = (HashJoinNode) this;
+            SlotRef inputSlotRef = hashJoinNode.getMappedInputSlotRef(slotRef);
+            if (inputSlotRef != null) {
+                for (PlanNode planNode : children) {
+                    ScanNode scanNode = planNode.getScanNodeInOneFragmentBySlotRef(inputSlotRef);
+                    if (scanNode != null) {
+                        return scanNode;
+                    }
+                }
+            } else {
+                return null;
+            }
         } else if (!(this instanceof ExchangeNode)) {
             for (PlanNode planNode : children) {
-                ScanNode scanNode = planNode.getScanNodeInOneFragmentByTupleId(tupleId);
+                ScanNode scanNode = planNode.getScanNodeInOneFragmentBySlotRef(slotRef);
                 if (scanNode != null) {
                     return scanNode;
                 }
             }
         }
         return null;
+    }
+
+    public SlotRef findSrcSlotRef(SlotRef slotRef) {
+        if (slotRef.getTable() instanceof OlapTable) {
+            return slotRef;
+        }
+        if (this instanceof HashJoinNode) {
+            HashJoinNode hashJoinNode = (HashJoinNode) this;
+            SlotRef inputSlotRef = hashJoinNode.getMappedInputSlotRef(slotRef);
+            if (inputSlotRef != null) {
+                return hashJoinNode.getChild(0).findSrcSlotRef(inputSlotRef);
+            } else {
+                return slotRef;
+            }
+        }
+        return slotRef;
     }
 
     protected void addRuntimeFilter(RuntimeFilter filter) {

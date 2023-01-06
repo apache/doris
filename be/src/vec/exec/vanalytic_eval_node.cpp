@@ -27,6 +27,7 @@ namespace doris::vectorized {
 VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
+          _fn_place_ptr(nullptr),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
           _window(tnode.analytic_node.window) {
@@ -305,10 +306,6 @@ bool VAnalyticEvalNode::can_read() {
     return true;
 }
 
-Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented VAnalyticEvalNode::get_next.");
-}
-
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
                                  "VAnalyticEvalNode::get_next");
@@ -511,7 +508,12 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(state, &block, &_input_eos),
+                _children[0]->get_next_after_projects(
+                        state, &block, &_input_eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[0], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)),
                 _children[0]->get_next_span(), _input_eos);
     } while (!_input_eos && block.rows() == 0);
 
@@ -707,6 +709,9 @@ Status VAnalyticEvalNode::_create_agg_status() {
 }
 
 Status VAnalyticEvalNode::_destroy_agg_status() {
+    if (UNLIKELY(_fn_place_ptr == nullptr)) {
+        return Status::OK();
+    }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }

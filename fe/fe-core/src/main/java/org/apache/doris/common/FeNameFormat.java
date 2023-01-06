@@ -72,7 +72,7 @@ public class FeNameFormat {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
-        if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+        if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }

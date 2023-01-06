@@ -828,21 +828,21 @@ public class CoordinatorTest extends Coordinator {
         Assert.assertTrue(assignment.size() == 1);
         for (Map.Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : assignment.entrySet()) {
             TNetworkAddress host = entry.getKey();
-            Assert.assertTrue(host.hostname.equals("0.0.0.0"));
+            Assert.assertEquals(host.hostname, "0.0.0.0");
         }
 
         FragmentScanRangeAssignment assignment2 = fragmentExecParamsMap.get(fragment2.getFragmentId()).scanRangeAssignment;
         Assert.assertTrue(assignment2.size() == 1);
         for (Map.Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : assignment2.entrySet()) {
             TNetworkAddress host = entry.getKey();
-            Assert.assertTrue(host.hostname.equals("0.0.0.1"));
+            Assert.assertEquals(host.hostname, "0.0.0.1");
         }
 
         FragmentScanRangeAssignment assignment3 = fragmentExecParamsMap.get(fragment3.getFragmentId()).scanRangeAssignment;
         Assert.assertTrue(assignment3.size() == 1);
         for (Map.Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : assignment3.entrySet()) {
             TNetworkAddress host = entry.getKey();
-            Assert.assertTrue(host.hostname.equals("0.0.0.2"));
+            Assert.assertEquals(host.hostname, "0.0.0.2");
         }
     }
 }

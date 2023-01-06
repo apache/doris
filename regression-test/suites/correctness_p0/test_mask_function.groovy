@@ -71,4 +71,8 @@ suite("test_mask_function") {
     qt_select_mask_last_n_nullable """
         select phone, mask_last_n(phone), mask_last_n(phone, 3), mask_last_n(phone, 100) from table_mask_test order by id;
     """
+
+    qt_select_digital_masking """
+        select digital_masking(13812345678);
+    """
 }

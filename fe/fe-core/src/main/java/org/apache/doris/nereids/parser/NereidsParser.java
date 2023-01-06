@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
@@ -88,6 +89,10 @@ public class NereidsParser {
 
     public Expression parseExpression(String expression) {
         return parse(expression, DorisParser::expression);
+    }
+
+    public DataType parseDataType(String dataType) {
+        return parse(dataType, DorisParser::dataType);
     }
 
     private <T> T parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

@@ -23,6 +23,7 @@
 #include <atomic>
 
 #include "io/fs/file_reader.h"
+#include "runtime/client_cache.h"
 namespace doris {
 namespace io {
 
@@ -53,8 +54,8 @@ private:
     const TNetworkAddress& _broker_addr;
     TBrokerFD _fd;
 
-    BrokerFileSystem* _fs;
     std::atomic<bool> _closed = false;
+    std::shared_ptr<BrokerServiceConnection> _client;
 };
 } // namespace io
 } // namespace doris

@@ -24,6 +24,9 @@ namespace config {
 // Dir of custom config file
 CONF_String(custom_config_dir, "${DORIS_HOME}/conf");
 
+// Dir of jdbc drivers
+CONF_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+
 // cluster id
 CONF_Int32(cluster_id, "-1");
 // port on which BackendService is exported
@@ -197,7 +200,7 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 // return_row / total_row
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
-CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
+CONF_mInt32(exchg_node_buffer_size_bytes, "20485760");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -445,6 +448,8 @@ CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
+// for jeprofile in jemalloc
+CONF_mString(jeprofile_dir, "${DORIS_HOME}/log");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
@@ -490,6 +495,8 @@ CONF_mInt64(write_buffer_size, "209715200");
 
 // max buffer size used in memtable for the aggregated table
 CONF_mInt64(memtable_max_buffer_size, "419430400");
+// write buffer size in push task for sparkload, default 1GB
+CONF_mInt64(flush_size_for_sparkload, "1073741824");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -823,6 +830,7 @@ CONF_Int32(s3_transfer_executor_pool_size, "2");
 CONF_Bool(enable_time_lut, "true");
 CONF_Bool(enable_simdjson_reader, "false");
 
+CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
@@ -863,6 +871,10 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+
+// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
+// Will remove after fully test.
+CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
 
 #ifdef BE_TEST
 // test s3

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -30,8 +31,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.EsExternalCatalog;
-import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -448,12 +447,12 @@ public class PropertyAnalyzer {
 
     public static Boolean analyzeUseLightSchemaChange(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return true;
         }
         String value = properties.get(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
-        // set light schema change false by default
+        // set light schema change true by default
         if (null == value) {
-            return false;
+            return true;
         }
         properties.remove(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
         if (value.equalsIgnoreCase("true")) {
@@ -461,8 +460,7 @@ public class PropertyAnalyzer {
         } else if (value.equalsIgnoreCase("false")) {
             return false;
         }
-        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE
-                + " must be `true` or `false`");
+        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE + " must be `true` or `false`");
     }
 
     public static Boolean analyzeDisableAutoCompaction(Map<String, String> properties) throws AnalysisException {
@@ -768,30 +766,10 @@ public class PropertyAnalyzer {
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
             throws AnalysisException {
-        if (!properties.containsKey("type") && !isAlter) {
-            // For "alter catalog" stmt, no need to contain "type".
-            // For "create catalog" stmt, must contain "type"
-            throw new AnalysisException("All the external catalog should contain the 'type' property.");
-        }
-
         // validate the properties of es catalog
         if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
-                if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
-                }
-
-                if (properties.containsKey(EsExternalCatalog.PROP_DOC_VALUE_SCAN)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_DOC_VALUE_SCAN);
-                }
-
-                if (properties.containsKey(EsExternalCatalog.PROP_KEYWORD_SNIFF)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_KEYWORD_SNIFF);
-                }
-
-                if (properties.containsKey(EsExternalCatalog.PROP_NODES_DISCOVERY)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_NODES_DISCOVERY);
-                }
+                EsResource.valid(properties, true);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }

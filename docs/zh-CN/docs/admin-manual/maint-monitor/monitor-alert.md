@@ -28,7 +28,7 @@ under the License.
 
 本文档主要介绍 Doris 的监控项及如何采集、展示监控项。以及如何配置报警（TODO）
 
-[Dashboard 模板点击下载](https://grafana.com/dashboards/9734/revisions)
+[Dashboard 模板点击下载](https://grafana.com/grafana/dashboards/9734-doris-overview/)
 
 > 注：0.9.0（不含）之前的版本请使用 revision 1。0.9.x 版本请使用 revision 2。0.10.x 版本请使用 revision 3。
 

@@ -311,7 +311,7 @@ That is to say, the merge-on-read implementation of the Unique model can be comp
 
 The merge-on-write implementation of the Unique model is completely different from the aggregation model. The query performance is closer to the duplicate model. Compared with the aggregation model, it has a better query performance.
 
-In version 1.2, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
+In version 1.2.0, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
 
 ```
 "enable_unique_key_merge_on_write" = "true"

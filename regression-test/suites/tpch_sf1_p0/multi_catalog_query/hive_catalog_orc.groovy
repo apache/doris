@@ -802,14 +802,12 @@ order by
         String hms_port = context.config.otherConfigs.get("hms_port")
         String catalog_name = "test_catalog_hive_orc"
 
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists ${catalog_name}"""
-        sql """
-            create catalog ${catalog_name} properties (
-                "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
-            );
-            """
+        sql """create resource if not exists hms_resource_catalog_orc properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+        );"""
+        sql """create catalog if not exists ${catalog_name} with resource hms_resource_catalog_orc;"""
         sql """switch ${catalog_name}"""
         sql """use `tpch1_orc`"""
 
@@ -835,6 +833,9 @@ order by
         q20()
         q21()
         q22()
+
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """drop resource if exists hms_resource_catalog_orc"""
     }
 }
 

@@ -33,6 +33,7 @@ Hive External Table of Doris provides Doris with direct access to Hive external 
  1. support for Hive data sources to access Doris
  2. Support joint queries between Doris and Hive data sources to perform more complex analysis operations
  3. Support access to kerberos-enabled Hive data sources
+ 4. Support access to hive tables whose data stored on tencent chdfs
 
 This document introduces how to use this feature and the considerations.
 

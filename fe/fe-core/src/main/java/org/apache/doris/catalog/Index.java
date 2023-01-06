@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
@@ -32,9 +33,13 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
@@ -196,5 +201,32 @@ public class Index implements Writable {
             tIndex.setProperties(properties);
         }
         return tIndex;
+    }
+
+    public static void checkConflict(Collection<Index> indices, Set<String> bloomFilters) throws AnalysisException {
+        indices = indices == null ? Collections.emptyList() : indices;
+        bloomFilters = bloomFilters == null ? Collections.emptySet() : bloomFilters;
+        Set<String> bfColumns = new HashSet<>();
+        for (Index index : indices) {
+            if (IndexDef.IndexType.NGRAM_BF == index.getIndexType()
+                    || IndexDef.IndexType.BLOOMFILTER == index.getIndexType()) {
+                for (String column : index.getColumns()) {
+                    column = column.toLowerCase();
+                    if (bfColumns.contains(column)) {
+                        throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
+                            + "filter index");
+                    }
+                    bfColumns.add(column);
+                }
+            }
+        }
+        for (String column : bloomFilters) {
+            column = column.toLowerCase();
+            if (bfColumns.contains(column)) {
+                throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
+                    + "filter index");
+            }
+            bfColumns.add(column);
+        }
     }
 }

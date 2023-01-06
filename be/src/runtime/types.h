@@ -73,6 +73,8 @@ struct TypeDescriptor {
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
+        } else if (type == TYPE_DATETIMEV2) {
+            scale = 6;
         }
     }
 
@@ -159,6 +161,11 @@ struct TypeDescriptor {
     }
 
     void to_protobuf(PTypeDesc* ptype) const;
+
+    bool is_integer_type() const {
+        return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT ||
+               type == TYPE_BIGINT;
+    }
 
     bool is_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||

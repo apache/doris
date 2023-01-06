@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -43,9 +44,15 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -158,6 +165,29 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitDatabase(Database database, ExpressionRewriteContext context) {
+        String res = ClusterNamespace.getNameFromFullName(context.connectContext.getDatabase());
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitCurrentUser(CurrentUser currentUser, ExpressionRewriteContext context) {
+        String res = context.connectContext.get().getCurrentUserIdentity().toString();
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitUser(User user, ExpressionRewriteContext context) {
+        String res = context.connectContext.get().getUserIdentity().toString();
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
+        return new BigIntLiteral(context.connectContext.get().getConnectionId());
+    }
+
+    @Override
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         if (and.getArguments().stream().anyMatch(BooleanLiteral.FALSE::equals)) {
             return BooleanLiteral.FALSE;
@@ -262,15 +292,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
         }
 
-        Expression defaultResult;
+        Expression defaultResult = caseWhen.getDefaultValue().isPresent() ? rewrite(caseWhen.getDefaultValue().get(),
+                context) : null;
         if (foundNewDefault) {
             defaultResult = newDefault;
-        } else {
-            defaultResult = caseWhen.getDefaultValue().orElse(Literal.of(null));
         }
-
         if (whenClauses.isEmpty()) {
-            return defaultResult;
+            return defaultResult == null ? Literal.of(null) : defaultResult;
+        }
+        if (defaultResult == null) {
+            return new CaseWhen(whenClauses);
         }
         return new CaseWhen(whenClauses, defaultResult);
     }

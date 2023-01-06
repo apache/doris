@@ -211,6 +211,17 @@ public:
         LOG(FATAL) << "should not call replace_column_data_default in ColumnDictionary";
     }
 
+    /**
+     * Just insert dictionary data items, the items will append into _dict.
+     */
+    void insert_many_dict_data(const StringRef* dict_array, uint32_t dict_num) {
+        _dict.reserve(_dict.size() + dict_num);
+        for (uint32_t i = 0; i < dict_num; ++i) {
+            auto value = StringValue(dict_array[i].data, dict_array[i].size);
+            _dict.insert_value(value);
+        }
+    }
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                const StringRef* dict_array, size_t data_num,
                                uint32_t dict_num) override {

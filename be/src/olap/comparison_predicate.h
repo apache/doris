@@ -21,6 +21,7 @@
 
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
@@ -34,128 +35,6 @@ public:
             : ColumnPredicate(column_id, opposite), _value(value) {}
 
     PredicateType type() const override { return PT; }
-
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
-        uint16_t new_size = 0;
-        if (block->is_nullable()) {
-            for (uint16_t i = 0; i < *size; ++i) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                if constexpr (Type == TYPE_DATE) {
-                    T tmp_uint32_value = 0;
-                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
-                           sizeof(uint24_t));
-                    auto result =
-                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
-                    new_size += _opposite ? !result : result;
-                } else {
-                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                    new_size += _opposite ? !result : result;
-                }
-            }
-        } else {
-            for (uint16_t i = 0; i < *size; ++i) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                if constexpr (Type == TYPE_DATE) {
-                    T tmp_uint32_value = 0;
-                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
-                           sizeof(uint24_t));
-                    auto result = _operator(tmp_uint32_value, _value);
-                    new_size += _opposite ? !result : result;
-                } else {
-                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                    auto result = _operator(*cell_value, _value);
-                    new_size += _opposite ? !result : result;
-                }
-            }
-        }
-        *size = new_size;
-    }
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
-        if (block->is_nullable()) {
-            for (uint16_t i = 0; i < size; ++i) {
-                if (flags[i]) {
-                    continue;
-                }
-                uint16_t idx = sel[i];
-                if constexpr (Type == TYPE_DATE) {
-                    T tmp_uint32_value = 0;
-                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
-                           sizeof(uint24_t));
-                    auto result =
-                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
-                    flags[i] = flags[i] | (_opposite ? !result : result);
-                } else {
-                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                    flags[i] = flags[i] | (_opposite ? !result : result);
-                }
-            }
-        } else {
-            for (uint16_t i = 0; i < size; ++i) {
-                if (flags[i]) {
-                    continue;
-                }
-                uint16_t idx = sel[i];
-                if constexpr (Type == TYPE_DATE) {
-                    T tmp_uint32_value = 0;
-                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
-                           sizeof(uint24_t));
-                    auto result = _operator(tmp_uint32_value, _value);
-                    flags[i] = flags[i] | (_opposite ? !result : result);
-                } else {
-                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                    auto result = _operator(*cell_value, _value);
-                    flags[i] = flags[i] | (_opposite ? !result : result);
-                }
-            }
-        }
-    }
-
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {
-        if (block->is_nullable()) {
-            for (uint16_t i = 0; i < size; ++i) {
-                if (!flags[i]) {
-                    continue;
-                }
-                uint16_t idx = sel[i];
-                if constexpr (Type == TYPE_DATE) {
-                    T tmp_uint32_value = 0;
-                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
-                           sizeof(uint24_t));
-                    auto result =
-                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
-                    flags[i] = flags[i] & (_opposite ? !result : result);
-                } else {
-                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                    flags[i] = flags[i] & (_opposite ? !result : result);
-                }
-            }
-        } else {
-            for (uint16_t i = 0; i < size; ++i) {
-                if (!flags[i]) {
-                    continue;
-                }
-                uint16_t idx = sel[i];
-                if constexpr (Type == TYPE_DATE) {
-                    T tmp_uint32_value = 0;
-                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
-                           sizeof(uint24_t));
-                    auto result = _operator(tmp_uint32_value, _value);
-                    flags[i] = flags[i] & (_opposite ? !result : result);
-                } else {
-                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                    auto result = _operator(*cell_value, _value);
-                    flags[i] = flags[i] & (_opposite ? !result : result);
-                }
-            }
-        }
-    }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
@@ -178,6 +57,51 @@ public:
 
         return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
                                bitmap);
+    }
+
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override {
+        if (iterator == nullptr) {
+            return Status::OK();
+        }
+        auto column_desc = schema.column(_column_id);
+        std::string column_name = column_desc->name();
+
+        InvertedIndexQueryType query_type;
+        switch (PT) {
+        case PredicateType::EQ:
+            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            break;
+        case PredicateType::NE:
+            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            break;
+        case PredicateType::LT:
+            query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
+            break;
+        case PredicateType::LE:
+            query_type = InvertedIndexQueryType::LESS_EQUAL_QUERY;
+            break;
+        case PredicateType::GT:
+            query_type = InvertedIndexQueryType::GREATER_THAN_QUERY;
+            break;
+        case PredicateType::GE:
+            query_type = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+            break;
+        default:
+            return Status::InvalidArgument("invalid comparison predicate type {}", PT);
+        }
+
+        roaring::Roaring roaring;
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
+                                                           num_rows, &roaring));
+
+        if constexpr (PT == PredicateType::NE) {
+            *bitmap -= roaring;
+        } else {
+            *bitmap &= roaring;
+        }
+
+        return Status::OK();
     }
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,

@@ -58,7 +58,7 @@ private:
     Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                        TabletSchemaSPtr tablet_schema);
     // Convert local data file to internal formatted delta,
-    // return new delta's SegmentGroup
+    // return new delta's rowset
     Status _convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                     TabletSchemaSPtr tablet_schema);
 
@@ -206,6 +206,7 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
     std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<MemPool> _tuple_buffer_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;
     // Not used, just for placeholding

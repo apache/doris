@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -83,7 +85,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -106,7 +108,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
 
-        Assertions.assertEquals(ExpressionUtils.and(condition), actualFilter.getPredicates());
+        Assertions.assertEquals(condition, ImmutableList.copyOf(actualFilter.getConjuncts()));
     }
 
     @Test
@@ -123,7 +125,8 @@ public class PushdownJoinOtherConditionTest {
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, rStudent, rScore);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, rStudent,
+                rScore);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -140,8 +143,8 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(rightFilter instanceof LogicalFilter);
         LogicalFilter<Plan> actualLeft = (LogicalFilter<Plan>) leftFilter;
         LogicalFilter<Plan> actualRight = (LogicalFilter<Plan>) rightFilter;
-        Assertions.assertEquals(leftSide, actualLeft.getPredicates());
-        Assertions.assertEquals(rightSide, actualRight.getPredicates());
+        Assertions.assertEquals(ImmutableSet.of(leftSide), actualLeft.getConjuncts());
+        Assertions.assertEquals(ImmutableSet.of(rightSide), actualRight.getConjuncts());
     }
 
     @Test
@@ -165,7 +168,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -188,7 +191,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldFilter instanceof LogicalFilter);
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
-        Assertions.assertEquals(pushSide, actualFilter.getPredicates());
+        Assertions.assertEquals(ImmutableSet.of(pushSide), actualFilter.getConjuncts());
     }
 
     private Memo rewrite(Plan plan) {

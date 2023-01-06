@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.Optional;
@@ -94,12 +96,14 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
                             .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    JoinHint.NONE,
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
                             .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    JoinHint.NONE,
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         }
     }
@@ -119,8 +123,8 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                 ImmutableList.of(alias), newLimit);
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 (LogicalPlan) unapply.left(), newAgg);
-        return new LogicalFilter<>(new EqualTo(newAgg.getOutput().get(0),
-                new IntegerLiteral(0)), newJoin);
+        return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
+                new IntegerLiteral(0))), newJoin);
     }
 
     private Plan unCorrelatedExist(LogicalApply unapply) {

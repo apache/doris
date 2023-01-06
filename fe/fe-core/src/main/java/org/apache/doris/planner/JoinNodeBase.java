@@ -87,6 +87,10 @@ public abstract class JoinNodeBase extends PlanNode {
         }
     }
 
+    public boolean isMarkJoin() {
+        return innerRef != null && innerRef.isMark();
+    }
+
     public JoinOperator getJoinOp() {
         return joinOp;
     }
@@ -110,6 +114,7 @@ public abstract class JoinNodeBase extends PlanNode {
     }
 
     protected void computeOutputTuple(Analyzer analyzer) throws UserException {
+        // TODO(mark join) if it is mark join use mark tuple instead?
         // 1. create new tuple
         vOutputTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         boolean copyLeft = false;
@@ -338,13 +343,16 @@ public abstract class JoinNodeBase extends PlanNode {
 
     protected abstract void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap);
 
-    protected void computeIntermediateTuple(Analyzer analyzer) throws AnalysisException {
+    protected void computeIntermediateTuple(Analyzer analyzer, TupleDescriptor markTuple) throws AnalysisException {
         // 1. create new tuple
         TupleDescriptor vIntermediateLeftTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         TupleDescriptor vIntermediateRightTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         vIntermediateTupleDescList = new ArrayList<>();
         vIntermediateTupleDescList.add(vIntermediateLeftTupleDesc);
         vIntermediateTupleDescList.add(vIntermediateRightTupleDesc);
+        if (markTuple != null) {
+            vIntermediateTupleDescList.add(markTuple);
+        }
         boolean leftNullable = false;
         boolean rightNullable = false;
 
@@ -446,7 +454,11 @@ public abstract class JoinNodeBase extends PlanNode {
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
         if (VectorizedUtil.isVectorized()) {
-            computeIntermediateTuple(analyzer);
+            TupleDescriptor markTuple = null;
+            if (innerRef != null) {
+                markTuple = analyzer.getMarkTuple(innerRef);
+            }
+            computeIntermediateTuple(analyzer, markTuple);
         }
     }
 
@@ -471,6 +483,10 @@ public abstract class JoinNodeBase extends PlanNode {
         // so need replace the outsmap in nullableTupleID
         replaceOutputSmapForOuterJoin();
         computeStats(analyzer);
+
+        if (isMarkJoin() && !joinOp.supportMarkJoin()) {
+            throw new UserException("Mark join is supported only for LEFT SEMI JOIN/LEFT ANTI JOIN/CROSS JOIN");
+        }
     }
 
     /**

@@ -140,6 +140,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
+    public List<Slot> getNonUserVisibleOutput() {
+        return getLogicalProperties().getNonUserVisibleOutput();
+    }
+
+    @Override
     public Set<Slot> getOutputSet() {
         return getLogicalProperties().getOutputSet();
     }

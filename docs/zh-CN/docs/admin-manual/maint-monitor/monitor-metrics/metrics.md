@@ -140,6 +140,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_txn_exec_latency_ms`| | 毫秒| 事务执行耗时的百分位统计。如 {quantile="0.75"} 表示 75 分位的事务执行耗时 | 详细观察各分位事务执行耗时 | P0 |
 |`doris_fe_txn_publish_latency_ms`| | 毫秒| 事务publish耗时的百分位统计。如 {quantile="0.75"} 表示 75 分位的事务publish耗时 | 详细观察各分位事务publish耗时 | P0 |
 |`doris_fe_txn_num`|| Num| 指定DB正在执行的事务数。如 {db="test"} 表示DB test 当前正在执行的事务数 |该数值可以观测某个DB是否提交了大量事务| P0 |
+|`doris_fe_publish_txn_num`|| Num| 指定DB正在publish的事务数。如 {db="test"} 表示DB test 当前正在publish的事务数 |该数值可以观测某个DB的publish事务数量| P0 |
 |`doris_fe_txn_replica_num`|| Num| 指定DB正在执行的事务打开的副本数。如 {db="test"} 表示DB test 当前正在执行的事务打开的副本数 |该数值可以观测某个DB是否打开了过多的副本，可能会影响其他事务执行| P0 |
 |`doris_fe_thrift_rpc_total`|| Num| FE thrift接口各个方法接收的RPC请求次数。如 {method="report"} 表示 report 方法接收的RPC请求次数 |该数值可以观测某个thrift rpc方法的负载| |
 |`doris_fe_thrift_rpc_latency_ms`|| 毫秒| FE thrift接口各个方法接收的RPC请求耗时。如 {method="report"} 表示 report 方法接收的RPC请求耗时 |该数值可以观测某个thrift rpc方法的负载| |

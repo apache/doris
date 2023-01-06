@@ -39,9 +39,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status get_next(RuntimeState* /*state*/, RowBatch* /*row_batch*/, bool* /*eos*/) override {
-        return Status::NotSupported("Not implemented get RowBatch in vectorized execution.");
-    }
 
     Status get_next(RuntimeState* state, Block* output_block, bool* eos) override;
 
@@ -110,6 +107,7 @@ private:
     MutableBlock _mutable_block;
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
+    RuntimeProfile::Counter* _pull_timer;  // time to pull data
 
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;

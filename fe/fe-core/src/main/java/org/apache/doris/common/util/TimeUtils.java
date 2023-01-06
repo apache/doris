@@ -68,7 +68,7 @@ public class TimeUtils {
     private static final SimpleDateFormat DATETIME_FORMAT;
     private static final SimpleDateFormat TIME_FORMAT;
 
-    private static final Pattern DATETIME_FORMAT_REG =
+    public static final Pattern DATETIME_FORMAT_REG =
             Pattern.compile("^((\\d{2}(([02468][048])|([13579][26]))[\\-\\/\\s]?((((0?[13578])|(1[02]))[\\-\\/\\s]?"
                     + "((0?[1-9])|([1-2][0-9])|(3[01])))|(((0?[469])|(11))[\\-\\/\\s]?"
                     + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|([1-2][0-9])))))|("

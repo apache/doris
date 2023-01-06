@@ -63,7 +63,7 @@ public:
 
     Status build_operators(Operators&);
 
-    RuntimeProfile* runtime_profile() { return _pipeline_profile.get(); }
+    RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
 private:
     void _init_profile();

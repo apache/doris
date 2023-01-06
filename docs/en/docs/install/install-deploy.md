@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Installation and deployment",
+    "title": "Installation and Deployment",
     "language": "en"
 }
 ---
@@ -25,16 +25,17 @@ under the License.
 -->
 
 
-# Installation and deployment
+# Installation and Deployment
 
-This document mainly introduces the hardware and software environment needed to deploy Doris, the proposed deployment mode, cluster expansion and scaling, and common problems in the process of cluster building and running.
-Before reading this document, compile Doris according to the compiled document.
+This topic is about the hardware and software environment needed to deploy Doris, the recommended deployment mode, cluster scaling, and common problems occur in creating and running clusters.
 
-## Software and hardware requirements
+Before continue reading, you might want to compile Doris following the instructions in the [Compile](https://doris.apache.org/docs/dev/install/source-install/compilation/) topic.
+
+## Software and Hardware Requirements
 
 ### Overview
 
-Doris, as an open source MPP architecture OLAP database, can run on most mainstream commercial servers. In order to make full use of the concurrency advantages of MPP architecture and the high availability features of Doris, we recommend that the deployment of Doris follow the following requirements:
+Doris, as an open source OLAP database with an MPP architecture, can run on most mainstream commercial servers. For you to take full advantage of the high concurrency and high availability of Doris, we recommend that your computer meet the following requirements:
 
 #### Linux Operating System Version Requirements
 
@@ -43,7 +44,7 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 | Centos | 7.1 and above |
 | Ubuntu | 16.04 and above |
 
-#### Software requirements
+#### Software Requirements
 
 | Soft | Version | 
 |---|---|
@@ -52,7 +53,7 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 #### OS Installation Requirements
 
-##### Set the maximum number of open file handles in the system
+**Set the maximum number of open file descriptors in the system**
 
 ````
 vi /etc/security/limits.conf
@@ -62,24 +63,24 @@ vi /etc/security/limits.conf
 
 ##### Clock synchronization
 
-The metadata of Doris requires the time precision to be less than 5000ms, so all machines in the cluster need to synchronize the clocks to avoid service exceptions caused by inconsistencies in metadata caused by clock problems.
+The metadata in Doris requires a time precision of less than 5000ms, so all machines in all clusters need to synchronize their clocks to avoid service exceptions caused by inconsistencies in metadata caused by clock problems.
 
-##### Close the swap partition (swap)
+##### Close the swap partition
 
-The Linux swap partition will cause serious performance problems for Doris, you need to disable the swap partition before installation
+The Linux swap partition can cause serious performance problems for Doris, so you need to disable the swap partition before installation.
 
 ##### Linux file system
 
-Here we recommend using the ext4 file system. When installing the operating system, please select the ext4 file system.
+When installing the operating system, we recommend that you select the ext4 file system.
 
 #### Development Test Environment
 
-| Module | CPU | Memory | Disk | Network | Instance Number|
+| Module | CPU | Memory | Disk | Network | Number of Instances |
 |---|---|---|---|---|---|
 | Frontend | 8 core + | 8GB + | SSD or SATA, 10GB + * | Gigabit Network Card | 1|
 | Backend | 8 core + | 16GB + | SSD or SATA, 50GB + * | Gigabit Network Card | 1-3*|
 
-#### Production environment
+#### Production Environment
 
 | Module | CPU | Memory | Disk | Network | Number of Instances (Minimum Requirements) |
 |---|---|---|---|---|--------------------------------------------|
@@ -88,183 +89,188 @@ Here we recommend using the ext4 file system. When installing the operating syst
 
 > Note 1:
 > 
-> 1. The disk space of FE is mainly used to store metadata, including logs and images. Usually it ranges from several hundred MB to several GB.
-> 2. BE's disk space is mainly used to store user data. The total disk space is calculated according to the user's total data * 3 (3 copies). Then an additional 40% of the space is reserved for background compaction and some intermediate data storage.
-> 3. Multiple BE instances can be deployed on a single machine, but **can only deploy one FE**. If you need three copies of data, you need at least one BE instance per machine (instead of three BE instances per machine). **Clocks of multiple FE servers must be consistent (allowing a maximum of 5 seconds clock deviation)**
-> 4. The test environment can also be tested with only one BE. In the actual production environment, the number of BE instances directly determines the overall query latency.
-> 5. All deployment nodes close Swap.
+> 1. The disk space of FE is mainly used to store metadata, including logs and images. It usually ranges from several hundred MB to several GB.
+> 2. The disk space of BE is mainly used to store user data. The total disk space taken up is 3 times the total user data (3 copies). Then an additional 40% of the space is reserved for background compaction and intermediate data storage.
+> 3. On one single machine, you can deploy multiple BE instances but **only one FE instance**. If you need 3 copies of the data, you need to deploy 3 BE instances on 3 machines (1 instance per machine) instead of 3 BE instances on one machine). **Clocks of the FE servers must be consistent (allowing a maximum clock skew of 5 seconds).**
+> 4. The test environment can also be tested with only 1 BE instance. In the actual production environment, the number of BE instances directly determines the overall query latency.
+> 5. Disable swap for all deployment nodes.
 
 > Note 2: Number of FE nodes
 > 
-> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning)
-> 2. FE node data is at least 1 (1 Follower). When one Follower and one Observer are deployed, high read availability can be achieved. When three Followers are deployed, read-write high availability (HA) can be achieved.
-> 3. The number of Followers **must be** odd, and the number of Observers is arbitrary.
-> 4. According to past experience, when cluster availability requirements are high (e.g. providing online services), three Followers and one to three Observers can be deployed. For offline business, it is recommended to deploy 1 Follower and 1-3 Observers.
+> 1. FE nodes are divided into Followers and Observers based on their roles. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, too.)
+> 2. The number of FE nodes should be at least 1 (1 Follower). If you deploy 1 Follower and 1 Observer, you can achieve high read availability; if you deploy 3 Followers, you can achieve high read-write  availability (HA).
+> 3. The number of Followers **must be** odd, and there is no limit on the number of Observers.
+> 4. According to past experience, for business that requires high cluster availability (e.g. online service providers), we recommend that you deploy 3 Followers and 1-3 Observers; for offline business, we recommend that you deploy 1 Follower and 1-3 Observers.
 
-* **Usually we recommend about 10 to 100 machines to give full play to Doris's performance (3 of them deploy FE (HA) and the rest deploy BE)**
-* **Of course, Doris performance is positively correlated with the number and configuration of nodes. With a minimum of four machines (one FE, three BEs, one BE mixed with one Observer FE to provide metadata backup) and a lower configuration, Doris can still run smoothly.**
-* **If FE and BE are mixed, we should pay attention to resource competition and ensure that metadata catalogue and data catalogue belong to different disks.**
+* **Usually we recommend 10 to 100 machines to give full play to Doris' performance (deploy FE on 3 of them (HA) and BE on the rest).**
+* **The performance of Doris is positively correlated with the number of nodes and their configuration. With a minimum of four machines (one FE, three BEs; hybrid deployment of one BE and one Observer FE to provide metadata backup) and relatively low configuration, Doris can still run smoothly.**
+* **In hybrid deployment of FE and BE, you might need to be watchful for resource competition and ensure that the metadata catalogue and data catalogue belong to different disks.**
 
-#### Broker deployment
+#### Broker Deployment
 
-Broker is a process for accessing external data sources, such as hdfs. Usually, a broker instance is deployed on each machine.
+Broker is a process for accessing external data sources, such as hdfs. Usually, deploying one broker instance on each machine should be enough.
 
 #### Network Requirements
 
-Doris instances communicate directly over the network. The following table shows all required ports
+Doris instances communicate directly over the network. The following table shows all required ports.
 
 | Instance Name | Port Name | Default Port | Communication Direction | Description|
 | ---|---|---|---|---|
-| BE | be_port | 9060 | FE --> BE | BE for receiving requests from FE|
-| BE | webserver\_port | 8040 | BE <--> BE | BE|
-| BE | heartbeat\_service_port | 9050 | FE --> BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
-| BE | brpc\_port | 8060 | FE <--> BE, BE <--> BE | BE for communication between BEs|
+| BE | be_port | 9060 | FE --> BE | Thrift server port on BE for receiving requests from FE |
+| BE | webserver\_port | 8040 | BE <--> BE | HTTP server port on BE |
+| BE | heartbeat\_service_port | 9050 | FE --> BE | Heart beat service port (thrift) on BE, used to receive heartbeat from FE |
+| BE | brpc\_port | 8060 | FE <--> BE, BE <--> BE | BRPC port on BE for communication between BEs |
 | FE | http_port | 8030 | FE <--> FE, user <--> FE | HTTP server port on FE |
-| FE | rpc_port | 9020 | BE --> FE, FE <--> FE | thrift server port on FE, the configuration of each fe needs to be consistent|
-| FE | query_port | 9030 | user <--> FE | FE|
-| FE | edit\_log_port | 9010 | FE <--> FE | FE|
-| Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker for receiving requests|
+| FE | rpc_port | 9020 | BE --> FE, FE <--> FE | Thrift server port on FE; The configurations of each FE should be consistent. |
+| FE | query_port | 9030 | user <--> FE | MySQL server port on FE |
+| FE | edit\_log_port | 9010 | FE <--> FE | Port on FE for BDBJE communication |
+| Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Thrift server port on Broker for receiving requests |
 
 > Note:
 > 
-> 1. When deploying multiple FE instances, make sure that the http port configuration of FE is the same.
+> 1. When deploying multiple FE instances, make sure that the http_port configuration of each FE is consistent.
 > 2. Make sure that each port has access in its proper direction before deployment.
 
-#### IP binding
+#### IP Binding
 
-Because of the existence of multiple network cards, or the existence of virtual network cards caused by the installation of docker and other environments, the same host may have multiple different ips. Currently Doris does not automatically identify available IP. So when you encounter multiple IP on the deployment host, you must force the correct IP to be specified through the priority\_networks configuration item.
+Because of the existence of multiple network cards, or the existence of virtual network cards caused by the installation of docker and other environments, the same host may have multiple different IPs. Currently Doris does not automatically identify available IPs. So when you encounter multiple IPs on the deployment host, you must specify the correct IP via the `priority_networks` configuration item.
 
-Priority\_networks is a configuration that both FE and BE have, and the configuration items need to be written in fe.conf and be.conf. This configuration item is used to tell the process which IP should be bound when FE or BE starts. Examples are as follows:
+`priority_networks` is a configuration item that both FE and BE have. It needs to be written in fe.conf and be.conf. It is used to tell the process which IP should be bound when FE or BE starts. Examples are as follows:
 
 `priority_networks=10.1.3.0/24`
 
 This is a representation of [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing). FE or BE will find the matching IP based on this configuration item as their own local IP.
 
-**Note**: When priority networks is configured and FE or BE is started, only the correct IP binding of FE or BE is ensured. In ADD BACKEND or ADD FRONTEND statements, you also need to specify IP matching priority networks configuration, otherwise the cluster cannot be established. Give an example:
+**Note**: Configuring `priority_networks` and starting FE or BE only ensure the correct IP binding of FE or BE.  You also need to specify the same IP in ADD BACKEND or ADD FRONTEND statements, otherwise the cluster cannot be created. For example:
 
 BE is configured as `priority_networks = 10.1.3.0/24'.`.
 
-When you want to ADD BACKEND use: `ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
+If you use the following IP in the ADD BACKEND statement: `ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
 
 Then FE and BE will not be able to communicate properly.
 
-At this point, DROP must remove the BE that added errors and re-use the correct IP to perform ADD BACKEND.
+At this point, you must DROP the wrong BE configuration and use the correct IP to perform ADD BACKEND.
 
-FE is the same.
+The same works for FE.
 
-BROKER does not currently have, nor does it need, priority\_networks. Broker's services are bound to 0.0.0 by default. Simply execute the correct accessible BROKER IP when ADD BROKER is used.
+Broker currently does not have the `priority_networks` configuration item, nor does it need. Broker's services are bound to 0.0.0.0 by default. You can simply execute the correct accessible BROKER IP when using ADD BROKER.
 
-#### Table Name Case Sensitivity Setting
+#### Table Name Case Sensitivity
 
-By default, doris is case-sensitive. If there is a need for case-insensitive table names, you need to set it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
+By default, table names in Doris are case-sensitive. If you need to change that, you may do it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
 
-See the section on `lower_case_table_names` variables in [Variables](../../advanced/variables) for details.
+See the `lower_case_table_names` section in [Variables](../../advanced/variables) for details.
 
-## Cluster deployment
+## Cluster Deployment
 
-### Manual deployment
+### Manual Deployment
 
 #### Deploy FE
 
-* Copy the FE deployment file to the specified node
+* Copy the FE deployment file into the specified node
 
-	Copy the Fe folder under output generated by source code compilation to the node specified deployment path of FE and enter this directory.
+	Find the Fe folder under the output generated by source code compilation, copy it into the specified deployment path of FE nodes and put it the corresponding directory.
 
 * Configure FE
 
-	1. The configuration file is conf/fe.conf. Note: `meta_dir` indicates the Metadata storage location. The default value is `${DORIS_HOME}/doris-meta`. The directory needs to be **created manually**.
-	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 4GB for java, and it is recommended that the production environment be adjusted to more than 8G.
+  1. The configuration file is conf/fe.conf. Note: `meta_dir` indicates the metadata storage location. The default value is `${DORIS_HOME}/doris-meta`. The directory needs to be **created manually**.
+
+     **Note: For production environments, it is better not to put the directory under the Doris installation directory but in a separate disk (SSD would be the best); for test and development environments, you may use the default configuration.**
+
+  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 4GB. For production environments, we recommend that it be adjusted to more than 8G.
 
 * Start FE
 
 	`bin/start_fe.sh --daemon`
 
-	The FE process starts and enters the background execution. Logs are stored in the log/ directory by default. If startup fails, you can view error messages by looking at log/fe.log or log/fe.out.
+	The FE process starts and enters the background for execution. Logs are stored in the log/ directory by default. If startup fails, you can view error messages by checking out log/fe.log or log/fe.out.
 
-* For deployment of multiple FEs, see the section "FE scaling and downsizing"
+* For details about deployment of multiple FEs, see the [FE scaling](https://doris.apache.org/docs/dev/admin-manual/cluster-management/elastic-expansion/) section.
 
 #### Deploy BE
 
-* Copy BE deployment files to all nodes to deploy BE
+* Copy the BE deployment file into all nodes that are to deploy BE on
 
-	Copy the be folder under output generated by source code compilation to the specified deployment path of the BE node.
+	Find the BE folder under the output generated by source code compilation, copy it into to the specified deployment paths of the BE nodes.
 
 * Modify all BE configurations
 
-  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).   
-  If the user does not use a mix of SSD and HDD disks, they do not need to configure the configuration methods in Example 1 and Example 2 below, but only need to specify the storage directory; they also do not need to modify the default storage media configuration of FE.  
+  Modify be/conf/be.conf, which mainly involves configuring `storage_root_path`: data storage directory. By default, under be/storage, the directory needs to be **created manually**. Use `;` to separate multiple paths (do not add `;` after the last directory).
 
-    eg.1: 
 
-    Note: For SSD disks, '.SSD 'is followed by the directory, and for HDD disks,'.HDD 'is followed by the directory
+  You may specify the directory storage medium in the path: HDD or SSD. You may also add capacility limit to the end of every path and use `,` for separation. Unless you use a mix of SSD and HDD disks, you do not need to follow the configuration methods in Example 1 and Example 2 below, but only need to specify the storage directory; you do not need to modify the default storage medium configuration of FE, either.  
+
+  Example 1: 
+
+  Note: For SSD disks, add `.SSD` to the end of the directory; for HDD disks, add `.HDD`.
 
     `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
 
-    **instructions**
+  **Description**
 
-    * 1./home/disk1/doris.HDD : The storage medium is HDD;
-    * 2./home/disk2/doris.SSD : The storage medium is HDDSSD;
-    * 3./home/disk2/doris  :  The storage medium is HDD(default)
+    * 1./home/disk1/doris.HDD: The storage medium is HDD;
+    * 2./home/disk2/doris.SSD: The storage medium is SSD;
+    * 3./home/disk2/doris: The storage medium is HDD (default).
 
-    eg.2: 
+  Example 2: 
 
-    Note: you do not need to add the suffix to either HDD or SSD disk directories. You only need to set the medium parameter
+  Note: You do not need to add the `.SSD` or `.HDD` suffix, but to specify the medium in the `storage_root_path` parameter
 
     `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
       
-    **instructions**
+  **Description**
       
 
     * 1./home/disk1/doris,medium:hdd  :  The storage medium is HDD;
-    * 2./home/disk2/doris,medium:ssd  :  The storage medium is SSD;
+    * 2./home/disk2/doris,medium:ssd  :  The storage medium is SSD.
 
 * BE webserver_port configuration
 
-	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
+	If the BE componet is installed in hadoop cluster, you need to change the configuration `webserver_port=8040`  in be.conf to avoid port conflicts.
 
 * Set JAVA_HOME environment variable
 
   <version since="1.2.0"></version>  
-  Java UDF are supported since version 1.2, so BE are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to set the variable.
+  Java UDF is supported since version 1.2, so BEs are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also do this by adding `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script.
 
-* Install Java UDF functions 
+* Install Java UDF
 
-  <version since="1.2.0">Install Java UDF functions</version>
-  Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
+  <version since="1.2.0"></version>
+  Because Java UDF is supported since version 1.2, you need to download the JAR package of Java UDF from the official website and put them under the lib directory of BE, otherwise it may fail to start.
 	
 * Add all BE nodes to FE
 
-	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
+	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client ([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
 
 	`./mysql-client -h fe_host -P query_port -uroot`
 
-	The fe_host is the node IP where FE is located; the query_port in fe/conf/fe.conf; the root account is used by default and no password is used to login.
+	`fe_host` is the node IP where FE is located;  `query_port` is in fe/conf/fe.conf; the root account is used by default and no password is required in login.
 
-	After login, execute the following commands to add each BE:
+	After login, execute the following command to add all the Best:
 
 	`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port";`
 
-	The be_host is the node IP where BE is located; the heartbeat_service_port in be/conf/be.conf.
+	`be_host` is the node IP where BE is located; `heartbeat_service_port` is in be/conf/be.conf.
 
 * Start BE
 
 	`bin/start_be.sh --daemon`
 
-	The BE process will start and go into the background for execution. Logs are stored in be/log/directory by default. If startup fails, you can view error messages by looking at be/log/be.log or be/log/be.out.
+	The BE process will start and go into the background for execution. Logs are stored in be/log/directory by default. If startup fails, you can view error messages by checking out be/log/be.log or be/log/be.out.
 
 * View BE status
 
-	Connect to FE using mysql-client and execute `SHOW PROC '/backends'; `View BE operation. If everything is normal, the `isAlive`column should be `true`.
+	Connect to FE using mysql-client and execute `SHOW PROC '/backends'; ` to view BE operation status. If everything goes well, the `isAlive`column should be `true`.
 
-#### (Optional) FS_Broker deployment
+#### (Optional) FS_Broker Deployment
 
-Broker is deployed as a plug-in, independent of Doris. If you need to import data from a third-party storage system, you need to deploy the corresponding Broker. By default, it provides fs_broker to read HDFS ,Object storage (supporting S3 protocol). Fs_broker is stateless and it is recommended that each FE and BE node deploy a Broker.
+Broker is deployed as a plug-in, which is independent of Doris. If you need to import data from a third-party storage system, you need to deploy the corresponding Broker. By default, Doris provides fs_broker for HDFS reading and object storage (supporting S3 protocol). fs_broker is stateless and we recommend that you deploy a Broker for each FE and BE node.
 
-* Copy the corresponding Broker directory in the output directory of the source fs_broker to all the nodes that need to be deployed. It is recommended to maintain the same level as the BE or FE directories.
+* Copy the corresponding Broker directory in the output directory of the source fs_broker to all the nodes that need to be deployed. It is recommended to keep the Broker directory on the same level as the BE or FE directories.
 
 * Modify the corresponding Broker configuration
 
-	In the corresponding broker/conf/directory configuration file, you can modify the corresponding configuration.
+	You can modify the configuration in the corresponding broker/conf/directory configuration file.
 
 * Start Broker
 
@@ -278,105 +284,103 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 	`ALTER SYSTEM ADD BROKER broker_name "broker_host1:broker_ipc_port1","broker_host2:broker_ipc_port2",...;`
 
-	The broker\_host is Broker's node ip; the broker_ipc_port is in the Broker configuration file.
+	`broker\_host` is the Broker node ip;  `broker_ipc_port` is in conf/apache_hdfs_broker.conf in the Broker configuration file.
 
 * View Broker status
 
-	Connect any booted FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
+	Connect any started FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
 
-**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `sh start_xx.sh` directly to start. Also refer to [here](https://www.cnblogs.com/lenmom/p/9973401.html)
+**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in Doris 0.9.0 and previous versions, you need to remove the last `&` symbol in the start_xx.sh scripts**. In Doris 0.10.0 and the subsequent versions, you may just call `sh start_xx.sh` directly to start.
 
-## Common Questions
+## FAQ
 
-### Process correlation
+### Process-Related Questions
 
-1. How to determine the success of FE process startup
+1. How can we know whether the FE process startup succeeds?
 
-	After the FE process starts, metadata is loaded first. According to the different roles of FE, you can see ```transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER```in the log. Eventually, you will see the ``thrift server started`` log and connect to FE through MySQL client, which indicates that FE started successfully.
+	After the FE process starts, metadata is loaded first. Based on the role of FE, you can see ```transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER``` in the log. Eventually, you will see the ``thrift server started`` log and can connect to FE through MySQL client, which indicates that FE started successfully.
 
 	You can also check whether the startup was successful by connecting as follows:
 	
 	`http://fe_host:fe_http_port/api/bootstrap`
 
-	If returned:
+	If it returns:
 	
 	`{"status":"OK","msg":"Success"}`
 
-	The startup is successful, there may be problems in other cases.
+	The startup is successful; otherwise, there may be problems.
 
-	> Note: If you can't see the information of boot failure in fe. log, you may see it in fe. out.
+	> Note: If you can't see the information of boot failure in fe. log, you may check in fe. out.
 
-2. How to determine the success of BE process startup
+2. How can we know whether the BE process startup succeeds?
 
-	After the BE process starts, if there is data before, there may be several minutes of data index loading time.
+	After the BE process starts, if there have been data there before, it might need several minutes for data index loading.
 
-	If BE is started for the first time or the BE has not joined any cluster, the BE log will periodically scroll the words `waiting to receive first heartbeat from frontend`. BE has not received Master's address through FE's heartbeat and is waiting passively. This error log will disappear after ADD BACKEND in FE sends the heartbeat. If the word `````master client', get client from cache failed. host:, port: 0, code: 7````` master client appears again after receiving heartbeat, it indicates that FE has successfully connected BE, but BE cannot actively connect FE. It may be necessary to check the connectivity of rpc_port from BE to FE.
+	If BE is started for the first time or the BE has not joined any cluster, the BE log will periodically scroll the words `waiting to receive first heartbeat from frontend`, meaning that BE has not received the Master's address through FE's heartbeat and is waiting passively. Such error log will disappear after sending the heartbeat by ADD BACKEND in FE. If the word `````master client', get client from cache failed. host:, port: 0, code: 7````` appears after receiving the heartbeat, it indicates that FE has successfully connected BE, but BE cannot actively connect FE. You may  need to check the connectivity of rpc_port from BE to FE.
 
-	If BE has been added to the cluster, the heartbeat log from FE should be scrolled every five seconds: ```get heartbeat, host:xx. xx.xx.xx, port:9020, cluster id:xxxxxxx```, indicating that the heartbeat is normal.
+	If BE has been added to the cluster, the heartbeat log from FE will be scrolled every five seconds: ```get heartbeat, host:xx. xx.xx.xx, port:9020, cluster id:xxxxxxx```, indicating that the heartbeat is normal.
 
-	Secondly, the word `finish report task success. return code: 0` should be scrolled every 10 seconds in the log to indicate that BE's communication to FE is normal.
+	Secondly, if the word `finish report task success. return code: 0`  is scrolled every 10 seconds in the log, that indicates that the BE-to-FE communication is normal.
 
-	At the same time, if there is a data query, you should see the rolling logs, and have `execute time is xxx` logs, indicating that BE started successfully, and the query is normal.
+	Meanwhile, if there is a data query, you will see the rolling logs and the  `execute time is xxx` logs, indicating that BE is started successfully, and the query is normal.
 
 	You can also check whether the startup was successful by connecting as follows:
 	
 	`http://be_host:be_http_port/api/health`
 
-	If returned:
+	If it returns:
 	
 	`{"status": "OK","msg": "To Be Added"}`
 
-	If the startup is successful, there may be problems in other cases.
+	That means the startup is successful; otherwise, there may be problems.
 
 	> Note: If you can't see the information of boot failure in be.INFO, you may see it in be.out.
 
-3. How to determine the normal connectivity of FE and BE after building the system
+3. How can we confirm that the connectivity of FE and BE is normal after building the system?
 
-	Firstly, confirm that FE and BE processes have been started separately and normally, and confirm that all nodes have been added through `ADD BACKEND` or `ADD FOLLOWER/OBSERVER` statements.
+	Firstly, you need to confirm that FE and BE processes have been started separately and worked normally. Then, you need to confirm that all nodes have been added through `ADD BACKEND` or `ADD FOLLOWER/OBSERVER` statements.
 
-	If the heartbeat is normal, BE logs will show ``get heartbeat, host:xx.xx.xx.xx, port:9020, cluster id:xxxxx`` If the heartbeat fails, the words ```backend [10001] get Exception: org.apache.thrift.transport.TTransportException``` will appear in FE's log, or other thrift communication abnormal log, indicating that the heartbeat fails from FE to 10001 BE. Here you need to check the connectivity of FE to BE host's heart-beating port.
+	If the heartbeat is normal, BE logs will show ``get heartbeat, host:xx.xx.xx.xx, port:9020, cluster id:xxxxx``; if the heartbeat fails, you will see ```backend [10001] got Exception: org.apache.thrift.transport.TTransportException``` in FE's log, or other thrift communication abnormal log, indicating that the heartbeat from FE to 10001 BE fails. Here you need to check the connectivity of the FE to BE host heartbeat port.
 
-	If BE's communication to FE is normal, the BE log will display the words `finish report task success. return code: 0`. Otherwise, the words `master client`, get client from cache failed` will appear. In this case, the connectivity of BE to the rpc_port of FE needs to be checked.
+	If the BE-to-FE communication is normal, the BE log will display the words `finish report task success. return code: 0`. Otherwise, the words `master client, get client from cache failed` will appear. In this case, you need to check the connectivity of BE to the rpc_port of FE.
 
-4. Doris Node Authentication Mechanism
+4. What is the Doris node authentication mechanism?
 
 	In addition to Master FE, the other role nodes (Follower FE, Observer FE, Backend) need to register to the cluster through the `ALTER SYSTEM ADD` statement before joining the cluster.
 
-	When Master FE is first started, a cluster_id is generated in the doris-meta/image/VERSION file.
+	When Master FE is started for the first time, a cluster_id is generated in the doris-meta/image/VERSION file.
 
-	When FE first joins the cluster, it first retrieves the file from Master FE. Each subsequent reconnection between FEs (FE reboot) checks whether its cluster ID is the same as that of other existing FEs. If different, the FE will exit automatically.
+	When FE joins the cluster for the first time, it first retrieves the file from Master FE. Each subsequent reconnection between FEs (FE reboot) checks whether its cluster ID is the same as that of other existing FEs. If it is not the same, the FE will exit automatically.
 
-	When BE first receives the heartbeat of Master FE, it gets the cluster ID from the heartbeat and records it in the `cluster_id` file of the data directory. Each heartbeat after that compares to the cluster ID sent by FE. If cluster IDs are not equal, BE will refuse to respond to FE's heartbeat.
+	When BE first receives the heartbeat of Master FE, it gets the cluster ID from the heartbeat and records it in the `cluster_id` file of the data directory. Each heartbeat after that compares that to the cluster ID sent by FE. If the cluster IDs are not matched, BE will refuse to respond to FE's heartbeat.
 
-	The heartbeat also contains Master FE's ip. When FE cuts the master, the new Master FE will carry its own IP to send the heartbeat to BE, BE will update its own saved Master FE ip.
+	The heartbeat also contains Master FE's IP. If the Master FE changes, the new Master FE will send the heartbeat to BE together with its own IP, and BE will update the Master FE IP it saved.
 
 	> **priority\_network**
 	>
-	> priority network is that both FE and BE have a configuration. Its main purpose is to assist FE or BE to identify their own IP addresses in the case of multi-network cards. Priority network is represented by CIDR: [RFC 4632](https://tools.ietf.org/html/rfc4632)
+	> priority_network is a configuration item that both FE and BE have. It is used to help FE or BE identify their own IP addresses in the cases of multi-network cards. priority_network uses CIDR notation: [RFC 4632](https://tools.ietf.org/html/rfc4632)
 	>
-	> When the connectivity of FE and BE is confirmed to be normal, if the table Timeout still occurs, and the FE log has an error message with the words `backend does not find. host:xxxx.xxx.XXXX`. This means that there is a problem with the IP address that Doris automatically identifies and that priority\_network parameters need to be set manually.
+	> If the connectivity of FE and BE is confirmed to be normal, but timeout still occurs in creating tables, and the FE log shows the error message  `backend does not find. host:xxxx.xxx.XXXX`, this means that there is a problem with the IP address automatically identified by Doris and that the priority\_network parameter needs to be set manually.
 	>
-	> The main reason for this problem is that when the user adds BE through the `ADD BACKEND` statement, FE recognizes whether the statement specifies hostname or IP. If it is hostname, FE automatically converts it to an IP address and stores it in metadata. When BE reports on the completion of the task, it carries its own IP address. If FE finds that BE reports inconsistent IP addresses and metadata, it will make the above error.
+	> The explanation to this error is as follows. When the user adds BE through the `ADD BACKEND` statement, FE recognizes whether the statement specifies hostname or IP. If it is a hostname, FE automatically converts it to an IP address and stores it in the metadata. When BE reports on the completion of the task, it carries its own IP address. If FE finds that the IP address reported by BE is different from that in the metadata, the above error message will show up.
 	>
-	> Solutions to this error: 1) Set **priority\_network** parameters in FE and BE respectively. Usually FE and BE are in a network segment, so this parameter can be set to the same. 2) Fill in the `ADD BACKEND` statement directly with the correct IP address of BE instead of hostname to avoid FE getting the wrong IP address.
+	> Solutions to this error: 1) Set **priority\_network** in FE and BE separately. Usually FE and BE are in one network segment, so their priority_network can be set to be the same. 2) Put the correct IP address instead of the hostname in the `ADD BACKEND` statement to prevent FE from getting the wrong IP address.
 
-5. File descriptor number of BE process
+5. What is the number of file descriptors of a BE process?
 
-   The number of file descriptor of BE process is controlled by the two parameters min_file_descriptor_number/max_file_descriptor_number.
+   The number of file descriptor of a BE process is determined by two parameters: `min_file_descriptor_number`/`max_file_descriptor_number`.
 
-   If it is not in the [min_file_descriptor_number, max_file_descriptor_number] interval, error will occurs when starting BE process.
+   If it is not in the range [`min_file_descriptor_number`, `max_file_descriptor_number`], error will occurs when starting a BE process. You may use the ulimit command to reset the parameters.
 
-   Please using ulimit command to set file descriptor under this circumstance.
+   The default value of `min_file_descriptor_number` is 65536.
 
-   The default value of min_file_descriptor_number is 65536.
+   The default value of `max_file_descriptor_number` is 131072.
 
-   The default value of max_file_descriptor_number is 131072.
+   For example, the command `ulimit -n 65536;` means to set the number of file descriptors to 65536.
 
-   For Example: ulimit -n 65536; this command set file descriptor to 65536.
+   After starting a BE process, you can use **cat /proc/$pid/limits** to check the actual number of file descriptors of the process.
 
-   After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.
-
-   if use `supervisord`, try to modify `minfds` in supervisord.conf
+   If you have used  `supervisord` and encountered a file descriptor error, you can fix it by modifying  `minfds` in supervisord.conf.
 
    ```shell
    vim /etc/supervisord.conf

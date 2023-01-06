@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
@@ -25,11 +26,16 @@ import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
+import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
 import com.google.common.collect.ImmutableList;
 
@@ -58,8 +64,18 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     new BindSlotReference(scope),
                     new BindFunction(),
                     new ProjectToGlobalAggregate(),
+                    // this rule check's the logicalProject node's isDisinct property
+                    // and replace the logicalProject node with a LogicalAggregate node
+                    // so any rule before this, if create a new logicalProject node
+                    // should make sure isDisinct property is correctly passed around.
+                    // please see rule BindSlotReference or BindFunction for example
+                    new ProjectWithDistinctToAggregate(),
+                    new AvgDistinctToSumDivCount(),
                     new ResolveOrdinalInOrderByAndGroupBy(),
-                    new ReplaceExpressionByChildOutput()
+                    new ReplaceExpressionByChildOutput(),
+                    new HideOneRowRelationUnderUnion(),
+                    new ExpressionNormalization(cascadesContext.getConnectContext(),
+                                ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE))
                 )),
                 topDownBatch(ImmutableList.of(
                     new FillUpMissingSlots(),

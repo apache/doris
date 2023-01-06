@@ -777,7 +777,6 @@ public:
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
     virtual Status alloc_resource(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     virtual Status close(RuntimeState* state) override;
     virtual void release_resource(RuntimeState* state) override;
@@ -846,6 +845,7 @@ private:
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
+    bool _child_eos = false;
 
     bool _should_limit_output = false;
     bool _reach_limit = false;

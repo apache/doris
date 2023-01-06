@@ -35,6 +35,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -74,8 +75,8 @@ public class If extends ScalarFunction
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(BooleanType.INSTANCE, DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).args(BooleanType.INSTANCE, DateType.INSTANCE, DateType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE)
-                    .args(BooleanType.INSTANCE, DateTimeV2Type.INSTANCE, DateTimeV2Type.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)
                     .args(BooleanType.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
@@ -85,7 +86,9 @@ public class If extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(HllType.INSTANCE)
+                    .args(BooleanType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE)
     );
 
     /**

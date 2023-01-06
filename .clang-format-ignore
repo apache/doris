@@ -7,3 +7,7 @@ be/src/util/sse2neon.h
 be/src/util/mustache/mustache.h
 be/src/util/mustache/mustache.cc
 be/src/util/utf8_check.cpp
+be/src/util/cityhash102/city.h
+be/src/util/cityhash102/city.cc
+be/src/util/cityhash102/citycrc.h
+be/src/util/cityhash102/config.h

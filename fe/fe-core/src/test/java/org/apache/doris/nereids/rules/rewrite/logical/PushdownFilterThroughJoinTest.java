@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
@@ -34,9 +33,12 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+
+import java.util.Set;
 
 /**
  * PushdownFilterThroughJoinTest UT.
@@ -72,7 +74,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
     private void testLeft(JoinType joinType) {
         Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
-        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
+        Set<Expression> whereCondition = ImmutableSet.of(whereCondition1, whereCondition2);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
                 .hashJoinEmptyOn(rScore, joinType)
@@ -84,7 +86,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                 .matchesFromRoot(
                         logicalJoin(
                                 logicalFilter(logicalOlapScan())
-                                        .when(filter -> filter.getPredicates().equals(whereCondition)),
+                                        .when(filter -> filter.getConjuncts().equals(whereCondition)),
                                 logicalOlapScan()
                         )
                 );
@@ -93,7 +95,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
     private void testRight(JoinType joinType) {
         Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
-        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
+        Set<Expression> whereCondition = ImmutableSet.of(whereCondition1, whereCondition2);
 
         LogicalPlan plan = new LogicalPlanBuilder(rScore)
                 .hashJoinEmptyOn(rStudent, joinType)
@@ -106,7 +108,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                         logicalJoin(
                                 logicalOlapScan(),
                                 logicalFilter(logicalOlapScan())
-                                        .when(filter -> filter.getPredicates().equals(whereCondition))
+                                        .when(filter -> filter.getConjuncts().equals(whereCondition))
                         )
                 );
     }
@@ -123,7 +125,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                 new Subtract(rScore.getOutput().get(0), Literal.of(2)));
         Expression leftSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(bothSideEqualTo, leftSide, rightSide);
+        Set<Expression> whereCondition = ImmutableSet.of(bothSideEqualTo, leftSide, rightSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
                 .hashJoinEmptyOn(rScore, joinType)
@@ -137,9 +139,9 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                     .matchesFromRoot(
                             logicalJoin(
                                     logicalFilter(logicalOlapScan())
-                                            .when(filter -> filter.getPredicates().equals(leftSide)),
+                                            .when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(leftSide)),
                                     logicalFilter(logicalOlapScan())
-                                            .when(filter -> filter.getPredicates().equals(rightSide))
+                                            .when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(rightSide))
                             ).when(join -> join.getOtherJoinConjuncts().get(0).equals(bothSideEqualTo))
                     );
         }
@@ -151,11 +153,11 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                             logicalFilter(
                                     logicalJoin(
                                             logicalFilter(logicalOlapScan())
-                                                    .when(filter -> filter.getPredicates().equals(leftSide)),
+                                                    .when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(leftSide)),
                                             logicalFilter(logicalOlapScan())
-                                                    .when(filter -> filter.getPredicates().equals(rightSide))
+                                                    .when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(rightSide))
                                     )
-                            ).when(filter -> filter.getPredicates().equals(bothSideEqualTo))
+                            ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(bothSideEqualTo))
                     );
         }
     }
@@ -173,7 +175,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
     private void bothSideToLeft(JoinType joinType) {
         Expression pushSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression reserveSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(pushSide, reserveSide);
+        Set<Expression> whereCondition = ImmutableSet.of(pushSide, reserveSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
                 .hashJoinEmptyOn(rScore, joinType)
@@ -186,7 +188,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                         logicalFilter(
                                 logicalJoin(
                                         logicalFilter(logicalOlapScan())
-                                                .when(filter -> filter.getPredicates().equals(pushSide)),
+                                                .when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(pushSide)),
                                         logicalOlapScan()
                                 )
                         )
@@ -196,7 +198,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
     private void bothSideToRight(JoinType joinType) {
         Expression pushSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression reserveSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(pushSide, reserveSide);
+        Set<Expression> whereCondition = ImmutableSet.of(pushSide, reserveSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rScore)
                 .hashJoinEmptyOn(rStudent, joinType)
@@ -210,7 +212,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                                 logicalJoin(
                                         logicalOlapScan(),
                                         logicalFilter(logicalOlapScan()).when(
-                                                filter -> filter.getPredicates().equals(pushSide))
+                                                filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(pushSide))
                                 )
                         )
                 );

@@ -68,6 +68,7 @@ protected:
     std::map<std::string, int> _file_slot_name_map;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
     // Partition slot id to index in _partition_slot_descs

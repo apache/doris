@@ -349,6 +349,8 @@ distribution_desc
         如果设置成 `true`, 对于值列的加减操作，可以更快地，同步地完成。
     
         `"light_schema_change" = 'true'`
+
+        该功能在 1.2.1 及之后版本默认开启。
     
     * `disable_auto_compaction`
 

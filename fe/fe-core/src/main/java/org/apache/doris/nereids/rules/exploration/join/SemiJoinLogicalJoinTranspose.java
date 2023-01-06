@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -54,9 +55,11 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
                 .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
-                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN)
+                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN
+                        || topJoin.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)
                 .whenNot(topJoin -> topJoin.left().getJoinType().isSemiOrAntiJoin())
                 .when(this::conditionChecker)
+                .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint())
                 .then(topSemiJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topSemiJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -82,9 +85,10 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), a, c);
+                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE,
+                                a, c);
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinConjuncts(), newBottomSemiJoin, b);
+                                bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, newBottomSemiJoin, b);
                     } else {
                         /*
                          *    topSemiJoin            newTopJoin
@@ -95,9 +99,11 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), b, c);
+                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
+                                JoinHint.NONE,
+                                b, c);
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinConjuncts(), a, newBottomSemiJoin);
+                                bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, newBottomSemiJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }

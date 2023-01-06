@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -307,6 +308,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
+        if (FunctionTranslatorUtil.isEncryptFunction(function)
+                && function.children().size() == 3) {
+            FunctionTranslatorUtil.translateEncryptionFunction(function, arguments, argTypes);
+        }
+
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
@@ -330,6 +336,30 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 : aggregateExpression.children();
         return translateAggregateFunction(aggregateExpression.getFunction(),
                 currentPhaseArguments, aggFnArguments, aggregateExpression.getAggregateParam(), context);
+    }
+
+    @Override
+    public Expr visitTableGeneratingFunction(TableGeneratingFunction function,
+            PlanTranslatorContext context) {
+        List<Expr> arguments = function.getArguments()
+                .stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+        List<Type> argTypes = function.expectedInputTypes().stream()
+                .map(AbstractDataType::toCatalogDataType)
+                .collect(Collectors.toList());
+
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+
+        org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(function.getName()), argTypes,
+                function.getDataType().toCatalogDataType(), function.hasVarArguments(),
+                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+
+        // create catalog FunctionCallExpr without analyze again
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 
     @Override
@@ -414,8 +444,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 true, true, nullableMode
         );
 
-        boolean isMergeFn = aggregateParam.aggPhase.isGlobal();
-
+        boolean isMergeFn = aggregateParam.aggMode.consumeAggregateBuffer;
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, fnParams, aggFnParams, isMergeFn, catalogArguments);
     }

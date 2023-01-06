@@ -38,7 +38,7 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
                    RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
                    const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
                    const std::shared_ptr<MemTracker>& insert_mem_tracker,
-                   const std::shared_ptr<MemTracker>& flush_mem_tracker, bool support_vec)
+                   const std::shared_ptr<MemTracker>& flush_mem_tracker)
         : _tablet(std::move(tablet)),
           _schema(schema),
           _tablet_schema(tablet_schema),
@@ -65,35 +65,12 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
 #endif
     _buffer_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
-    if (support_vec) {
-        _skip_list = nullptr;
-        _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
-        // TODO: Support ZOrderComparator in the future
-        _vec_skip_list =
-                std::make_unique<VecTable>(_vec_row_comparator.get(), _table_mem_pool.get(),
-                                           keys_type() == KeysType::DUP_KEYS);
-        _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
-    } else {
-        _vec_skip_list = nullptr;
-        if (keys_type() == KeysType::DUP_KEYS) {
-            _insert_fn = &MemTable::_insert_dup;
-        } else {
-            _insert_fn = &MemTable::_insert_agg;
-        }
-        if (keys_type() == KeysType::UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write()) {
-            _aggregate_two_row_fn = &MemTable::_replace_row;
-        } else {
-            _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
-        }
-        if (tablet_schema->sort_type() == SortType::ZORDER) {
-            _row_comparator = std::make_shared<TupleRowZOrderComparator>(
-                    _schema, tablet_schema->sort_col_num());
-        } else {
-            _row_comparator = std::make_shared<RowCursorComparator>(_schema);
-        }
-        _skip_list = std::make_unique<Table>(_row_comparator.get(), _table_mem_pool.get(),
-                                             keys_type() == KeysType::DUP_KEYS);
-    }
+    _skip_list = nullptr;
+    _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
+    // TODO: Support ZOrderComparator in the future
+    _vec_skip_list = std::make_unique<VecTable>(_vec_row_comparator.get(), _table_mem_pool.get(),
+                                                keys_type() == KeysType::DUP_KEYS);
+    _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
 }
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                                   const TupleDescriptor* tuple_desc) {
@@ -220,6 +197,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
 
     bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
     if (is_exist) {
+        _merged_rows++;
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
         row_in_block->init_agg_places(
@@ -249,6 +227,7 @@ void MemTable::_insert_agg(const Tuple* tuple) {
 
     bool is_exist = _skip_list->Find((TableKey)tuple_buf, &_hint);
     if (is_exist) {
+        _merged_rows++;
         (this->*_aggregate_two_row_fn)(src_row, _hint.curr->key);
     } else {
         tuple_buf = _table_mem_pool->allocate(_schema_size);
