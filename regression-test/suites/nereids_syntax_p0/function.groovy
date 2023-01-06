@@ -220,7 +220,7 @@ suite("nereids_function") {
     """
 
     qt_fn_2 """
-        SELECT regexp_extract_all('abc=111, def=222, ghi=333','("[^"]+"|\\w+)=("[^"]+"|\\w+)')
+        SELECT regexp_extract_all('AbCdE', '([[:lower:]]+)C([[:lower:]]+)')
     """
 }
 
