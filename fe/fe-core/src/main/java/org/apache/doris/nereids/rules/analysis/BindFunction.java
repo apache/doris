@@ -24,6 +24,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.batch.CheckExpressionLegality;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -168,6 +169,7 @@ public class BindFunction implements AnalysisRuleFactory {
 
     private <E extends Expression> E bindAndTypeCoercion(E expr, Env env, ExpressionRewriteContext ctx) {
         expr = FunctionBinder.INSTANCE.bind(expr, env);
+        expr = (E) expr.accept(CheckExpressionLegality.INSTANCE, ctx);
         expr = (E) CharacterLiteralTypeCoercion.INSTANCE.rewrite(expr, ctx);
         return (E) TypeCoercion.INSTANCE.rewrite(expr, null);
     }

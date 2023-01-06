@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 /** CheckExpressionLegality */
 public class CheckExpressionLegality extends AbstractExpressionRewriteRule {
+    public static final CheckExpressionLegality INSTANCE = new CheckExpressionLegality();
+
     @Override
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);

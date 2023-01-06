@@ -17,18 +17,38 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
+
+import org.junit.jupiter.api.Test;
+
 public class CheckExpressionLegalityTest {
-    /*@Test
+    @Test
     public void testAvg() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        Assertions.assertThrows(AnalysisException.class, () -> {
-            try {
-                PlanChecker.from(connectContext)
-                        .analyze("select avg(id) from (select to_bitmap(1) id) tbl");
-            } catch (Throwable t) {
-                t.printStackTrace();
+        try {
+            PlanChecker.from(connectContext)
+                    .analyze("select avg(id) from (select to_bitmap(1) id) tbl");
+            throw new IllegalStateException("Expect analyze failed");
+        } catch (Throwable t) {
+            if (!t.getMessage().contains("avg requires a numeric parameter")) {
                 throw t;
             }
-        }, "avg requires a numeric parameter");
-    }*/
+        }
+    }
+
+    @Test
+    public void testBitmapCount() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        try {
+            PlanChecker.from(connectContext)
+                    .analyze("select bitmap_count(id) from (select 1 id) tbl");
+            throw new IllegalStateException("Expect analyze failed");
+        } catch (Throwable t) {
+            if (!t.getMessage().contains("argument should be of BITMAP type")) {
+                throw t;
+            }
+        }
+    }
 }
