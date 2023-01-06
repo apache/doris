@@ -374,6 +374,7 @@ errorCapturingIdentifierExtra
 
 identifier
     : strictIdentifier
+    | LEFT | RIGHT
     ;
 
 strictIdentifier
