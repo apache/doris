@@ -15,32 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "empty_source_operator.h"
 
-#include "operator.h"
+namespace doris::pipeline {
+OperatorPtr EmptySourceOperatorBuilder::build_operator() {
+    return std::make_shared<EmptySourceOperator>(this);
+}
 
-namespace doris {
-namespace vectorized {
-class HashJoinNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
-
-namespace pipeline {
-
-class HashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
-public:
-    HashJoinBuildSinkBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; };
-};
-
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
-public:
-    HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return _node->can_sink_write(); };
-};
-
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline
