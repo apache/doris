@@ -22,17 +22,6 @@
 
 namespace doris::vectorized {
 
-namespace ErrorCodes {
-extern const int BAD_ARGUMENTS;
-extern const int DUPLICATE_COLUMN;
-extern const int EMPTY_DATA_PASSED;
-extern const int NOT_FOUND_COLUMN_IN_BLOCK;
-extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
-extern const int SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH;
-extern const int ILLEGAL_INDEX;
-extern const int LOGICAL_ERROR;
-} // namespace ErrorCodes
-
 DataTypeStruct::DataTypeStruct(const DataTypes& elems_)
         : elems(elems_), have_explicit_names(false) {
     /// Automatically assigned names in form of '1', '2', ...
@@ -89,6 +78,94 @@ std::string DataTypeStruct::do_get_name() const {
     s << ")";
 
     return s.str();
+}
+
+Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
+    DCHECK(!rb.eof());
+    auto* struct_column = assert_cast<ColumnStruct*>(column);
+
+    if (*rb.position() != '{') {
+        return Status::InvalidArgument("Struct does not start with '{' character, found '{}'",
+                                       *rb.position());
+    }
+    if (rb.count() < 2 || *(rb.end() - 1) != '}') {
+        return Status::InvalidArgument("Struct does not end with '}' character, found '{}'",
+                                       *(rb.end() - 1));
+    }
+
+    // here need handle the empty struct '{}'
+    if (rb.count() == 2) {
+        return Status::OK();
+    }
+
+    ++rb.position();
+    std::vector<ReadBuffer> field_rbs;
+    field_rbs.reserve(elems.size());
+
+    // here get the value "jack" and 20 from {"name":"jack","age":20}
+    while (!rb.eof()) {
+        size_t field_len = 0;
+        auto start = rb.position();
+        while (!rb.eof() && *start != ',' && *start != '}') {
+            field_len++;
+            start++;
+        }
+        if (field_len >= rb.count()) {
+            return Status::InvalidArgument("Invalid Length");
+        }
+        ReadBuffer field_rb(rb.position(), field_len);
+        size_t len = 0;
+        auto start_rb = field_rb.position();
+        while (!field_rb.eof() && *start_rb != ':') {
+            len++;
+            start_rb++;
+        }
+        ReadBuffer field(field_rb.position() + len + 1, field_rb.count() - len - 1);
+
+        if (field.count() < 2 || *field.position() != '"' || *field.end() != '"') {
+            field_rbs.push_back(field);
+        } else {
+            ReadBuffer field_has_quote(field.position() + 1, field.count() - 2);
+            field_rbs.push_back(field_has_quote);
+        }
+
+        rb.position() += field_len + 1;
+    }
+
+    for (size_t idx = 0; idx < elems.size(); idx++) {
+        elems[idx]->from_string(field_rbs[idx], &struct_column->get_column(idx));
+    }
+
+    return Status::OK();
+}
+
+std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) const {
+    auto ptr = column.convert_to_full_column_if_const();
+    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+
+    std::stringstream ss;
+    ss << "<";
+    for (size_t idx = 0; idx < elems.size(); idx++) {
+        if (idx != 0) {
+            ss << ", ";
+        }
+        ss << elems[idx]->to_string(struct_column.get_column(idx), row_num);
+    }
+    ss << ">";
+    return ss.str();
+}
+
+void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    auto ptr = column.convert_to_full_column_if_const();
+    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+    ostr.write("<", 1);
+    for (size_t idx = 0; idx < elems.size(); idx++) {
+        if (idx != 0) {
+            ostr.write(", ", 2);
+        }
+        elems[idx]->to_string(struct_column.get_column(idx), row_num, ostr);
+    }
+    ostr.write(">", 1);
 }
 
 static inline IColumn& extract_element_column(IColumn& column, size_t idx) {

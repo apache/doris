@@ -162,11 +162,6 @@ public class StructType extends Type {
     }
 
     @Override
-    public PrimitiveType getPrimitiveType() {
-        return PrimitiveType.STRUCT;
-    }
-
-    @Override
     public boolean equals(Object other) {
         if (!(other instanceof StructType)) {
             return false;

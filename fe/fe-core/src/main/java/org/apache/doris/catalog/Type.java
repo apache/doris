@@ -169,8 +169,20 @@ public abstract class Type {
         arraySubTypes.add(STRING);
 
         structSubTypes = Lists.newArrayList();
-        structSubTypes.add(INT);
+        structSubTypes.addAll(numericTypes);
+        structSubTypes.add(BOOLEAN);
+        structSubTypes.add(VARCHAR);
         structSubTypes.add(STRING);
+        structSubTypes.add(CHAR);
+        structSubTypes.add(DATE);
+        structSubTypes.add(DATETIME);
+        structSubTypes.add(DATEV2);
+        structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(TIME);
+        structSubTypes.add(TIMEV2);
+        structSubTypes.add(DECIMAL32);
+        structSubTypes.add(DECIMAL64);
+        structSubTypes.add(DECIMAL128);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -513,11 +525,8 @@ public abstract class Type {
             return false;
         } else if (targetType.isStructType() && sourceType.isStringType()) {
             return true;
-<<<<<<< HEAD
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
-=======
->>>>>>> [feature](struct-type) add children column when create table
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }

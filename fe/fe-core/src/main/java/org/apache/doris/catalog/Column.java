@@ -188,17 +188,10 @@ public class Column implements Writable, GsonPostProcessable {
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         } else if (type.isStructType()) {
-<<<<<<< HEAD
             ArrayList<StructField> fields = ((StructType) type).getFields();
             for (StructField field : fields) {
                 Column c = new Column(field.getName(), field.getType());
                 c.setIsAllowNull(field.getContainsNull());
-=======
-            ArrayList<StructField> fileds = ((StructType) type).getFields();
-            for (StructField field : fileds) {
-                Column c = new Column(COLUMN_STRUCT_CHILDREN, field.getType());
-                // c.setIsAllowNull(field.getContainsNull());
->>>>>>> [feature](struct-type) add children column when create table
                 column.addChildrenColumn(c);
             }
         }
