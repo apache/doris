@@ -214,6 +214,15 @@ public:
 
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
+    bool can_sink_write() const {
+        if (_should_build_hash_table) {
+            return true;
+        }
+        return _shared_hash_table_context && _shared_hash_table_context->signaled;
+    }
+
+    bool should_build_hash_table() const { return _should_build_hash_table; }
+
 private:
     using VExprContexts = std::vector<VExprContext*>;
     // probe expr
