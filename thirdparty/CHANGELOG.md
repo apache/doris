@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230105
+- Modified: openssl 1.1.1m -> 1.1.1s fix CVE-2022-1292
+
 ## v20220811
 - Modified: brpc 1.1.0 -> 1.2.0 fix _dl_sym undefined reference on Ubuntu22.04
 
