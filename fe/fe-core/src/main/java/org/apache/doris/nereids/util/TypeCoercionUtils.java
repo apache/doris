@@ -50,7 +50,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -146,7 +145,7 @@ public class TypeCoercionUtils {
     /**
      * return ture if two type could do type coercion.
      */
-    public static boolean childrenCanHandleTypeCoercion(DataType leftType, DataType rightType) {
+    public static boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
         if (leftType instanceof DecimalV2Type && rightType instanceof NullType
                 || leftType instanceof NullType && rightType instanceof DecimalV2Type) {
             return true;
@@ -170,26 +169,6 @@ public class TypeCoercionUtils {
             return true;
         }
         return false;
-    }
-
-    /**
-     * check the input type for binary arithmetic: add, sub, mul, div, mod.
-     */
-    public static boolean checkCanHandleTypeCoercionForBinaryArithmetic(Expression left, Expression right) {
-        return Stream.of(left, right).filter(Expression::isLiteral).map(Literal.class::cast)
-                .allMatch(literal -> {
-                    if (literal.getDataType() instanceof StringType) {
-                        try {
-                            new BigDecimal(literal.getStringValue());
-                        } catch (Exception e) {
-                            throw new IllegalStateException(String.format(
-                                    "string literal %s can not be cast to double", literal.getStringValue()), e);
-                        }
-                        return true;
-                    }
-                    return NUMERIC_PRECEDENCE.contains(literal.getDataType())
-                            || literal.getDataType() instanceof BooleanType;
-                });
     }
 
     /**
@@ -232,9 +211,6 @@ public class TypeCoercionUtils {
                     break;
                 }
             }
-        } else if (left instanceof NumericType && right instanceof CharacterType
-                || right instanceof NumericType && left instanceof CharacterType) {
-            tightestCommonType = DoubleType.INSTANCE;
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
@@ -283,6 +259,8 @@ public class TypeCoercionUtils {
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (type.isNullType()) {
             return NullType.INSTANCE;
+        } else if (type.isStringType()) {
+            return DoubleType.INSTANCE;
         }
         throw new AnalysisException("no found appropriate data type.");
     }

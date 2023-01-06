@@ -107,12 +107,12 @@ public class TypeCoercionUtilsTest {
         NullType nullType = NullType.INSTANCE;
         SmallIntType smallIntType = SmallIntType.INSTANCE;
         IntegerType integerType = IntegerType.INSTANCE;
-        Assertions.assertTrue(TypeCoercionUtils.childrenCanHandleTypeCoercion(decimalV2Type, nullType));
-        Assertions.assertTrue(TypeCoercionUtils.childrenCanHandleTypeCoercion(nullType, decimalV2Type));
-        Assertions.assertTrue(TypeCoercionUtils.childrenCanHandleTypeCoercion(smallIntType, integerType));
-        Assertions.assertTrue(TypeCoercionUtils.childrenCanHandleTypeCoercion(integerType, decimalV2Type));
-        Assertions.assertTrue(TypeCoercionUtils.childrenCanHandleTypeCoercion(decimalV2Type, integerType));
-        Assertions.assertFalse(TypeCoercionUtils.childrenCanHandleTypeCoercion(integerType, integerType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(decimalV2Type, nullType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(nullType, decimalV2Type));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(smallIntType, integerType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(integerType, decimalV2Type));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(decimalV2Type, integerType));
+        Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(integerType, integerType));
     }
 
     @Test

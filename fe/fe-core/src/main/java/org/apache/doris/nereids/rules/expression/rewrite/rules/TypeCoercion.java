@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -47,9 +48,11 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * a rule to add implicit cast for expressions.
@@ -93,7 +96,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         Expression left = rewrite(op.left(), context);
         Expression right = rewrite(op.right(), context);
 
-        return Optional.of(checkCanHandTypeCoercion(binaryOperator, left, right))
+        return Optional.of(TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
                 .filter(Boolean::booleanValue)
                 .map(b -> TypeCoercionUtils.findTightestCommonType(op, left.getDataType(), right.getDataType()))
                 .filter(Optional::isPresent)
@@ -109,16 +112,31 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
+        Expression left = binaryArithmetic.left();
+        Expression right = binaryArithmetic.right();
+        if (left.getDataType().isNumericType() && right.getDataType().isNumericType()) {
+            return visitBinaryOperator(binaryArithmetic, context);
+        }
+        left = rewrite(binaryArithmetic.left(), context);
+        right = rewrite(binaryArithmetic.right(), context);
+        Stream.of(left, right).filter(StringLikeLiteral.class::isInstance).map(StringLikeLiteral.class::cast)
+                .forEach(literal -> new BigDecimal(literal.getStringValue()));
+        return binaryArithmetic.withChildren(new Cast(left, DoubleType.INSTANCE), new Cast(right, DoubleType.INSTANCE));
+    }
+
+    @Override
     public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
         Expression left = rewrite(divide.left(), context);
         Expression right = rewrite(divide.right(), context);
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
         DataType commonType = TypeCoercionUtils.findCommonNumericsType(t1, t2);
-        if (divide.getLegacyOperator() == Operator.DIVIDE) {
-            if (commonType.isBigIntType() || commonType.isLargeIntType()) {
-                commonType = DoubleType.INSTANCE;
-            }
+
+        if (divide.getLegacyOperator() == Operator.DIVIDE
+                && (commonType.isBigIntType() || commonType.isLargeIntType())) {
+            commonType = DoubleType.INSTANCE;
         }
         Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
         Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
@@ -238,13 +256,5 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         Expression newLeft = TypeCoercionUtils.castIfNotSameType(integralDivide.left(), commonType);
         Expression newRight = TypeCoercionUtils.castIfNotSameType(integralDivide.right(), commonType);
         return integralDivide.withChildren(newLeft, newRight);
-    }
-
-    private boolean checkCanHandTypeCoercion(BinaryOperator op, Expression left, Expression right) {
-        if (op instanceof BinaryArithmetic
-                && TypeCoercionUtils.checkCanHandleTypeCoercionForBinaryArithmetic(left, right)) {
-            return true;
-        }
-        return TypeCoercionUtils.childrenCanHandleTypeCoercion(left.getDataType(), right.getDataType());
     }
 }
