@@ -84,7 +84,7 @@ public class Sum extends NullableAggregateFunction implements UnaryExpression, C
         return visitor.visitSum(this, context);
     }
 
-    private DataType implicitCast(DataType dataType) {
+    public DataType implicitCast(DataType dataType) {
         if (dataType instanceof LargeIntType) {
             return dataType;
         } else if (dataType instanceof DecimalV2Type) {

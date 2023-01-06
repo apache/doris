@@ -51,6 +51,7 @@ import org.apache.doris.nereids.types.coercion.TypeCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.checkerframework.checker.nullness.Opt;
 
 import java.util.List;
 import java.util.Map;
@@ -118,8 +119,12 @@ public class TypeCoercionUtils {
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof NumericType) {
-                // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
-                returnType = expected.defaultConcreteType();
+                if (input instanceof DecimalV2Type) {
+                    returnType = input;
+                } else {
+                    // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
+                    returnType = expected.defaultConcreteType();
+                }
             }
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalV2Type) {
@@ -188,7 +193,7 @@ public class TypeCoercionUtils {
      * find the tightest common type for two type
      */
     @Developing
-    public static Optional<DataType> findTightestCommonType(BinaryOperator binaryOperator,
+    public static Optional<DataType> findTightestCommonType(Expression binaryOperator,
             DataType left, DataType right) {
         // TODO: compatible with origin planner and BE
         // TODO: when add new type, add it to here
@@ -237,14 +242,26 @@ public class TypeCoercionUtils {
             } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
                 tightestCommonType = DateV2Type.INSTANCE;
             }
-        } else if (canCompareDate(left, right)) {
+        } else if (left instanceof DoubleType && right instanceof DecimalV2Type
+                || left instanceof DecimalV2Type && right instanceof DoubleType) {
+            tightestCommonType = DecimalV2Type.SYSTEM_DEFAULT;
+        } else if (left instanceof DecimalV2Type && right instanceof DecimalV2Type) {
+            tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, (DecimalV2Type) right);
+        } else if (left instanceof FloatType && right instanceof DecimalV2Type
+                || left instanceof DecimalV2Type && right instanceof FloatType) {
+            tightestCommonType = DecimalV2Type.SYSTEM_DEFAULT;
+        }else if (canCompareDate(left, right)) {
             if (binaryOperator instanceof BinaryArithmetic) {
                 tightestCommonType = IntegerType.INSTANCE;
             } else {
                 tightestCommonType = DateTimeType.INSTANCE;
             }
         }
-        return tightestCommonType == null ? Optional.of(DoubleType.INSTANCE) : Optional.of(tightestCommonType);
+        if (tightestCommonType == null) {
+            throw new RuntimeException("aaa");
+        }
+        return Optional.of(tightestCommonType);
+        //return tightestCommonType == null ? Optional.of(DoubleType.INSTANCE) : Optional.of(tightestCommonType);
     }
 
     /**
