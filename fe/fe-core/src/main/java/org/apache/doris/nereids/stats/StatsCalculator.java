@@ -170,7 +170,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitLogicalSchemaScan(LogicalSchemaScan schemaScan, Void context) {
-        return new StatsDeriveResult(1);
+        return computeScan(schemaScan);
     }
 
     @Override
@@ -261,7 +261,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
-        return new StatsDeriveResult(1);
+        return computeScan(schemaScan);
     }
 
     @Override
