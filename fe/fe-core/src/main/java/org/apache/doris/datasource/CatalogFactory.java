@@ -79,6 +79,9 @@ public class CatalogFactory {
             Resource catalogResource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(resource))
                     .orElseThrow(() -> new DdlException("Resource doesn't exist: " + resource));
             catalogType = catalogResource.getType().name().toLowerCase();
+            if (props.containsKey("type")) {
+                throw new DdlException("Can not set 'type' when creating catalog with resource");
+            }
         } else {
             String type = props.get("type");
             if (Strings.isNullOrEmpty(type)) {

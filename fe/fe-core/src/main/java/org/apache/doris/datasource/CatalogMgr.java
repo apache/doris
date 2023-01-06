@@ -121,7 +121,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             nameToCatalog.remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
-            if (Strings.isNullOrEmpty(catalog.getResource())) {
+            if (!Strings.isNullOrEmpty(catalog.getResource())) {
                 Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
                 if (catalogResource != null) {
                     catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
