@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_var") {
+suite("nereids_sys_var") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -39,5 +39,11 @@ suite("set_var") {
     test {
         sql "select /*+SET_VAR(runtime_filter_type=10000)*/ * from supplier limit 10"
         exception "Unexpected exception: Can not set session variable"
+    }
+
+    sql "select @@session.time_zone"
+    test {
+        sql "select @@session.enable_nereids_planner"
+        result ([["true"]])
     }
 }

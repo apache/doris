@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
+import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -378,6 +379,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
         return visit(virtualSlotReference, context);
+    }
+
+    public R visitVariableDesc(VariableDesc variableDesc, C context) {
+        return visit(variableDesc, context);
     }
 
     public R visitTVFProperties(TVFProperties tvfProperties, C context) {
