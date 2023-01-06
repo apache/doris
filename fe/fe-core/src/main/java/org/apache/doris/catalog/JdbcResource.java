@@ -67,7 +67,7 @@ public class JdbcResource extends Resource {
     public static final String DRIVER_CLASS = "driver_class";
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
-    private static final String CHECK_SUM = "checksum";
+    public static final String CHECK_SUM = "checksum";
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
