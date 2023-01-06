@@ -73,6 +73,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     private ExternalSchemaCache schemaCache;
 
+    public ExternalCatalog(long catalogId, String name) {
+        this.id = catalogId;
+        this.name = name;
+    }
+
     /**
      * @return names of database in this catalog.
      */

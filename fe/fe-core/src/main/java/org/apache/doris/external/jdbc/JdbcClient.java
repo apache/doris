@@ -105,7 +105,7 @@ public class JdbcClient {
         dataSource.close();
     }
 
-    public String parseDbType(String url) {
+    public static String parseDbType(String url) {
         if (url.startsWith("jdbc:mysql") || url.startsWith("jdbc:mariadb")) {
             return MYSQL;
         } else if (url.startsWith("jdbc:postgresql")) {
@@ -116,7 +116,7 @@ public class JdbcClient {
         // }
         // else if (url.startsWith("jdbc:sqlserver")) {
         //     return SQLSERVER;
-        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + jdbcUrl);
+        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
 
     public Connection getConnection() throws JdbcClientException {

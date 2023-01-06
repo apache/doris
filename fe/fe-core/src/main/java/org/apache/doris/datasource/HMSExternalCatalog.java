@@ -58,14 +58,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(
-            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
-        this.id = catalogId;
-        this.name = name;
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
+            throws DdlException {
+        super(catalogId, name);
         this.type = "hms";
-        if (resource == null) {
-            props.putAll(HMSResource.getPropertiesFromDLF());
-        }
+        props.putAll(HMSResource.getPropertiesFromDLF());
         catalogProperty = new CatalogProperty(resource, props);
     }
 

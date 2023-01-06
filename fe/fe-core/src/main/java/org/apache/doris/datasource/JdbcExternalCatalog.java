@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.external.jdbc.JdbcClient;
 
 import com.google.common.collect.Lists;
@@ -32,8 +31,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -44,25 +41,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // Must add "transient" for Gson to ignore this field,
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
-    private String databaseTypeName;
-    private String jdbcUser;
-    private String jdbcPasswd;
-    private String jdbcUrl;
-    private String driverUrl;
-    private String driverClass;
-    private String checkSum = "";
 
-    public JdbcExternalCatalog(
-            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
-        this.id = catalogId;
-        this.name = name;
+    public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+        super(catalogId, name);
         this.type = "jdbc";
-        if (resource == null) {
-            catalogProperty = new CatalogProperty(null, processCompatibleProperties(props));
-        } else {
-            catalogProperty = new CatalogProperty(resource, Collections.emptyMap());
-            processCompatibleProperties(catalogProperty.getProperties());
-        }
+        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 
     @Override
@@ -77,52 +60,71 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> kv : props.entrySet()) {
             properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
         }
-        jdbcUser = properties.getOrDefault(JdbcResource.USER, "");
-        jdbcPasswd = properties.getOrDefault(JdbcResource.PASSWORD, "");
-        jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
-        handleJdbcUrl();
+        String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
+        jdbcUrl = handleJdbcUrl(jdbcUrl);
         properties.put(JdbcResource.JDBC_URL, jdbcUrl);
-        driverUrl = properties.getOrDefault(JdbcResource.DRIVER_URL, "");
-        driverClass = properties.getOrDefault(JdbcResource.DRIVER_CLASS, "");
-        checkSum = properties.getOrDefault(JdbcResource.CHECK_SUM, "");
         return properties;
     }
 
     // `yearIsDateType` is a parameter of JDBC, and the default is `yearIsDateType=true`
     // We force the use of `yearIsDateType=false`
-    private void handleJdbcUrl() {
+    private String handleJdbcUrl(String jdbcUrl) {
         // delete all space in jdbcUrl
-        jdbcUrl = jdbcUrl.replaceAll(" ", "");
-        if (jdbcUrl.contains("yearIsDateType=false")) {
-            return;
-        } else if (jdbcUrl.contains("yearIsDateType=true")) {
-            jdbcUrl = jdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
+        String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
+        if (newJdbcUrl.contains("yearIsDateType=false")) {
+            return newJdbcUrl;
+        } else if (newJdbcUrl.contains("yearIsDateType=true")) {
+            newJdbcUrl = newJdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
         } else {
             String yearIsDateType = "yearIsDateType=false";
-            if (jdbcUrl.contains("?")) {
-                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
-                    jdbcUrl += "&";
+            if (newJdbcUrl.contains("?")) {
+                if (newJdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
+                    newJdbcUrl += "&";
                 }
             } else {
-                jdbcUrl += "?";
+                newJdbcUrl += "?";
             }
-            jdbcUrl += yearIsDateType;
+            newJdbcUrl += yearIsDateType;
         }
+        return newJdbcUrl;
+    }
+
+    public String getDatabaseTypeName() {
+        return JdbcClient.parseDbType(getJdbcUrl());
+    }
+
+    public String getJdbcUser() {
+        return catalogProperty.getOrDefault(JdbcResource.USER, "");
+    }
+
+    public String getJdbcPasswd() {
+        return catalogProperty.getOrDefault(JdbcResource.PASSWORD, "");
+    }
+
+    public String getJdbcUrl() {
+        return catalogProperty.getOrDefault(JdbcResource.JDBC_URL, "");
+    }
+
+    public String getDriverUrl() {
+        return catalogProperty.getOrDefault(JdbcResource.DRIVER_URL, "");
+    }
+
+    public String getDriverClass() {
+        return catalogProperty.getOrDefault(JdbcResource.DRIVER_CLASS, "");
+    }
+
+    public String getCheckSum() {
+        return catalogProperty.getOrDefault(JdbcResource.CHECK_SUM, "");
     }
 
     @Override
     public void notifyPropertiesUpdated() {
-        processCompatibleProperties(catalogProperty.getProperties());
         initLocalObjectsImpl();
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(jdbcUser, jdbcPasswd, jdbcUrl, driverUrl, driverClass);
-        databaseTypeName = jdbcClient.getDbType();
-        if (checkSum.isEmpty()) {
-            checkSum = jdbcClient.getCheckSum();
-        }
+        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass());
     }
 
     @Override
@@ -178,16 +180,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         return jdbcClient.isTableExist(dbName, tblName);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        super.gsonPostProcess();
-        if (catalogProperty.getResource() == null) {
-            catalogProperty.setProperties(processCompatibleProperties(catalogProperty.getProperties()));
-        } else {
-            processCompatibleProperties(catalogProperty.getProperties());
-        }
     }
 
     @Override
