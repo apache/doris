@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
@@ -244,7 +245,9 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    return new DecimalLiteral(value);
+                    DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                    res.setType(targetType);
+                    return res;
                 default:
                     break;
             }
