@@ -6,8 +6,8 @@ Customer#000001309
 Customer#000001309
 
 -- !not_regexp --
-Customer#000001312
 Customer#000001303
+Customer#000001312
 
 -- !not_rlike --
 Customer#000001303

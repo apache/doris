@@ -20,8 +20,8 @@ suite("rlike") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
-    qt_regexp "select c_name from customer where c_name regexp '9'"
-    qt_rlike "select c_name from customer where c_name rlike '9'"
-    qt_not_regexp "select c_name from customer where c_name not regexp '9'"
-    qt_not_rlike "select c_name from customer where c_name not rlike '9'"
+    qt_regexp "select c_name from customer where c_name regexp '9' order by c_custkey"
+    qt_rlike "select c_name from customer where c_name rlike '9' ordey by c_custkey"
+    qt_not_regexp "select c_name from customer where c_name not regexp '9' ordey by c_custkey"
+    qt_not_rlike "select c_name from customer where c_name not rlike '9' ordey by c_custkey"
 }
