@@ -32,67 +32,79 @@ under the License.
 
 The histogram function is used to describe the distribution of the data. It uses an "equal height" bucking strategy, and divides the data into buckets according to the value of the data. It describes each bucket with some simple data, such as the number of values that fall in the bucket. It is mainly used by the optimizer to estimate the range query.
 
+The result of the function returns an empty or Json string.
+
+Parameter description：
+- sample_rate：Optional. The proportion of sample data used to generate the histogram. The default is 0.2.
+- max_bucket_num：Optional. Limit the number of histogram buckets. The default value is 128.
+
 ### notice
 
-```
-Only supported in vectorized engine
-```
+> Only supported in vectorized engine
 
 ### example
 
 ```
-MySQL [test]> select histogram(login_time) from dev_table;
-+------------------------------------------------------------------------------------------------------------------------------+
-| histogram(`login_time`)                                                                                                      |
-+------------------------------------------------------------------------------------------------------------------------------+
-| {"bucket_size":5,"buckets":[{"lower":"2022-09-21 17:30:29","upper":"2022-09-21 22:30:29","count":9,"pre_sum":0,"ndv":1},...]}|
-+------------------------------------------------------------------------------------------------------------------------------+
+MySQL [test]> SELECT histogram(c_float) FROM histogram_test;
++-------------------------------------------------------------------------------------------------------------------------------------+
+| histogram(`c_float`)                                                                                                                |
++-------------------------------------------------------------------------------------------------------------------------------------+
+| {"sample_rate":0.2,"max_bucket_num":128,"bucket_num":3,"buckets":[{"lower":"0.1","upper":"0.1","count":1,"pre_sum":0,"ndv":1},...]} |
++-------------------------------------------------------------------------------------------------------------------------------------+
+
+MySQL [test]> SELECT histogram(c_string, 0.5, 2) FROM histogram_test;
++-------------------------------------------------------------------------------------------------------------------------------------+
+| histogram(`c_string`)                                                                                                               |
++-------------------------------------------------------------------------------------------------------------------------------------+
+| {"sample_rate":0.5,"max_bucket_num":2,"bucket_num":2,"buckets":[{"lower":"str1","upper":"str7","count":4,"pre_sum":0,"ndv":3},...]} |
++-------------------------------------------------------------------------------------------------------------------------------------+
 ```
+
 Query result description：
 
 ```
 {
-    "bucket_size": 5, 
+    "sample_rate": 0.2, 
+    "max_bucket_num": 128, 
+    "bucket_num": 3, 
     "buckets": [
         {
-            "lower": "2022-09-21 17:30:29", 
-            "upper": "2022-09-21 22:30:29", 
-            "count": 9, 
+            "lower": "0.1", 
+            "upper": "0.2", 
+            "count": 2, 
             "pre_sum": 0, 
-            "ndv": 1
+            "ndv": 2
         }, 
         {
-            "lower": "2022-09-22 17:30:29", 
-            "upper": "2022-09-22 22:30:29", 
-            "count": 10, 
-            "pre_sum": 9, 
-            "ndv": 1
+            "lower": "0.8", 
+            "upper": "0.9", 
+            "count": 2, 
+            "pre_sum": 2, 
+            "ndv": 2
         }, 
         {
-            "lower": "2022-09-23 17:30:29", 
-            "upper": "2022-09-23 22:30:29", 
-            "count": 9, 
-            "pre_sum": 19, 
-            "ndv": 1
-        }, 
-        {
-            "lower": "2022-09-24 17:30:29", 
-            "upper": "2022-09-24 22:30:29", 
-            "count": 9, 
-            "pre_sum": 28, 
-            "ndv": 1
-        }, 
-        {
-            "lower": "2022-09-25 17:30:29", 
-            "upper": "2022-09-25 22:30:29", 
-            "count": 9, 
-            "pre_sum": 37, 
+            "lower": "1.0", 
+            "upper": "1.0", 
+            "count": 2, 
+            "pre_sum": 4, 
             "ndv": 1
         }
     ]
 }
 ```
 
+Field description：
+- sample_rate：Rate of sampling
+- max_bucket_num：Limit the maximum number of buckets
+- bucket_num：The actual number of buckets
+- buckets：All buckets
+    - lower：Upper bound of the bucket
+    - upper：Lower bound of the bucket
+    - count：The number of elements contained in the bucket
+    - pre_sum：The total number of elements in the front bucket
+    - ndv：The number of different values in the bucket
+
+> Total number of histogram elements = number of elements in the last bucket(count) + total number of elements in the previous bucket(pre_sum).
 
 ### keywords
 
