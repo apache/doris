@@ -1509,17 +1509,15 @@ public abstract class Type {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case DATETIMEV2:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
                 return VARCHAR;
-            case DATETIMEV2:
-                return DEFAULT_DATETIMEV2;
-            case TIMEV2:
-                return DEFAULT_TIMEV2;
             case DECIMALV2:
                 return DECIMALV2;
             case DECIMAL32:

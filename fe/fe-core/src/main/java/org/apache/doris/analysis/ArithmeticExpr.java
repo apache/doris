@@ -533,6 +533,9 @@ public class ArithmeticExpr extends Expr {
                     // max(scale1, scale2))
                     scale = Math.max(t1Scale, t2Scale);
                     precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                } else {
+                    scale = Math.max(t1Scale, t2Scale);
+                    precision = widthOfIntPart2 + scale;
                 }
                 if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
                     // TODO(gabriel): if precision is bigger than 38?
@@ -557,6 +560,9 @@ public class ArithmeticExpr extends Expr {
                         break;
                     }
                     castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
+                } else if (op == Operator.MOD) {
+                    castChild(type, 0);
+                    castChild(type, 1);
                 }
                 break;
             case INT_DIVIDE:
