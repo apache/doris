@@ -50,7 +50,7 @@ public class ConvertTo extends ScalarFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
             throw new AnalysisException("the second paratemer of "
                     + getName() + " function must be a constant: " + toSql());

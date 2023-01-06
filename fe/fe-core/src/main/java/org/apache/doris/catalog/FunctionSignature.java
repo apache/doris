@@ -22,6 +22,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -120,6 +121,16 @@ public class FunctionSignature {
 
     public static FuncSigBuilder retArgType(int argIndex) {
         return new FuncSigBuilder(new FollowToArgumentType(argIndex));
+    }
+
+    @Override
+    public String toString() {
+        return MoreObjects.toStringHelper(this)
+                .add("returnType", returnType)
+                .add("hasVarArgs", hasVarArgs)
+                .add("argumentsTypes", argumentsTypes)
+                .add("arity", arity)
+                .toString();
     }
 
     public static class FuncSigBuilder {

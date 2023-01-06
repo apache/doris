@@ -38,7 +38,7 @@ public class TypeCoercionJob extends BatchRulesJob {
                 // NOTE:
                 // CheckFunctionLegality should invoke before TypeCoercion.
                 // We should move all rules into the AnalyzeRulesJob later.
-                bottomUpBatch(new ExpressionRewrite(CheckExpressionLegality.INSTANCE)),
+                bottomUpBatch(new ExpressionRewrite(CheckLegalityBeforeTypeCoercion.INSTANCE)),
                 topDownBatch(ImmutableList.of(
                         new ExpressionNormalization(cascadesContext.getConnectContext(),
                                 ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE)))

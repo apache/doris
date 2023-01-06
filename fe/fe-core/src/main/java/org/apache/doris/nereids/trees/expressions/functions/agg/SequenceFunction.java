@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 /** SequenceFunction */
 public interface SequenceFunction extends FunctionTrait {
     @Override
-    default void checkLegality() {
+    default void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
         Expression firstArg = getArgument(0);
         if (firstArg instanceof StringLikeLiteral) {

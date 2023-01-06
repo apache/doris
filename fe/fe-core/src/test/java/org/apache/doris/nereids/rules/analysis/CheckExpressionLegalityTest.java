@@ -17,38 +17,58 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.batch.CheckLegalityAfterRewrite;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Test;
 
-public class CheckExpressionLegalityTest {
+public class CheckExpressionLegalityTest implements PatternMatchSupported {
     @Test
     public void testAvg() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        try {
-            PlanChecker.from(connectContext)
-                    .analyze("select avg(id) from (select to_bitmap(1) id) tbl");
-            throw new IllegalStateException("Expect analyze failed");
-        } catch (Throwable t) {
-            if (!t.getMessage().contains("avg requires a numeric parameter")) {
-                throw t;
-            }
-        }
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class, "avg requires a numeric parameter", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select avg(id) from (select to_bitmap(1) id) tbl");
+                });
     }
 
     @Test
     public void testBitmapCount() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        try {
-            PlanChecker.from(connectContext)
-                    .analyze("select bitmap_count(id) from (select 1 id) tbl");
-            throw new IllegalStateException("Expect analyze failed");
-        } catch (Throwable t) {
-            if (!t.getMessage().contains("argument should be of BITMAP type")) {
-                throw t;
-            }
-        }
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class, "argument should be of BITMAP type", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select bitmap_count(id) from (select 1 id) tbl");
+                });
+    }
+
+    @Test
+    public void testCountDistinctBitmap() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        PlanChecker.from(connectContext)
+                .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
+                .matchesFromRoot(logicalAggregate().when(agg ->
+                    agg.getOutputExpressions().get(0).child(0) instanceof Count
+                ))
+                .rewrite()
+                .matchesFromRoot(logicalAggregate().when(agg ->
+                    agg.getOutputExpressions().get(0).child(0) instanceof BitmapUnionCount
+                ));
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Doris hll, bitmap and array column must use with specific function", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
+                            .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE));
+        });
     }
 }

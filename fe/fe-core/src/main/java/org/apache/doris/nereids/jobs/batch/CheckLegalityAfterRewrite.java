@@ -21,14 +21,14 @@ import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewri
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-/** CheckExpressionLegality */
-public class CheckExpressionLegality extends AbstractExpressionRewriteRule {
-    public static final CheckExpressionLegality INSTANCE = new CheckExpressionLegality();
+/** CheckLegalityAfterRewrite */
+public class CheckLegalityAfterRewrite extends AbstractExpressionRewriteRule {
+    public static final CheckLegalityAfterRewrite INSTANCE = new CheckLegalityAfterRewrite();
 
     @Override
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);
-        expr.checkLegality();
+        expr.checkLegalityAfterRewrite();
         return expr;
     }
 }

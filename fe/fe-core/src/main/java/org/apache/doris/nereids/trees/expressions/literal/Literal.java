@@ -157,11 +157,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return Float.compare((float) getValue(), (float) other.getValue());
         } else if (type.isDoubleType()) {
             return Double.compare((double) getValue(), (double) other.getValue());
-        } else if (type.isDecimalType()) {
+        } else if (type.isDecimalV2Type()) {
             return Long.compare((Long) getValue(), (Long) other.getValue());
         } else if (type.isDateLikeType()) {
             // todo process date
-        } else if (type.isDecimalType()) {
+        } else if (type.isDecimalV2Type()) {
             return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
         } else if (type instanceof StringType) {
             return StringUtils.compare((String) getValue(), (String) other.getValue());
@@ -204,11 +204,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateLiteral(desc);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(desc);
-        } else if (targetType.isDecimalType()) {
+        } else if (targetType.isDecimalV2Type()) {
             return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
         } else if (targetType.isDateV2()) {
             return new DateV2Literal(desc);
-        } else if (targetType.isDateTimeV2()) {
+        } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal(desc);
         }
         throw new AnalysisException("no support cast!");

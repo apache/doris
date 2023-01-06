@@ -459,8 +459,12 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DoubleType;
     }
 
-    public boolean isDecimalType() {
+    public boolean isDecimalV2Type() {
         return this instanceof DecimalV2Type;
+    }
+
+    public boolean isDecimalV3Type() {
+        return this instanceof DecimalV3Type;
     }
 
     public boolean isDateTimeType() {
@@ -472,7 +476,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isDateLikeType() {
-        return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2();
+        return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2Type();
     }
 
     public boolean isNullType() {
@@ -503,7 +507,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DateV2Type;
     }
 
-    public boolean isDateTimeV2() {
+    public boolean isDateTimeV2Type() {
         return this instanceof DateTimeV2Type;
     }
 

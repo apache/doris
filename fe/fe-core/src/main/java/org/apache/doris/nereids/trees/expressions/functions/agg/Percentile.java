@@ -57,7 +57,7 @@ public class Percentile extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
             throw new AnalysisException(
                     "percentile requires second parameter must be a constant : " + this.toSql());

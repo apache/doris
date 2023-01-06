@@ -37,7 +37,10 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     // check legality before do type coercion.
     // maybe we should merge checkInputDataTypes and checkLegality later.
     @Developing
-    default void checkLegality() {}
+    default void checkLegalityBeforeTypeCoercion() {}
+
+    @Developing
+    default void checkLegalityAfterRewrite() {}
 
     default boolean notNullable() {
         return !nullable();

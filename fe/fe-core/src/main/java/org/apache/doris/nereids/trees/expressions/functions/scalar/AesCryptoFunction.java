@@ -63,7 +63,7 @@ public abstract class AesCryptoFunction extends CryptoFunction {
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (arity() == 4) {
             CryptoFunction.checkBlockEncryptionMode(getArgument(3), AES_MODES, "aes");
         }

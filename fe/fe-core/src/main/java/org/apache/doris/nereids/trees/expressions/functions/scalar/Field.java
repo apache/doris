@@ -71,7 +71,7 @@ public class Field extends ScalarFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         for (int i = 1; i < children.size(); ++i) {
             if (!getArgument(i).isConstant()) {
                 throw new AnalysisException(getName()

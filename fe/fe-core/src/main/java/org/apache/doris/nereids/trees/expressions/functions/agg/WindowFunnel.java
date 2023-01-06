@@ -72,7 +72,7 @@ public class WindowFunnel extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
         if (!getArgumentType(0).isIntegerType()) {
             throw new AnalysisException("The window params of " + functionName + " function must be integer");
@@ -92,7 +92,7 @@ public class WindowFunnel extends AggregateFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         FunctionSignature functionSignature = super.computeSignature(signature);
         if (functionSignature.getArgType(2) instanceof DateType) {
             return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->

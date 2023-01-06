@@ -65,7 +65,7 @@ public class BitmapUnionInt extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         DataType argumentType = getArgumentType(0);
         if (!(argumentType instanceof Int64OrLessType)) {
             throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT or BIGINT");

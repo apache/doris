@@ -44,7 +44,7 @@ public abstract class Sm4CryptoFunction extends CryptoFunction {
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (arity() == 4) {
             CryptoFunction.checkBlockEncryptionMode(getArgument(3), SM4_MODES, "sm4");
         }

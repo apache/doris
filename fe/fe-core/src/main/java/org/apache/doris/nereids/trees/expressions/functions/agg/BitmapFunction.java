@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.DataType;
 /** BitmapFunction */
 public interface BitmapFunction extends FunctionTrait {
     @Override
-    default void checkLegality() {
+    default void checkLegalityBeforeTypeCoercion() {
         DataType argumentType = getArgumentType(0);
         if (!argumentType.isBitmapType()) {
             throw new AnalysisException(getName()

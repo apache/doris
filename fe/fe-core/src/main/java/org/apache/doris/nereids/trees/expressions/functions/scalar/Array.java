@@ -78,7 +78,7 @@ public class Array extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         if (arity() > 0) {
             signature = signature.withReturnType(ArrayType.of(getArgumentType(0)));
         }

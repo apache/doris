@@ -49,7 +49,7 @@ public class JsonObject extends ScalarFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         for (int i = 0; i < arity(); i++) {
             if ((i & 1) == 0 && getArgumentType(i).isNullType()) {
                 throw new AnalysisException("json_object key can't be NULL: " + this.toSql());

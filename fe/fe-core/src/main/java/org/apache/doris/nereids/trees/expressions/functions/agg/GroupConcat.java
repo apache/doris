@@ -82,7 +82,7 @@ public class GroupConcat extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         DataType typeOrArg0 = getArgumentType(0);
         if (!typeOrArg0.isStringLikeType() && !typeOrArg0.isNullType()) {
             throw new AnalysisException(

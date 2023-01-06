@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 /** StdDevOrVarianceFunction */
 public interface StdDevOrVarianceFunction extends FunctionTrait {
     @Override
-    default void checkLegality() {
+    default void checkLegalityBeforeTypeCoercion() {
         if (getArgumentType(0).isDateLikeType()) {
             throw new AnalysisException("Stddev/variance function do not support Date/Datetime type");
         }

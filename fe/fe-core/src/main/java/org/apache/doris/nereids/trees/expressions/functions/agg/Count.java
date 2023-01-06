@@ -61,12 +61,16 @@ public class Count extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         // for multiple exprs count must be qualified with distinct
         if (arity() > 1 && !distinct) {
             throw new AnalysisException("COUNT must have DISTINCT for multiple arguments: " + this.toSql());
         }
+    }
 
+    @Override
+    public void checkLegalityAfterRewrite() {
+        // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
             if (argument.getDataType().isOnlyMetricType()) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);

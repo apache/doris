@@ -47,7 +47,7 @@ public class Min extends NullableAggregateFunction implements UnaryExpression, C
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (getArgumentType(0).isOnlyMetricType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }

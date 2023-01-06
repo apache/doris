@@ -57,7 +57,7 @@ public class QuantileUnion extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         DataType inputType = getArgumentType(0);
         if (!inputType.isQuantileStateType()) {
             throw new AnalysisException(getName()

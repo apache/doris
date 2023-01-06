@@ -84,7 +84,7 @@ public class CollectSet extends AggregateFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = signature.withReturnType(ArrayType.of(getArgumentType(0)));
         return super.computeSignature(signature);
     }

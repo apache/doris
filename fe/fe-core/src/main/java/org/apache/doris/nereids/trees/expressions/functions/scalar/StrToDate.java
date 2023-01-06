@@ -56,7 +56,7 @@ public class StrToDate extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         /*
          * The return type of str_to_date depends on whether the time part is included in the format.
          * If included, it is datetime, otherwise it is date.

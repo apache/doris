@@ -257,7 +257,7 @@ public class TypeCoercionUtils {
             return LargeIntType.INSTANCE;
         } else if (type.isFloatType() || type.isDoubleType() || type.isStringLikeType()) {
             return DoubleType.INSTANCE;
-        } else if (type.isDecimalType()) {
+        } else if (type.isDecimalV2Type()) {
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (type.isNullType()) {
             return NullType.INSTANCE;
@@ -271,7 +271,7 @@ public class TypeCoercionUtils {
     public static DataType findCommonNumericsType(DataType t1, DataType t2) {
         if (t1.isDoubleType() || t2.isDoubleType()) {
             return DoubleType.INSTANCE;
-        } else if (t1.isDecimalType() || t2.isDecimalType()) {
+        } else if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (t1.isLargeIntType() || t2.isLargeIntType()) {
             return LargeIntType.INSTANCE;

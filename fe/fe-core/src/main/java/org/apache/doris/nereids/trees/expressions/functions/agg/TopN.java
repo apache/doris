@@ -76,7 +76,7 @@ public class TopN extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant() || !getArgumentType(1).isIntegerType()) {
             throw new AnalysisException(
                     "topn requires second parameter must be a constant Integer Type: " + this.toSql());

@@ -66,7 +66,7 @@ public class Substring extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         Optional<Expression> length = arity() == 3
                 ? Optional.of(getArgument(2))
                 : Optional.empty();

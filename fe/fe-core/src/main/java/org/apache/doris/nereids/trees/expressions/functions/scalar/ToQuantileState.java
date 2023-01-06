@@ -51,7 +51,7 @@ public class ToQuantileState extends ScalarFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
             throw new AnalysisException(getName() + "function's second argument should be constant");
         }

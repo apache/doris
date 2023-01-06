@@ -41,7 +41,7 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         if (arity() == 1 && signature.returnType instanceof DateTimeV2Type) {
             // For functions in TIME_FUNCTIONS_WITH_PRECISION, we can't figure out which function should be use when
             // searching in FunctionSet. So we adjust the return type by hand here.

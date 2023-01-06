@@ -17,29 +17,21 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
-/** BitmapIntersectFunction */
-public interface BitmapIntersectFunction extends FunctionTrait {
+/** ComputePrecisionForSum */
+public interface ComputePrecisionForSum extends ComputePrecision {
     @Override
-    default void checkLegalityBeforeTypeCoercion() {
-        String functionName = getName();
-        if (arity() <= 2) {
-            throw new AnalysisException(functionName + "(bitmap_column, column_to_filter, filter_values) "
-                    + "function requires at least three parameters");
-        }
-
-        DataType inputType = getArgumentType(0);
-        if (!inputType.isBitmapType()) {
-            throw new AnalysisException(
-                    functionName + "function first argument should be of BITMAP type, but was " + inputType);
-        }
-
-        for (int i = 2; i < arity(); i++) {
-            if (!getArgument(i).isConstant()) {
-                throw new AnalysisException(functionName + " function filter_values arg must be constant");
-            }
+    default FunctionSignature computePrecision(FunctionSignature signature) {
+        DataType argumentType = getArgumentType(0);
+        if (argumentType.isDecimalV3Type()) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) argumentType;
+            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(
+                    DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalV3Type.getScale()));
+        } else {
+            return signature;
         }
     }
 }

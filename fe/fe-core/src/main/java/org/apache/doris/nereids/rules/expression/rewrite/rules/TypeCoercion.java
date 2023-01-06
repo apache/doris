@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.jobs.batch.CheckExpressionLegality;
+import org.apache.doris.nereids.jobs.batch.CheckLegalityBeforeTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
-import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -56,7 +55,7 @@ import java.util.stream.Collectors;
  * This class is inspired by spark's TypeCoercion.
  */
 @Developing
-@DependsRules(CheckExpressionLegality.class)
+@DependsRules(CheckLegalityBeforeTypeCoercion.class)
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     // TODO:
@@ -194,14 +193,19 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
             List<AbstractDataType> expectedInputTypes, ExpressionRewriteContext ctx) {
         expr = expr.withChildren(child -> rewrite(child, ctx));
         List<Optional<DataType>> inputImplicitCastTypes = null;
-        if (expr instanceof ComputeSignature) {
-            // the ComputeSignature interface already find the correct implicit cast types.
-            if (expectedInputTypes.stream().allMatch(type -> type instanceof DataType)) {
-                inputImplicitCastTypes = expectedInputTypes.stream()
-                        .map(type -> Optional.of((DataType) type))
-                        .collect(Collectors.toList());
-            }
-        }
+//        if (expr instanceof ComputeSignature) {
+//            // the ComputeSignature interface already find the correct implicit cast types.
+//            if (expectedInputTypes.stream().allMatch(type -> type instanceof DataType)) {
+//                for (int i = 0; i < expectedInputTypes.size(); i++) {
+//                    DataType argType = (DataType) expectedInputTypes.get(i);
+//
+//                }
+//                inputImplicitCastTypes = expectedInputTypes.stream()
+//                        .map(DataType.class::cast)
+//                        .map(type -> Optional.of(expr.getArgumentType().getDataType().acceptsType(type) ? ex))
+//                        .collect(Collectors.toList());
+//            }
+//        }
 
         if (inputImplicitCastTypes == null) {
             inputImplicitCastTypes = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
@@ -222,7 +226,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     && !(expectedType.getClass().equals(IntegralType.class))
                     && !(expectedType.getClass().equals(FractionalType.class))
                     && !(expectedType.getClass().equals(CharacterType.class))
-                    && argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
+                    && !argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
             if (!castType.isPresent() && legacyCastCompatible) {
                 castType = Optional.of((DataType) expectedType);
             }

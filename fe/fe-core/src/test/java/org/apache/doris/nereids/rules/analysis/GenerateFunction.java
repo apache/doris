@@ -1406,7 +1406,7 @@ public class GenerateFunction {
         @Override
         public String computeSignature() {
             return "    @Override\n"
-                    + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
+                    + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        DataType widerType = this.widerType.get();\n"
                     + "        List<AbstractDataType> newArgumentsTypes = new ImmutableList.Builder<AbstractDataType>()\n"
                     + "                .add(signature.argumentsTypes.get(0))\n"
@@ -1556,7 +1556,7 @@ public class GenerateFunction {
         @Override
         public String computeSignature() {
             return "    @Override\n"
-                    + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
+                    + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        /*\n"
                     + "         * The return type of str_to_date depends on whether the time part is included in the format.\n"
                     + "         * If included, it is datetime, otherwise it is date.\n"
@@ -1630,7 +1630,7 @@ public class GenerateFunction {
         @Override
         public String computeSignature() {
             return "    @Override\n"
-                    + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
+                    + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        Optional<Expression> length = getLength();\n"
                     + "        DataType returnType = VarcharType.SYSTEM_DEFAULT;\n"
                     + "        if (length.isPresent() && length.get() instanceof IntegerLiteral) {\n"

@@ -15,18 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.agg;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
+import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
-/** HllFunction */
-public interface HllFunction extends FunctionTrait {
+/** CheckLegalityBeforeTypeCoercion */
+public class CheckLegalityBeforeTypeCoercion extends AbstractExpressionRewriteRule {
+    public static final CheckLegalityBeforeTypeCoercion INSTANCE = new CheckLegalityBeforeTypeCoercion();
+
     @Override
-    default void checkLegalityBeforeTypeCoercion() {
-        if (!getArgumentType(0).isHllType()) {
-            throw new AnalysisException(
-                    "HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
-        }
+    public Expression visit(Expression expr, ExpressionRewriteContext context) {
+        expr = super.visit(expr, context);
+        expr.checkLegalityBeforeTypeCoercion();
+        return expr;
     }
 }

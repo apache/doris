@@ -59,7 +59,7 @@ public class Retention extends AggregateFunction
     }
 
     @Override
-    public void checkLegality() {
+    public void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
         if (this.children.isEmpty()) {
             throw new AnalysisException("The " + functionName + " function must have at least one param");

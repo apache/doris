@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -79,5 +80,23 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
     @Override
     default boolean hasVarArguments() {
         return getSignature().hasVarArgs;
+    }
+
+    /** default computeSignature */
+    default FunctionSignature computeSignature(FunctionSignature signature) {
+        // NOTE:
+        // this computed chain only process the common cases.
+        // If you want to add some common cases to here, please separate the process code
+        // to the other methods and add to this chain.
+        // If you want to add some special cases, please override this method in the special
+        // function class, like 'If' function and 'Substring' function.
+        return ComputeSignatureChain.from(this, signature, getArguments())
+                .then(ComputeSignatureHelper::implementAbstractReturnType)
+                .then(ComputeSignatureHelper::upgradeDateOrDateTimeToV2)
+                .then(ComputeSignatureHelper::upgradeDecimalV2ToV3)
+                .then(ComputeSignatureHelper::normalizeDecimalV2)
+                .then(ComputeSignatureHelper::computePrecision)
+                .then(ComputeSignatureHelper::dynamicComputePropertiesOfArray)
+                .get();
     }
 }

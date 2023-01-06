@@ -41,7 +41,7 @@ public abstract class CompatibleTypeArrayFunction extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    public FunctionSignature computeSignature(FunctionSignature signature) {
         Type compatibleType = getArgumentType(0).toCatalogDataType();
         for (int i = 1; i < arity(); ++i) {
             compatibleType = Type.getAssignmentCompatibleType(
