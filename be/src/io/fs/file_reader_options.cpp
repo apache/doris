@@ -25,8 +25,8 @@ FileCacheType cache_type_from_string(const std::string& type) {
         return FileCacheType::SUB_FILE_CACHE;
     } else if (type == "whole_file_cache") {
         return FileCacheType::WHOLE_FILE_CACHE;
-    } else if (type == "remote_file_cache") {
-        return FileCacheType::REMOTE_FILE_CACHE;
+    } else if (type == "file_segment_cache") {
+        return FileCacheType::FILE_SEGMENT_CACHE;
     } else {
         return FileCacheType::NO_CACHE;
     }

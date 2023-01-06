@@ -26,7 +26,7 @@ enum class FileCacheType : uint8_t {
     NO_CACHE,
     SUB_FILE_CACHE,
     WHOLE_FILE_CACHE,
-    REMOTE_FILE_CACHE,
+    FILE_SEGMENT_CACHE,
 };
 
 FileCacheType cache_type_from_string(const std::string& type);
@@ -57,9 +57,9 @@ public:
     }
 };
 
-class RemoteFileCachePathPolicy : public CachePathPolicy {
+class FileSegmentCachePathPolicy : public CachePathPolicy {
 public:
-    RemoteFileCachePathPolicy() = default;
+    FileSegmentCachePathPolicy() = default;
 };
 
 class FileReaderOptions {

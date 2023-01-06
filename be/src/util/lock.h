@@ -79,7 +79,6 @@ private:
     doris::Mutex _mutex;
     doris::ConditionVariable _cv;
 
-private:
     DISALLOW_COPY_AND_ASSIGN(BthreadSharedMutex);
 };
 

@@ -61,7 +61,6 @@ private:
 
     IOContext* _io_ctx;
 
-private:
     struct ReadStatistics {
         bool hit_cache = false;
         int64_t bytes_read = 0;

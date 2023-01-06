@@ -45,7 +45,7 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
         *reader = cache_reader;
         break;
     }
-    case io::FileCacheType::REMOTE_FILE_CACHE: {
+    case io::FileCacheType::FILE_SEGMENT_CACHE: {
         DCHECK(io_ctx);
         *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), nullptr, io_ctx);
         break;

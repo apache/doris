@@ -83,7 +83,6 @@ private:
     PriorityThreadPool* _io_thread_pool = nullptr;
     PriorityThreadPool* _remote_thread_pool = nullptr;
 
-private:
     PriorityThreadPool* io_thread_pool() { return _io_thread_pool; }
     PriorityThreadPool* remote_thread_pool() { return _remote_thread_pool; }
 };
