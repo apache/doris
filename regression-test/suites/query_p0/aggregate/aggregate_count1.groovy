@@ -20,21 +20,21 @@
 suite("aggregate_count1", "query") {
     sql """ DROP TABLE IF EXISTS aggregate_count1 """
     sql """create table if not exists aggregate_count1 (
-                name varchar(128) 
-                age INT 
-                identityCode  varchar(128) 
-                cardNo String 
-                number String 
-                birthday DATETIME 
-                birthday1 DATETIMEV2 
-                birthday2 DATETIMEV2(3) 
-                birthday3 DATETIMEV2(6) 
-                country String 
-                gender String 
+                name varchar(128),
+                age INT,
+                identityCode  varchar(128),
+                cardNo String,
+                number String,
+                birthday DATETIME,
+                birthday1 DATETIMEV2,
+                birthday2 DATETIMEV2(3),
+                birthday3 DATETIMEV2(6),
+                country String,
+                gender String,
                 covid BOOLEAN 
             )UNIQUE KEY(name,age,`identityCode`)
             DISTRIBUTED BY HASH(`identityCode`) BUCKETS 10
-            PROPERTIES(replication_num = 1);
+            PROPERTIES("replication_num" = "1");
             """
     sql "insert into aggregate_count1 values ('张三0',11,'1234567','123','321312','1999-02-13','1999-02-13','1999-02-13','1999-02-13','中国','男',false)," +
             "('张三1',11,'12345678','123','321312','1999-02-13','1999-02-13','1999-02-13','1999-02-13','中国','男',false)," +

@@ -39,7 +39,7 @@ class JoinReorderCommon {
     static boolean checkProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
         List<NamedExpression> exprs = project.getProjects();
         // must be slot or Alias(slot)
-        return !exprs.stream().allMatch(expr -> {
+        return exprs.stream().allMatch(expr -> {
             if (expr instanceof Slot) {
                 return true;
             }
