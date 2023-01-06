@@ -36,11 +36,7 @@ public:
     size_t get_number_of_arguments() const override { return 4; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeInt64>());
-        } else {
-            return std::make_shared<DataTypeInt64>();
-        }
+        return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -61,15 +57,7 @@ public:
         _execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets, *nested_column_ptr,
                          expr_type);
 
-        WhichDataType which(expr_type);
-        if (which.is_nullable()) {
-            auto dest_column_ptr =
-                    ColumnNullable::create(std::move(nested_column_ptr),
-                                           ColumnUInt8::create(nested_column_ptr->size(), 0));
-            block.replace_by_position(result, std::move(dest_column_ptr));
-        } else {
-            block.replace_by_position(result, std::move(nested_column_ptr));
-        }
+        block.replace_by_position(result, std::move(nested_column_ptr));
         return Status::OK();
     }
 
