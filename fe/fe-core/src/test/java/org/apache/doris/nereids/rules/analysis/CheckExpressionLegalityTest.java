@@ -65,10 +65,10 @@ public class CheckExpressionLegalityTest implements PatternMatchSupported {
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Doris hll, bitmap and array column must use with specific function", () -> {
-                    PlanChecker.from(connectContext)
-                            .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
-                            .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE));
-        });
+                "Doris hll, bitmap and array column must use with specific function", () ->
+                        PlanChecker.from(connectContext)
+                                .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
+                                .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))
+        );
     }
 }
