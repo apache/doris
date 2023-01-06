@@ -238,7 +238,8 @@ Status VCollectIterator::topn_next(Block* block) {
 
     BlockRowposComparator row_pos_comparator(&mutable_block, compare_column_idx,
                                              _reader->_reader_context.read_orderby_key_reverse);
-    std::multiset<size_t, BlockRowposComparator, std::allocator<size_t>> sorted_row_pos(row_pos_comparator);
+    std::multiset<size_t, BlockRowposComparator, std::allocator<size_t>> sorted_row_pos(
+            row_pos_comparator);
 
     if (_is_reverse) {
         std::reverse(_rs_readers.begin(), _rs_readers.end());
@@ -268,9 +269,9 @@ Status VCollectIterator::topn_next(Block* block) {
             auto col_name = block->get_names()[compare_column_idx];
 
             // filter block
-            RETURN_IF_ERROR(
-                VExprContext::filter_block(*(_reader->_reader_context.filter_block_vconjunct_ctx_ptr),
-                    block, block->columns()));
+            RETURN_IF_ERROR(VExprContext::filter_block(
+                    *(_reader->_reader_context.filter_block_vconjunct_ctx_ptr), block,
+                    block->columns()));
 
             // update read rows
             read_rows += block->rows();
@@ -297,11 +298,14 @@ Status VCollectIterator::topn_next(Block* block) {
                     DCHECK_GE(block->columns(), compare_column_idx + 1);
                     DCHECK_GE(mutable_block.columns(), compare_column_idx + 1);
 
-                    DCHECK(block->get_by_position(compare_column_idx).type->equals(
-                        *mutable_block.get_datatype_by_position(compare_column_idx)));
-                    int res = block->get_by_position(compare_column_idx).column->compare_at(
-                                i, last_row_pos,
-                                *(mutable_block.get_column_by_position(compare_column_idx)), 0);
+                    DCHECK(block->get_by_position(compare_column_idx)
+                                   .type->equals(*mutable_block.get_datatype_by_position(
+                                           compare_column_idx)));
+                    int res = block->get_by_position(compare_column_idx)
+                                      .column->compare_at(i, last_row_pos,
+                                                          *(mutable_block.get_column_by_position(
+                                                                  compare_column_idx)),
+                                                          0);
 
                     // only copy needed rows
                     // _is_reverse == true  > smallest is ok
@@ -350,11 +354,11 @@ Status VCollectIterator::topn_next(Block* block) {
 
                 // update orderby_extrems in query global context
                 auto query_ctx = _reader->_reader_context.runtime_state->get_query_fragments_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(
-                    new_top, col_name, _is_reverse));
+                RETURN_IF_ERROR(
+                        query_ctx->get_runtime_predicate().update(new_top, col_name, _is_reverse));
             }
         } // end of while (read_rows < _topn_limit && !eof)
-    } // end of for (auto rs_reader : _rs_readers)
+    }     // end of for (auto rs_reader : _rs_readers)
 
     // copy result_block to block
     // TODO only copy limit rows
@@ -364,13 +368,16 @@ Status VCollectIterator::topn_next(Block* block) {
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();
 }
 
-bool VCollectIterator::BlockRowposComparator::operator()(const size_t& lpos, const size_t& rpos) const {
+bool VCollectIterator::BlockRowposComparator::operator()(const size_t& lpos,
+                                                         const size_t& rpos) const {
     DCHECK_GE(_mutable_block->columns(), _compare_column_idx + 1);
     DCHECK_LE(lpos, _mutable_block->rows());
     DCHECK_LE(rpos, _mutable_block->rows());
 
-    auto res = _mutable_block->get_column_by_position(_compare_column_idx)->compare_at(lpos, rpos,
-                 *(_mutable_block->get_column_by_position(_compare_column_idx)), 0);
+    auto res =
+            _mutable_block->get_column_by_position(_compare_column_idx)
+                    ->compare_at(lpos, rpos,
+                                 *(_mutable_block->get_column_by_position(_compare_column_idx)), 0);
 
     return _is_reverse ? res > 0 : res < 0;
 }

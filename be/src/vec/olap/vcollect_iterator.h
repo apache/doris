@@ -77,7 +77,8 @@ private:
 
     class BlockRowposComparator {
     public:
-        BlockRowposComparator(MutableBlock* mutable_block, size_t compare_column_idx, bool is_reverse)
+        BlockRowposComparator(MutableBlock* mutable_block, size_t compare_column_idx,
+                              bool is_reverse)
                 : _mutable_block(mutable_block),
                   _compare_column_idx(compare_column_idx),
                   _is_reverse(is_reverse) {}

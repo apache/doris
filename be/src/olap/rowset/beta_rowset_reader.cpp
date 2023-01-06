@@ -230,7 +230,7 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     if (_empty) {
         return Status::Error<END_OF_FILE>();
     }
-    
+
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
