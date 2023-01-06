@@ -153,7 +153,7 @@ EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
 
 ### View export status
 
-After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
+After submitting a job, the job status can be viewed by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
 
 ```sql
 mysql> show EXPORT\G;
@@ -193,6 +193,20 @@ FinishTime: 2019-06-25 17:08:34
 * CreateTime/StartTime/FinishTime: Creation time, start scheduling time and end time of jobs.
 * Timeout: Job timeout. The unit is seconds. This time is calculated from CreateTime.
 * Error Msg: If there is an error in the job, the cause of the error is shown here.
+
+<version since="dev">
+
+### Cancel export job
+
+After submitting a job, the job can be canceled by using the  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md)  command. For example:
+
+```sql
+CANCEL EXPORT
+FROM example_db
+WHERE LABEL like "%example%";
+````
+
+</version>
 
 ## Best Practices
 
