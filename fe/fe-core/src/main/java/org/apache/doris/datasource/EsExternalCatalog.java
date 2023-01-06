@@ -120,11 +120,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void notifyPropertiesUpdated() {
-        initLocalObjectsImpl();
-    }
-
-    @Override
     protected void initLocalObjectsImpl() {
         esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
     }

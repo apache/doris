@@ -128,11 +128,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void notifyPropertiesUpdated() {
-        initLocalObjectsImpl();
-    }
-
-    @Override
     protected void initLocalObjectsImpl() {
         jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass());
     }
