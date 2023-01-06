@@ -1,9 +1,9 @@
 diff --git CMakeLists.txt CMakeLists.txt
-index cb4ba8067..04c5f50e9 100644
+index cb4ba80..9a106e5 100644
 --- CMakeLists.txt
 +++ CMakeLists.txt
 @@ -170,7 +170,7 @@ if (CMAKE_COMPILER_IS_GNUCC AND NOT CROSS_COMPILE)
- 
+
      # arg1 might exist if using ccache
      string (STRIP "${CMAKE_C_COMPILER_ARG1}" CC_ARG1)
 -    set (EXEC_ARGS ${CC_ARG1} -c -Q --help=target -${ARCH_FLAG}=native -mtune=native)
@@ -11,21 +11,8 @@ index cb4ba8067..04c5f50e9 100644
      execute_process(COMMAND ${CMAKE_C_COMPILER} ${EXEC_ARGS}
          OUTPUT_VARIABLE _GCC_OUTPUT)
      string(FIND "${_GCC_OUTPUT}" "${ARCH_FLAG}" POS)
-@@ -451,6 +451,12 @@ if (CXX_UNUSED_CONST_VAR)
-     set(EXTRA_CXX_FLAGS "${EXTRA_CXX_FLAGS} -Wno-unused-const-variable")
- endif()
- 
-+# clang-14 complains about unused-but-set variable.
-+CHECK_CXX_COMPILER_FLAG("-Wunused-but-set-variable" CXX_UNUSED_BUT_SET_VAR)
-+if (CXX_UNUSED_BUT_SET_VAR)
-+    set(EXTRA_CXX_FLAGS "${EXTRA_CXX_FLAGS} -Wno-unused-but-set-variable")
-+endif()
-+
- # gcc 6 complains about type attributes that get ignored, like alignment
- CHECK_CXX_COMPILER_FLAG("-Wignored-attributes" CXX_IGNORED_ATTR)
- if (CXX_IGNORED_ATTR)
 diff --git cmake/build_wrapper.sh cmake/build_wrapper.sh
-index 895610c00..becfbf4c3 100755
+index 895610c..becfbf4 100755
 --- cmake/build_wrapper.sh
 +++ cmake/build_wrapper.sh
 @@ -17,11 +17,11 @@ KEEPSYMS=$(mktemp -p /tmp keep.syms.XXXXX)

@@ -681,7 +681,7 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RELWITHDEBINFO \
         -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
