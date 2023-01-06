@@ -271,18 +271,17 @@ public class GenerateFunction {
     @Disabled
     @Developing
     public void generate() throws IOException {
-        Class<? extends Function> catalogFunctionType = ScalarFunction.class;
+        Class<? extends Function> catalogFunctionType = AggregateFunction.class;
         Map<String, String> functionCodes = collectFunctionCodes(catalogFunctionType);
 
-        functionCodes = functionCodes.entrySet()
+        /* functionCodes = functionCodes.entrySet()
                  .stream()
                  .filter(kv -> {
-                     // String[] functions = ("array,array_avg,array_compact,array_contains,array_difference,array_distinct,array_enumerate,array_except,array_intersect,array_join,array_max,array_min,array_popback,array_position,array_product,array_range,array_remove,array_size,array_slice,array_sort,array_sum,array_union,array_with_constant,arrays_overlap,"
-                     //         + "bitmap_from_array,bitmap_to_array,cardinality,concat_ws,countequal,element_at,%element_extract%,%element_slice%,if,multi_match_any,multi_search_all_positions,reverse,size,split_by_char,split_by_string").split(",");
-                     // return ImmutableSet.copyOf(functions).contains(kv.getKey());
-                     return "array_join".equalsIgnoreCase(kv.getKey());
+                     String[] functions = ("array,array_avg,array_compact,array_contains,array_difference,array_distinct,array_enumerate,array_except,array_intersect,array_join,array_max,array_min,array_popback,array_position,array_product,array_range,array_remove,array_size,array_slice,array_sort,array_sum,array_union,array_with_constant,arrays_overlap,"
+                              + "bitmap_from_array,bitmap_to_array,cardinality,concat_ws,countequal,element_at,%element_extract%,%element_slice%,if,multi_match_any,multi_search_all_positions,reverse,size,split_by_char,split_by_string").split(",");
+                     return ImmutableSet.copyOf(functions).contains(kv.getKey());
                  })
-                 .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
+                 .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue)); */
 
         // Pair<className, Pair<functionName, code>>
         List<Pair<String, Pair<String, String>>> codeInfos = functionCodes.entrySet()
@@ -486,6 +485,9 @@ public class GenerateFunction {
                 continue;
             }
             for (Function function : kv.getValue()) {
+                if (!function.isUserVisible()) {
+                    continue;
+                }
                 if (!(catalogFunctionType.isInstance(function))) {
                     continue;
                 }

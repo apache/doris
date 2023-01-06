@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -25,10 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
-import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import org.apache.commons.lang.StringUtils;
 
@@ -45,7 +41,6 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     public Rule build() {
         return any().then(plan -> {
             checkAllSlotReferenceFromChildren(plan);
-            checkMetricTypeIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
@@ -83,24 +78,5 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     }
                 })
                 .collect(Collectors.toSet());
-    }
-
-    private void checkMetricTypeIsUsedCorrectly(Plan plan) {
-        if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().stream()
-                    .anyMatch(expression -> expression.getDataType().isOnlyMetricType())
-                    || ((LogicalAggregate<?>) plan).getAggregateFunctions().stream()
-                    .filter(aggregateFunction -> aggregateFunction instanceof ForbiddenMetricTypeArguments).anyMatch(
-                                aggregateFunction -> aggregateFunction.getArgumentsTypes().stream()
-                                    .anyMatch(dataType -> dataType.isOnlyMetricType()))) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-            }
-        } else if (plan instanceof LogicalSort) {
-            if (((LogicalSort<?>) plan).getOrderKeys().stream().anyMatch((
-                    orderKey -> orderKey.getExpr().getDataType()
-                            .isOnlyMetricType()))) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-            }
-        }
     }
 }

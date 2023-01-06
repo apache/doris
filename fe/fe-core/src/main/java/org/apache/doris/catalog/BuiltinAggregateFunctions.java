@@ -120,7 +120,6 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(WindowFunnel.class, "window_funnel")
     );
 
-
     public final Set<String> aggFuncNames = aggregateFunctions.stream()
             .flatMap(fun -> fun.names.stream())
             .collect(ImmutableSet.toImmutableSet());
