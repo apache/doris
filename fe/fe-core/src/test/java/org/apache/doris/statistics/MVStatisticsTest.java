@@ -79,7 +79,7 @@ public class MVStatisticsTest extends TestWithFeService {
         };
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         Deencapsulation.setField(analysisManager, "statisticsCache", statisticsCache);
-        getSqlStmtExecutor("analyze t1");
+        getSqlStmtExecutor("analyze table t1");
         Thread.sleep(3000);
     }
 }

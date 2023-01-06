@@ -43,6 +43,8 @@ import java.util.concurrent.ConcurrentMap;
 
 public class AnalysisManager {
 
+    public final AnalysisTaskScheduler taskScheduler;
+
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
     private static final String UPDATE_JOB_STATE_SQL_TEMPLATE = "UPDATE "
@@ -50,8 +52,6 @@ public class AnalysisManager {
             + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId}";
 
     private final ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> analysisJobIdToTaskMap;
-
-    public final AnalysisTaskScheduler taskScheduler;
 
     private StatisticsCache statisticsCache;
 
@@ -76,10 +76,11 @@ public class AnalysisManager {
         if (colNames != null) {
             for (String colName : colNames) {
                 long taskId = Env.getCurrentEnv().getNextId();
+                AnalysisType analType = analyzeStmt.isHistogram ? AnalysisType.HISTOGRAM : AnalysisType.COLUMN;
                 AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(jobId)
                         .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
                         .setTblName(tbl.getTbl()).setColName(colName).setJobType(JobType.MANUAL)
-                        .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.COLUMN)
+                        .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(analType)
                         .setState(AnalysisState.PENDING)
                         .setScheduleType(ScheduleType.ONCE).build();
                 try {
