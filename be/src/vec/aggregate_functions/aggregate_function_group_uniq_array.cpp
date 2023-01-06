@@ -18,6 +18,7 @@
 #include "vec/aggregate_functions/aggregate_function_group_uniq_array.h"
 
 #include <type_traits>
+#include <utility>
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
@@ -27,6 +28,12 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+
+#define FOR_DECIMAL_TYPES(M) \
+    M(Decimal32)                 \
+    M(Decimal64)                \
+    M(Decimal128)                \
+    M(Decimal128I)                
 
 template <typename T, typename HasLimit, typename... TArgs>
 AggregateFunctionPtr do_create_aggregate_function_group_uniq_array(const DataTypePtr& argument_type,
@@ -44,17 +51,18 @@ AggregateFunctionPtr create_aggregate_function_group_uniq_array_impl(
         return do_create_aggregate_function_group_uniq_array<TYPE, HasLimit>( \
                 argument_type, std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
+    FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.is_date()) {
+    if (which.is_date_or_datetime() || which.is_date_time_v2()) {
         return do_create_aggregate_function_group_uniq_array<Int64, HasLimit>(
                 argument_type, std::forward<TArgs>(args)...);
-    } else if (which.is_date_time()) {
-        return do_create_aggregate_function_group_uniq_array<Int64, HasLimit>(
+    } else if (which.is_date_v2()) {
+        return do_create_aggregate_function_group_uniq_array<UInt32, HasLimit>(
                 argument_type, std::forward<TArgs>(args)...);
     } else if (which.is_string()) {
         return do_create_aggregate_function_group_uniq_array<StringRef, HasLimit>(
                 argument_type, std::forward<TArgs>(args)...);
-    }
+    } 
     //TODO:support extra types
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
                                 argument_type->get_name(), name);
@@ -73,7 +81,6 @@ AggregateFunctionPtr create_aggregate_function_group_uniq_array(const std::strin
         return create_aggregate_function_group_uniq_array_impl<std::true_type>(
                 name, argument_types[0], parameters);
     }
-
     LOG(WARNING) << fmt::format("number of parameters for aggregate function {}, should be 1 or 2",
                                 name);
     return nullptr;
