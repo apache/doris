@@ -672,12 +672,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
 
-#### `load_process_max_memory_limit_bytes`
-
-* Description: The upper limit of memory occupied by all imported threads on a single node.
-  - Set these default values very large, because we don't want to affect load performance when users upgrade Doris. If necessary, the user should set these configurations correctly.
-* Default value: 107374182400 (100G)
-
 #### `load_process_max_memory_limit_percent`
 
 * Description: The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 50%

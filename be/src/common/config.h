@@ -489,12 +489,6 @@ CONF_mInt64(write_buffer_size_for_agg, "419430400");
 // write buffer size in push task for sparkload, default 1GB
 CONF_mInt64(flush_size_for_sparkload, "1073741824");
 
-// following 2 configs limit the memory consumption of load process on a Backend.
-// eg: memory limit to 80% of mem limit config but up to 100GB(default)
-// NOTICE(cmy): set these default values very large because we don't want to
-// impact the load performance when user upgrading Doris.
-// user should set these configs properly if necessary.
-CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,
