@@ -19,6 +19,7 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -64,6 +65,9 @@ public class MetadataScanNode extends ScanNode {
     protected void toThrift(TPlanNode planNode) {
         planNode.setNodeType(TPlanNodeType.META_SCAN_NODE);
         TMetaScanNode metaScanNode = new TMetaScanNode();
+        metaScanNode.setCatalog(tvf.getMetadataTableName().getCtl());
+        metaScanNode.setDatabase(tvf.getMetadataTableName().getDb());
+        metaScanNode.setTable(tvf.getMetadataTableName().getTbl());
         metaScanNode.setTupleId(desc.getId().asInt());
         planNode.setMetaScanNode(metaScanNode);
     }
@@ -94,9 +98,6 @@ public class MetadataScanNode extends ScanNode {
         TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
         int metadataType = icebergTvf.getMetaQueryType().ordinal();
         icebergMetadataParams.setMetadataType(TIcebergMetadataType.findByValue(metadataType));
-        icebergMetadataParams.setCatalog(icebergTvf.getIcebergTableName().getCtl());
-        icebergMetadataParams.setDatabase(icebergTvf.getIcebergTableName().getDb());
-        icebergMetadataParams.setTable(icebergTvf.getIcebergTableName().getTbl());
 
         metaScanRange.setIcebergParams(icebergMetadataParams);
         scanRange.setMetaScanRange(metaScanRange);

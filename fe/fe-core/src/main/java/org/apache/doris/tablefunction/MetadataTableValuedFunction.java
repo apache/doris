@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -35,6 +36,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
     public MetaType getMetaType() {
         return metaType;
     }
+
+    public abstract TableName getMetadataTableName();
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {

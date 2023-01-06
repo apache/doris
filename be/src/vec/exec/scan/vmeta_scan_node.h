@@ -27,10 +27,10 @@ public:
     VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VMetaScanNode() override = default;
 
-    //    std::string get_name() override;
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    const TMetaScanNode& scan_params() { return _scan_params; };
 
 private:
     Status _init_profile() override;
@@ -38,6 +38,7 @@ private:
     Status _process_conjuncts() override;
 
     TupleId _tuple_id;
+    TMetaScanNode _scan_params;
     std::vector<TScanRangeParams> _scan_ranges;
 };
 

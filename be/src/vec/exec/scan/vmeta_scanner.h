@@ -25,25 +25,24 @@ namespace doris::vectorized {
 
 class VMetaScanner : public VScanner {
 public:
-    VMetaScanner(RuntimeState* state, VMetaScanNode* parent, const TupleId& tuple_id, int64_t limit);
+    VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
+                 const TScanRangeParams& scan_range, int64_t limit);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-
-public:
     Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
-    Status _fetch_metadata_batch();
+    Status _fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns);
+    Status _fetch_iceberg_metadata_batch();
 
 private:
+    VMetaScanNode* _parent;
+    bool _meta_eos;
     TupleId _tuple_id;
+    const TupleDescriptor* _tuple_desc;
     std::vector<TRow> _batch_data;
-    const TFileScanRange& _scan_range;
+    const TScanRange& _scan_range;
 };
 } // namespace doris::vectorized
-
-
-
-

@@ -144,6 +144,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -1030,7 +1032,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getCatalog(params.getCatalog());
         org.apache.iceberg.Table table;
         try {
-            table = getIcebergTable(catalog, params.getTable(), params.getDatabase());
+            table = getIcebergTable(catalog, params.getDatabase(), params.getTable());
         } catch (MetaNotFoundException e) {
             return errorResult(e.getMessage());
         }
@@ -1041,9 +1043,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             case SNAPSHOTS:
                 for (Snapshot snapshot : table.snapshots()) {
                     TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setLongVal(snapshot.timestampMillis()));
+                    LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
+                            snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
+                    long encodedDatetime = convertToDateTimeV2(committedAt.getYear(), committedAt.getMonthValue(),
+                            committedAt.getDayOfMonth(), committedAt.getHour(),
+                            committedAt.getMinute(), committedAt.getSecond());
+
+                    trow.addToColumnValue(new TCell().setLongVal(encodedDatetime));
                     trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
-                    trow.addToColumnValue(new TCell().setLongVal(snapshot.parentId()));
+                    if (snapshot.parentId() == null) {
+                        trow.addToColumnValue(new TCell().setLongVal(-1L));
+                    } else {
+                        trow.addToColumnValue(new TCell().setLongVal(snapshot.parentId()));
+                    }
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
                     dataBatch.add(trow);
@@ -1055,6 +1067,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
+        return (long) second << 20 | (long) minute << 26 | (long) hour << 32
+            | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
     @NotNull

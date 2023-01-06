@@ -376,9 +376,6 @@ enum TIcebergMetadataType {
 
 struct TIcebergMetadataParams {
   1: optional TIcebergMetadataType metadata_type
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
 }
 
 struct TMetaScanRange {
@@ -529,6 +526,9 @@ struct TSchemaScanNode {
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
 struct TSortInfo {

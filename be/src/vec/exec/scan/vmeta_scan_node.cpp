@@ -16,18 +16,17 @@
 // under the License.
 
 #include "vmeta_scan_node.h"
+
 #include "vmeta_scanner.h"
 
 namespace doris::vectorized {
 
 VMetaScanNode::VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs),
-          _tuple_id(tnode.meta_scan_node.tuple_id) {
+          _tuple_id(tnode.meta_scan_node.tuple_id),
+          _scan_params(tnode.meta_scan_node) {
+    _output_tuple_id = _tuple_id;
 }
-
-//std::string VMetaScanNode::get_name() {
-//    return fmt::format("VMetaScanNode({0})", _table_name);
-//}
 
 Status VMetaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::init(tnode, state));
@@ -52,10 +51,13 @@ Status VMetaScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    VMetaScanner* scanner = new VMetaScanner(_state, this,  _tuple_id, _limit_per_scanner);
-    _scanner_pool.add(scanner);
-    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
-    scanners->push_back(static_cast<VScanner*>(scanner));
+    for (auto& scan_range : _scan_ranges) {
+        VMetaScanner* scanner =
+                new VMetaScanner(_state, this, _tuple_id, scan_range, _limit_per_scanner);
+        RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
+        _scanner_pool.add(scanner);
+        scanners->push_back(static_cast<VScanner*>(scanner));
+    }
     return Status::OK();
 }
 
@@ -64,4 +66,3 @@ Status VMetaScanNode::_process_conjuncts() {
 }
 
 } // namespace doris::vectorized
-

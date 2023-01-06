@@ -92,7 +92,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         return "IcebergMetadataTableValuedFunction";
     }
 
-    public TableName getIcebergTableName() {
+    public TableName getMetadataTableName() {
         return tableName;
     }
 
@@ -100,11 +100,17 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         return queryType;
     }
 
+    /**
+     * The tvf can register columns of metadata table
+     * The data is provided by getIcebergMetadataTable in FrontendService
+     * @see org.apache.doris.service.FrontendServiceImpl
+     * @return metadata columns
+     */
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         List<Column> resColumns = new ArrayList<>();
         if (queryType == MetadataType.SNAPSHOTS) {
-            resColumns.add(new Column("committed_at", PrimitiveType.STRING, false));
+            resColumns.add(new Column("committed_at", PrimitiveType.DATETIMEV2, false));
             resColumns.add(new Column("snapshot_id", PrimitiveType.BIGINT, false));
             resColumns.add(new Column("parent_id", PrimitiveType.BIGINT, false));
             resColumns.add(new Column("operation", PrimitiveType.STRING, false));
