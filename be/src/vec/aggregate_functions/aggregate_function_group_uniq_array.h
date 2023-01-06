@@ -50,7 +50,7 @@ struct AggregateFunctionGroupUniqArrayData {
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        data_set.insert(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num]);
+        data_set.insert(assert_cast<const ColVecType&>(column).get_data()[row_num]);
     }
     void merge(const SelfType& rhs) { data_set.merge(rhs.data_set); }
 
