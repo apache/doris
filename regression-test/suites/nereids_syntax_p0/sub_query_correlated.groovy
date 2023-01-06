@@ -232,4 +232,32 @@ suite ("sub_query_correlated") {
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
     """
+
+    //----------subquery with order----------
+    qt_scalar_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a);
+    """
+
+    qt_in_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
+    """
+
+    qt_exists_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
+    """
+
+    //----------subquery with limit----------
+    qt_scalar_subquery_with_limit """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 limit 1);
+    """
+
+    //----------subquery with order and limit----------
+    qt_scalar_subquery_with_order_and_limit """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a limit 1);
+    """
+
+    //---------subquery with Disjunctions
+    qt_scalar_subquery_with_disjunctions """
+        SELECT DISTINCT k1 FROM sub_query_correlated_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_correlated_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k1 = i1.k1) AND (k2 = 1)) )  > 0);
+    """
 }
