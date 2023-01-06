@@ -390,11 +390,11 @@ public class TypeCoercionUtils {
 
     private static boolean canCompareDate(DataType left, DataType right) {
         if (left instanceof DateLikeType) {
-            return right.isDateType() || right.isStringType() || right instanceof TinyIntType
+            return right.isDateType() || right.isStringLikeType() || right instanceof TinyIntType
                     || right instanceof SmallIntType || right instanceof IntegerType
                     || right instanceof BigIntType;
         } else if (right instanceof DateLikeType) {
-            return left.isStringType() || left instanceof TinyIntType
+            return left.isStringLikeType() || left instanceof TinyIntType
                     || left instanceof SmallIntType || left instanceof IntegerType
                     || left instanceof BigIntType;
         }
