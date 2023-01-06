@@ -91,7 +91,7 @@ public:
                 continue;
             }
             const auto& data_ref = _cur_col->get_data_at(i);
-            vectorized::TypeIndex type_idx = _cur_type->get_type_id();
+            vectorized::TypeIndex type_idx = vectorized::remove_nullable(_cur_type)->get_type_id();
             switch (type_idx) {
             case vectorized::TypeIndex::String:
             case vectorized::TypeIndex::FixedString:
