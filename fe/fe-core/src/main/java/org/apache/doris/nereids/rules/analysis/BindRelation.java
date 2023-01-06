@@ -107,7 +107,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     && ((LogicalSubQueryAlias<?>) ctePlan).getAlias().equals(tableName)) {
                 return ctePlan;
             }
-            return new LogicalSubQueryAlias<>(tableName, ctePlan);
+            return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), ctePlan);
         }
         String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
         String dbName = cascadesContext.getConnectContext().getDatabase();
@@ -158,7 +158,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
             case VIEW:
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
-                return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+                return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), viewPlan);
             case HMS_EXTERNAL_TABLE:
                 return new LogicalFileScan(cascadesContext.getStatementContext().getNextRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));
