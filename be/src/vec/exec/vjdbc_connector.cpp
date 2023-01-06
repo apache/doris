@@ -42,8 +42,8 @@ const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
 const char* JDBC_EXECUTOR_GET_ARR_LIST_SIGNATURE = "(Ljava/lang/Object;)Ljava/util/List;";
 const char* JDBC_EXECUTOR_GET_ARR_TYPE_SIGNATURE = "()I";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
-const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;)J";
-const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
+const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;Z)J";
+const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;Z)J";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
@@ -492,15 +492,28 @@ Status JdbcConnector::_insert_column_data(JNIEnv* env, jobject jobj, const TypeD
                                                                           data.length());
         break;
     }
-
     case TYPE_DATE: {
-        int64_t num = _jobject_to_date(env, jobj);
+        int64_t num = _jobject_to_date(env, jobj, false);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
         break;
     }
+    case TYPE_DATEV2: {
+        int64_t num = _jobject_to_date(env, jobj, true);
+        uint32_t num2 = static_cast<uint32_t>(num);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(
+                num2);
+        break;
+    }
     case TYPE_DATETIME: {
-        int64_t num = _jobject_to_datetime(env, jobj);
+        int64_t num = _jobject_to_datetime(env, jobj, false);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        int64_t num = _jobject_to_datetime(env, jobj, true);
+        uint64_t num2 = static_cast<uint64_t>(num);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(
+                num2);
         break;
     }
     case TYPE_LARGEINT: {
@@ -675,14 +688,14 @@ std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
     return str;
 }
 
-int64_t JdbcConnector::_jobject_to_date(JNIEnv* env, jobject jobj) {
+int64_t JdbcConnector::_jobject_to_date(JNIEnv* env, jobject jobj, bool is_date_v2) {
     return env->CallNonvirtualLongMethod(_executor_obj, _executor_clazz, _executor_convert_date_id,
-                                         jobj);
+                                         jobj, is_date_v2);
 }
 
-int64_t JdbcConnector::_jobject_to_datetime(JNIEnv* env, jobject jobj) {
+int64_t JdbcConnector::_jobject_to_datetime(JNIEnv* env, jobject jobj, bool is_datetime_v2) {
     return env->CallNonvirtualLongMethod(_executor_obj, _executor_clazz,
-                                         _executor_convert_datetime_id, jobj);
+                                         _executor_convert_datetime_id, jobj, is_datetime_v2);
 }
 
 Status JdbcConnector::begin_trans() {

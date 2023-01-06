@@ -439,6 +439,156 @@ mysql> select * from test;
     
     之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
 
+### 连接JDBC
+
+以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL数据库类型。
+
+**MYSQL catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+)
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    ...
+)
+```
+
+**POSTGRESQL catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE pg_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
+);
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
+其中`jdbc.driver_url`可以是远程jar包：
+
+```sql
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+```
+
+如果`jdbc.driver_url` 是http形式的远程jar包，Doris对其的处理方式为：
+1. 只查询元数据，不查询表数据情况下（如 `show catalogs/database/tables` 等操作）：FE会直接用这个url来加载驱动类，并进行MYSQL数据类型到Doris数据类型的转换。
+2. 在对jdbc catalog中的表进行查询时（`select from`）：BE会将该url指定jar包下载到`be/lib/udf/`目录下，查询时将直接用下载后的路径来加载jar包。
+
+创建catalog后，可以通过 SHOW CATALOGS 命令查看 catalog：
+
+```sql
+MySQL [(none)]> show catalogs;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     10480 | jdbc        | jdbc     |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+通过 SWITCH 命令切换到 jdbc catalog，并查看其中的数据库：
+```sql
+MySQL [(none)]> switch jdbc;
+Query OK, 0 rows affected (0.02 sec)
+
+MySQL [(none)]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| __db1              |
+| _db1               |
+| db1                |
+| demo               |
+| information_schema |
+| mysql              |
+| mysql_db_test      |
+| performance_schema |
+| sys                |
++--------------------+
+9 rows in set (0.67 sec)
+```
+
+> 注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
+
+查看`db1`数据库下的表，并查询：
+```sql
+MySQL [demo]> use db1;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+MySQL [db1]> show tables;
++---------------+
+| Tables_in_db1 |
++---------------+
+| tbl1          |
++---------------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> desc tbl1;
++-------+------+------+------+---------+-------+
+| Field | Type | Null | Key  | Default | Extra |
++-------+------+------+------+---------+-------+
+| k1    | INT  | Yes  | true | NULL    |       |
++-------+------+------+------+---------+-------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> select * from tbl1;
++------+
+| k1   |
++------+
+|    1 |
+|    2 |
+|    3 |
+|    4 |
++------+
+4 rows in set (0.19 sec)
+```
+
+#### 参数说明：
+
+参数 | 说明
+---|---
+**jdbc.user** | 连接数据库使用的用户名
+**jdbc.password** | 连接数据库使用的密码
+**jdbc.jdbc_url** | 连接到指定数据库的标识符
+**jdbc.driver_url** | jdbc驱动包的url
+**jdbc.driver_class** | jdbc驱动类
+
 ## 列类型映射
 
 用户创建 Catalog 后，Doris 会自动同步数据目录的数据库和表，针对不同的数据目录和数据表格式，Doris 会进行以下列映射关系。
@@ -486,6 +636,57 @@ mysql> select * from test;
 | object |string | |
 | array | | 开发中 |
 |other| string ||
+
+### JDBC
+
+#### MYSQL
+ MYSQL Type | Doris Type | Comment |
+|---|---|---|
+| BOOLEAN | BOOLEAN | |
+| TINYINT | TINYINT | |
+| SMALLINT | SMALLINT | |
+| MEDIUMINT | INT | |
+| INT | INT | |
+| BIGINT | BIGINT | |
+| UNSIGNED TINYINT | SMALLINT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
+| UNSIGNED MEDIUMINT | INT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
+| UNSIGNED INT | BIGINT |Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
+| UNSIGNED BIGINT | STRING | |
+| FLOAT | FLOAT | |
+| DOUBLE | DOUBLE | |
+| DECIMAL | DECIMAL | |
+| DATE | DATE | |
+| TIMESTAMP | DATETIME | |
+| DATETIME | DATETIME | |
+| YEAR | SMALLINT | |
+| TIME | STRING | |
+| CHAR | CHAR | |
+| VARCHAR | STRING | |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
+| uuid/josnb | STRING | |
 
 ## 权限管理
 

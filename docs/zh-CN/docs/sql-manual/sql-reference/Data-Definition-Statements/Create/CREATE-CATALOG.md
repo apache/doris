@@ -121,6 +121,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	```
 
 3. 新建数据目录 jdbc
+	**mysql**
 
 	```sql
 	-- 1.2.0+ 版本
@@ -137,13 +138,38 @@ CREATE CATALOG catalog_name PROPERTIES (
 	-- 1.2.0 版本
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"user"="root",
-		"password"="123456",
-		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-		"driver_class" = "com.mysql.cj.jdbc.Driver"
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
 	```
+
+	**postgresql**
+
+	```sql
+	-- 1.2.0+ 版本
+	CREATE RESOURCE pg_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="postgres",
+		"password"="123456",
+		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"driver_class" = "org.postgresql.Driver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+	-- 1.2.0 版本
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="postgres",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_class" = "org.postgresql.Driver"
+	);
+	```	
 
 ### Keywords
 
