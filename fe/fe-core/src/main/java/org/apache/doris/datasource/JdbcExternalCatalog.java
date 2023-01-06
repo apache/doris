@@ -22,8 +22,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.external.jdbc.JdbcClient;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -42,7 +44,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
 
-    public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+    public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
+            throws DdlException {
         super(catalogId, name);
         this.type = "jdbc";
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
@@ -55,14 +58,21 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    private Map<String, String> processCompatibleProperties(Map<String, String> props) {
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) throws DdlException {
         Map<String, String> properties = Maps.newHashMap();
         for (Map.Entry<String, String> kv : props.entrySet()) {
             properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
         }
         String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
-        jdbcUrl = handleJdbcUrl(jdbcUrl);
-        properties.put(JdbcResource.JDBC_URL, jdbcUrl);
+        if (!Strings.isNullOrEmpty(jdbcUrl)) {
+            jdbcUrl = handleJdbcUrl(jdbcUrl);
+            properties.put(JdbcResource.JDBC_URL, jdbcUrl);
+        }
+
+        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+            properties.put(JdbcResource.CHECK_SUM,
+                    JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
+        }
         return properties;
     }
 

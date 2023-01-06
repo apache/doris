@@ -73,7 +73,12 @@ public class CatalogProperty implements Writable {
     public String getOrDefault(String key, String defaultVal) {
         String val = properties.get(key);
         if (val == null) {
-            val = catalogResource().getCopiedProperties().getOrDefault(key, defaultVal);
+            Resource res = catalogResource();
+            if (res != null) {
+                val = res.getCopiedProperties().getOrDefault(key, defaultVal);
+            } else {
+                val = defaultVal;
+            }
         }
         return val;
     }

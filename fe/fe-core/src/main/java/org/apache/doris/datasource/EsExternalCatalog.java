@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
 
@@ -51,14 +50,13 @@ public class EsExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for EsExternalCatalog.
      */
-    public EsExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
-            throws DdlException {
+    public EsExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "es";
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 
-    private Map<String, String> processCompatibleProperties(Map<String, String> props) throws DdlException {
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) {
         // Compatible with "Doris On ES" interfaces
         Map<String, String> properties = Maps.newHashMap();
         for (Map.Entry<String, String> kv : props.entrySet()) {

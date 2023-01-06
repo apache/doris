@@ -26,7 +26,6 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.google.common.collect.Lists;
@@ -58,8 +57,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
-            throws DdlException {
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
         props.putAll(HMSResource.getPropertiesFromDLF());

@@ -142,7 +142,8 @@ public class JdbcResource extends Resource {
         checkProperties(USER);
         checkProperties(PASSWORD);
         checkProperties(TYPE);
-        computeObjectChecksum();
+
+        configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
     }
 
     @Override
@@ -166,19 +167,18 @@ public class JdbcResource extends Resource {
 
     public String getProperty(String propertiesKey) {
         // check the properties key
-        String value = configs.get(propertiesKey);
-        return value;
+        return configs.get(propertiesKey);
     }
 
-    private void computeObjectChecksum() throws DdlException {
+    public static String computeObjectChecksum(String driverPath) throws DdlException {
         if (FeConstants.runningUnitTest) {
             // skip checking checksum when running ut
-            return;
+            return "";
         }
-        String realDriverPath = getRealDriverPath();
+        String fullDriverPath = getRealDriverPath(driverPath);
         InputStream inputStream = null;
         try {
-            inputStream = Util.getInputStreamFromUrl(realDriverPath, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+            inputStream = Util.getInputStreamFromUrl(fullDriverPath, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] buf = new byte[4096];
             int bytesRead = 0;
@@ -189,29 +189,27 @@ public class JdbcResource extends Resource {
                 }
                 digest.update(buf, 0, bytesRead);
             } while (true);
-            String checkSum = Hex.encodeHexString(digest.digest());
-            configs.put(CHECK_SUM, checkSum);
+            return Hex.encodeHexString(digest.digest());
         } catch (IOException e) {
-            throw new DdlException("compute driver checksum from url: " + getProperty(DRIVER_URL)
+            throw new DdlException("compute driver checksum from url: " + driverPath
                     + " meet an IOException: " + e.getMessage());
         } catch (NoSuchAlgorithmException e) {
-            throw new DdlException("compute driver checksum from url: " + getProperty(DRIVER_URL)
+            throw new DdlException("compute driver checksum from url: " + driverPath
                     + " could not find algorithm: " + e.getMessage());
         }
     }
 
-    private String getRealDriverPath() {
-        String path = getProperty(DRIVER_URL);
+    private static String getRealDriverPath(String driverUrl) {
         try {
-            URI uri = new URI(path);
+            URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
-            if (schema == null && !path.startsWith("/")) {
-                return "file://" + Config.jdbc_drivers_dir + "/" + path;
+            if (schema == null && !driverUrl.startsWith("/")) {
+                return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
             }
-            return path;
+            return driverUrl;
         } catch (URISyntaxException e) {
-            LOG.warn("invalid jdbc driver url: " + path);
-            return path;
+            LOG.warn("invalid jdbc driver url: " + driverUrl);
+            return driverUrl;
         }
     }
 }
