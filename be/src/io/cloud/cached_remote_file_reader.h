@@ -32,7 +32,7 @@ namespace io {
 class CachedRemoteFileReader final : public FileReader {
 public:
     using metrics_hook = std::function<void(FileCacheStatistics*)>;
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, metrics_hook);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, metrics_hook, IOContext* io_ctx);
 
     ~CachedRemoteFileReader() override;
 
@@ -58,6 +58,8 @@ private:
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
     CloudFileCachePtr _disposable_cache;
+
+    IOContext* _io_ctx;
 
 private:
     struct ReadStatistics {

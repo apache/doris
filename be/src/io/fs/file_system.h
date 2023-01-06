@@ -54,9 +54,9 @@ public:
     virtual Status create_file(const Path& path, FileWriterPtr* writer) = 0;
 
     virtual Status open_file(const Path& path, const FileReaderOptions& reader_options,
-                             FileReaderSPtr* reader) = 0;
+                             FileReaderSPtr* reader, IOContext* io_ctx) = 0;
 
-    virtual Status open_file(const Path& path, FileReaderSPtr* reader) = 0;
+    virtual Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) = 0;
 
     virtual Status delete_file(const Path& path) = 0;
 

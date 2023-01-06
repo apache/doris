@@ -151,7 +151,8 @@ Status FileSegment::read_at(Slice buffer, size_t offset) {
         std::lock_guard segment_lock(_mutex);
         if (!_cache_reader) {
             auto download_path = get_path_in_local_cache();
-            RETURN_IF_ERROR(global_local_filesystem()->open_file(download_path, &_cache_reader));
+            RETURN_IF_ERROR(
+                    global_local_filesystem()->open_file(download_path, &_cache_reader, nullptr));
         }
     }
     size_t bytes_reads = buffer.size;

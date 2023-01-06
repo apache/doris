@@ -77,7 +77,8 @@ Status BrokerFileSystem::connect() {
     return status;
 }
 
-Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader,
+                                   IOContext* /*io_ctx*/) {
     CHECK_BROKER_CLIENT(_client);
     TBrokerOpenReaderRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);

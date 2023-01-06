@@ -40,10 +40,12 @@ class NewJsonReader : public GenericReader {
 public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof);
+                  const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
+                  IOContext* io_ctx);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
+                  const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
+                  IOContext* io_ctx);
     ~NewJsonReader() override = default;
 
     Status init_reader();
@@ -145,8 +147,7 @@ private:
 
     size_t _current_offset;
 
-    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
-    IOContext _io_ctx;
+    IOContext* _io_ctx;
 
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;

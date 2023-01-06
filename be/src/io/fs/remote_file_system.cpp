@@ -26,9 +26,9 @@ namespace doris {
 namespace io {
 
 Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& reader_options,
-                                   FileReaderSPtr* reader) {
+                                   FileReaderSPtr* reader, IOContext* io_ctx) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file(path, &raw_reader));
+    RETURN_IF_ERROR(open_file(path, &raw_reader, io_ctx));
     switch (reader_options.cache_type) {
     case io::FileCacheType::NO_CACHE: {
         *reader = raw_reader;
@@ -46,7 +46,8 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
         break;
     }
     case io::FileCacheType::REMOTE_FILE_CACHE: {
-        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), nullptr);
+        DCHECK(io_ctx);
+        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), nullptr, io_ctx);
         break;
     }
     default: {

@@ -37,8 +37,7 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
                                                io::FileReaderSPtr file_reader,
                                                Decompressor* decompressor, size_t length,
                                                const std::string& line_delimiter,
-                                               size_t line_delimiter_length, size_t current_offset,
-                                               const IOContext& io_ctx)
+                                               size_t line_delimiter_length, size_t current_offset)
         : _profile(profile),
           _file_reader(file_reader),
           _decompressor(decompressor),
@@ -60,7 +59,6 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _more_input_bytes(0),
           _more_output_bytes(0),
           _current_offset(current_offset),
-          _io_ctx(io_ctx),
           _bytes_read_counter(nullptr),
           _read_timer(nullptr),
           _bytes_decompress_counter(nullptr),
@@ -231,8 +229,9 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 {
                     SCOPED_TIMER(_read_timer);
                     Slice file_slice(file_buf, buffer_len);
+                    IOContext io_ctx;
                     RETURN_IF_ERROR(
-                            _file_reader->read_at(_current_offset, file_slice, _io_ctx, &read_len));
+                            _file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
                     _current_offset += read_len;
                     if (read_len == 0) {
                         _file_eof = true;

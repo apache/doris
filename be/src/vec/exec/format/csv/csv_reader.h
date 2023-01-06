@@ -35,11 +35,11 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, const IOContext& io_ctx);
+              const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx);
 
     CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-              const IOContext& io_ctx);
+              IOContext* io_ctx);
     ~CsvReader() override;
 
     Status init_reader(bool is_query);
@@ -115,7 +115,7 @@ private:
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
 
-    const IOContext& _io_ctx;
+    IOContext* _io_ctx;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;

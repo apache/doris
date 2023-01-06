@@ -94,7 +94,7 @@ Status HdfsFileSystem::create_file(const Path& /*path*/, FileWriterPtr* /*writer
     return Status::NotSupported("Currently not support to create file to HDFS");
 }
 
-Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
     CHECK_HDFS_HANDLE(_fs_handle);
     size_t file_len = 0;
     RETURN_IF_ERROR(file_size(path, &file_len));

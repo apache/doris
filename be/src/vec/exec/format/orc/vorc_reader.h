@@ -70,10 +70,11 @@ public:
 
     OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-              size_t batch_size, const std::string& ctz);
+              size_t batch_size, const std::string& ctz, IOContext* io_ctx);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<std::string>& column_names, const std::string& ctz);
+              const std::vector<std::string>& column_names, const std::string& ctz,
+              IOContext* io_ctx);
 
     ~OrcReader() override;
     // for test
@@ -279,6 +280,8 @@ private:
     orc::RowReaderOptions _row_reader_options;
 
     std::unique_ptr<io::FileSystem> _file_system;
+
+    IOContext* _io_ctx;
 
     // only for decimal
     DecimalScaleParams _decimal_scale_params;

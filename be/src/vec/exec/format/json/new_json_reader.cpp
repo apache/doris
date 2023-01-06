@@ -32,7 +32,8 @@ using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof)
+                             const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
+                             IOContext* io_ctx)
         : _vhandle_json_callback(nullptr),
           _state(state),
           _profile(profile),
@@ -51,19 +52,16 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _scanner_eof(scanner_eof),
-          _current_offset(0) {
+          _current_offset(0),
+          _io_ctx(io_ctx) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
-
-    _file_cache_statistics.reset(new FileCacheStatistics());
-    _io_ctx.file_cache_stats = _file_cache_statistics.get();
-    _io_ctx.query_id = &_state->query_id();
 }
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs)
+                             const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _vhandle_json_callback(nullptr),
           _state(nullptr),
           _profile(profile),
@@ -77,10 +75,8 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _total_rows(0),
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
-          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator) {
-    _file_cache_statistics.reset(new FileCacheStatistics());
-    _io_ctx.file_cache_stats = _file_cache_statistics.get();
-}
+          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
+          _io_ctx(io_ctx) {}
 
 Status NewJsonReader::init_reader() {
     RETURN_IF_ERROR(_get_range_params());
@@ -311,8 +307,9 @@ Status NewJsonReader::_open_file_reader() {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &_file_reader, _io_ctx));
     }
     return Status::OK();
 }
@@ -328,7 +325,7 @@ Status NewJsonReader::_open_line_reader() {
     }
     _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, nullptr, size,
                                                   _line_delimiter, _line_delimiter_length,
-                                                  _current_offset, _io_ctx));
+                                                  _current_offset));
     return Status::OK();
 }
 
@@ -905,7 +902,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         size_t file_size = _file_reader->size();
         file_buf->reset(new uint8_t[file_size]);
         Slice result(file_buf->get(), file_size);
-        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, _io_ctx, read_size));
+        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, *_io_ctx, read_size));
         break;
     }
     case TFileType::FILE_STREAM: {

@@ -41,7 +41,7 @@ const static Slice _s_null_slice = Slice("\\N");
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, const IOContext& io_ctx)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _state(state),
           _profile(profile),
           _counter(counter),
@@ -67,7 +67,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, const IOContext& io_ctx)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _state(nullptr),
           _profile(profile),
           _params(params),
@@ -126,8 +126,9 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &_file_reader, _io_ctx));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -155,13 +156,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new NewPlainTextLineReader(
-                _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
-                _line_delimiter_length, start_offset, _io_ctx));
+        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                      _size, _line_delimiter,
+                                                      _line_delimiter_length, start_offset));
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type, _io_ctx));
+        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type));
         break;
     default:
         return Status::InternalError(
@@ -568,7 +569,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
 
     RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties, file_description,
-                                                    &_file_system, &_file_reader));
+                                                    &_file_system, &_file_reader, _io_ctx));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("Empty File");
@@ -586,7 +587,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 
     _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
                                                   _size, _line_delimiter, _line_delimiter_length,
-                                                  start_offset, _io_ctx));
+                                                  start_offset));
 
     return Status::OK();
 }

@@ -143,7 +143,7 @@ Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
     size_t fsize = 0;
     RETURN_IF_ERROR(file_size(path, &fsize));
     auto key = get_key(path);

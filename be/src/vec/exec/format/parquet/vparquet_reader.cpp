@@ -32,19 +32,22 @@
 namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz)
+                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                             IOContext* io_ctx)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
           _batch_size(batch_size),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
-          _ctz(ctz) {
+          _ctz(ctz),
+          _io_ctx(io_ctx) {
     _init_profile();
 }
 
-ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range)
-        : _profile(nullptr), _scan_params(params), _scan_range(range) {}
+ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                             IOContext* io_ctx)
+        : _profile(nullptr), _scan_params(params), _scan_range(range), _io_ctx(io_ctx) {}
 
 ParquetReader::~ParquetReader() {
     close();
@@ -151,8 +154,9 @@ Status ParquetReader::_open_file() {
     file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &_file_reader, _io_ctx));
     }
     if (_file_metadata == nullptr) {
         if (_file_reader->size() == 0) {

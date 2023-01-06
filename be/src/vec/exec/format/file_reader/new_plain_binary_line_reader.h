@@ -26,8 +26,7 @@ namespace doris {
 
 class NewPlainBinaryLineReader : public LineReader {
 public:
-    NewPlainBinaryLineReader(io::FileReaderSPtr file_reader, TFileType::type file_type,
-                             const IOContext& io_ctx);
+    NewPlainBinaryLineReader(io::FileReaderSPtr file_reader, TFileType::type file_type);
 
     ~NewPlainBinaryLineReader() override;
 
@@ -39,8 +38,6 @@ private:
     io::FileReaderSPtr _file_reader;
 
     TFileType::type _file_type;
-
-    const IOContext& _io_ctx;
 };
 
 } // namespace doris

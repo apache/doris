@@ -192,7 +192,7 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
         }
     }
     io::FileReaderSPtr cache_reader;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader));
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader, nullptr));
     _cache_file_readers.emplace(offset, cache_reader);
     _last_match_times.emplace(offset, time(nullptr));
     LOG(INFO) << "Create cache file from remote file successfully: "

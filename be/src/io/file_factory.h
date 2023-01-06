@@ -75,7 +75,7 @@ public:
                                      const FileSystemProperties& system_properties,
                                      const FileDescription& file_description,
                                      std::unique_ptr<io::FileSystem>* file_system,
-                                     io::FileReaderSPtr* file_reader);
+                                     io::FileReaderSPtr* file_reader, IOContext* io_ctx);
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);
@@ -86,7 +86,8 @@ public:
 
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader,
-                                     const io::FileReaderOptions& reader_options);
+                                     const io::FileReaderOptions& reader_options,
+                                     IOContext* io_ctx);
 
     static Status create_hdfs_writer(const std::map<std::string, std::string>& properties,
                                      const std::string& path, std::unique_ptr<FileWriter>& writer);
@@ -94,14 +95,15 @@ public:
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
                                    const std::string& path, io::FileSystem** s3_file_system,
                                    io::FileReaderSPtr* reader,
-                                   const io::FileReaderOptions& reader_options);
+                                   const io::FileReaderOptions& reader_options, IOContext* io_ctx);
 
     static Status create_broker_reader(const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop,
                                        const FileDescription& file_description,
                                        io::FileSystem** hdfs_file_system,
                                        io::FileReaderSPtr* reader,
-                                       const io::FileReaderOptions& reader_options);
+                                       const io::FileReaderOptions& reader_options,
+                                       IOContext* io_ctx);
 
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {

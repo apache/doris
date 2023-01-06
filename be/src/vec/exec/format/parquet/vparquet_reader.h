@@ -56,9 +56,11 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz);
+                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  IOContext* io_ctx);
 
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  IOContext* io_ctx);
 
     ~ParquetReader() override;
     // for test
@@ -187,5 +189,7 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
+
+    IOContext* _io_ctx;
 };
 } // namespace doris::vectorized

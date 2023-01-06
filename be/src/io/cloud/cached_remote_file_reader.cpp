@@ -29,8 +29,8 @@ namespace doris {
 namespace io {
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               metrics_hook metrics)
-        : _remote_file_reader(std::move(remote_file_reader)), _metrics(metrics) {
+                                               metrics_hook metrics, IOContext* io_ctx)
+        : _remote_file_reader(std::move(remote_file_reader)), _io_ctx(io_ctx), _metrics(metrics) {
     _cache_key = IFileCache::hash(path().native());
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
     _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
@@ -68,9 +68,10 @@ Status CachedRemoteFileReader::read_at(size_t offset, Slice result, const IOCont
     return s;
 }
 
-Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
-                                            size_t* bytes_read) {
+Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
+                                            const IOContext& /*io_ctx*/, size_t* bytes_read) {
     DCHECK(!closed());
+    DCHECK(_io_ctx);
     if (offset > size()) {
         return Status::IOError(
                 fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
@@ -82,24 +83,24 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, const I
         *bytes_read = 0;
         return Status::OK();
     }
-    CloudFileCachePtr cache = io_ctx.use_disposable_cache ? _disposable_cache : _cache;
+    CloudFileCachePtr cache = _io_ctx->use_disposable_cache ? _disposable_cache : _cache;
     // cache == nullptr since use_disposable_cache = true and don't set  disposable cache in conf
     if (cache == nullptr) {
-        return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
+        return _remote_file_reader->read_at(offset, result, *_io_ctx, bytes_read);
     }
     ReadStatistics stats;
     stats.bytes_read = bytes_req;
     // if state == nullptr, the method is called for read footer
     // if state->read_segment_index, read all the end of file
     size_t align_left = offset, align_size = size() - offset;
-    if (!io_ctx.read_segment_index) {
+    if (!_io_ctx->read_segment_index) {
         auto pair = _align_size(offset, bytes_req);
         align_left = pair.first;
         align_size = pair.second;
         DCHECK((align_left % config::file_cache_max_file_segment_size) == 0);
     }
-    bool is_persistent = io_ctx.is_persistent;
-    TUniqueId query_id = io_ctx.query_id ? *(io_ctx.query_id) : TUniqueId();
+    bool is_persistent = _io_ctx->is_persistent;
+    TUniqueId query_id = _io_ctx->query_id ? *(_io_ctx->query_id) : TUniqueId();
     FileSegmentsHolder holder =
             cache->get_or_set(_cache_key, align_left, align_size, is_persistent, query_id);
     std::vector<FileSegmentSPtr> empty_segments;
@@ -122,8 +123,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, const I
         empty_end = empty_segments.back()->range().right;
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
-        RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), io_ctx,
-                                                     &size));
+        RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
+                                                     *_io_ctx, &size));
         for (auto& segment : empty_segments) {
             if (segment->state() == FileSegment::State::SKIP_CACHE) {
                 continue;
@@ -194,10 +195,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, const I
         current_offset = right + 1;
     }
     DCHECK(*bytes_read == bytes_req);
-    _update_state(stats, io_ctx.file_cache_stats);
+    _update_state(stats, _io_ctx->file_cache_stats);
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
-    if (io_ctx.file_cache_stats != nullptr && _metrics != nullptr) {
-        _metrics(io_ctx.file_cache_stats);
+    if (_io_ctx->file_cache_stats != nullptr && _metrics != nullptr) {
+        _metrics(_io_ctx->file_cache_stats);
     }
     return Status::OK();
 }

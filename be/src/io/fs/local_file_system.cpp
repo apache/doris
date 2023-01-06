@@ -46,7 +46,7 @@ Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
     auto fs_path = absolute_path(path);
     size_t fsize = 0;
     RETURN_IF_ERROR(file_size(fs_path, &fsize));

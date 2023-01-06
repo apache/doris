@@ -26,9 +26,8 @@
 namespace doris {
 
 NewPlainBinaryLineReader::NewPlainBinaryLineReader(io::FileReaderSPtr file_reader,
-                                                   TFileType::type file_type,
-                                                   const IOContext& io_ctx)
-        : _file_reader(file_reader), _file_type(file_type), _io_ctx(io_ctx) {}
+                                                   TFileType::type file_type)
+        : _file_reader(file_reader), _file_type(file_type) {}
 
 NewPlainBinaryLineReader::~NewPlainBinaryLineReader() {
     close();
@@ -46,7 +45,8 @@ Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bo
         size_t file_size = _file_reader->size();
         file_buf.reset(new uint8_t[file_size]);
         Slice result(file_buf.get(), file_size);
-        RETURN_IF_ERROR(_file_reader->read_at(0, result, _io_ctx, &read_size));
+        IOContext io_ctx;
+        RETURN_IF_ERROR(_file_reader->read_at(0, result, io_ctx, &read_size));
         break;
     }
     case TFileType::FILE_STREAM: {
