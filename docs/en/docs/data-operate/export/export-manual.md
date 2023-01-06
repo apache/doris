@@ -223,6 +223,7 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 * `export_running_job_num_limit `: Limit on the number of Export jobs running. If exceeded, the job will wait and be in PENDING state. The default is 5, which can be adjusted at run time.
 * `Export_task_default_timeout_second`: Export job default timeout time. The default is 2 hours. It can be adjusted at run time.
 * `export_tablet_num_per_task`: The maximum number of fragments that a query plan is responsible for. The default is 5.
+* `label`: The label of this Export job. Doris will generate a label for an Export job if this param is not set.
 
 ## More Help
 
