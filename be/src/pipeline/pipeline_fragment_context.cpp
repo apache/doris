@@ -459,6 +459,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+        new_pipe->disable_task_steal();
 
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(

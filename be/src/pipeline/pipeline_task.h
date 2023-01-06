@@ -99,6 +99,7 @@ public:
               _sink(sink),
               _prepared(false),
               _opened(false),
+              _can_steal(pipeline->_can_steal),
               _state(state),
               _cur_state(NOT_READY),
               _data_state(SourceState::DEPEND_ON_SOURCE),
@@ -136,11 +137,13 @@ public:
 
     bool sink_can_write() { return _sink->can_write(); }
 
+    bool can_steal() const { return _can_steal; }
+
     Status finalize();
 
     void finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p->finish_one_dependency();
+            p->finish_one_dependency(_previous_schedule_id);
         }
     }
 
@@ -148,7 +151,10 @@ public:
 
     QueryFragmentsCtx* query_fragments_context();
 
-    int get_previous_core_id() const { return _previous_schedule_id; }
+    int get_previous_core_id() const {
+        return _previous_schedule_id != -1 ? _previous_schedule_id
+                                           : _pipeline->_previous_schedule_id;
+    }
 
     void set_previous_core_id(int id) { _previous_schedule_id = id; }
 
@@ -180,6 +186,7 @@ private:
 
     bool _prepared;
     bool _opened;
+    bool _can_steal;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
