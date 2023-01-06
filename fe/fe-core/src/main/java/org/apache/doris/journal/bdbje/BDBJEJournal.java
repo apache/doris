@@ -363,6 +363,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     }
 
     @Override
+    public long getJournalNum() {
+        return currentJournalDB.count();
+    }
+
+    @Override
     public void deleteJournals(long deleteToJournalId) {
         List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {

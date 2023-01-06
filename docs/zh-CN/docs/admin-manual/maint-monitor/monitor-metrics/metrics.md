@@ -83,6 +83,7 @@ curl http://be_host:webserver_port/metrics?type=json
 || {type="current_bytes"} |字节 | 元数据日志当前值 | 用于监控editlog 大小。如果大小超限，需人工介入 | P0 |
 || {type="read"} |Num| 元数据日志读取次数的计数 | 通过斜率观察元数据读取频率是否正常 |P0 |
 || {type="write"} |Num | 元数据日志写入次数的计数 |通过斜率观察元数据写入频率是否正常  |P0 |
+|| {type="current"} |Num | 元数据日志当前数量 |用于监控editlog 数量。如果数量超限，需人工介入  |P0 |
 |`doris_fe_editlog_write_latency_ms`| | 毫秒| 元数据日志写入延迟的百分位统计。如 {quantile="0.75"} 表示 75 分位的写入延迟 | |
 |`doris_fe_image_clean`|{type="failed"} | Num | 清理历史元数据镜像文件失败的次数 | 不应失败，如失败，需人工介入 | P0|
 ||{type="success"} | Num | 清理历史元数据镜像文件成功的次数 | |

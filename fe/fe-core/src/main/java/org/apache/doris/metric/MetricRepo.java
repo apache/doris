@@ -86,6 +86,7 @@ public final class MetricRepo {
 
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CURRENT;
     public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
     public static LongCounterMetric COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES;
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
@@ -346,6 +347,10 @@ public final class MetricRepo {
                 "counter of edit log read from bdbje");
         COUNTER_EDIT_LOG_READ.addLabel(new MetricLabel("type", "read"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_READ);
+        COUNTER_EDIT_LOG_CURRENT = new LongCounterMetric("edit_log", MetricUnit.OPERATIONS,
+                "counter of current edit log in bdbje");
+        COUNTER_EDIT_LOG_CURRENT.addLabel(new MetricLabel("type", "current"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CURRENT);
         COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log", MetricUnit.BYTES,
                 "size of accumulated edit log");
         COUNTER_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "accumulated_bytes"));

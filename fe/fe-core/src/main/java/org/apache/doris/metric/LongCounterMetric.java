@@ -42,4 +42,9 @@ public class LongCounterMetric extends CounterMetric<Long> {
     public void reset() {
         value.reset();
     }
+
+    public void update(Long delta) {
+        value.reset();
+        value.add(delta);
+    }
 }
