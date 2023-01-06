@@ -240,8 +240,6 @@ Status VCollectIterator::topn_next(Block* block) {
                                              _reader->_reader_context.read_orderby_key_reverse);
     std::multiset<size_t, BlockRowposComparator, std::allocator<size_t>> sorted_row_pos(row_pos_comparator);
 
-    auto col_name = block->get_names()[compare_column_idx];
-
     if (_is_reverse) {
         std::reverse(_rs_readers.begin(), _rs_readers.end());
     }
@@ -259,10 +257,15 @@ Status VCollectIterator::topn_next(Block* block) {
             if (!res.ok()) {
                 if (res.is<END_OF_FILE>()) {
                     eof = true;
+                    if (block->rows() == 0) {
+                        break;
+                    }
                 } else {
                     return res;
                 }
             }
+
+            auto col_name = block->get_names()[compare_column_idx];
 
             // filter block
             RETURN_IF_ERROR(
@@ -317,6 +320,7 @@ Status VCollectIterator::topn_next(Block* block) {
                     auto col = block->get_by_position(i).clone_empty();
                     mutable_block.mutable_columns().push_back(col.column->assume_mutable());
                     mutable_block.data_types().push_back(std::move(col.type));
+                    mutable_block.get_names().push_back(std::move(col.name));
                 }
 
                 size_t base = mutable_block.rows();
@@ -357,7 +361,7 @@ Status VCollectIterator::topn_next(Block* block) {
     *block = mutable_block.to_block();
 
     _topn_eof = true;
-    return Status::OK();
+    return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();
 }
 
 bool VCollectIterator::BlockRowposComparator::operator()(const size_t& lpos, const size_t& rpos) const {
