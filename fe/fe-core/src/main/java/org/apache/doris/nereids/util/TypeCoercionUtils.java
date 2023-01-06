@@ -51,7 +51,6 @@ import org.apache.doris.nereids.types.coercion.TypeCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.checkerframework.checker.nullness.Opt;
 
 import java.util.List;
 import java.util.Map;
@@ -193,7 +192,7 @@ public class TypeCoercionUtils {
      * find the tightest common type for two type
      */
     @Developing
-    public static Optional<DataType> findTightestCommonType(Expression binaryOperator,
+    public static Optional<DataType> findTightestCommonType(BinaryOperator binaryOperator,
             DataType left, DataType right) {
         // TODO: compatible with origin planner and BE
         // TODO: when add new type, add it to here
@@ -250,18 +249,14 @@ public class TypeCoercionUtils {
         } else if (left instanceof FloatType && right instanceof DecimalV2Type
                 || left instanceof DecimalV2Type && right instanceof FloatType) {
             tightestCommonType = DecimalV2Type.SYSTEM_DEFAULT;
-        }else if (canCompareDate(left, right)) {
+        } else if (canCompareDate(left, right)) {
             if (binaryOperator instanceof BinaryArithmetic) {
                 tightestCommonType = IntegerType.INSTANCE;
             } else {
                 tightestCommonType = DateTimeType.INSTANCE;
             }
         }
-        if (tightestCommonType == null) {
-            throw new RuntimeException("aaa");
-        }
-        return Optional.of(tightestCommonType);
-        //return tightestCommonType == null ? Optional.of(DoubleType.INSTANCE) : Optional.of(tightestCommonType);
+        return tightestCommonType == null ? Optional.of(DoubleType.INSTANCE) : Optional.of(tightestCommonType);
     }
 
     /**

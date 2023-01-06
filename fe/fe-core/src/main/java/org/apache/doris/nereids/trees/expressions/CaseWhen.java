@@ -85,12 +85,11 @@ public class CaseWhen extends Expression {
             try {
                 return TypeCoercionUtils.findCommonNumericsType(child(0).getDataType(), child(1).getDataType());
             } catch (Exception e) {
-                return TypeCoercionUtils.findTightestCommonType(this,
+                return TypeCoercionUtils.findTightestCommonType(null,
                                 child(0).getDataType(), child(1).getDataType())
                         .orElseGet(() -> child(0).getDataType());
             }
         }
-        //return child(0).getDataType();
     }
 
     @Override
