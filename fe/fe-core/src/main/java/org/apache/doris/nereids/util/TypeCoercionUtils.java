@@ -235,7 +235,11 @@ public class TypeCoercionUtils {
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
-            tightestCommonType = StringType.INSTANCE;
+            if (left instanceof IntegralType || right instanceof IntegralType) {
+                tightestCommonType = DoubleType.INSTANCE;
+            } else {
+                tightestCommonType = StringType.INSTANCE;
+            }
         } else if (left instanceof DecimalV2Type && right instanceof IntegralType) {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, DecimalV2Type.forType(right));
         } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
