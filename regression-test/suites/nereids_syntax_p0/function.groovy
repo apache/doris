@@ -103,5 +103,10 @@ suite("nereids_function") {
         sql "select convert_to('abc', cast(number as varchar)) from numbers('number'='1')"
         exception "must be a constant"
     }
+
+    test {
+        sql """select "1" == "123", "%%" == "%%" """
+        result([[false, true]])
+    }
 }
 
