@@ -17,12 +17,24 @@
 
 #include "vec/aggregate_functions/aggregate_function_histogram.h"
 
+#include "vec/aggregate_functions/helpers.h"
+#include "vec/core/types.h"
+
 namespace doris::vectorized {
 
 template <typename T>
 AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types) {
-    return AggregateFunctionPtr(
-            new AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T>(argument_types));
+    bool has_input_param = (argument_types.size() == 3);
+
+    if (has_input_param) {
+        return AggregateFunctionPtr(
+                new AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>(
+                        argument_types));
+    } else {
+        return AggregateFunctionPtr(
+                new AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>(
+                        argument_types));
+    }
 }
 
 AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name,
@@ -31,34 +43,37 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
                                                          const bool result_is_nullable) {
     WhichDataType type(argument_types[0]);
 
-    if (type.is_uint8()) {
-        return create_agg_function_histogram<UInt8>(argument_types);
-    } else if (type.is_int8()) {
-        return create_agg_function_histogram<Int8>(argument_types);
-    } else if (type.is_int16()) {
-        return create_agg_function_histogram<Int16>(argument_types);
-    } else if (type.is_int32()) {
-        return create_agg_function_histogram<Int32>(argument_types);
-    } else if (type.is_int64()) {
+    LOG(INFO) << fmt::format("supported input type {} for aggregate function {}",
+                             argument_types[0]->get_name(), name);
+
+#define DISPATCH(TYPE) \
+    if (type.idx == TypeIndex::TYPE) return create_agg_function_histogram<TYPE>(argument_types);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+
+    if (type.idx == TypeIndex::String) {
+        return create_agg_function_histogram<String>(argument_types);
+    }
+    if (type.idx == TypeIndex::DateTime || type.idx == TypeIndex::Date) {
         return create_agg_function_histogram<Int64>(argument_types);
-    } else if (type.is_int128()) {
-        return create_agg_function_histogram<Int128>(argument_types);
-    } else if (type.is_float32()) {
-        return create_agg_function_histogram<Float32>(argument_types);
-    } else if (type.is_float64()) {
-        return create_agg_function_histogram<Float64>(argument_types);
-    } else if (type.is_decimal32()) {
+    }
+    if (type.idx == TypeIndex::DateV2) {
+        return create_agg_function_histogram<UInt32>(argument_types);
+    }
+    if (type.idx == TypeIndex::DateTimeV2) {
+        return create_agg_function_histogram<UInt64>(argument_types);
+    }
+    if (type.idx == TypeIndex::Decimal32) {
         return create_agg_function_histogram<Decimal32>(argument_types);
-    } else if (type.is_decimal64()) {
+    }
+    if (type.idx == TypeIndex::Decimal64) {
         return create_agg_function_histogram<Decimal64>(argument_types);
-    } else if (type.is_decimal128()) {
+    }
+    if (type.idx == TypeIndex::Decimal128) {
         return create_agg_function_histogram<Decimal128>(argument_types);
-    } else if (type.is_date()) {
-        return create_agg_function_histogram<Int64>(argument_types);
-    } else if (type.is_date_time()) {
-        return create_agg_function_histogram<Int64>(argument_types);
-    } else if (type.is_string()) {
-        return create_agg_function_histogram<StringRef>(argument_types);
+    }
+    if (type.idx == TypeIndex::Decimal128I) {
+        return create_agg_function_histogram<Decimal128I>(argument_types);
     }
 
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
