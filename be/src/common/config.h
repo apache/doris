@@ -489,7 +489,7 @@ CONF_mInt64(write_buffer_size_for_agg, "419430400");
 // write buffer size in push task for sparkload, default 1GB
 CONF_mInt64(flush_size_for_sparkload, "1073741824");
 
-CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
+CONF_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,
 // all load jobs will hang there to wait for memtable flush. We should have a
