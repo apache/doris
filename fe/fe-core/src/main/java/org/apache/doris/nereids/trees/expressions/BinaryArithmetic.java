@@ -48,7 +48,8 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
             try {
                 return TypeCoercionUtils.findCommonNumericsType(left().getDataType(), right().getDataType());
             } catch (Exception e) {
-                return TypeCoercionUtils.findTightestCommonType(left().getDataType(), right().getDataType())
+                return TypeCoercionUtils.findTightestCommonType(this,
+                                left().getDataType(), right().getDataType())
                         .orElseGet(() -> left().getDataType());
             }
         }

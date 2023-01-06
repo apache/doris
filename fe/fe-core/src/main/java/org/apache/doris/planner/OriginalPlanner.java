@@ -91,8 +91,6 @@ public class OriginalPlanner extends Planner {
         return analyzer.getAssignedRuntimeFilter();
     }
 
-    /**
-     */
     private void setResultExprScale(Analyzer analyzer, ArrayList<Expr> outputExprs) {
         for (TupleDescriptor tupleDesc : analyzer.getDescTbl().getTupleDescs()) {
             for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
