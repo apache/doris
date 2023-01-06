@@ -25,8 +25,9 @@
 
 namespace doris::vectorized {
 
-VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, const TupleId& tuple_id, int64_t limit)
-    : VScanner(state, static_cast<VScanNode*>(parent), limit) {
+VMetaScanner::(RuntimeState* state, VMetaScanNode* parent, const TMetaScanRange& scan_range,
+                           const TupleId& tuple_id, int64_t limit)
+    : VScanner(state, static_cast<VScanNode*>(parent), limit), _scan_range(scan_range), _tuple_id(tuple_id) {
 }
 
 Status VMetaScanner::open(RuntimeState* state) {
@@ -49,6 +50,25 @@ Status VMetaScanner::_fetch_metadata_batch() {
     request.__isset.cluster_name = true;
     request.schema_table_name = TSchemaTableName::ICEBERG_TABLE_META;
     request.__isset.schema_table_name = true;
+
+    TMetadataTableRequestParams meta_table_params = TMetadataTableRequestParams();
+    meta_table_params.catalog = "";
+    meta_table_params.__isset.catalog = true;
+    meta_table_params.database = "";
+    meta_table_params.__isset.database = true;
+    meta_table_params.table = "";
+    meta_table_params.__isset.table = true;
+
+//    TIcebergMetadataParams iceberg_params = TIcebergMetadataParams();
+    iceberg_params.metadata_type = ;
+    iceberg_params.__isset.metadata_type = true;
+
+    meta_table_params.iceberg_metadata_params = iceberg_params;
+    meta_table_params.__isset.iceberg_metadata_params = true;
+
+    request.metada_table_params = meta_table_params;
+    request.__isset.metada_table_params = true;
+
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     // TODO(ftw): if result will too large?
     TFetchSchemaTableDataResult result;

@@ -698,10 +698,7 @@ enum TSchemaTableName{
 }
 
 struct TMetadataTableRequestParams {
-  1: optional string catalog
-  2: optional string database
-  3: optional string table
-  4: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
+  1: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {

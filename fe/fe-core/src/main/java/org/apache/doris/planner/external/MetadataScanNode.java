@@ -94,6 +94,10 @@ public class MetadataScanNode extends ScanNode {
         TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
         int metadataType = icebergTvf.getMetaQueryType().ordinal();
         icebergMetadataParams.setMetadataType(TIcebergMetadataType.findByValue(metadataType));
+        icebergMetadataParams.setCatalog(icebergTvf.getIcebergTableName().getCtl());
+        icebergMetadataParams.setDatabase(icebergTvf.getIcebergTableName().getDb());
+        icebergMetadataParams.setTable(icebergTvf.getIcebergTableName().getTbl());
+
         metaScanRange.setIcebergParams(icebergMetadataParams);
         scanRange.setMetaScanRange(metaScanRange);
         // set location

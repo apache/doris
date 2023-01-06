@@ -38,6 +38,7 @@ private:
     Status _process_conjuncts() override;
 
     TupleId _tuple_id;
+    std::vector<TScanRangeParams> _scan_ranges;
 };
 
 } // namespace doris::vectorized

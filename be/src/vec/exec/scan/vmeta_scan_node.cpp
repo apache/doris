@@ -22,7 +22,8 @@ namespace doris::vectorized {
 
 VMetaScanNode::VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs),
-          _tuple_id(tnode.meta_scan_node.tuple_id) {}
+          _tuple_id(tnode.meta_scan_node.tuple_id) {
+}
 
 //std::string VMetaScanNode::get_name() {
 //    return fmt::format("VMetaScanNode({0})", _table_name);
@@ -39,10 +40,11 @@ Status VMetaScanNode::prepare(RuntimeState* state) {
 }
 
 void VMetaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-
+    _scan_ranges = scan_ranges;
 }
 
 Status VMetaScanNode::_init_profile() {
+    RETURN_IF_ERROR(VScanNode::_init_profile());
     return Status::OK();
 }
 
@@ -50,7 +52,7 @@ Status VMetaScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    VMetaScanner* scanner = new VMetaScanner(_state, this, _tuple_id, _limit_per_scanner);
+    VMetaScanner* scanner = new VMetaScanner(_state, this,  _tuple_id, _limit_per_scanner);
     _scanner_pool.add(scanner);
     RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
     scanners->push_back(static_cast<VScanner*>(scanner));
@@ -58,10 +60,6 @@ Status VMetaScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 }
 
 Status VMetaScanNode::_process_conjuncts() {
-    RETURN_IF_ERROR(VScanNode::_process_conjuncts());
-    if (_eos) {
-        return Status::OK();
-    }
     return Status::OK();
 }
 

@@ -38,7 +38,9 @@ protected:
     Status _fetch_metadata_batch();
 
 private:
+    TupleId _tuple_id;
     std::vector<TRow> _batch_data;
+    const TFileScanRange& _scan_range;
 };
 } // namespace doris::vectorized
 
