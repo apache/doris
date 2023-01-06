@@ -2612,6 +2612,8 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
                                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
+                    "", "", "", "", "", true, false, true, true));
         }
 
         // Avg
