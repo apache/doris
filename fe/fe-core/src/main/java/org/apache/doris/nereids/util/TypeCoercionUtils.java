@@ -232,14 +232,13 @@ public class TypeCoercionUtils {
                     break;
                 }
             }
+        } else if (left instanceof NumericType && right instanceof CharacterType
+                || right instanceof NumericType && left instanceof CharacterType) {
+            tightestCommonType = DoubleType.INSTANCE;
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
-            if (left instanceof NumericType || right instanceof NumericType) {
-                tightestCommonType = DoubleType.INSTANCE;
-            } else {
-                tightestCommonType = StringType.INSTANCE;
-            }
+            tightestCommonType = StringType.INSTANCE;
         } else if (left instanceof DecimalV2Type && right instanceof IntegralType) {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, DecimalV2Type.forType(right));
         } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
