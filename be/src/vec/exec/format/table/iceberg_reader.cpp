@@ -25,6 +25,12 @@
 
 namespace doris::vectorized {
 
+using DeleteRows = std::vector<int64_t>;
+using DeleteFile = phmap::parallel_flat_hash_map<
+        std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>,
+        std::equal_to<std::string>,
+        std::allocator<std::pair<const std::string, std::unique_ptr<DeleteRows>>>, 8, std::mutex>;
+
 const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
 const std::string ICEBERG_ROW_POS = "pos";
 const std::string ICEBERG_FILE_PATH = "file_path";
@@ -88,8 +94,16 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
 
 Status IcebergTableReader::_position_delete(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
-    using DeleteRows = std::vector<int64_t>;
-    using DeleteFile = std::unordered_map<std::string, std::unique_ptr<DeleteRows>>;
+    std::string data_file_path = _range.path;
+    // the path in _range is remove the namenode prefix,
+    // and the file_path in delete file is full path, so we should add it back.
+    if (_params.__isset.hdfs_params && _params.hdfs_params.__isset.fs_name) {
+        std::string fs_name = _params.hdfs_params.fs_name;
+        if (!starts_with(data_file_path, fs_name)) {
+            data_file_path = fs_name + data_file_path;
+        }
+    }
+
     // position delete
     ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
     RowRange whole_range = parquet_reader->get_whole_range();
@@ -98,24 +112,14 @@ Status IcebergTableReader::_position_delete(
     std::vector<TypeDescriptor> delete_file_col_types;
     std::vector<DeleteRows*> delete_rows_array;
     int64_t num_delete_rows = 0;
-    std::vector<std::pair<DeleteFile*, DeleteFile::iterator>> erase_data;
+    std::vector<DeleteFile*> erase_data;
     for (auto& delete_file : delete_files) {
         if (whole_range.last_row <= delete_file.position_lower_bound ||
             whole_range.first_row > delete_file.position_upper_bound) {
             continue;
         }
+
         SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
-
-        std::string data_file_path = _range.path;
-        // the path in _range is remove the namenode prefix,
-        // and the file_path in delete file is full path, so we should add it back.
-        if (_params.__isset.hdfs_params && _params.hdfs_params.__isset.fs_name) {
-            std::string fs_name = _params.hdfs_params.fs_name;
-            if (!starts_with(data_file_path, fs_name)) {
-                data_file_path = fs_name + data_file_path;
-            }
-        }
-
         Status create_status = Status::OK();
         DeleteFile* delete_file_cache = _kv_cache.get<
                 DeleteFile>(delete_file.path, [&]() -> DeleteFile* {
@@ -223,24 +227,36 @@ Status IcebergTableReader::_position_delete(
         } else if (!create_status.ok()) {
             return create_status;
         }
+
         DeleteFile& delete_file_map = *((DeleteFile*)delete_file_cache);
-        auto iter = delete_file_map.find(data_file_path);
-        if (iter != delete_file_map.end() && iter->second->size() > 0) {
-            num_delete_rows += iter->second->size();
-            DeleteRows* row_ids = iter->second.get();
-            delete_rows_array.emplace_back(row_ids);
-            if (row_ids->front() >= whole_range.first_row &&
-                row_ids->back() < whole_range.last_row) {
-                // TODO(gaoxin): how to safely erase data in multithreading.
-                erase_data.emplace_back(delete_file_cache, iter);
+        auto get_value = [&](const auto& v) {
+            DeleteRows* row_ids;
+            // remove those compatibility codes when we finish upgrade phmap.
+            if constexpr (std::is_same_v<const typename DeleteFile::mapped_type&, decltype(v)>) {
+                row_ids = v.get();
+            } else {
+                row_ids = v.second.get();
             }
-        }
+            if (row_ids->size() > 0) {
+                delete_rows_array.emplace_back(row_ids);
+                num_delete_rows += row_ids->size();
+                if (row_ids->front() >= whole_range.first_row &&
+                    row_ids->back() < whole_range.last_row) {
+                    erase_data.emplace_back(delete_file_cache);
+                }
+            }
+        };
+        delete_file_map.if_contains(data_file_path, get_value);
     }
     if (num_delete_rows > 0) {
         SCOPED_TIMER(_iceberg_profile.delete_rows_sort_time);
         _sort_delete_rows(delete_rows_array, num_delete_rows);
         parquet_reader->set_delete_rows(&_delete_rows);
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
+    }
+    // the delete rows are copy out, we can erase them.
+    for (auto& erase_item : erase_data) {
+        erase_item->erase(data_file_path);
     }
     return Status::OK();
 }
