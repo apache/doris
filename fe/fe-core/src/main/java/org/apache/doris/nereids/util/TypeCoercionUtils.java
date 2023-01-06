@@ -235,7 +235,7 @@ public class TypeCoercionUtils {
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
-            if (left instanceof IntegralType || right instanceof IntegralType) {
+            if (left instanceof NumericType || right instanceof NumericType) {
                 tightestCommonType = DoubleType.INSTANCE;
             } else {
                 tightestCommonType = StringType.INSTANCE;
