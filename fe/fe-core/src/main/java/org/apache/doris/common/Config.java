@@ -1718,7 +1718,7 @@ public class Config extends ConfigBase {
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_decimal_conversion = false;
+    public static boolean enable_decimal_conversion = true;
 
     /**
      * List of S3 API compatible object storage systems.

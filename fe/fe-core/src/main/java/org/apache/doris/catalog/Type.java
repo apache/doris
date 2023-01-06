@@ -772,13 +772,17 @@ public abstract class Type {
                     type = ScalarType.createVarcharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
-                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
-                        || scalarType.getType() == TPrimitiveType.DECIMAL32
+                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetPrecision());
+                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                            scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
                         || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
-                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
