@@ -30,12 +30,12 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
     FileReaderSPtr raw_reader;
     RETURN_IF_ERROR(open_file(path, &raw_reader, io_ctx));
     switch (reader_options.cache_type) {
-    case io::FileCacheType::NO_CACHE: {
+    case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;
         break;
     }
-    case io::FileCacheType::SUB_FILE_CACHE:
-    case io::FileCacheType::WHOLE_FILE_CACHE: {
+    case io::FileCachePolicy::SUB_FILE_CACHE:
+    case io::FileCachePolicy::WHOLE_FILE_CACHE: {
         StringPiece str(path.native());
         std::string cache_path = reader_options.path_policy.get_cache_path(str.as_string());
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
@@ -45,9 +45,9 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
         *reader = cache_reader;
         break;
     }
-    case io::FileCacheType::FILE_SEGMENT_CACHE: {
+    case io::FileCachePolicy::FILE_BLOCK_CACHE: {
         DCHECK(io_ctx);
-        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), nullptr, io_ctx);
+        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), io_ctx);
         break;
     }
     default: {

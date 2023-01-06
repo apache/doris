@@ -22,15 +22,12 @@
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
-#include "util/async_io.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
 
-CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               metrics_hook metrics, IOContext* io_ctx)
-        : _remote_file_reader(std::move(remote_file_reader)), _io_ctx(io_ctx), _metrics(metrics) {
+CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader, IOContext* io_ctx)
+        : _remote_file_reader(std::move(remote_file_reader)), _io_ctx(io_ctx) {
     _cache_key = IFileCache::hash(path().native());
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
     _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
@@ -62,10 +59,7 @@ Status CachedRemoteFileReader::read_at(size_t offset, Slice result, const IOCont
     if (bthread_self() == 0) {
         return read_at_impl(offset, result, io_ctx, bytes_read);
     }
-    Status s;
-    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
-    AsyncIO::run_task(task, io::FileSystemType::S3);
-    return s;
+    return Status::NotSupported("Not Support bthread");
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
@@ -197,9 +191,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
     DCHECK(*bytes_read == bytes_req);
     _update_state(stats, _io_ctx->file_cache_stats);
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
-    if (_io_ctx->file_cache_stats != nullptr && _metrics != nullptr) {
-        _metrics(_io_ctx->file_cache_stats);
-    }
     return Status::OK();
 }
 

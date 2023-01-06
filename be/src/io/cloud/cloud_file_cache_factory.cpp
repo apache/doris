@@ -19,7 +19,7 @@ FileCacheFactory& FileCacheFactory::instance() {
 
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            const FileCacheSettings& file_cache_settings,
-                                           FileSegmentCacheType type) {
+                                           FileCacheType type) {
     if (config::clear_file_cache) {
         auto fs = global_local_filesystem();
         bool res = false;

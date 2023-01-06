@@ -42,7 +42,7 @@ enum class FileSystemType : uint8_t {
     BROKER,
 };
 
-class FileSystem {
+class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
     FileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
             : _root_path(std::move(root_path)), _resource_id(std::move(resource_id)), _type(type) {}

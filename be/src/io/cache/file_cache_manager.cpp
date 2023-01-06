@@ -216,11 +216,11 @@ void FileCacheManager::gc_file_caches() {
 
 FileCachePtr FileCacheManager::new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                               io::FileReaderSPtr remote_file_reader,
-                                              io::FileCacheType cache_type) {
+                                              io::FileCachePolicy cache_type) {
     switch (cache_type) {
-    case io::FileCacheType::SUB_FILE_CACHE:
+    case io::FileCachePolicy::SUB_FILE_CACHE:
         return std::make_unique<WholeFileCache>(cache_dir, alive_time_sec, remote_file_reader);
-    case io::FileCacheType::WHOLE_FILE_CACHE:
+    case io::FileCachePolicy::WHOLE_FILE_CACHE:
         return std::make_unique<SubFileCache>(cache_dir, alive_time_sec, remote_file_reader);
     default:
         return nullptr;

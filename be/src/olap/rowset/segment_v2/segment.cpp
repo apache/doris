@@ -58,7 +58,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, reader_options, &file_reader,
                                                                  nullptr));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
     }
 #endif
 

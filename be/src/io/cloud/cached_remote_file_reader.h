@@ -31,8 +31,7 @@ namespace io {
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    using metrics_hook = std::function<void(FileCacheStatistics*)>;
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, metrics_hook, IOContext* io_ctx);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, IOContext* io_ctx);
 
     ~CachedRemoteFileReader() override;
 
@@ -49,7 +48,7 @@ public:
 
     bool closed() const override { return _remote_file_reader->closed(); }
 
-    // FileSystem* fs() const override { return _remote_file_reader->fs(); }
+    FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
 
 private:
     std::pair<size_t, size_t> _align_size(size_t offset, size_t size) const;
@@ -70,7 +69,6 @@ private:
         int64_t bytes_skip_cache = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
-    metrics_hook _metrics;
 };
 
 } // namespace io

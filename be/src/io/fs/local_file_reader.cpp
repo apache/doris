@@ -24,8 +24,9 @@
 namespace doris {
 namespace io {
 
-LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
-        : _fd(fd), _path(std::move(path)), _file_size(file_size) {
+LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
+                                 std::shared_ptr<LocalFileSystem> fs)
+        : _fd(fd), _path(std::move(path)), _file_size(file_size), _fs(std::move(fs)) {
     DorisMetrics::instance()->local_file_open_reading->increment(1);
     DorisMetrics::instance()->local_file_reader_total->increment(1);
 }

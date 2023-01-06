@@ -28,6 +28,8 @@ struct IOContext;
 
 namespace io {
 
+class FileSystem;
+
 class FileReader {
 public:
     FileReader() = default;
@@ -45,6 +47,8 @@ public:
     virtual size_t size() const = 0;
 
     virtual bool closed() const = 0;
+
+    virtual std::shared_ptr<FileSystem> fs() const = 0;
 };
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;

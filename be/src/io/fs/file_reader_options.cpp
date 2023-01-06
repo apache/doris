@@ -20,15 +20,15 @@
 namespace doris {
 namespace io {
 
-FileCacheType cache_type_from_string(const std::string& type) {
+FileCachePolicy cache_type_from_string(const std::string& type) {
     if (type == "sub_file_cache") {
-        return FileCacheType::SUB_FILE_CACHE;
+        return FileCachePolicy::SUB_FILE_CACHE;
     } else if (type == "whole_file_cache") {
-        return FileCacheType::WHOLE_FILE_CACHE;
-    } else if (type == "file_segment_cache") {
-        return FileCacheType::FILE_SEGMENT_CACHE;
+        return FileCachePolicy::WHOLE_FILE_CACHE;
+    } else if (type == "file_block_cache") {
+        return FileCachePolicy::FILE_BLOCK_CACHE;
     } else {
-        return FileCacheType::NO_CACHE;
+        return FileCachePolicy::NO_CACHE;
     }
 }
 

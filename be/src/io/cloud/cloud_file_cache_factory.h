@@ -8,7 +8,7 @@
 namespace doris {
 namespace io {
 
-enum FileSegmentCacheType {
+enum FileCacheType {
     NORMAL,
     DISPOSABLE,
 };
@@ -20,8 +20,7 @@ public:
     static FileCacheFactory& instance();
 
     Status create_file_cache(const std::string& cache_base_path,
-                             const FileCacheSettings& file_cache_settings,
-                             FileSegmentCacheType type);
+                             const FileCacheSettings& file_cache_settings, FileCacheType type);
 
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
     CloudFileCachePtr get_disposable_cache(const IFileCache::Key& key);

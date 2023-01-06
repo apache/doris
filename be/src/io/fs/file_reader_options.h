@@ -22,14 +22,14 @@
 namespace doris {
 namespace io {
 
-enum class FileCacheType : uint8_t {
+enum class FileCachePolicy : uint8_t {
     NO_CACHE,
     SUB_FILE_CACHE,
     WHOLE_FILE_CACHE,
-    FILE_SEGMENT_CACHE,
+    FILE_BLOCK_CACHE,
 };
 
-FileCacheType cache_type_from_string(const std::string& type);
+FileCachePolicy cache_type_from_string(const std::string& type);
 
 // CachePathPolicy it to define which cache path should be used
 // for the local cache of the given file(path).
@@ -57,17 +57,17 @@ public:
     }
 };
 
-class FileSegmentCachePathPolicy : public CachePathPolicy {
+class FileBlockCachePathPolicy : public CachePathPolicy {
 public:
-    FileSegmentCachePathPolicy() = default;
+    FileBlockCachePathPolicy() = default;
 };
 
 class FileReaderOptions {
 public:
-    FileReaderOptions(FileCacheType cache_type_, const CachePathPolicy& path_policy_)
+    FileReaderOptions(FileCachePolicy cache_type_, const CachePathPolicy& path_policy_)
             : cache_type(cache_type_), path_policy(path_policy_) {}
 
-    FileCacheType cache_type;
+    FileCachePolicy cache_type;
     CachePathPolicy path_policy;
 };
 

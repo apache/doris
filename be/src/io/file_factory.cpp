@@ -156,10 +156,10 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
     io::FileSystem* file_system_ptr = nullptr;
     std::string cache_policy = "no_cache";
     if (config::enable_file_cache) {
-        cache_policy = "file_segment_cache";
+        cache_policy = "file_block_cache";
     }
     io::FileReaderOptions reader_options(io::cache_type_from_string(cache_policy),
-                                         io::FileSegmentCachePathPolicy());
+                                         io::FileBlockCachePathPolicy());
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(

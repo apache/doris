@@ -148,8 +148,9 @@ Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOConte
     RETURN_IF_ERROR(file_size(path, &fsize));
     auto key = get_key(path);
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
-    *reader = std::make_shared<S3FileReader>(std::move(fs_path), fsize, std::move(key),
-                                             _s3_conf.bucket, this);
+    *reader = std::make_shared<S3FileReader>(
+            std::move(fs_path), fsize, std::move(key), _s3_conf.bucket,
+            std::static_pointer_cast<S3FileSystem>(shared_from_this()));
     return Status::OK();
 }
 

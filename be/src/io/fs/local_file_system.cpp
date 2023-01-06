@@ -55,7 +55,9 @@ Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOCo
     if (fd < 0) {
         return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
     }
-    *reader = std::make_shared<LocalFileReader>(std::move(fs_path), fsize, fd);
+    *reader = std::make_shared<LocalFileReader>(
+            std::move(fs_path), fsize, fd,
+            std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 

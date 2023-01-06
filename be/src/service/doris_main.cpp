@@ -399,8 +399,7 @@ int main(int argc, char** argv) {
         }
         for (auto& cache_path : cache_paths) {
             Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-                    cache_path.path, cache_path.init_settings(),
-                    doris::io::RemoteFileCacheType::NORMAL);
+                    cache_path.path, cache_path.init_settings(), doris::io::FileCacheType::NORMAL);
             if (!st) {
                 LOG(FATAL) << st;
                 exit(-1);
@@ -419,7 +418,7 @@ int main(int argc, char** argv) {
             for (auto& cache_path : cache_paths) {
                 Status st = doris::io::FileCacheFactory::instance().create_file_cache(
                         cache_path.path, cache_path.init_settings(),
-                        doris::io::RemoteFileCacheType::DISPOSABLE);
+                        doris::io::FileCacheType::DISPOSABLE);
                 if (!st) {
                     LOG(FATAL) << st;
                     exit(-1);
