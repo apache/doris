@@ -2395,8 +2395,6 @@ visible_functions = [
     [['money_format'], 'VARCHAR', ['DECIMAL128'],
      '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE',
      '', '', 'vec', ''],
-    [['split_by_char'],'ARRAY_VARCHAR',['STRING','STRING'],
-        '', '', '', 'vec', ''],
     [['split_by_string'],'ARRAY_VARCHAR',['STRING','STRING'],
         '', '', '', 'vec', ''],
     [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
