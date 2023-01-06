@@ -43,7 +43,6 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _keys_type(_tablet->keys_type()),
           _schema(schema),
           _tablet_schema(tablet_schema),
-          _slot_descs(slot_descs),
           _insert_mem_tracker(insert_mem_tracker),
           _flush_mem_tracker(flush_mem_tracker),
           _schema_size(_schema->schema_size()),

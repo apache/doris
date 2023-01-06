@@ -118,8 +118,6 @@ private:
     const KeysType _keys_type;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
-    // the slot in _slot_descs are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* _slot_descs;
 
     // TODO: change to unique_ptr of comparator
     std::shared_ptr<RowComparator> _row_comparator;
