@@ -136,6 +136,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected abstract void init();
 
     public void setUninitialized(boolean invalidCache) {
+        this.objectCreated = false;
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
