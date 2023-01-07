@@ -74,7 +74,7 @@ public:
     static Status create_file_reader(RuntimeProfile* profile,
                                      const FileSystemProperties& system_properties,
                                      const FileDescription& file_description,
-                                     std::unique_ptr<io::FileSystem>* file_system,
+                                     std::shared_ptr<io::FileSystem>* file_system,
                                      io::FileReaderSPtr* file_reader, IOContext* io_ctx);
 
     // Create FileReader for stream load pipe
@@ -85,7 +85,8 @@ public:
                                      std::shared_ptr<FileReader>& file_reader);
 
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
-                                     io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader,
+                                     std::shared_ptr<io::FileSystem>* hdfs_file_system,
+                                     io::FileReaderSPtr* reader,
                                      const io::FileReaderOptions& reader_options,
                                      IOContext* io_ctx);
 
@@ -93,14 +94,15 @@ public:
                                      const std::string& path, std::unique_ptr<FileWriter>& writer);
 
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
-                                   const std::string& path, io::FileSystem** s3_file_system,
+                                   const std::string& path,
+                                   std::shared_ptr<io::FileSystem>* s3_file_system,
                                    io::FileReaderSPtr* reader,
                                    const io::FileReaderOptions& reader_options, IOContext* io_ctx);
 
     static Status create_broker_reader(const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop,
                                        const FileDescription& file_description,
-                                       io::FileSystem** hdfs_file_system,
+                                       std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader,
                                        const io::FileReaderOptions& reader_options,
                                        IOContext* io_ctx);

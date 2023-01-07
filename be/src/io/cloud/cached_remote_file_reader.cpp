@@ -26,9 +26,10 @@
 namespace doris {
 namespace io {
 
-CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader, IOContext* io_ctx)
+CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
+                                               const std::string& cache_path, IOContext* io_ctx)
         : _remote_file_reader(std::move(remote_file_reader)), _io_ctx(io_ctx) {
-    _cache_key = IFileCache::hash(path().native());
+    _cache_key = IFileCache::hash(cache_path);
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
     _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
 }

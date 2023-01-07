@@ -279,7 +279,7 @@ private:
     orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
-    std::unique_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system;
 
     IOContext* _io_ctx;
 

@@ -31,7 +31,8 @@ namespace io {
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, IOContext* io_ctx);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path,
+                           IOContext* io_ctx);
 
     ~CachedRemoteFileReader() override;
 

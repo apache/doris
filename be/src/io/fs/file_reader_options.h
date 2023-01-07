@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "olap/olap_common.h"
+#include "io/cloud/cloud_file_cache.h"
 
 namespace doris {
 namespace io {
@@ -60,6 +60,7 @@ public:
 class FileBlockCachePathPolicy : public CachePathPolicy {
 public:
     FileBlockCachePathPolicy() = default;
+    std::string get_cache_path(const std::string& path) const override { return path; }
 };
 
 class FileReaderOptions {
@@ -68,7 +69,7 @@ public:
             : cache_type(cache_type_), path_policy(path_policy_) {}
 
     FileCachePolicy cache_type;
-    CachePathPolicy path_policy;
+    const CachePathPolicy& path_policy;
 };
 
 } // namespace io

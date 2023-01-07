@@ -47,7 +47,10 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
     }
     case io::FileCachePolicy::FILE_BLOCK_CACHE: {
         DCHECK(io_ctx);
-        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), io_ctx);
+        StringPiece str(raw_reader->path().native());
+        std::string cache_path = reader_options.path_policy.get_cache_path(str.as_string());
+        *reader =
+                std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path, io_ctx);
         break;
     }
     default: {

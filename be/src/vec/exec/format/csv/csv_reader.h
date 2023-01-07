@@ -93,7 +93,7 @@ private:
     // True if this is a load task
     bool _is_load = false;
 
-    std::unique_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
