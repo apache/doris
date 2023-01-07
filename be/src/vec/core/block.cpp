@@ -1006,7 +1006,9 @@ size_t MutableBlock::get_position_by_name(const std::string& name) const {
 std::string MutableBlock::dump_names() const {
     std::stringstream out;
     for (auto it = _names.begin(); it != _names.end(); ++it) {
-        if (it != _names.begin()) out << ", ";
+        if (it != _names.begin()) {
+            out << ", ";
+        }
         out << *it;
     }
     return out.str();
