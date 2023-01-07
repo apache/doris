@@ -1497,19 +1497,19 @@ alter_table_clause ::=
     {:
         RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition);
     :}
-    | KW_MODIFY KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ArrayList<String> partitions = new ArrayList<String>();
         partitions.add(partitionName);
-        RESULT = new ModifyPartitionClause(partitions, properties);
+        RESULT = new ModifyPartitionClause(partitions, properties, isTempPartition);
     :}
-    | KW_MODIFY KW_PARTITION LPAREN ident_list:partitions RPAREN KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION LPAREN ident_list:partitions RPAREN KW_SET LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = new ModifyPartitionClause(partitions, properties);
+        RESULT = new ModifyPartitionClause(partitions, properties, isTempPartition);
     :}
-    | KW_MODIFY KW_PARTITION LPAREN STAR RPAREN KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION LPAREN STAR RPAREN KW_SET LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = ModifyPartitionClause.createStarClause(properties);
+        RESULT = ModifyPartitionClause.createStarClause(properties, isTempPartition);
     :}
     | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_properties:properties
     {:

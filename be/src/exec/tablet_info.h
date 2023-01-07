@@ -102,6 +102,7 @@ struct VOlapTablePartition {
     std::vector<BlockRow> in_keys;
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
+    bool is_mutable;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -102,6 +103,9 @@ public class OlapTableSinkTest {
             }
         };
 
+        dstTable.getPartitionInfo().setDataProperty(partition.getId(),
+                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+        dstTable.getPartitionInfo().setIsMutable(partition.getId(), true);
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L), false);
         sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
         sink.complete();

@@ -122,6 +122,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
 
+    public static final String PROPERTIES_MUTABLE = "mutable";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -226,7 +228,10 @@ public class PropertyAnalyzer {
             }
         }
 
-        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy);
+        boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
+        properties.remove(PROPERTIES_MUTABLE);
+
+        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {

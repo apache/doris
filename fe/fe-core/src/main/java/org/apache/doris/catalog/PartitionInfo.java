@@ -156,12 +156,14 @@ public class PartitionInfo implements Writable {
 
     public void unprotectHandleNewSinglePartitionDesc(long partitionId, boolean isTemp, PartitionItem partitionItem,
                                                       DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                                      boolean isInMemory) {
+                                                      boolean isInMemory, boolean isMutable) {
         setItemInternal(partitionId, isTemp, partitionItem);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
         idToStoragePolicy.put(partitionId, "");
+        //TODO
+        //idToMutable.put(partitionId, isMutable);
     }
 
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
@@ -247,6 +249,14 @@ public class PartitionInfo implements Writable {
         return idToInMemory.get(partitionId);
     }
 
+    public boolean getIsMutable(long partitionId) {
+        return idToDataProperty.get(partitionId).isMutable();
+    }
+
+    public void setIsMutable(long partitionId, boolean isMutable) {
+        idToDataProperty.get(partitionId).setMutable(isMutable);
+    }
+
     public void setIsInMemory(long partitionId, boolean isInMemory) {
         idToInMemory.put(partitionId, isInMemory);
     }
@@ -271,14 +281,15 @@ public class PartitionInfo implements Writable {
     }
 
     public void addPartition(long partitionId, boolean isTemp, PartitionItem item, DataProperty dataProperty,
-                             ReplicaAllocation replicaAlloc, boolean isInMemory) {
-        addPartition(partitionId, dataProperty, replicaAlloc, isInMemory);
+                             ReplicaAllocation replicaAlloc, boolean isInMemory, boolean isMutable) {
+        addPartition(partitionId, dataProperty, replicaAlloc, isInMemory, isMutable);
         setItemInternal(partitionId, isTemp, item);
     }
 
     public void addPartition(long partitionId, DataProperty dataProperty,
                              ReplicaAllocation replicaAlloc,
-                             boolean isInMemory) {
+                             boolean isInMemory, boolean isMutable) {
+        dataProperty.setMutable(isMutable);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
@@ -395,6 +406,7 @@ public class PartitionInfo implements Writable {
             buff.append("data_property: ").append(entry.getValue().toString()).append("; ");
             buff.append("replica number: ").append(idToReplicaAllocation.get(entry.getKey())).append("; ");
             buff.append("in memory: ").append(idToInMemory.get(entry.getKey()));
+            buff.append("is mutable: ").append(idToDataProperty.get(entry.getKey()).isMutable());
         }
 
         return buff.toString();

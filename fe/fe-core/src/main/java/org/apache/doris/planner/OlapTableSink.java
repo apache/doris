@@ -282,6 +282,7 @@ public class OlapTableSink extends DataSink {
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNumBuckets(index.getTablets().size());
                     }
+                    tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
                     partitionParam.addToPartitions(tPartition);
 
                     DistributionInfo distInfo = partition.getDistributionInfo();
@@ -306,6 +307,7 @@ public class OlapTableSink extends DataSink {
 
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
+                tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partition.getId()));
                 // No lowerBound and upperBound for this range
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(

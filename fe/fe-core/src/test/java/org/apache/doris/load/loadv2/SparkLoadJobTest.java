@@ -24,6 +24,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -337,7 +338,8 @@ public class SparkLoadJobTest {
         long fileSize = 6L;
         filePathToSize.put(filePath, fileSize);
         PartitionInfo partitionInfo = new RangePartitionInfo();
-        partitionInfo.addPartition(partitionId, null, new ReplicaAllocation((short) 1), false);
+        partitionInfo.addPartition(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM),
+                new ReplicaAllocation((short) 1), false, true);
 
         new Expectations() {
             {

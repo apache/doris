@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.SystemInfoService;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
@@ -128,12 +129,15 @@ public class NetUtils {
         return addr + ":" + port;
     }
 
-    public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) {
+    public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) throws AnalysisException {
         if (hostPort.charAt(0) == '[') {
             String[] pair = hostPort.substring(1).split("]:");
             return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
         } else {
             String[] pair = hostPort.split(":");
+            if (pair.length != 2) {
+                throw new AnalysisException("invalid host port: " + hostPort);
+            }
             return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
         }
     }

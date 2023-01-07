@@ -495,6 +495,7 @@ private:
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
+    int64_t _number_immutable_partition_filtered_rows = 0;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
