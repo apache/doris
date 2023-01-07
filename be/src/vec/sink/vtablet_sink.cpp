@@ -182,6 +182,9 @@ VNodeChannel::~VNodeChannel() {
         delete _add_block_closure;
         _add_block_closure = nullptr;
     }
+    if (_open_closure != nullptr) {
+        delete _open_closure;
+    }
     _cur_add_block_request.release_id();
 }
 
@@ -616,7 +619,9 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
             _add_block_closure->clear_in_flight();
             return;
         }
-        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
+
+        //format an ipv6 address
+        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");

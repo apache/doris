@@ -23,11 +23,12 @@ import org.apache.doris.common.util.NetUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.net.InetAddresses;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -64,19 +65,17 @@ public class FrontendOptions {
 
         InetAddress loopBack = null;
         for (InetAddress addr : hosts) {
-            LOG.debug("check ip address: {}", addr);
-            if (addr instanceof Inet4Address) {
-                if (addr.isLoopbackAddress()) {
-                    loopBack = addr;
-                } else if (!priorityCidrs.isEmpty()) {
-                    if (isInPriorNetwork(addr.getHostAddress())) {
-                        localAddr = addr;
-                        break;
-                    }
-                } else {
+            LOG.info("check ip address: {}", addr);
+            if (addr.isLoopbackAddress()) {
+                loopBack = addr;
+            } else if (!priorityCidrs.isEmpty()) {
+                if (isInPriorNetwork(addr.getHostAddress())) {
                     localAddr = addr;
                     break;
                 }
+            } else {
+                localAddr = addr;
+                break;
             }
         }
 
@@ -92,7 +91,7 @@ public class FrontendOptions {
     }
 
     public static String getLocalHostAddress() {
-        return localAddr.getHostAddress();
+        return InetAddresses.toAddrString(localAddr);
     }
 
     public static String getHostname() {
@@ -120,6 +119,10 @@ public class FrontendOptions {
             }
         }
         return false;
+    }
+
+    public static boolean isBindIPV6() {
+        return localAddr instanceof Inet6Address;
     }
 
 }

@@ -20,6 +20,7 @@ package org.apache.doris.mysql.nio;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,8 +68,15 @@ public class NMysqlServer {
     // return true if success, otherwise false
     public boolean start() {
         try {
-            server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port), acceptListener,
+            if (FrontendOptions.isBindIPV6()) {
+                server = xnioWorker.createStreamConnectionServer(new InetSocketAddress("::0", port), acceptListener,
                     OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
+
+            } else {
+                server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port), acceptListener,
+                    OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
+
+            }
             server.resumeAccepts();
             running = true;
             LOG.info("Open mysql server success on {}", port);
