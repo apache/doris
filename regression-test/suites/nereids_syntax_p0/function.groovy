@@ -89,5 +89,15 @@ suite("function") {
         sql """select b.number from (select * from numbers(number = 3) a)b"""
         result([[0L], [1L], [2L]])
     }
+
+    def ret = sql """
+            explain verbose
+            select sum(case when false 
+                        THEN (cast(1 as double)  * power(10, -18)) 
+                        ELSE 0.0 END)
+            from (select 1) t;
+            """
+    //sum return type should be deicmal        
+    assertTrue(ret.toString().contains("SlotDescriptor{id=2, col=null, colUniqueId=null, type=DECIMAL(27,9), nullable=true}"))
 }
 

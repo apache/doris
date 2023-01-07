@@ -118,12 +118,8 @@ public class TypeCoercionUtils {
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof NumericType) {
-                if (input instanceof DecimalV2Type) {
-                    returnType = input;
-                } else {
-                    // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
-                    returnType = expected.defaultConcreteType();
-                }
+                // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
+                returnType = expected.defaultConcreteType();
             }
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalV2Type) {
@@ -281,10 +277,10 @@ public class TypeCoercionUtils {
      * The common type used by arithmetic operations.
      */
     public static DataType findCommonNumericsType(DataType t1, DataType t2) {
-        if (t1.isDoubleType() || t2.isDoubleType()) {
-            return DoubleType.INSTANCE;
-        } else if (t1.isDecimalType() || t2.isDecimalType()) {
+        if (t1.isDecimalType() || t2.isDecimalType()) {
             return DecimalV2Type.SYSTEM_DEFAULT;
+        } else if (t1.isDoubleType() || t2.isDoubleType()) {
+            return DoubleType.INSTANCE;
         } else if (t1.isLargeIntType() || t2.isLargeIntType()) {
             return LargeIntType.INSTANCE;
         } else {
