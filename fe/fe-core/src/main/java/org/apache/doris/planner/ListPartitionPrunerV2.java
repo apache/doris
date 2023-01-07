@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
@@ -103,6 +104,15 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
         if (singleColumnRangeMap == null) {
             singleColumnRangeMap = genSingleColumnRangeMap(idToPartitionItem, new HashMap<>());
         }
+    }
+
+    public static Map<Long, List<String>> getPartitionValuesMap(Map<Long, PartitionItem> idToPartitionItem) {
+        Map<Long, List<String>> partitionValuesMap = new HashMap<>();
+        for (Map.Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            partitionValuesMap.put(entry.getKey(),
+                    ((ListPartitionItem) entry.getValue()).getItems().get(0).getPartitionValuesAsStringList());
+        }
+        return partitionValuesMap;
     }
 
     public static RangeMap<ColumnBound, UniqueId> genSingleColumnRangeMap(Map<Long, PartitionItem> idToPartitionItem,
