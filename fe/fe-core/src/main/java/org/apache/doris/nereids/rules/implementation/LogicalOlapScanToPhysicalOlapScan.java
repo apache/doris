@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -59,10 +63,17 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     }
 
     private DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
-        DistributionInfo distributionInfo = olapScan.getTable().getDefaultDistributionInfo();
-        if (distributionInfo instanceof HashDistributionInfo) {
+        OlapTable olapTable = olapScan.getTable();
+        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        if ((colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId())))
+                || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapTable.getPartitions().size() == 1) {
+            if (!(distributionInfo instanceof HashDistributionInfo)) {
+                return DistributionSpecAny.INSTANCE;
+            }
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-
             List<Slot> output = olapScan.getOutput();
             List<ExprId> hashColumns = Lists.newArrayList();
             List<Column> schemaColumns = olapScan.getTable().getFullSchema();
