@@ -118,6 +118,15 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testInNull() {
+        //make sure Null literal is not casted to Integerf
+        InPredicate in = new InPredicate(new IntegerLiteral(1),
+                Lists.newArrayList(new IntegerLiteral(2),
+                        new NullLiteral()));
+        assertRewrite(in, in);
+    }
+
+    @Test
     public void testBinaryPredicate() {
         Expression left = new DecimalLiteral(new BigDecimal(2.4));
         Expression right = new TinyIntLiteral((byte) 2);
