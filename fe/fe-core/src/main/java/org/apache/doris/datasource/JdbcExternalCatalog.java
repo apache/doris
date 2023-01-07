@@ -65,7 +65,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
         String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
         if (!Strings.isNullOrEmpty(jdbcUrl)) {
-            jdbcUrl = handleJdbcUrl(jdbcUrl);
+            jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
 
@@ -74,29 +74,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                     JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
         }
         return properties;
-    }
-
-    // `yearIsDateType` is a parameter of JDBC, and the default is `yearIsDateType=true`
-    // We force the use of `yearIsDateType=false`
-    private String handleJdbcUrl(String jdbcUrl) {
-        // delete all space in jdbcUrl
-        String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
-        if (newJdbcUrl.contains("yearIsDateType=false")) {
-            return newJdbcUrl;
-        } else if (newJdbcUrl.contains("yearIsDateType=true")) {
-            newJdbcUrl = newJdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
-        } else {
-            String yearIsDateType = "yearIsDateType=false";
-            if (newJdbcUrl.contains("?")) {
-                if (newJdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
-                    newJdbcUrl += "&";
-                }
-            } else {
-                newJdbcUrl += "?";
-            }
-            newJdbcUrl += yearIsDateType;
-        }
-        return newJdbcUrl;
     }
 
     public String getDatabaseTypeName() {

@@ -108,6 +108,7 @@ public class JdbcResource extends Resource {
         replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         super.modifyProperties(properties);
     }
 
@@ -142,7 +143,7 @@ public class JdbcResource extends Resource {
         checkProperties(USER);
         checkProperties(PASSWORD);
         checkProperties(TYPE);
-
+        this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
     }
 
@@ -211,5 +212,39 @@ public class JdbcResource extends Resource {
             LOG.warn("invalid jdbc driver url: " + driverUrl);
             return driverUrl;
         }
+    }
+
+
+    // 1. `yearIsDateType` is a parameter of JDBC, and the default is true.
+    // We force the use of `yearIsDateType=false`
+    // 2. `tinyInt1isBit` is a parameter of JDBC, and the default is true.
+    // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
+    // it will convert to Doris tinyint, not bit.
+    public static String handleJdbcUrl(String jdbcUrl) {
+        // delete all space in jdbcUrl
+        String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
+        newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
+        newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+        return newJdbcUrl;
+    }
+
+    private static String checkJdbcUrlParam(String jdbcUrl, String params, String unexpectedVal, String expectedVal) {
+        String unexpectedParams = params + "=" + unexpectedVal;
+        String expectedParams = params + "=" + expectedVal;
+        if (jdbcUrl.contains(expectedParams)) {
+            return jdbcUrl;
+        } else if (jdbcUrl.contains(unexpectedParams)) {
+            jdbcUrl = jdbcUrl.replaceAll(unexpectedParams, expectedParams);
+        } else {
+            if (jdbcUrl.contains("?")) {
+                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
+                    jdbcUrl += "&";
+                }
+            } else {
+                jdbcUrl += "?";
+            }
+            jdbcUrl += expectedParams;
+        }
+        return jdbcUrl;
     }
 }
