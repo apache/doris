@@ -24,8 +24,6 @@ import org.apache.doris.common.DdlException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -33,33 +31,27 @@ import java.util.List;
  * MetastoreEvent for DROP_DATABASE event type
  */
 public class DropDatabaseEvent extends MetastoreEvent {
-    private static final Logger LOG = LogManager.getLogger(DropDatabaseEvent.class);
 
-    /**
-     * Prevent instantiation from outside should use MetastoreEventFactory instead
-     */
     private DropDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
-        Preconditions.checkState(getEventType().equals(MetastoreEventType.DROP_DATABASE));
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.DROP_DATABASE));
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
-        return Lists.newArrayList(
-                new DropDatabaseEvent(event, catalogName));
+        return Lists.newArrayList(new DropDatabaseEvent(event, catalogName));
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.info("DropDatabaseEvent process,catalogName:[{}],dbName:[{}]", catalogName, dbName);
+            debugLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
                     .dropExternalDatabase(dbName, catalogName);
         } catch (DdlException e) {
-            LOG.warn("DropDatabaseEvent failed,dbName:[{}],catalogName:[{}].", dbName, catalogName, e);
             throw new MetastoreNotificationException(
-                    debugString("Failed to process drop database event"));
+                    debugString("Failed to process event"));
         }
     }
 }

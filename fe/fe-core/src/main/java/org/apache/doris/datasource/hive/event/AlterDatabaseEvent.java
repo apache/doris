@@ -21,8 +21,6 @@ package org.apache.doris.datasource.hive.event;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -30,26 +28,21 @@ import java.util.List;
  * MetastoreEvent for Alter_DATABASE event type
  */
 public class AlterDatabaseEvent extends MetastoreEvent {
-    private static final Logger LOG = LogManager.getLogger(AlterDatabaseEvent.class);
 
-    /**
-     * Prevent instantiation from outside should use MetastoreEventFactory instead
-     */
     private AlterDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
-        Preconditions.checkState(getEventType().equals(MetastoreEventType.ALTER_DATABASE));
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ALTER_DATABASE));
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
-        return Lists.newArrayList(
-                new AlterDatabaseEvent(event, catalogName));
+        return Lists.newArrayList(new AlterDatabaseEvent(event, catalogName));
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
         // only can change properties,we do nothing
-        LOG.info("AlterDatabaseEvent process,catalogName:[{}],dbName:[{}]", catalogName, dbName);
+        debugLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
     }
 }

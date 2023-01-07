@@ -24,8 +24,6 @@ import org.apache.doris.common.DdlException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -33,33 +31,27 @@ import java.util.List;
  * MetastoreEvent for CREATE_DATABASE event type
  */
 public class CreateDatabaseEvent extends MetastoreEvent {
-    private static final Logger LOG = LogManager.getLogger(CreateDatabaseEvent.class);
 
-    /**
-     * Prevent instantiation from outside should use MetastoreEventFactory instead
-     */
     private CreateDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
-        Preconditions.checkState(getEventType().equals(MetastoreEventType.CREATE_DATABASE));
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.CREATE_DATABASE));
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
-        return Lists.newArrayList(
-                new CreateDatabaseEvent(event, catalogName));
+        return Lists.newArrayList(new CreateDatabaseEvent(event, catalogName));
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.info("CreateDatabaseEvent process,catalogName:[{}],dbName:[{}]", catalogName, dbName);
+            debugLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
                     .createExternalDatabase(dbName, catalogName);
         } catch (DdlException e) {
-            LOG.warn("CreateDatabaseEvent failed,dbName:[{}],catalogName:[{}].", dbName, catalogName, e);
             throw new MetastoreNotificationException(
-                    debugString("Failed to process create database event"));
+                    debugString("Failed to process event"));
         }
     }
 }

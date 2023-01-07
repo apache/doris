@@ -259,6 +259,9 @@ public class OperationType {
     public static final short OP_DROP_EXTERNAL_DB = 351;
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;
     public static final short OP_CREATE_EXTERNAL_DB = 353;
+    public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
 

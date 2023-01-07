@@ -969,6 +969,21 @@ public class EditLog {
                     env.getCatalogMgr().replayCreateExternalDatabase(log);
                     break;
                 }
+                case OperationType.OP_ADD_EXTERNAL_PARTITIONS: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayAddExternalPartitions(log);
+                    break;
+                }
+                case OperationType.OP_DROP_EXTERNAL_PARTITIONS: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayDropExternalPartitions(log);
+                    break;
+                }
+                case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayRefreshExternalPartitions(log);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1658,6 +1673,18 @@ public class EditLog {
 
     public void logCreateExternalDatabase(ExternalObjectLog log) {
         logEdit(OperationType.OP_CREATE_EXTERNAL_DB, log);
+    }
+
+    public void logAddExternalPartitions(ExternalObjectLog log) {
+        logEdit(OperationType.OP_ADD_EXTERNAL_PARTITIONS, log);
+    }
+
+    public void logDropExternalPartitions(ExternalObjectLog log) {
+        logEdit(OperationType.OP_DROP_EXTERNAL_PARTITIONS, log);
+    }
+
+    public void logInvalidateExternalPartitions(ExternalObjectLog log) {
+        logEdit(OperationType.OP_REFRESH_EXTERNAL_PARTITIONS, log);
     }
 
     public Journal getJournal() {

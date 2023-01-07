@@ -26,8 +26,6 @@ import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.CreateTableMessage;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -35,18 +33,17 @@ import java.util.List;
  * MetastoreEvent for CREATE_TABLE event type
  */
 public class CreateTableEvent extends MetastoreTableEvent {
-    private static final Logger LOG = LogManager.getLogger(CreateTableEvent.class);
-    private Table hmsTbl;
+    private final Table hmsTbl;
 
     private CreateTableEvent(NotificationEvent event, String catalogName) throws MetastoreNotificationException {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.CREATE_TABLE.equals(getEventType()));
-        Preconditions.checkNotNull(MetastoreEventType.CREATE_TABLE, debugString("Event message is null"));
-        CreateTableMessage createTableMessage =
-                MetastoreEventsProcessor.getMessageDeserializer().getCreateTableMessage(event.getMessage());
-
+        Preconditions
+                .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
-            hmsTbl = createTableMessage.getTableObj();
+            CreateTableMessage createTableMessage =
+                    MetastoreEventsProcessor.getMessageDeserializer().getCreateTableMessage(event.getMessage());
+            hmsTbl = Preconditions.checkNotNull(createTableMessage.getTableObj());
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Unable to deserialize the event message"), e);
@@ -54,30 +51,26 @@ public class CreateTableEvent extends MetastoreTableEvent {
     }
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event, String catalogName) {
-        return Lists.newArrayList(
-                new CreateTableEvent(event, catalogName));
+        return Lists.newArrayList(new CreateTableEvent(event, catalogName));
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.info("CreateTable event process,catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName,
-                    hmsTbl.getTableName());
+            debugLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
             boolean hasExist = Env.getCurrentEnv().getCatalogMgr()
                     .externalTableExist(dbName, hmsTbl.getTableName(), catalogName);
             if (hasExist) {
-                LOG.warn(
-                        "CreateExternalTable canceled,because table has exist, "
-                                + "dbName:[{}],tableName:[{}],catalogName:[{}].",
-                        dbName, hmsTbl.getTableName(), catalogName);
+                infoLog(
+                        "CreateExternalTable canceled,because table has exist,"
+                                + "catalogName:[{}],dbName:[{}],tableName:[{}]",
+                        catalogName, dbName, tblName);
                 return;
             }
             Env.getCurrentEnv().getCatalogMgr().createExternalTable(dbName, hmsTbl.getTableName(), catalogName);
         } catch (DdlException e) {
-            LOG.warn("CreateExternalTable failed,dbName:[{}],tableName:[{}],catalogName:[{}].", dbName,
-                    hmsTbl.getTableName(), catalogName, e);
             throw new MetastoreNotificationException(
-                    debugString("Failed to process create table event"));
+                    debugString("Failed to process event"));
         }
     }
 }

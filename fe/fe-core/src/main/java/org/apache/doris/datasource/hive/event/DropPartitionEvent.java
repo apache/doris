@@ -23,34 +23,40 @@ import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.DropPartitionMessage;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * MetastoreEvent for DROP_PARTITION event type
+ * MetastoreEvent for ADD_PARTITION event type
  */
 public class DropPartitionEvent extends MetastoreTableEvent {
-    private static final Logger LOG = LogManager.getLogger(DropPartitionEvent.class);
-    private Table hmsTbl;
+    private final Table hmsTbl;
+    private final List<String> partitionNames;
 
-    /**
-     * Prevent instantiation from outside should use MetastoreEventFactory instead
-     */
     private DropPartitionEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
-        Preconditions.checkState(getEventType().equals(MetastoreEventType.DROP_PARTITION));
-
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.DROP_PARTITION));
+        Preconditions
+                .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             DropPartitionMessage dropPartitionMessage =
                     MetastoreEventsProcessor.getMessageDeserializer()
                             .getDropPartitionMessage(event.getMessage());
-            hmsTbl = dropPartitionMessage.getTableObj();
+            hmsTbl = Preconditions.checkNotNull(dropPartitionMessage.getTableObj());
+            List<Map<String, String>> droppedPartitions = dropPartitionMessage.getPartitions();
+            partitionNames = new ArrayList<>();
+            List<String> partitionColNames = hmsTbl.getPartitionKeys().stream()
+                    .map(FieldSchema::getName).collect(Collectors.toList());
+            droppedPartitions.forEach(partition -> partitionNames.add(
+                    getPartitionName(partition, partitionColNames)));
         } catch (Exception ex) {
             throw new MetastoreNotificationException(ex);
         }
@@ -65,16 +71,18 @@ public class DropPartitionEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.info("DropPartition event process,catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName,
-                    hmsTbl.getTableName());
+            debugLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNames:[{}]", catalogName, dbName, tblName,
+                    partitionNames.toString());
+            // bail out early if there are not partitions to process
+            if (partitionNames.isEmpty()) {
+                infoLog("Partition list is empty. Ignoring this event.");
+                return;
+            }
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(dbName, hmsTbl.getTableName(), catalogName);
+                    .dropExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames);
         } catch (DdlException e) {
-            LOG.warn("InvalidateExternalTableCache failed,dbName:[{}],tableName:[{}],catalogName:[{}].", dbName,
-                    hmsTbl.getTableName(),
-                    catalogName, e);
             throw new MetastoreNotificationException(
-                    debugString("Failed to process drop partition event"));
+                    debugString("Failed to process event"));
         }
     }
 }

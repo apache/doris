@@ -551,8 +551,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    public void refreshExternalTable(String dbName, String tableName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support refresh ExternalCatalog Tables");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
+    }
+
     public void replayRefreshExternalTable(ExternalObjectLog log) {
-        // TODO: 2023/1/4 how refresh table in HMSExternalDatabase
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
         ExternalTable table = db.getTableForReplay(log.getTableId());
@@ -586,13 +607,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void replayDropExternalTable(ExternalObjectLog log) {
-        // TODO: 2023/1/4 lock?
         LOG.debug("ReplayDropExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(), log.getDbId(),
                 log.getTableId());
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
         ExternalTable table = db.getTableForReplay(log.getTableId());
-        db.dropTable(table.getName());
+        db.writeLock();
+        try {
+            db.dropTable(table.getName());
+        } finally {
+            db.writeUnlock();
+        }
+
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
@@ -639,31 +665,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 log.getDbId(), log.getTableId(), log.getTableName());
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        db.createTable(log.getTableName(), log.getTableId());
-    }
-
-
-    // TODO: 2023/1/4 repeat
-    public void refreshExternalTable(String dbName, String tableName, String catalogName) throws DdlException {
-        CatalogIf catalog = nameToCatalog.get(catalogName);
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new DdlException("Only support refresh ExternalCatalog Tables");
+        db.writeLock();
+        try {
+            db.createTable(log.getTableName(), log.getTableId());
+        } finally {
+            db.writeUnlock();
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-        }
-
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setTableId(table.getId());
-        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
     public void dropExternalDatabase(String dbName, String catalogName) throws DdlException {
@@ -719,7 +726,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(Env.getCurrentEnv().getNextId());
         log.setDbName(dbName);
         replayCreateExternalDatabase(log);
-        Env.getCurrentEnv().getEditLog().logDropExternalDatabase(log);
+        Env.getCurrentEnv().getEditLog().logCreateExternalDatabase(log);
     }
 
     public void replayCreateExternalDatabase(ExternalObjectLog log) {
@@ -732,6 +739,122 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public void addExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames)
+            throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setPartitionNames(partitionNames);
+        replayAddExternalPartitions(log);
+        Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
+    }
+
+    public void replayAddExternalPartitions(ExternalObjectLog log) {
+        LOG.debug("ReplayAddExternalPartitions,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .addPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+    }
+
+    public void dropExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames)
+            throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setPartitionNames(partitionNames);
+        replayDropExternalPartitions(log);
+        Env.getCurrentEnv().getEditLog().logDropExternalPartitions(log);
+    }
+
+    public void replayDropExternalPartitions(ExternalObjectLog log) {
+        LOG.debug("ReplayDropExternalPartitions,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .dropPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+    }
+
+    public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
+            List<String> partitionNames)
+            throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setPartitionNames(partitionNames);
+        replayRefreshExternalPartitions(log);
+        Env.getCurrentEnv().getEditLog().logInvalidateExternalPartitions(log);
+    }
+
+    public void replayRefreshExternalPartitions(ExternalObjectLog log) {
+        LOG.debug("replayRefreshExternalPartitions,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
+                        log.getPartitionNames());
     }
 
     @Override

@@ -23,34 +23,38 @@ import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.common.FileUtils;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.AlterPartitionMessage;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * MetastoreEvent for ALTER_PARTITION event type
  */
 public class AlterPartitionEvent extends MetastoreTableEvent {
-    private static final Logger LOG = LogManager.getLogger(AlterPartitionEvent.class);
-    private Table hmsTbl;
+    private final Table hmsTbl;
+    private final org.apache.hadoop.hive.metastore.api.Partition partitionAfter;
+    private final String partitionName;
 
-    /**
-     * Prevent instantiation from outside should use MetastoreEventFactory instead
-     */
     private AlterPartitionEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
-        Preconditions.checkState(getEventType().equals(MetastoreEventType.ALTER_PARTITION));
-
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ALTER_PARTITION));
+        Preconditions
+                .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             AlterPartitionMessage alterPartitionMessage =
                     MetastoreEventsProcessor.getMessageDeserializer()
                             .getAlterPartitionMessage(event.getMessage());
-            hmsTbl = alterPartitionMessage.getTableObj();
+            hmsTbl = Preconditions.checkNotNull(alterPartitionMessage.getTableObj());
+            partitionAfter = Preconditions.checkNotNull(alterPartitionMessage.getPtnObjAfter());
+            List<String> partitionColNames = hmsTbl.getPartitionKeys().stream()
+                    .map(FieldSchema::getName).collect(Collectors.toList());
+            partitionName = FileUtils.makePartName(partitionColNames, partitionAfter.getValues());
         } catch (Exception ex) {
             throw new MetastoreNotificationException(ex);
         }
@@ -58,23 +62,20 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
-        return Lists.newArrayList(
-                new AlterPartitionEvent(event, catalogName));
+        return Lists.newArrayList(new AlterPartitionEvent(event, catalogName));
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.info("AlterPartition event process,catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName,
-                    hmsTbl.getTableName());
+            debugLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionName:[{}]", catalogName, dbName, tblName,
+                    partitionName);
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(dbName, hmsTbl.getTableName(), catalogName);
+                    .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                            Lists.newArrayList(partitionName));
         } catch (DdlException e) {
-            LOG.warn("InvalidateExternalTableCache failed,dbName:[{}],tableName:[{}],catalogName:[{}].", dbName,
-                    hmsTbl.getTableName(),
-                    catalogName, e);
             throw new MetastoreNotificationException(
-                    debugString("Failed to process alter partition event"));
+                    debugString("Failed to process event"));
         }
     }
 }

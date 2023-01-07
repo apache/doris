@@ -26,8 +26,6 @@ import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -35,23 +33,23 @@ import java.util.List;
  * MetastoreEvent for ALTER_TABLE event type
  */
 public class AlterTableEvent extends MetastoreTableEvent {
-    private static final Logger LOG = LogManager.getLogger(AlterTableEvent.class);
-
     // the table object before alter operation
-    protected Table tableBefore;
+    private final Table tableBefore;
     // the table object after alter operation
-    protected Table tableAfter;
+    private final Table tableAfter;
 
     // true if this alter event was due to a rename operation
-    protected final boolean isRename;
+    private final boolean isRename;
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.ALTER_TABLE.equals(getEventType()));
-        JSONAlterTableMessage alterTableMessage =
-                (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
-                        .getAlterTableMessage(event.getMessage());
+        Preconditions
+                .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
+            JSONAlterTableMessage alterTableMessage =
+                    (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
+                            .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
         } catch (Exception e) {
@@ -77,10 +75,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
         boolean hasExist = Env.getCurrentEnv().getCatalogMgr()
                 .externalTableExist(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
         if (hasExist) {
-            LOG.warn(
-                    "AlterExternalTable canceled,because tableAfter has exist, "
-                            + "dbName:[{}],tableName:[{}],catalogName:[{}].",
-                    tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
+            infoLog("AlterExternalTable canceled,because tableAfter has exist, "
+                            + "catalogName:[{}],dbName:[{}],tableName:[{}]",
+                    catalogName, dbName, tableAfter.getTableName());
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
@@ -97,17 +94,18 @@ public class AlterTableEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
+            debugLog("catalogName:[{}],dbName:[{}],tableBefore:[{}],tableAfter:[{}]", catalogName, dbName,
+                    tableBefore.getTableName(), tableAfter.getTableName());
             if (isRename) {
                 processRename();
                 return;
             }
+            //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
                     .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName);
         } catch (Exception e) {
-            LOG.warn("AlterExternalTable failed,dbName:[{}],tableName:[{}],catalogName:[{}].", tableBefore.getDbName(),
-                    tableBefore.getTableName(), catalogName, e);
             throw new MetastoreNotificationException(
-                    debugString("Failed to process alter table event"));
+                    debugString("Failed to process event"));
         }
     }
 }
