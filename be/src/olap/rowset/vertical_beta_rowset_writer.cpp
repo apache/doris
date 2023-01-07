@@ -100,7 +100,8 @@ Status VerticalBetaRowsetWriter::_flush_columns(
         std::unique_ptr<segment_v2::SegmentWriter>* segment_writer, bool is_key) {
     uint64_t index_size = 0;
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
-    RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
+    RETURN_IF_ERROR((*segment_writer)->finalize_columns_data());
+    RETURN_IF_ERROR((*segment_writer)->finalize_columns_index(&index_size));
     if (is_key) {
         // record segment key bound
         KeyBoundsPB key_bounds;
