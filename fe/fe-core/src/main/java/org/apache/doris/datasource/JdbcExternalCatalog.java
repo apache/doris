@@ -77,7 +77,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getDatabaseTypeName() {
-        return JdbcClient.parseDbType(getJdbcUrl());
+        return JdbcResource.parseDbType(getJdbcUrl());
     }
 
     public String getJdbcUser() {

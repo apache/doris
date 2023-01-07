@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.external.jdbc.JdbcClientException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -59,6 +60,11 @@ import java.util.Map;
  */
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
+
+    public static final String MYSQL = "MYSQL";
+    public static final String POSTGRESQL = "POSTGRESQL";
+    // private static final String ORACLE = "ORACLE";
+    // private static final String SQLSERVER = "SQLSERVER";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -214,17 +220,33 @@ public class JdbcResource extends Resource {
         }
     }
 
+    public static String parseDbType(String url) {
+        if (url.startsWith("jdbc:mysql") || url.startsWith("jdbc:mariadb")) {
+            return MYSQL;
+        } else if (url.startsWith("jdbc:postgresql")) {
+            return POSTGRESQL;
+        }
+        // else if (url.startsWith("jdbc:oracle")) {
+        //     return ORACLE;
+        // }
+        // else if (url.startsWith("jdbc:sqlserver")) {
+        //     return SQLSERVER;
+        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + url);
+    }
 
-    // 1. `yearIsDateType` is a parameter of JDBC, and the default is true.
-    // We force the use of `yearIsDateType=false`
-    // 2. `tinyInt1isBit` is a parameter of JDBC, and the default is true.
-    // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
-    // it will convert to Doris tinyint, not bit.
     public static String handleJdbcUrl(String jdbcUrl) {
         // delete all space in jdbcUrl
         String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
-        newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
-        newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+        String dbType = parseDbType(newJdbcUrl);
+        if (dbType.equals(MYSQL)) {
+            // 1. `yearIsDateType` is a parameter of JDBC, and the default is true.
+            // We force the use of `yearIsDateType=false`
+            // 2. `tinyInt1isBit` is a parameter of JDBC, and the default is true.
+            // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
+            // it will convert to Doris tinyint, not bit.
+            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
+            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+        }
         return newJdbcUrl;
     }
 
