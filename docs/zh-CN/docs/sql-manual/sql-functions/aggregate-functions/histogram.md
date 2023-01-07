@@ -38,6 +38,8 @@ histogram（直方图）函数用于描述数据分布情况，它使用“等�
 - sample_rate：可选项。用于生成直方图的抽样数据比例，默认值 0.2。
 - max_bucket_num：可选项。用于限制直方图桶（bucket）的数量，默认值 128。
 
+别名函数：`hist(expr[, DOUBLE sample_rate, INT max_bucket_num])`
+
 ### notice
 
 ```
@@ -110,4 +112,4 @@ MySQL [test]> SELECT histogram(c_string, 0.5, 2) FROM histogram_test;
 
 ### keywords
 
-HISTOGRAM
+HISTOGRAM, HIST
