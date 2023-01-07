@@ -86,6 +86,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         List<String> errorMessages = Lists.newArrayList();
         for (int i = 0; i < inputs.size(); i++) {
             Expression input = inputs.get(i);
+            if (input.equals(NullLiteral.INSTANCE)) {
+                continue;
+            }
             AbstractDataType inputType = inputTypes.get(i);
             if (!inputType.acceptsType(input.getDataType())) {
                 errorMessages.add(String.format(INPUT_CHECK_ERROR_MESSAGE,
