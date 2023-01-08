@@ -36,8 +36,10 @@
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/proto_util.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/time.h"
+#include "util/trace.h"
 #include "util/uid_util.h"
 #include "vec/sink/vtablet_sink.h"
 
@@ -536,6 +538,13 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void NodeChannel::try_send_batch(RuntimeState* state) {
+    MonotonicStopWatch watch;
+    watch.start();
+    Defer defer {[&]() {
+        if (watch.elapsed_time() / 1e9 > 5) {
+            LOG(WARNING) << "try send batch takes watch.elapsed_time() " << channel_info();
+        }
+    }};
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
@@ -575,7 +584,8 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
-            cancel(fmt::format("{}, err: timeout", channel_info()));
+            cancel(fmt::format("{}, err: timeout, whole wait time {}", channel_info(),
+                               _rpc_timeout_ms));
             _add_batch_closure->clear_in_flight();
             return;
         } else {
@@ -1473,7 +1483,15 @@ void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    MonotonicStopWatch submit_watch;
     do {
+        Defer defer {[&]() {
+            // print warning msg if submit takes too long
+            if (submit_watch.elapsed_time() / 1e9 > 5) {
+                LOG(WARNING) << "load task " << print_id(_load_id);
+            }
+        }};
+        submit_watch.reset();
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num, this,
