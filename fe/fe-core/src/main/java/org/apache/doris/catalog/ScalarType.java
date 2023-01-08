@@ -764,6 +764,7 @@ public class ScalarType extends Type {
     public boolean isSupported() {
         switch (type) {
             case BINARY:
+            case UNSUPPORTED:
                 return false;
             default:
                 return true;

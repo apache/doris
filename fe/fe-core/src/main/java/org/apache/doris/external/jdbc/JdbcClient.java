@@ -440,8 +440,7 @@ public class JdbcClient {
             case "ENUM":
                 return ScalarType.createStringType();
             default:
-                throw new JdbcClientException("Can not convert mysql data type to doris data type for type ["
-                        + mysqlType + "]");
+                return Type.UNSUPPORTED;
         }
     }
 
@@ -505,8 +504,7 @@ public class JdbcClient {
             case "uuid":
                 return ScalarType.createStringType();
             default:
-                throw new JdbcClientException("Can not convert postgresql data type to doris data type for type ["
-                        + pgType + "]");
+                return Type.UNSUPPORTED;
         }
     }
 
