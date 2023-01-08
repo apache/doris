@@ -24,9 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
 
 # Multi-Catalog
+
+<version since="1.2.0">
 
 Multi-Catalog is a feature introduced in Doris 1.2.0, which aims to make it easier to interface with external data sources to enhance Doris' data lake analysis and federated data query capabilities.
 
@@ -39,6 +40,8 @@ The new Multi-Catalog function adds a new layer of Catalog to the original metad
 3. JDBC: Connect to the standard database access interface (JDBC) to access data of various databases. (currently only support `jdbc:mysql`)
 
 This function will be used as a supplement and enhancement to the previous external table connection method (External Table) to help users perform fast multi-catalog federated queries.
+
+</version>
 
 ## Basic Concepts
 
@@ -595,6 +598,28 @@ MySQL [db1]> select * from tbl1;
 
 After the user creates the catalog, Doris will automatically synchronize the database and tables of the data catalog. For different data catalog and data table formats, Doris will perform the following mapping relationships.
 
+<version since="dev">
+
+For types that cannot currently be mapped to Doris column types, such as map, struct, etc. Doris will map the column type to UNSUPPORTED type. For queries of type UNSUPPORTED, an example is as follows:
+
+Suppose the table schema after synchronization is:
+
+```
+k1 INT,
+k2 INT,
+k3 UNSUPPORTED,
+k4 INT
+```
+
+```
+select * from table;                // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select * except(k3) from table;     // Query OK.
+select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select k1, k4 from table;           // Query OK.
+```
+
+</version>
+
 ### Hive MetaStore
 
 For Hive/Iceberge/Hudi
@@ -715,4 +740,3 @@ The following configurations solves the problem `failed to get schema for table 
 
 Restart `Hive Metastore` after the configuration is complete. 
 
-</version>
