@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`histogram(expr)`
+`histogram(expr[, DOUBLE sample_rate, INT max_bucket_num])`
 
 The histogram function is used to describe the distribution of the data. It uses an "equal height" bucking strategy, and divides the data into buckets according to the value of the data. It describes each bucket with some simple data, such as the number of values that fall in the bucket. It is mainly used by the optimizer to estimate the range query.
 
@@ -37,6 +37,8 @@ The result of the function returns an empty or Json string.
 Parameter description：
 - sample_rate：Optional. The proportion of sample data used to generate the histogram. The default is 0.2.
 - max_bucket_num：Optional. Limit the number of histogram buckets. The default value is 128.
+
+Alias function: `hist(expr[, DOUBLE sample_rate, INT max_bucket_num])`
 
 ### notice
 
@@ -108,4 +110,4 @@ Field description：
 
 ### keywords
 
-HISTOGRAM
+HISTOGRAM, HIST

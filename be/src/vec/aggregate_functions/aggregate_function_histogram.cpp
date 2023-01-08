@@ -83,6 +83,7 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
 
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("histogram", create_aggregate_function_histogram);
+    factory.register_alias("histogram", "hist");
 }
 
 } // namespace doris::vectorized
