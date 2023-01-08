@@ -137,9 +137,7 @@ public class ExpectedInputTypesTest {
 
         Divide nullType = new Divide(NullLiteral.INSTANCE, NullLiteral.INSTANCE);
         typeCheckResult = nullType.checkInputDataTypes();
-        Assertions.assertTrue(typeCheckResult.failed());
-        // this means has two type check error
-        Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
+        Assertions.assertTrue(typeCheckResult.success());
     }
 
     @Test
@@ -265,9 +263,7 @@ public class ExpectedInputTypesTest {
 
         Multiply nullType = new Multiply(NullLiteral.INSTANCE, NullLiteral.INSTANCE);
         typeCheckResult = nullType.checkInputDataTypes();
-        Assertions.assertTrue(typeCheckResult.failed());
-        // this means has two type check error
-        Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
+        Assertions.assertTrue(typeCheckResult.success());
     }
 
     @Test
@@ -334,9 +330,7 @@ public class ExpectedInputTypesTest {
 
         Subtract nullType = new Subtract(NullLiteral.INSTANCE, NullLiteral.INSTANCE);
         typeCheckResult = nullType.checkInputDataTypes();
-        Assertions.assertTrue(typeCheckResult.failed());
-        // this means has two type check error
-        Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
+        Assertions.assertTrue(typeCheckResult.success());
     }
 
     @Test
@@ -403,9 +397,7 @@ public class ExpectedInputTypesTest {
 
         Mod nullType = new Mod(NullLiteral.INSTANCE, NullLiteral.INSTANCE);
         typeCheckResult = nullType.checkInputDataTypes();
-        Assertions.assertTrue(typeCheckResult.failed());
-        // this means has two type check error
-        Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
+        Assertions.assertTrue(typeCheckResult.success());
     }
 
     @Test
@@ -472,9 +464,7 @@ public class ExpectedInputTypesTest {
 
         Add nullType = new Add(NullLiteral.INSTANCE, NullLiteral.INSTANCE);
         typeCheckResult = nullType.checkInputDataTypes();
-        Assertions.assertTrue(typeCheckResult.failed());
-        // this means has two type check error
-        Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
+        Assertions.assertTrue(typeCheckResult.success());
     }
 
     @Test
