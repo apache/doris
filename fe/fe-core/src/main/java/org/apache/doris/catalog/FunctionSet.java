@@ -935,6 +935,7 @@ public class FunctionSet<T> {
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
     public static final String HISTOGRAM = "histogram";
+    public static final String HIST = "hist";
 
     private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -2608,9 +2609,11 @@ public class FunctionSet<T> {
                             .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT, Type.INT),
                                     new ArrayType(t), t,
                                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(HIST, Lists.newArrayList(t), Type.VARCHAR, t,
+                    "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t), Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
-            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
+            addBuiltin(AggregateFunction.createBuiltin(HIST, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
                                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));

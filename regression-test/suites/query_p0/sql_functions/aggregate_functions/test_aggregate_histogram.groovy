@@ -105,23 +105,23 @@ suite("test_aggregate_histogram") {
     // Test without GROUP BY
     qt_select """
         SELECT
-            histogram(c_bool, 1.0, 1), 
-            histogram(c_tinyint, 1.0, 1), 
-            histogram(c_smallint, 1.0, 1), 
-            histogram(c_bigint, 1.0, 1), 
-            histogram(c_largeint, 1.0, 1), 
-            histogram(c_float, 1.0, 1), 
-            histogram(c_double, 1.0, 1), 
-            histogram(c_decimal, 1.0, 1), 
-            histogram(c_decimalv3, 1.0, 1), 
-            histogram(c_char, 1.0, 1), 
-            histogram(c_varchar, 1.0, 1), 
-            histogram(c_string, 1.0, 1), 
-            histogram(c_date, 1.0, 1), 
-            histogram(c_datev2, 1.0, 1), 
-            histogram(c_date_time, 1.0, 1), 
-            histogram(c_date_timev2, 1.0, 1), 
-            histogram(c_string_not_null, 1.0, 1)
+            `histogram`(c_bool, 1.0, 1), 
+            `histogram`(c_tinyint, 1.0, 1), 
+            `histogram`(c_smallint, 1.0, 1), 
+            `histogram`(c_bigint, 1.0, 1), 
+            `histogram`(c_largeint, 1.0, 1), 
+            `histogram`(c_float, 1.0, 1), 
+            `histogram`(c_double, 1.0, 1), 
+            `histogram`(c_decimal, 1.0, 1), 
+            `histogram`(c_decimalv3, 1.0, 1), 
+            `histogram`(c_char, 1.0, 1), 
+            `histogram`(c_varchar, 1.0, 1), 
+            `histogram`(c_string, 1.0, 1), 
+            `histogram`(c_date, 1.0, 1), 
+            `histogram`(c_datev2, 1.0, 1), 
+            `histogram`(c_date_time, 1.0, 1), 
+            `histogram`(c_date_timev2, 1.0, 1), 
+            `histogram`(c_string_not_null, 1.0, 1)
         FROM
             ${tableName}
     """
@@ -130,23 +130,23 @@ suite("test_aggregate_histogram") {
     qt_select """
         SELECT
             c_id, 
-            histogram(c_bool, 1.0, 1), 
-            histogram(c_tinyint, 1.0, 1), 
-            histogram(c_smallint, 1.0, 1), 
-            histogram(c_bigint, 1.0, 1), 
-            histogram(c_largeint, 1.0, 1), 
-            histogram(c_float, 1.0, 1), 
-            histogram(c_double, 1.0, 1), 
-            histogram(c_decimal, 1.0, 1), 
-            histogram(c_decimalv3, 1.0, 1), 
-            histogram(c_char, 1.0, 1), 
-            histogram(c_varchar, 1.0, 1), 
-            histogram(c_string, 1.0, 1), 
-            histogram(c_date, 1.0, 1), 
-            histogram(c_datev2, 1.0, 1), 
-            histogram(c_date_time, 1.0, 1), 
-            histogram(c_date_timev2, 1.0, 1), 
-            histogram(c_string_not_null, 1.0, 1)
+            hist(c_bool, 1.0, 1), 
+            hist(c_tinyint, 1.0, 1), 
+            hist(c_smallint, 1.0, 1), 
+            hist(c_bigint, 1.0, 1), 
+            hist(c_largeint, 1.0, 1), 
+            hist(c_float, 1.0, 1), 
+            hist(c_double, 1.0, 1), 
+            hist(c_decimal, 1.0, 1), 
+            hist(c_decimalv3, 1.0, 1), 
+            hist(c_char, 1.0, 1), 
+            hist(c_varchar, 1.0, 1), 
+            hist(c_string, 1.0, 1), 
+            hist(c_date, 1.0, 1), 
+            hist(c_datev2, 1.0, 1), 
+            hist(c_date_time, 1.0, 1), 
+            hist(c_date_timev2, 1.0, 1), 
+            hist(c_string_not_null, 1.0, 1)
         FROM
             ${tableName}
         GROUP BY
@@ -159,23 +159,23 @@ suite("test_aggregate_histogram") {
         CREATE TABLE ${tableCTAS1} PROPERTIES("replication_num" = "1") AS
         SELECT
             1, 
-            histogram(c_bool, 1.0, 2), 
-            histogram(c_tinyint, 1.0, 2), 
-            histogram(c_smallint, 1.0, 2), 
-            histogram(c_bigint, 1.0, 2), 
-            histogram(c_largeint, 1.0, 2), 
-            histogram(c_float, 1.0, 2), 
-            histogram(c_double, 1.0, 2), 
-            histogram(c_decimal, 1.0, 2), 
-            histogram(c_decimalv3, 1.0, 2), 
-            histogram(c_char, 1.0, 2), 
-            histogram(c_varchar, 1.0, 2), 
-            histogram(c_string, 1.0, 2), 
-            histogram(c_date, 1.0, 2), 
-            histogram(c_datev2, 1.0, 2), 
-            histogram(c_date_time, 1.0, 2), 
-            histogram(c_date_timev2, 1.0, 2), 
-            histogram(c_string_not_null, 1.0, 2)
+            hist(c_bool, 1.0, 2), 
+            hist(c_tinyint, 1.0, 2), 
+            hist(c_smallint, 1.0, 2), 
+            hist(c_bigint, 1.0, 2), 
+            hist(c_largeint, 1.0, 2), 
+            hist(c_float, 1.0, 2), 
+            hist(c_double, 1.0, 2), 
+            hist(c_decimal, 1.0, 2), 
+            hist(c_decimalv3, 1.0, 2), 
+            hist(c_char, 1.0, 2), 
+            hist(c_varchar, 1.0, 2), 
+            hist(c_string, 1.0, 2), 
+            hist(c_date, 1.0, 2), 
+            hist(c_datev2, 1.0, 2), 
+            hist(c_date_time, 1.0, 2), 
+            hist(c_date_timev2, 1.0, 2), 
+            hist(c_string_not_null, 1.0, 2)
         FROM
             ${tableName}
     """
@@ -184,23 +184,23 @@ suite("test_aggregate_histogram") {
         CREATE TABLE ${tableCTAS2} PROPERTIES("replication_num" = "1") AS
         SELECT
             1, 
-            histogram(c_bool, 1.0, 1), 
-            histogram(c_tinyint, 1.0, 1), 
-            histogram(c_smallint, 1.0, 1), 
-            histogram(c_bigint, 1.0, 1), 
-            histogram(c_largeint, 1.0, 1), 
-            histogram(c_float, 1.0, 1), 
-            histogram(c_double, 1.0, 1), 
-            histogram(c_decimal, 1.0, 1), 
-            histogram(c_decimalv3, 1.0, 1), 
-            histogram(c_char, 1.0, 1), 
-            histogram(c_varchar, 1.0, 1), 
-            histogram(c_string, 1.0, 1), 
-            histogram(c_date, 1.0, 1), 
-            histogram(c_datev2, 1.0, 1), 
-            histogram(c_date_time, 1.0, 1), 
-            histogram(c_date_timev2, 1.0, 1), 
-            histogram(c_string_not_null, 1.0, 1)
+            hist(c_bool, 1.0, 1), 
+            hist(c_tinyint, 1.0, 1), 
+            hist(c_smallint, 1.0, 1), 
+            hist(c_bigint, 1.0, 1), 
+            hist(c_largeint, 1.0, 1), 
+            hist(c_float, 1.0, 1), 
+            hist(c_double, 1.0, 1), 
+            hist(c_decimal, 1.0, 1), 
+            hist(c_decimalv3, 1.0, 1), 
+            hist(c_char, 1.0, 1), 
+            hist(c_varchar, 1.0, 1), 
+            hist(c_string, 1.0, 1), 
+            hist(c_date, 1.0, 1), 
+            hist(c_datev2, 1.0, 1), 
+            hist(c_date_time, 1.0, 1), 
+            hist(c_date_timev2, 1.0, 1), 
+            hist(c_string_not_null, 1.0, 1)
         FROM
             ${tableName}
     """
