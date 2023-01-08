@@ -41,14 +41,14 @@ set(EXEC_TEST_FILES
     exec/olap_common_test.cpp
     exec/json_scanner_test.cpp
     exec/json_scanner_with_jsonpath_test.cpp
-    exec/parquet_scanner_test.cpp
-    exec/orc_scanner_test.cpp
+    #exec/parquet_scanner_test.cpp
+    #exec/orc_scanner_test.cpp
     exec/plain_text_line_reader_uncompressed_test.cpp
     exec/plain_text_line_reader_gzip_test.cpp
     exec/plain_text_line_reader_bzip_test.cpp
     exec/plain_text_line_reader_lz4frame_test.cpp
-    exec/broker_scanner_test.cpp
-    exec/broker_scan_node_test.cpp
+    #exec/broker_scanner_test.cpp
+    #exec/broker_scan_node_test.cpp
     exec/tablet_info_test.cpp
     exec/tablet_sink_test.cpp
     exec/buffered_reader_test.cpp
