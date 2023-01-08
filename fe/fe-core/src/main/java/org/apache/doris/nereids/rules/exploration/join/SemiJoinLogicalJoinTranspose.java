@@ -75,6 +75,8 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
                     }
 
+                    JoinType bottomJoinType = bottomJoin.getJoinType();
+
                     if (lasscom) {
                         /*
                          *    topSemiJoin                newTopJoin
@@ -83,12 +85,17 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          *  /    \                  /    \
                          * A      B                A      C
                          */
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                                a, c);
-                        return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, newBottomSemiJoin, b);
+                        if (bottomJoinType.isInnerJoin() || bottomJoinType.isRightOuterJoin()) {
+                            LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
+                                    topSemiJoin.getJoinType(),
+                                    topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
+                                    JoinHint.NONE,
+                                    a, c);
+                            return new LogicalJoin<>(JoinType.INNER_JOIN, bottomJoin.getHashJoinConjuncts(),
+                                    bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, newBottomSemiJoin, b);
+                        } else {
+                            return null;
+                        }
                     } else {
                         /*
                          *    topSemiJoin            newTopJoin
@@ -97,13 +104,17 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          *  /    \                         /      \
                          * A      B                       B        C
                          */
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE,
-                                b, c);
-                        return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, newBottomSemiJoin);
+                        if (bottomJoinType.isInnerJoin() || bottomJoinType.isLeftOuterJoin()) {
+                            LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
+                                    topSemiJoin.getJoinType(),
+                                    topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
+                                    JoinHint.NONE,
+                                    b, c);
+                            return new LogicalJoin<>(JoinType.INNER_JOIN, bottomJoin.getHashJoinConjuncts(),
+                                    bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, newBottomSemiJoin);
+                        } else {
+                            return null;
+                        }
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }

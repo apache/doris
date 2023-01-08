@@ -1102,10 +1102,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-        inputPlanNode.setProjectList(execExprList);
+        if (!(inputPlanNode instanceof EmptySetNode)) {
+            inputPlanNode.setProjectList(execExprList);
+        }
+
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
 
-        if (inputPlanNode instanceof OlapScanNode) {
+        if (inputPlanNode instanceof OlapScanNode || inputPlanNode instanceof EmptySetNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
             return inputFragment;
         }

@@ -112,5 +112,13 @@ suite("nereids_function") {
         sql """select "1" == "123", "%%" == "%%" """
         result([[false, true]])
     }
+    
+    qt_floor """
+        SELECT floor(2.1);
+    """
+
+    qt_ceil """
+        SELECT ceil(2.1);
+    """
 }
 

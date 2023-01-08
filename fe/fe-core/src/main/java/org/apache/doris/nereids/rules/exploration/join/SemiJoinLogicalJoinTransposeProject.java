@@ -80,6 +80,8 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                         lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
                     }
 
+                    JoinType bottomJoinType = bottomJoin.getJoinType();
+
                     if (lasscom) {
                         /*-
                          *     topSemiJoin                    project
@@ -90,15 +92,20 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                    /      \
                          *  A      B                  A        C
                          */
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
-                                topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, c);
+                        if (bottomJoinType.isInnerJoin() || bottomJoinType.isRightOuterJoin()) {
+                            LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
+                                    topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
+                                    topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, c);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                                newBottomSemiJoin, b);
+                            LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
+                                    bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                                    JoinHint.NONE,
+                                    newBottomSemiJoin, b);
 
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                            return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        } else {
+                            return null;
+                        }
                     } else {
                         /*-
                          *     topSemiJoin                  project
@@ -109,15 +116,20 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                               /      \
                          *  A      B                             B       C
                          */
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
-                                topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, b, c);
+                        if (bottomJoinType.isInnerJoin() || bottomJoinType.isLeftOuterJoin()) {
+                            LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
+                                    topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
+                                    topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, b, c);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                                a, newBottomSemiJoin);
+                            LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
+                                    bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                                    JoinHint.NONE,
+                                    a, newBottomSemiJoin);
 
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                            return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        } else {
+                            return null;
+                        }
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
     }

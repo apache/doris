@@ -54,6 +54,20 @@ suite("test_nereids_set_operation") {
         );
     """
 
+    sql """ drop table if exists test_table;"""
+    sql """
+        CREATE TABLE `test_table`
+        (
+            `day` date
+        ) ENGINE = OLAP DUPLICATE KEY(`day`)
+        DISTRIBUTED BY HASH(`day`) BUCKETS 4
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into test_table values('2020-05-25');"""
+
     sql """
         INSERT INTO setOperationTable VALUES
             (1, 1, 1, 3, 'a', 'b'),
@@ -262,5 +276,5 @@ suite("test_nereids_set_operation") {
             (select k1, k5 from setOperationTable)
     """
 
-
+    qt_union43 """select '2020-05-25' day from test_table union all select day from test_table;"""
 }
