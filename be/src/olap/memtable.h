@@ -165,13 +165,14 @@ private:
     int64_t _rows = 0;
     int64_t _merged_rows = 0;
 
-    //for vectorized
-    vectorized::MutableBlock _input_mutable_block;
+    // for vectorized
+    vectorized::MutableBlock _input_mutable_block;     // temp store for aggregate table
+    vectorized::MutableBlock _input_mutable_block_dup; // temp store for duplicate table
     vectorized::MutableBlock _output_mutable_block;
 
     template <bool is_final>
-    void _collect_vskiplist_results();
-    bool _is_first_insertion;
+    void _collect_memtable_results();
+    bool _is_first_insert;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
