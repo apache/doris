@@ -110,9 +110,6 @@ protected:
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
 
-    // Profile
-    RuntimeProfile* _profile;
-
     KVCache<std::string>& _kv_cache;
 
     bool _scanner_eof = false;
