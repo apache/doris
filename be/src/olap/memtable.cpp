@@ -296,13 +296,15 @@ void MemTable::shrink_memtable_by_agg() {
     _collect_vskiplist_results<false>();
 }
 
-bool MemTable::is_flush() const {
+bool MemTable::need_flush() const {
     return memory_usage() >= config::write_buffer_size;
 }
 
-bool MemTable::need_to_agg() {
-    return _keys_type == KeysType::DUP_KEYS ? is_flush()
-                                            : memory_usage() >= config::memtable_max_buffer_size;
+bool MemTable::need_agg() const {
+    if (keys_type() == KeysType::AGG_KEYS)
+        return memory_usage() >= config::write_buffer_size_for_agg;
+    
+    return false;
 }
 
 Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
