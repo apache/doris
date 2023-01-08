@@ -36,10 +36,8 @@
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/proto_util.h"
-#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/time.h"
-#include "util/trace.h"
 #include "util/uid_util.h"
 #include "vec/sink/vtablet_sink.h"
 
