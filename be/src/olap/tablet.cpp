@@ -62,6 +62,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/tablet_schema.h"
 #include "segment_loader.h"
+#include "service/point_query_executor.h"
 #include "util/defer_op.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
@@ -70,6 +71,7 @@
 #include "util/trace.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
+
 namespace doris {
 using namespace ErrorCode;
 
@@ -1962,8 +1964,9 @@ TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mute
     return _max_version_schema;
 }
 
-Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescriptor* desc,
-                               vectorized::Block* block) {
+Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                               const TupleDescriptor* desc, vectorized::Block* block,
+                               bool write_to_cache) {
     // read row data
     BetaRowsetSharedPtr rowset =
             std::static_pointer_cast<BetaRowset>(get_rowset(row_location.rowset_id));

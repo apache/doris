@@ -319,4 +319,22 @@ void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc,
     }
 }
 
+// single row
+void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc, const Slice& data,
+                                        Block& dst) {
+    auto pdoc = JsonbDocument::createDocument(data.data, data.size);
+    JsonbDocument& doc = *pdoc;
+    for (int j = 0; j < desc.slots().size(); ++j) {
+        SlotDescriptor* slot = desc.slots()[j];
+        JsonbValue* slot_value = doc->find(slot->col_unique_id());
+        MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
+        if (!slot_value || slot_value->isNull()) {
+            // null or not exist
+            dst_column->insert_default();
+            continue;
+        }
+        deserialize_column(slot->type().type, slot_value, dst_column);
+    }
+}
+
 } // namespace doris::vectorized

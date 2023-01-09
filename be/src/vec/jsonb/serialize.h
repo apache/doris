@@ -27,5 +27,7 @@ public:
                                int num_cols);
     static void jsonb_to_block(const TupleDescriptor& desc, const ColumnString& jsonb_column,
                                Block& dst);
+    // single row
+    static void jsonb_to_block(const TupleDescriptor& desc, const Slice& data, Block& dst);
 };
 } // namespace doris::vectorized

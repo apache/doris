@@ -61,6 +61,9 @@ struct SegmentWriterOptions {
     bool enable_unique_key_merge_on_write = false;
 
     RowsetWriterContext* rowset_ctx = nullptr;
+    // If it is directly write from load procedure, else
+    // it could be compaction or schema change etc..
+    bool is_direct_write = false;
 };
 
 class SegmentWriter {

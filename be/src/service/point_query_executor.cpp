@@ -17,6 +17,7 @@
 
 #include "service/point_query_executor.h"
 
+#include "olap/lru_cache.h"
 #include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
 #include "service/internal_service.h"
@@ -26,6 +27,7 @@
 #include "util/thrift_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/jsonb/serialize.h"
 #include "vec/sink/vmysql_result_writer.cpp"
 
 namespace doris {
@@ -72,6 +74,52 @@ void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
+}
+
+RowCache* RowCache::_s_instance = nullptr;
+
+RowCache::RowCache(int64_t capacity, int num_shards) {
+    // Create Row Cache
+    _cache = std::unique_ptr<Cache>(
+            new_lru_cache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
+}
+
+// Create global instance of this class
+void RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
+    DCHECK(_s_instance == nullptr);
+    static RowCache instance(capacity, num_shards);
+    _s_instance = &instance;
+}
+
+RowCache* RowCache::instance() {
+    return _s_instance;
+}
+
+bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
+    const std::string& encoded_key = key.encode();
+    auto lru_handle = _cache->lookup(encoded_key);
+    if (!lru_handle) {
+        // cache miss
+        return false;
+    }
+    *handle = CacheHandle(_cache.get(), lru_handle);
+    return true;
+}
+
+void RowCache::insert(const RowCacheKey& key, const Slice& value) {
+    auto deleter = [](const doris::CacheKey& key, void* value) { free(value); };
+    char* cache_value = static_cast<char*>(malloc(value.size));
+    memcpy(cache_value, value.data, value.size);
+    const std::string& encoded_key = key.encode();
+    auto handle =
+            _cache->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+    // handle will released
+    auto tmp = CacheHandle {_cache.get(), handle};
+}
+
+void RowCache::erase(const RowCacheKey& key) {
+    const std::string& encoded_key = key.encode();
+    _cache->erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
@@ -142,10 +190,11 @@ std::string PointQueryExecutor::print_profile() {
             "lookup_key:{}us, lookup_data:{}us, output_data:{}us, hit_lookup_cache:{}"
             ""
             ""
-            ", is_binary_row:{}, output_columns:{}"
+            ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
             "",
             total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
-            _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size());
+            _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
+            _primary_keys.size(), _row_cache_hits);
 }
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
@@ -173,18 +222,29 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
 
 Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
-    _row_locations.reserve(_primary_keys.size());
+    _row_locations.resize(_primary_keys.size());
+    _cached_row_data.resize(_primary_keys.size());
     // 2. lookup row location
     Status st;
     for (size_t i = 0; i < _primary_keys.size(); ++i) {
         RowLocation location;
+        if (!config::disable_storage_row_cache) {
+            RowCache::CacheHandle cache_handle;
+            auto hit_cache = RowCache::instance()->lookup({_tablet->tablet_id(), _primary_keys[i]},
+                                                          &cache_handle);
+            if (hit_cache) {
+                _cached_row_data[i] = std::move(cache_handle);
+                ++_row_cache_hits;
+                continue;
+            }
+        }
         st = (_tablet->lookup_row_key(_primary_keys[i], nullptr, &location,
                                       INT32_MAX /*rethink?*/));
         if (st.is_not_found()) {
             continue;
         }
         RETURN_IF_ERROR(st);
-        _row_locations.push_back(location);
+        _row_locations[i] = location;
     }
     return Status::OK();
 }
@@ -193,8 +253,18 @@ Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_locations.size(); ++i) {
-        RETURN_IF_ERROR(_tablet->lookup_row_data(_row_locations[i], _reusable->tuple_desc(),
-                                                 _result_block.get()));
+        if (_cached_row_data[i].valid()) {
+            vectorized::JsonbSerializeUtil::jsonb_to_block(
+                    *_reusable->tuple_desc(), _cached_row_data[i].data(), *_result_block);
+            continue;
+        }
+        if (!_row_locations[i].has_value()) {
+            continue;
+        }
+        RETURN_IF_ERROR(_tablet->lookup_row_data(
+                _primary_keys[i], _row_locations[i].value(), _reusable->tuple_desc(),
+                _result_block.get(),
+                !config::disable_storage_row_cache /*whether write row cache*/));
     }
     return Status::OK();
 }

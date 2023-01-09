@@ -246,6 +246,7 @@ CONF_mBool(row_nums_check, "true");
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
 CONF_Int64(index_stream_cache_capacity, "10737418240");
+CONF_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
@@ -257,6 +258,8 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
+// whether to disable row cache feature in storage
+CONF_Bool(disable_storage_row_cache, "false");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
