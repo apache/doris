@@ -23,17 +23,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/array_functions.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/cast_functions.h"
-#include "exprs/compound_predicate.h"
 #include "exprs/decimalv2_operators.h"
 #include "exprs/encryption_functions.h"
-#include "exprs/es_functions.h"
-#include "exprs/grouping_sets_functions.h"
 #include "exprs/hash_functions.h"
-#include "exprs/hll_function.h"
-#include "exprs/hll_hash_function.h"
 #include "exprs/is_null_predicate.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
@@ -378,7 +372,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     IsNullPredicate::init();
     LikePredicate::init();
     StringFunctions::init();
-    ArrayFunctions::init();
     CastFunctions::init();
     InPredicate::init();
     MathFunctions::init();
@@ -387,14 +380,9 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DecimalV2Operators::init();
     TimeOperators::init();
     UtilityFunctions::init();
-    CompoundPredicate::init();
     JsonFunctions::init();
-    HllHashFunctions::init();
-    ESFunctions::init();
     GeoFunctions::init();
-    GroupingSetsFunctions::init();
     BitmapFunctions::init();
-    HllFunctions::init();
     QuantileStateFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();

@@ -17,27 +17,11 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
-#include <future>
-#include <memory>
-#include <string>
-#include <type_traits>
-
-#include "common/object_pool.h"
 #include "exprs/block_bloom_filter.hpp"
-#include "exprs/predicate.h"
-#include "olap/decimal12.h"
-#include "olap/rowset/segment_v2/bloom_filter.h"
-#include "olap/uint24.h"
-#include "util/hash_util.hpp"
-
-namespace butil {
-class IOBufAsZeroCopyInputStream;
-}
+#include "exprs/runtime_filter.h"
 
 namespace doris {
+
 class BloomFilterAdaptor {
 public:
     BloomFilterAdaptor() { _bloom_filter = std::make_shared<doris::BlockBloomFilter>(); }
@@ -451,41 +435,4 @@ public:
 private:
     typename BloomFilterTypeTraits<type>::FindOp dummy;
 };
-
-// BloomFilterPredicate only used in runtime filter
-class BloomFilterPredicate : public Predicate {
-public:
-    ~BloomFilterPredicate() override;
-    BloomFilterPredicate(const TExprNode& node);
-    BloomFilterPredicate(const BloomFilterPredicate& other);
-    Expr* clone(ObjectPool* pool) const override {
-        return pool->add(new BloomFilterPredicate(*this));
-    }
-    using Predicate::prepare;
-    Status prepare(RuntimeState* state, std::shared_ptr<BloomFilterFuncBase> bloomfilterfunc);
-
-    std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() { return _filter; }
-
-    BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
-
-    Status open(RuntimeState* state, ExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
-
-protected:
-    friend class Expr;
-    std::string debug_string() const override;
-
-private:
-    bool _is_prepare;
-    // if we set always = true, we will skip bloom filter
-    bool _always_true;
-    /// TODO: statistic filter rate in the profile
-    std::atomic<int64_t> _filtered_rows;
-    std::atomic<int64_t> _scan_rows;
-
-    std::shared_ptr<BloomFilterFuncBase> _filter;
-    bool _has_calculate_filter = false;
-    // if filter rate less than this, bloom filter will set always true
-    constexpr static double _expect_filter_rate = 0.4;
-};
-} // namespace doris
+}

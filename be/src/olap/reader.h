@@ -20,7 +20,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "olap/delete_handler.h"

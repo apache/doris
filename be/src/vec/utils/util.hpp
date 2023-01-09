@@ -109,7 +109,6 @@ public:
                 expr->close(state, context, context->get_function_state_scope());
             }
 
-            // here do not close Expr* now
             return left_child != nullptr ? left_child : right_child;
         }
     }

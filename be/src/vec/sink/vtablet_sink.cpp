@@ -1248,8 +1248,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         _send_batch_thread_pool_token->wait();
     }
 
-    Expr::close(_output_expr_ctxs, state);
-
     _close_status = status;
     DataSink::close(state, exec_status);
     return status;

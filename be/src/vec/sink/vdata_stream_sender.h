@@ -38,7 +38,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class ExprContext;
 class MemTracker;
 class PartRangeKey;
 

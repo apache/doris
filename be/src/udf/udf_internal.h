@@ -117,7 +117,6 @@ public:
 
 private:
     friend class doris_udf::FunctionContext;
-    friend class ExprContext;
 
     /// Preallocated buffer for storing varargs (if the function has any). Allocated and
     /// owned by this object, but populated by an Expr function.

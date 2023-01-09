@@ -152,12 +152,8 @@ public:
 
 private:
     friend class Expr;
-    friend class ScalarFnCall;
-    friend class RPCFn;
     friend class InPredicate;
     friend class RuntimePredicateWrapper;
-    friend class BloomFilterPredicate;
-    friend class EsPredicate;
     friend class RowGroupReader;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created

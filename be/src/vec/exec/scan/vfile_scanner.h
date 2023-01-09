@@ -19,7 +19,6 @@
 
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
 #include "runtime/tuple.h"
