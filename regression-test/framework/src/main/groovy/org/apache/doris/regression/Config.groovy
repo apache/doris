@@ -80,7 +80,6 @@ class Config {
     public Integer parallel
     public Integer suiteParallel
 
-
     public String testRepoName
     public String testBranch
     public String teamcityServerUrl
