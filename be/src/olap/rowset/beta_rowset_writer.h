@@ -56,7 +56,6 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
     Status flush_single_memtable(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
