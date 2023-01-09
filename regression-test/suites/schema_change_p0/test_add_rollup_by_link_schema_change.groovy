@@ -54,7 +54,7 @@ suite ("test_add_rollup_by_link_schema_change") {
         Thread.sleep(100)
     }
 
-    sql "sync"
+    Thread.sleep(1000)
 
     //add rollup (failed)
     result = "null"
@@ -70,7 +70,7 @@ suite ("test_add_rollup_by_link_schema_change") {
         Thread.sleep(100)
     }
 
-    sql "sync"
+    Thread.sleep(1000)
 
     // add materialized view (success)
     // Keys are less than the original table
@@ -87,7 +87,7 @@ suite ("test_add_rollup_by_link_schema_change") {
         Thread.sleep(100)
     }
 
-    sql "sync"
+    Thread.sleep(1000)
 
     // add rollup (success)
     // The order of the keys is reversed
@@ -104,7 +104,7 @@ suite ("test_add_rollup_by_link_schema_change") {
         Thread.sleep(100)
     }
 
-    sql "sync"
+    Thread.sleep(1000)
 
     /* dup */
     sql """ DROP TABLE IF EXISTS ${dupTableName} FORCE"""
@@ -140,7 +140,7 @@ suite ("test_add_rollup_by_link_schema_change") {
         Thread.sleep(100)
     }
 
-    sql "sync"
+    Thread.sleep(1000)
 
     //add rollup (failed)
     result = "null"
@@ -155,6 +155,8 @@ suite ("test_add_rollup_by_link_schema_change") {
         }
         Thread.sleep(100)
     }
+
+    Thread.sleep(1000)
 
     /* unique */
     sql """ DROP TABLE IF EXISTS ${uniTableName} FORCE"""
