@@ -25,9 +25,6 @@ import org.apache.doris.nereids.types.StringType;
  * Represents String literal
  */
 public class StringLiteral extends StringLikeLiteral {
-
-    private final String value;
-
     /**
      * Constructor for Literal.
      *
@@ -35,7 +32,6 @@ public class StringLiteral extends StringLikeLiteral {
      */
     public StringLiteral(String value) {
         super(value, StringType.INSTANCE);
-        this.value = value;
     }
 
     @Override

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -33,6 +34,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * All data type literal expression in Nereids.
@@ -80,6 +82,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         }
     }
 
+    @Nullable
     public abstract Object getValue();
 
     /**
@@ -164,6 +167,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (type.isDecimalType()) {
             return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
         } else if (type instanceof StringType) {
+            return StringUtils.compare((String) getValue(), (String) other.getValue());
+        } else if (type instanceof VarcharType) {
             return StringUtils.compare((String) getValue(), (String) other.getValue());
         }
         return -1;
