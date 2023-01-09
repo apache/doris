@@ -34,6 +34,7 @@
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -76,6 +77,19 @@ Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     }
 
     if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    *eos = true;
+    return Status::OK();
+}
+
+Status SchemaScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("used before initialized.");
+    }
+
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
 

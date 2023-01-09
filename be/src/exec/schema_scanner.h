@@ -25,12 +25,17 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
 class DorisServer;
 class RuntimeState;
+
+namespace vectorized {
+class Block;
+}
 
 // scanner parameter from frontend
 struct SchemaScannerParam {
@@ -79,10 +84,12 @@ public:
     // Start to work
     virtual Status start(RuntimeState* state);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    virtual Status get_next_block(vectorized::Block* block, bool* eos);
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
 
     const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
+    const TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 

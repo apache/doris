@@ -17,12 +17,16 @@
 
 #include "vec/exec/vschema_scan_node.h"
 
+#include <glog/logging.h>
+
+#include "common/status.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 namespace doris::vectorized {
@@ -258,73 +262,112 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
     bool schema_eos = false;
 
-    do {
-        bool mem_reuse = block->mem_reuse();
-        DCHECK(block->rows() == 0);
+    if (_schema_scanner->type() == TSchemaTableType::SCH_TABLES) {
+        do {
+            bool mem_reuse = block->mem_reuse();
+            DCHECK(block->rows() == 0);
 
-        columns.resize(_slot_num);
-        for (int i = 0; i < _slot_num; ++i) {
-            if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
-            } else {
-                columns[i] = _dest_tuple_desc->slots()[i]->get_empty_mutable_column();
-            }
-        }
-        while (true) {
-            RETURN_IF_CANCELLED(state);
-
-            // get all slots from schema table.
-            RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_single_tuple, _tuple_pool.get(),
-                                                          &schema_eos));
-            if (schema_eos) {
-                *eos = true;
-                break;
-            }
-            // tuple project
-            project_tuple();
-
-            for (int i = 0; i < _slot_num; ++i) {
-                auto slot_desc = _dest_tuple_desc->slots()[i];
-                if (!slot_desc->is_materialized()) {
-                    continue;
-                }
-
-                if (_dest_single_tuple->is_null(slot_desc->null_indicator_offset())) {
-                    if (slot_desc->is_nullable()) {
-                        auto* nullable_column =
-                                reinterpret_cast<vectorized::ColumnNullable*>(columns[i].get());
-                        nullable_column->insert_data(nullptr, 0);
-                    } else {
-                        return Status::InternalError(
-                                "nonnull column contains NULL. table={}, column={}", _table_name,
-                                slot_desc->col_name());
-                    }
-                } else {
-                    RETURN_IF_ERROR(write_slot_to_vectorized_column(
-                            _dest_single_tuple->get_slot(slot_desc->tuple_offset()), slot_desc,
-                            &columns[i]));
-                }
-            }
-            if (columns[0]->size() == state->batch_size()) {
-                break;
-            }
-        }
-        if (!columns.empty() && !columns[0]->empty()) {
-            auto n_columns = 0;
             if (!mem_reuse) {
-                for (const auto slot_desc : _dest_tuple_desc->slots()) {
-                    block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                for (int i = 0; i < _slot_num; ++i) {
+                    int j = _index_map[i];
+                    const auto slot_desc = _src_tuple_desc->slots()[j];
+                    block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                         slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name()));
                 }
-            } else {
-                columns.clear();
             }
-            RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
-                                                       _dest_tuple_desc->slots().size()));
-            VLOG_ROW << "VSchemaScanNode output rows: " << block->rows();
-        }
-    } while (block->rows() == 0 && !(*eos));
+
+            while (true) {
+                RETURN_IF_CANCELLED(state);
+
+                // get all slots from schema table.
+                RETURN_IF_ERROR(_schema_scanner->get_next_block(block, &schema_eos));
+
+                if (schema_eos) {
+                    *eos = true;
+                    break;
+                }
+
+                if (block->rows() == state->batch_size()) {
+                    break;
+                }
+            }
+
+            if (block->rows()) {
+                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
+                                                           _dest_tuple_desc->slots().size()));
+                VLOG_ROW << "VSchemaScanNode output rows: " << block->rows();
+            }
+        } while (block->rows() == 0 && !(*eos));
+    } else {
+        do {
+            bool mem_reuse = block->mem_reuse();
+            DCHECK(block->rows() == 0);
+
+            columns.resize(_slot_num);
+            for (int i = 0; i < _slot_num; ++i) {
+                if (mem_reuse) {
+                    columns[i] = std::move(*block->get_by_position(i).column).mutate();
+                } else {
+                    columns[i] = _dest_tuple_desc->slots()[i]->get_empty_mutable_column();
+                }
+            }
+            while (true) {
+                RETURN_IF_CANCELLED(state);
+
+                // get all slots from schema table.
+                RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_single_tuple, _tuple_pool.get(),
+                                                              &schema_eos));
+                if (schema_eos) {
+                    *eos = true;
+                    break;
+                }
+                // tuple project
+                project_tuple();
+
+                for (int i = 0; i < _slot_num; ++i) {
+                    auto slot_desc = _dest_tuple_desc->slots()[i];
+                    if (!slot_desc->is_materialized()) {
+                        continue;
+                    }
+
+                    if (_dest_single_tuple->is_null(slot_desc->null_indicator_offset())) {
+                        if (slot_desc->is_nullable()) {
+                            auto* nullable_column =
+                                    reinterpret_cast<vectorized::ColumnNullable*>(columns[i].get());
+                            nullable_column->insert_data(nullptr, 0);
+                        } else {
+                            return Status::InternalError(
+                                    "nonnull column contains NULL. table={}, column={}",
+                                    _table_name, slot_desc->col_name());
+                        }
+                    } else {
+                        RETURN_IF_ERROR(write_slot_to_vectorized_column(
+                                _dest_single_tuple->get_slot(slot_desc->tuple_offset()), slot_desc,
+                                &columns[i]));
+                    }
+                }
+                if (columns[0]->size() == state->batch_size()) {
+                    break;
+                }
+            }
+            if (!columns.empty() && !columns[0]->empty()) {
+                auto n_columns = 0;
+                if (!mem_reuse) {
+                    for (const auto slot_desc : _dest_tuple_desc->slots()) {
+                        block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                            slot_desc->get_data_type_ptr(),
+                                                            slot_desc->col_name()));
+                    }
+                } else {
+                    columns.clear();
+                }
+                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
+                                                           _dest_tuple_desc->slots().size()));
+                VLOG_ROW << "VSchemaScanNode output rows: " << block->rows();
+            }
+        } while (block->rows() == 0 && !(*eos));
+    }
 
     reached_limit(block, eos);
     return Status::OK();

@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -29,10 +31,13 @@ public:
 
     virtual Status start(RuntimeState* state);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    virtual Status get_next_block(vectorized::Block* block, bool* eos);
 
 private:
     Status get_new_table();
     Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status fill_one_row(vectorized::Block* block);
+    Status fill_dest_column(vectorized::Block* block, void* data, const SlotDescriptor* slot_desc);
 
     int _db_index;
     int _table_index;
