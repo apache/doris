@@ -728,7 +728,16 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             }
         };
 
-        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
+        if (_join_node->_pull_mapped_visited_iter.ok()) {
+            DCHECK((std::is_same_v<Mapped, RowRefListWithFlag>));
+            for (; _join_node->_pull_mapped_visited_iter.ok() && block_size < _batch_size;
+                 ++_join_node->_pull_mapped_visited_iter) {
+                insert_from_hash_table(_join_node->_pull_mapped_visited_iter->block_offset,
+                                       _join_node->_pull_mapped_visited_iter->row_num);
+            }
+        }
+
+        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size;) {
             auto& mapped = iter->get_second();
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 if (mapped.visited) {
@@ -738,10 +747,20 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                         }
                     }
                 } else {
-                    for (auto it = mapped.begin(); it.ok(); ++it) {
-                        if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-                            insert_from_hash_table(it->block_offset, it->row_num);
+                    if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+                        _join_node->_pull_mapped_visited_iter = mapped.begin();
+                        for (;
+                             _join_node->_pull_mapped_visited_iter.ok() && block_size < _batch_size;
+                             ++_join_node->_pull_mapped_visited_iter) {
+                            insert_from_hash_table(
+                                    _join_node->_pull_mapped_visited_iter->block_offset,
+                                    _join_node->_pull_mapped_visited_iter->row_num);
                         }
+                        if (!_join_node->_pull_mapped_visited_iter.ok()) {
+                            ++iter;
+                        } // else, block_size >= _batch_size, quit for loop
+                    } else {
+                        ++iter;
                     }
                 }
             } else {
@@ -756,6 +775,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                         }
                     }
                 }
+                ++iter;
             }
         }
 
