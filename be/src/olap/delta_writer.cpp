@@ -170,10 +170,10 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     _total_received_rows += row_idxs.size();
     _mem_table->insert(block, row_idxs);
 
-    if (_mem_table->need_agg()) {
+    if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();
     }
-    if (_mem_table->need_flush()) {
+    if (UNLIKELY(_mem_table->need_flush())) {
         auto s = _flush_memtable_async();
         _reset_mem_table();
         if (UNLIKELY(!s.ok())) {
