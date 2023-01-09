@@ -80,7 +80,7 @@ public:
                       size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
-    OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
+    OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported, bool allow_overflow=false);
     void release(RowBlock* row_block);
     bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
 

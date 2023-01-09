@@ -699,7 +699,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
             _swap_row_block = nullptr;
         }
 
-        if (_row_block_allocator->allocate(&_swap_row_block, row_num, null_supported) !=
+        if (_row_block_allocator->allocate(&_swap_row_block, row_num, null_supported, true) !=
             OLAP_SUCCESS) {
             LOG(WARNING) << "fail to allocate memory.";
             return false;
@@ -764,15 +764,16 @@ RowBlockAllocator::~RowBlockAllocator() {
     }
 }
 
-OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool null_supported) {
+OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool null_supported, bool allow_overflow) {
     size_t row_block_size = _row_len * num_rows;
 
-    if (_memory_limitation > 0 &&
-        _mem_tracker->consumption() + row_block_size > _memory_limitation) {
-        *row_block = nullptr;
-        return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
+    if (!allow_overflow) {
+        if (_memory_limitation > 0 &&
+            _mem_tracker->consumption() + row_block_size > _memory_limitation) {
+            *row_block = nullptr;
+            return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
+        }
     }
-
     // TODO(lijiao) : Why abandon the original m_row_block_buffer
     *row_block = new (nothrow) RowBlock(&_tablet_schema);
 
