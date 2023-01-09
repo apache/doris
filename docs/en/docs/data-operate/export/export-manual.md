@@ -153,7 +153,7 @@ EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
 
 ### View export status
 
-After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
+After submitting a job, the job status can be viewed by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
 
 ```sql
 mysql> show EXPORT\G;
@@ -194,6 +194,20 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout: Job timeout. The unit is seconds. This time is calculated from CreateTime.
 * Error Msg: If there is an error in the job, the cause of the error is shown here.
 
+<version since="dev">
+
+### Cancel export job
+
+After submitting a job, the job can be canceled by using the  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md)  command. For example:
+
+```sql
+CANCEL EXPORT
+FROM example_db
+WHERE LABEL like "%example%";
+````
+
+</version>
+
 ## Best Practices
 
 ### Splitting Query Plans
@@ -223,6 +237,7 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 * `export_running_job_num_limit `: Limit on the number of Export jobs running. If exceeded, the job will wait and be in PENDING state. The default is 5, which can be adjusted at run time.
 * `Export_task_default_timeout_second`: Export job default timeout time. The default is 2 hours. It can be adjusted at run time.
 * `export_tablet_num_per_task`: The maximum number of fragments that a query plan is responsible for. The default is 5.
+* `label`: The label of this Export job. Doris will generate a label for an Export job if this param is not set.
 
 ## More Help
 
