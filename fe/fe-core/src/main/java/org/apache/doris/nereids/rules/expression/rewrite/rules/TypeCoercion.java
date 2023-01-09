@@ -77,7 +77,15 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     // TODO: add other expression visitor function to do type coercion if necessary.
 
     @Override
-    public Expression visitBinaryOperator(BinaryOperator op, ExpressionRewriteContext context) {
+    public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
+        if (binaryOperator instanceof ImplicitCastInputTypes) {
+            List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) binaryOperator).expectedInputTypes();
+            if (!expectedInputTypes.isEmpty()) {
+                binaryOperator = (BinaryOperator) visitImplicitCastInputTypes(binaryOperator, expectedInputTypes,
+                        context);
+            }
+        }
+        BinaryOperator op = binaryOperator;
         Expression left = rewrite(op.left(), context);
         Expression right = rewrite(op.right(), context);
 
