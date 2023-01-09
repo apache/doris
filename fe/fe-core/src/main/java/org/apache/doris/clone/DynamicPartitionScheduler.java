@@ -183,26 +183,30 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return property.getBuckets();
         }
 
+        List<Partition> partitions = Lists.newArrayList();
+        RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
+        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
+        idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
+        for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
+            Partition partition = table.getPartition(idToItem.getKey());
+            if (partition != null) {
+                partitions.add(partition);
+            }
+        }
+
         // auto bucket
-        List<Partition> partitions = Lists.newArrayList(table.getPartitions());
         if (partitions.size() == 0) {
             return property.getBuckets();
         }
 
-        Collections.sort(partitions, new Comparator<Partition>() {
-            @Override
-            public int compare(Partition p1, Partition p2) {
-                return (int) (p1.getId() - p2.getId());
-            }
-        });
-        ArrayList<Long> parititonsSize = Lists.newArrayList();
+        ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         for (Partition partition : partitions) {
-            parititonsSize.add(partition.getDataSize());
+            partitionSizeArray.add(partition.getDataSize());
         }
 
         // * 5 for uncompressed data
-        long uncompressedPartionSize = getNextPartitionSize(parititonsSize) * 5;
-        return AutoBucketUtils.getBucketsNum(uncompressedPartionSize);
+        long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
+        return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize);
     }
 
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
