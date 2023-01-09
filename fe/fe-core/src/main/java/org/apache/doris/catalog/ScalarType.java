@@ -708,6 +708,18 @@ public class ScalarType extends Type {
         this.len = len;
     }
 
+    public void setMaxLength() {
+        if (type == PrimitiveType.CHAR) {
+            this.len = MAX_CHAR_LENGTH;
+        }
+        if (type == PrimitiveType.VARCHAR) {
+            this.len = MAX_VARCHAR_LENGTH;
+        }
+        if (type == PrimitiveType.STRING) {
+            this.len = MAX_STRING_LENGTH;
+        }
+    }
+
     public boolean isLengthSet() {
         return getPrimitiveType() == PrimitiveType.HLL || len > 0 || !Strings.isNullOrEmpty(lenStr);
     }

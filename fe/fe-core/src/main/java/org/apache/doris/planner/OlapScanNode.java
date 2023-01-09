@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -392,7 +393,7 @@ public class OlapScanNode extends ScanNode {
      * changed to bigint in here.
      * Currently, only `SUM` aggregate type could match this changed.
      */
-    private void updateColumnType() {
+    private void updateColumnType() throws UserException {
         if (selectedIndexId == olapTable.getBaseIndexId()) {
             return;
         }
@@ -404,7 +405,13 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Preconditions.checkNotNull(baseColumn);
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
-            Preconditions.checkNotNull(mvColumn);
+            if (mvColumn == null) {
+                mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
+            }
+            if (mvColumn == null) {
+                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+            }
+
             if (mvColumn.getType() != baseColumn.getType()) {
                 slotDescriptor.setColumn(mvColumn);
             }

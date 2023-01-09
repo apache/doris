@@ -403,7 +403,7 @@ public class OlapTable extends Table {
     public Column getVisibleColumn(String columnName) {
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             for (Column column : meta.getSchema()) {
-                if (column.getName().equalsIgnoreCase(columnName)) {
+                if (MaterializedIndexMeta.matchColumnName(column.getName(), columnName)) {
                     return column;
                 }
             }
