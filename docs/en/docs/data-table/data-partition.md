@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
     `user_id` LARGEINT NOT NULL COMMENT "User id",
     `date` DATE NOT NULL COMMENT "Data fill in date time",
     `timestamp` DATETIME NOT NULL COMMENT "Timestamp of data being poured",
-    `city` VARCHAR(20) COMMENT "The city where the user is located",
+    `city` VARCHAR(20) NOT NULL COMMENT "The city where the user is located",
     `age` SMALLINT COMMENT "User Age",
     `sex` TINYINT COMMENT "User gender",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",

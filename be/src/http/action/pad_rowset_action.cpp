@@ -86,8 +86,12 @@ Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& versi
     }
 
     std::unique_ptr<RowsetWriter> writer;
-    RETURN_IF_ERROR(tablet->create_rowset_writer(version, VISIBLE, NONOVERLAPPING,
-                                                 tablet->tablet_schema(), -1, -1, &writer));
+    RowsetWriterContext ctx;
+    ctx.version = version;
+    ctx.rowset_state = VISIBLE;
+    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.tablet_schema = tablet->tablet_schema();
+    RETURN_IF_ERROR(tablet->create_rowset_writer(ctx, &writer));
     auto rowset = writer->build();
     rowset->make_visible(version);
 

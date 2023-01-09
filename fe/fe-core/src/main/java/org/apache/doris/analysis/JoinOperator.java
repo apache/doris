@@ -84,6 +84,11 @@ public enum JoinOperator {
                 || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
+    public boolean supportMarkJoin() {
+        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.LEFT_SEMI_JOIN
+                || this == JoinOperator.CROSS_JOIN || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
     public boolean isCrossJoin() {
         return this == CROSS_JOIN;
     }

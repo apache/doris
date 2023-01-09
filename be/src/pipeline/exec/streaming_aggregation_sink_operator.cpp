@@ -64,8 +64,10 @@ Status StreamingAggSinkOperator::close(RuntimeState* state) {
         // finish should be set, if not set here means error.
         _data_queue->set_canceled();
     }
-    COUNTER_SET(_queue_size_counter, _data_queue->max_size_of_queue());
-    COUNTER_SET(_queue_byte_size_counter, _data_queue->max_bytes_in_queue());
+    if (_data_queue) {
+        COUNTER_SET(_queue_size_counter, _data_queue->max_size_of_queue());
+        COUNTER_SET(_queue_byte_size_counter, _data_queue->max_bytes_in_queue());
+    }
     return StreamingOperator::close(state);
 }
 

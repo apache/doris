@@ -19,4 +19,13 @@ suite("information_schema") {
     List<List<Object>> table =  sql """ select * from information_schema.backends; """
     assertTrue(table.size() > 0) // row should > 0
     assertTrue(table[0].size == 23) // column should be 23
+
+    sql "SELECT DATABASE();"
+    sql "select USER();"
+    sql "SELECT CONNECTION_ID();"
+    sql "SELECT CURRENT_USER();"
+
+    // INFORMATION_SCHEMA
+    sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"test%\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"
+    sql "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = \"test%\" AND column_name LIKE \"k%\""
 }

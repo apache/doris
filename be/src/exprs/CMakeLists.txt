@@ -49,6 +49,7 @@ add_library(Exprs
   runtime_filter_rpc.cpp
   is_null_predicate.cpp
   like_predicate.cpp
+  match_predicate.cpp
   math_functions.cpp
   null_literal.cpp  
   scalar_fn_call.cpp

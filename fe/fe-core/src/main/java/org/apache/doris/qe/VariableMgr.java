@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
 import com.google.common.base.Preconditions;
@@ -416,15 +417,13 @@ public class VariableMgr {
         }
     }
 
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    // For test only
-    public static String getValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
-        VarContext ctx = ctxByVarName.get(desc.getName());
+    private static String  getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
+        VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, desc.getName());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, name);
         }
 
-        if (desc.getSetType() == SetType.GLOBAL) {
+        if (setType == SetType.GLOBAL) {
             rlock.lock();
             try {
                 return getValue(ctx.getObj(), ctx.getField());
@@ -433,6 +432,21 @@ public class VariableMgr {
             }
         } else {
             return getValue(var, ctx.getField());
+        }
+    }
+
+    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
+    // For test only
+    public static String getValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
+        return getValue(var, desc.getName(), desc.getSetType());
+    }
+
+    // For Nereids optimizer
+    public static String getValue(SessionVariable var, VariableDesc desc) throws RuntimeException {
+        try {
+            return getValue(var, desc.getName(), desc.getSetType());
+        } catch (AnalysisException e) {
+            throw new RuntimeException(e);
         }
     }
 

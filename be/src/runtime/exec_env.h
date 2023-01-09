@@ -68,6 +68,7 @@ class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class StoragePolicyMgr;
+class BlockSpillManager;
 
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -171,6 +172,7 @@ public:
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
+    BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -273,6 +275,8 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
     StoragePolicyMgr* _storage_policy_mgr = nullptr;
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
+
+    BlockSpillManager* _block_spill_mgr = nullptr;
 };
 
 template <>

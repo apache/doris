@@ -24,14 +24,10 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
-#include "runtime/tablets_channel.h"
-#include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
@@ -59,14 +55,8 @@ public:
     Status cancel(const PTabletWriterCancelRequest& request);
 
     void refresh_mem_tracker() {
-        int64_t mem_usage = 0;
-        {
-            std::lock_guard<std::mutex> l(_lock);
-            for (auto& kv : _load_channels) {
-                mem_usage += kv.second->mem_consumption();
-            }
-        }
-        _mem_tracker->set_consumption(mem_usage);
+        std::lock_guard<std::mutex> l(_lock);
+        _refresh_mem_tracker_without_lock();
     }
     MemTrackerLimiter* mem_tracker_set() { return _mem_tracker_set.get(); }
 
@@ -82,6 +72,15 @@ private:
 
     Status _start_bg_worker();
 
+    // lock should be held when calling this method
+    void _refresh_mem_tracker_without_lock() {
+        int64_t mem_usage = 0;
+        for (auto& kv : _load_channels) {
+            mem_usage += kv.second->mem_consumption();
+        }
+        _mem_tracker->set_consumption(mem_usage);
+    }
+
 protected:
     // lock protect the load channel map
     std::mutex _lock;
@@ -95,13 +94,6 @@ protected:
     std::unique_ptr<MemTrackerLimiter> _mem_tracker_set;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
-    // By default, we try to reduce memory on the load channel with largest mem consumption,
-    // but if there are lots of small load channel, even the largest one consumes very
-    // small memory, in this case we need to pick multiple load channels to reduce memory
-    // more effectively.
-    // `_load_channel_min_mem_to_reduce` is used to determine whether the largest load channel's
-    // memory consumption is big enough.
-    int64_t _load_channel_min_mem_to_reduce = -1;
     bool _soft_reduce_mem_in_progress = false;
 
     // If hard limit reached, one thread will trigger load channel flush,

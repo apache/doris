@@ -169,8 +169,6 @@ set(RUNTIME_TEST_FILES
     runtime/fragment_mgr_test.cpp
     runtime/mem_limit_test.cpp
     runtime/stream_load_pipe_test.cpp
-    # TODO this test will override DeltaWriter, will make other test failed
-    # runtime/load_channel_mgr_test.cpp
     runtime/snapshot_loader_test.cpp
     runtime/user_function_cache_test.cpp
     runtime/kafka_consumer_pipe_test.cpp
@@ -271,6 +269,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp
     vec/core/block_test.cpp
+    vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
@@ -329,7 +328,16 @@ add_executable(doris_be_test
 )
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
-set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
+set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+if (OS_MACOSX AND ARCH_ARM)
+    find_program(DSYMUTIL NAMES dsymutil)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
+    add_custom_command(TARGET doris_be_test POST_BUILD
+        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+        COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:doris_be_test>
+    )
+endif()
 
 if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
     add_executable(benchmark_tool

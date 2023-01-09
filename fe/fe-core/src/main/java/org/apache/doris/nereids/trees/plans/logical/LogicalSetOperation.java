@@ -134,7 +134,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             Slot right = child(1).getOutput().get(i);
             if (TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
                 Optional<DataType> tightestCommonType =
-                        TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType());
+                        TypeCoercionUtils.findTightestCommonType(null, left.getDataType(), right.getDataType());
                 if (tightestCommonType.isPresent()) {
                     Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, tightestCommonType.get());
                     Expression newRight = TypeCoercionUtils.castIfNotSameType(right, tightestCommonType.get());

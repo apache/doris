@@ -291,7 +291,7 @@ void VDataStreamRecvr::SenderQueue::close() {
 VDataStreamRecvr::VDataStreamRecvr(
         VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
         const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-        bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
+        bool is_merging, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
@@ -300,7 +300,6 @@ VDataStreamRecvr::VDataStreamRecvr(
 #endif
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
-          _total_buffer_limit(total_buffer_limit),
           _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),

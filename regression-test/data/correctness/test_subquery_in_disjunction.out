@@ -24,3 +24,14 @@
 1	2	3
 100	200	300
 
+-- !hash_join_with_other_conjuncts1 --
+
+-- !hash_join_with_other_conjuncts2 --
+10	20	30
+
+-- !hash_join_with_other_conjuncts3 --
+10	20	30
+
+-- !hash_join_with_other_conjuncts4 --
+10	20	30
+

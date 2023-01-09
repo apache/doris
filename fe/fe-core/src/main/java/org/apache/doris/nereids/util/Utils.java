@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
@@ -176,20 +177,33 @@ public class Utils {
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression)) {
+            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
                 throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
             }
-            BinaryExpression binaryExpression = (BinaryExpression) predicate;
-            if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
-                if (binaryExpression.right() instanceof SlotReference) {
-                    slots.add(binaryExpression.right());
-                }
+
+            BinaryExpression binaryExpression;
+            if (predicate instanceof Not) {
+                binaryExpression = (BinaryExpression) ((Not) predicate).child();
             } else {
-                if (binaryExpression.left() instanceof SlotReference) {
-                    slots.add(binaryExpression.left());
-                }
+                binaryExpression = (BinaryExpression) predicate;
             }
+            slots.addAll(collectCorrelatedSlotsFromChildren(binaryExpression, correlatedSlots));
         });
+        return slots;
+    }
+
+    private static List<Expression> collectCorrelatedSlotsFromChildren(
+            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
+        List<Expression> slots = new ArrayList<>();
+        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
+            if (binaryExpression.right() instanceof SlotReference) {
+                slots.add(binaryExpression.right());
+            }
+        } else {
+            if (binaryExpression.left() instanceof SlotReference) {
+                slots.add(binaryExpression.left());
+            }
+        }
         return slots;
     }
 

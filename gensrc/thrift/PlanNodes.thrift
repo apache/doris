@@ -567,6 +567,7 @@ struct TOlapScanNode {
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt
+  13: optional bool use_topn_opt
 }
 
 struct TEqJoinCondition {
@@ -626,7 +627,9 @@ struct THashJoinNode {
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  10: optional bool is_broadcast_join;
+  10: optional bool is_broadcast_join
+
+  11: optional bool is_mark
 }
 
 struct TNestedLoopJoinNode {
@@ -742,6 +745,7 @@ struct TSortNode {
 
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
+  7: optional bool use_topn_opt
 }
 
 enum TAnalyticWindowType {

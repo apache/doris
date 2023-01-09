@@ -74,8 +74,7 @@ public class StatisticsRepository {
 
     private static final String INSERT_INTO_COLUMN_STATISTICS = "INSERT INTO "
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
-            + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, '${min}', '${max}', "
-            + "'${histogram}', ${dataSize}, NOW())";
+            + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, '${min}', '${max}', ${dataSize}, NOW())";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -159,7 +158,6 @@ public class StatisticsRepository {
         String nullCount = alterColumnStatsStmt.getValue(StatsType.NUM_NULLS);
         String min = alterColumnStatsStmt.getValue(StatsType.MIN_VALUE);
         String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
-        String histogram = alterColumnStatsStmt.getValue(StatsType.HISTOGRAM);
         String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
         String colName = alterColumnStatsStmt.getColumnName();
@@ -181,12 +179,10 @@ public class StatisticsRepository {
             builder.setMaxExpr(StatisticsUtil.readableValue(column.getType(), max));
             builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
-        if (histogram != null) {
-            builder.setHistogram(Histogram.deserializeFromJson(column.getType(), histogram));
-        }
         if (dataSize != null) {
             builder.setDataSize(Double.parseDouble(dataSize));
         }
+
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
         params.put("id", constructId(objects.table.getId(), -1, colName));
@@ -201,9 +197,17 @@ public class StatisticsRepository {
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
         params.put("min", min == null ? "NULL" : min);
         params.put("max", max == null ? "NULL" : max);
-        params.put("histogram", (columnStatistic.histogram == null) ? "NULL" : histogram);
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
         StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-        Env.getCurrentEnv().getStatisticsCache().updateCache(objects.table.getId(), -1, colName, builder.build());
+
+        Histogram histogram = Env.getCurrentEnv().getStatisticsCache()
+                .getHistogram(objects.table.getId(), -1, colName);
+
+        Statistic statistic = new Statistic();
+        statistic.setHistogram(histogram);
+        statistic.setColumnStatistic(builder.build());
+
+        Env.getCurrentEnv().getStatisticsCache()
+                .updateCache(objects.table.getId(), -1, colName, statistic);
     }
 }

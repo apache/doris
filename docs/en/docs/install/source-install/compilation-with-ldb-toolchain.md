@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compiling with LDB toolchain
+# Compile With ldb-toolchain
 
-This document describes how to compile Doris using the LDB toolchain. This method is currently used as a supplement to the Docker compilation method to facilitate developers and users without a Docker environment to compile Doris source code.
+This topic is about how to compile Doris using the LDB toolchain. This method is an alternative to the Docker method so developers and users without a Docker environment can compile Doris from source.
 
 > You can still compile the latest code using the Docker development image: `apache/doris:build-env-ldb-toolchain-latest`
 
-> Thanks to [Amos Bird](https://github.com/amosbird) for this contribution.
+> Special thanks to [Amos Bird](https://github.com/amosbird) for the contribution.
 
-## Prepare the environment
+## Prepare the Environment
 
 This works for most Linux distributions (CentOS, Ubuntu, etc.).
 
@@ -42,15 +42,15 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     
     > For more information, you can visit [https://github.com/amosbird/ldb_toolchain_gen](https://github.com/amosbird/ldb_toolchain_gen)
 
-2. Execute the following command to generate the ldb toolchain
+2. Execute the following command to generate the ldb toolchain.
 
     ```
     sh ldb_toolchain_gen.sh /path/to/ldb_toolchain/
     ```
     
-    where `/path/to/ldb_toolchain/` is the directory where the toolchain is installed.
+     `/path/to/ldb_toolchain/` is the directory where the toolchain is installed.
     
-    After successful execution, the following directory structure will be created under `/path/to/ldb_toolchain/`.
+    After execution, the following directory structure will be created under `/path/to/ldb_toolchain/`.
     
     ```
     ├── bin
@@ -61,13 +61,13 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     └── usr
     ```
     
-3. Download and install other compiled components
+3. Download and install other compilation packages
 
     1. [Java8](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u131-linux-x64.tar.gz)
     2. [Apache Maven 3.6.3](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     3. [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
 
-    If your environment is somehow minimal, additional packages should be installed before compiling Doris. The following instructions describe how to setup a minimal CentOS 6 box to compile Doris. Other linux distros should be similar.
+    Different Linux distributions might contain different packages, so you may need to install additional packages. The following instructions describe how to set up a minimal CentOS 6 box to compile Doris. It should work similarly for other Linux distros.
 
     ```
     # install required system packages
@@ -96,7 +96,7 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     git clone https://github.com/apache/doris.git
     ```
     
-    After downloading, go to the Doris source directory, create the `custom_env.sh`, file, and set the PATH environment variable, e.g.
+    After downloading, create the `custom_env.sh`, file under the Doris source directory, and set the PATH environment variable:
     
     ```
     export JAVA_HOME=/path/to/java/
@@ -106,7 +106,7 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     export PATH=/path/to/ldb_toolchain/bin:$PATH
     ```
 
-## Compiling Doris
+## Compile Doris
 
 Enter the Doris source code directory and execute:
 
@@ -114,14 +114,25 @@ Enter the Doris source code directory and execute:
 $ cat /proc/cpuinfo | grep avx2
 ```
 
-Check whether the compilation machine supports the avx2 instruction set
+Check whether the compilation machine supports the avx2 instruction set.
 
-If it is not supported, use the following command to compile
+If it is not supported, use the following command to compile:
 
 ```
 $ USE_AVX2=0 sh build.sh
 ```
 
-If supported, execute `sh build.sh` directly
+If supported, execute `sh build.sh` directly.
 
-This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output is in the `output/` directory.
+This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output will be in the `output/` directory.
+
+## Precompile the three-party binaries
+
+The `build.sh` script will first compile the third-party dependencies. You can also directly download the precompiled three-party binaries:
+
+`https://github.com/apache/doris-thirdparty/releases`
+
+Here we provide precompiled third-party binaries for Linux X86(with AVX2) and MacOS(X86 Chip). If it is consistent with your compiling and running environment, you can download and use it directly.
+
+After downloading, you will get an `installed/` directory after decompression, copy this directory to the `thirdparty/` directory, and then run `build.sh`.
+

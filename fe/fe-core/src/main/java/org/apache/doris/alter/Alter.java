@@ -753,12 +753,7 @@ public class Alter {
             modifiedProperties.putAll(properties);
 
             // 4.3 modify partition storage policy
-            String partitionStoragePolicy = partitionInfo.getStoragePolicy(partition.getId());
-            if (!partitionStoragePolicy.equals("")) {
-                throw new DdlException("Do not support alter table's partition storage policy , this table ["
-                    + olapTable.getName() + "] and partition [" + partitionName
-                    + "] has storage policy " + partitionStoragePolicy);
-            }
+            // can set multi times storage policy
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
             if (!currentStoragePolicy.equals("")) {
                 // check currentStoragePolicy resource exist.

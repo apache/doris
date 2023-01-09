@@ -214,4 +214,6 @@ public interface DatabaseIf<T extends TableIf> {
         }
         return (OlapTable) table;
     }
+
+    void dropTable(String tableName);
 }

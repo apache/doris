@@ -15,29 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_var") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
-    // test single set_var
-    sql "select /*+ SET_VAR(query_timeout=1800) */ * from supplier limit 10"
+package org.apache.doris.datasource.hive.event;
 
-    // test multi set_var, comma between hints is optional
-    sql """ select
-        /*+
-            SET_VAR(query_timeout=1800)
-            SET_VAR(query_timeout=1800),
-            SET_VAR(query_timeout=1800)
-        */
-        *
-        from supplier
-        limit 10
-        """
+/**
+ * Utility exception class to be thrown for errors during event processing
+ */
+public class MetastoreNotificationException extends RuntimeException {
 
-    // test whether the hints are effective
-    // set an invalid parameter, and throw an exception
-    test {
-        sql "select /*+SET_VAR(runtime_filter_type=10000)*/ * from supplier limit 10"
-        exception "Unexpected exception: Can not set session variable"
+    public MetastoreNotificationException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
+
+    public MetastoreNotificationException(String msg) {
+        super(msg);
+    }
+
+    public MetastoreNotificationException(Exception e) {
+        super(e);
     }
 }

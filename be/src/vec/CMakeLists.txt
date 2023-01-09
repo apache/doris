@@ -65,6 +65,8 @@ set(VEC_FILES
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
+  core/block_spill_reader.cpp
+  core/block_spill_writer.cpp
   core/column_with_type_and_name.cpp
   core/field.cpp
   core/field.cpp
@@ -227,6 +229,7 @@ set(VEC_FILES
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
   functions/function_running_difference.cpp
+  functions/match.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

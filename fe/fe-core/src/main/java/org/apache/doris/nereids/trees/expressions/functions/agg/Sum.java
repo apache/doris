@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -38,13 +37,17 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** sum agg function. */
-public class Sum extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
+public class Sum extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
     public Sum(Expression child) {
-        super("sum", child);
+        this(false, false, child);
     }
 
-    public Sum(boolean isDistinct, Expression child) {
-        super("sum", isDistinct, child);
+    public Sum(boolean isDistinct, Expression arg) {
+        this(isDistinct, false, arg);
+    }
+
+    private Sum(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
+        super("sum", isAlwaysNullable, isDistinct, arg);
     }
 
     @Override
@@ -62,13 +65,18 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public Sum withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(isDistinct, children.get(0));
+        return new Sum(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public Sum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(isDistinct, children.get(0));
+        return new Sum(isDistinct, isAlwaysNullable, children.get(0));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new Sum(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override

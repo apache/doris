@@ -17,7 +17,6 @@
 
 #include "block_column_predicate.h"
 
-#include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {

@@ -106,6 +106,7 @@ suite ("test_agg_keys_schema_change") {
             }
             Thread.sleep(100)
         }
+        Thread.sleep(1000)
 
         sql """ INSERT INTO ${tableName} (`user_id`,`date`,`city`,`age`,`sex`,`cost`,`max_dwell_time`,`min_dwell_time`, `hll_col`, `bitmap_col`)
                 VALUES

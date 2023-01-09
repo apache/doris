@@ -120,7 +120,9 @@ public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
                 .applyImplementation(storageLayerAggregateWithProject())
                 .matches(
                     logicalAggregate(
-                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIN_MAX)
+                        logicalProject(
+                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIN_MAX)
+                        )
                     )
                 );
 
@@ -135,7 +137,9 @@ public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
                 .applyImplementation(storageLayerAggregateWithProject())
                 .matches(
                     logicalAggregate(
-                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                        logicalProject(
+                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                        )
                     )
                 );
 
@@ -152,7 +156,9 @@ public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
                 .applyImplementation(storageLayerAggregateWithProject())
                 .matches(
                     logicalAggregate(
-                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIX)
+                        logicalProject(
+                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.MIX)
+                        )
                     )
                 );
     }

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -450,6 +452,38 @@ public class PlanChecker {
 
     public Plan getPlan() {
         return cascadesContext.getMemo().copyOut();
+    }
+
+    private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) {
+        GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
+                () -> new AnalysisException("lowestCostPlans with physicalProperties("
+                        + physicalProperties + ") doesn't exist in root group")).second;
+        List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+        }
+
+        Plan plan = groupExpression.getPlan().withChildren(planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("Result plan must be PhysicalPlan");
+        }
+
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                groupExpression.getOutputProperties(physicalProperties),
+                groupExpression.getOwnerGroup().getStatistics());
+        return physicalPlan;
+    }
+
+    public PhysicalPlan getBestPlanTree() {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
+    }
+
+    public PlanChecker printlnBestPlanTree() {
+        System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
+        System.out.println("-----------------------------");
+        return this;
     }
 
     public PlanChecker printlnTree() {

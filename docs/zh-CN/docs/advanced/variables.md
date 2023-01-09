@@ -509,14 +509,15 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `enable_infer_predicate`
 
-  用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
+    用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
 
 - `trim_tailing_spaces_for_external_table_query`
 
-  用于控制查询Hive外表时是否过滤掉字段末尾的空格。默认为false。
+    用于控制查询Hive外表时是否过滤掉字段末尾的空格。默认为false。
 
 * `skip_storage_engine_merge`
-  用于调试目的。在向量化执行引擎中，当发现读取Aggregate Key模型或者Unique Key模型的数据结果有问题的时候，把此变量的值设置为`true`，将会把Aggregate Key模型或者Unique Key模型的数据当成Duplicate Key模型读取。
+
+    用于调试目的。在向量化执行引擎中，当发现读取Aggregate Key模型或者Unique Key模型的数据结果有问题的时候，把此变量的值设置为`true`，将会把Aggregate Key模型或者Unique Key模型的数据当成Duplicate Key模型读取。
 
 * `skip_delete_predicate`
 
@@ -544,5 +545,10 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 	密码强度校验策略。默认为 `NONE` 或 `0`，即不做校验。可以设置为 `STRONG` 或 `2`。当设置为 `STRONG` 或 `2` 时，通过 `ALTER USER` 或 `SET PASSWORD` 命令设置密码时，密码必须包含“大写字母”，“小写字母”，“数字”和“特殊字符”中的3项，并且长度必须大于等于8。特殊字符包括：`~!@#$%^&*()_+|<>,.?/:;'[]{}"`。
 
 * `group_concat_max_len`
+
     为了兼容某些BI工具能正确获取和设置该变量，变量值实际并没有作用。
+
+* `rewrite_or_to_in_predicate_threshold`
+
+    默认的改写OR to IN的OR数量阈值。默认值为2，即表示有2个OR的时候，如果可以合并，则会改写成IN。
 	

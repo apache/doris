@@ -17,7 +17,6 @@
 
 #include "olap/schema.h"
 
-#include "olap/row_block2.h"
 #include "olap/uint24.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_dictionary.h"

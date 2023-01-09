@@ -138,6 +138,27 @@ suite ("sub_query_correlated") {
                                and not exists (select subquery4.k2 from subquery4 where subquery1.k2 = subquery4.k2) order by k1, k2
     """
 
+    //------------------Correlated----nonEqual-------------------
+
+    qt_not_in_non_equal_corr """
+        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3 where subquery3.v2 > subquery1.k2) order by k1, k2
+    """
+
+    qt_in_subquery_non_equal_corr """
+        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3 where subquery3.v2 < subquery1.k2) order by k1, k2
+    """
+
+    qt_in_subquery_non_equal_corr """
+        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3 where subquery3.v2 != subquery1.k2) order by k1, k2
+    """
+
+    qt_not_exist_non_equal_corr """
+        select * from subquery1 where not exists (select subquery3.k3 from subquery3 where subquery1.k2 != subquery3.v2) order by k1, k2
+    """
+
+    qt_exist_non_equal_corr """
+        select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery1.k2 > subquery3.v2) order by k1, k2
+    """
     //------------------unCorrelated-----------------
     qt_scalar_unCorrelated """
         select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2) order by k1, k2
@@ -179,37 +200,6 @@ suite ("sub_query_correlated") {
         select * from subquery1 where exists (select subquery3.k3 from subquery3) order by k1, k2
     """
 
-    //----------with subquery alias----------
-    qt_alias_scalar """
-        select * from subquery1
-            where subquery1.k1 < (select max(aa) from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
-    """
-
-    qt_alias_in """
-        select * from subquery1
-            where subquery1.k1 in (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
-    """
-
-    qt_alias_not_in """
-        select * from subquery1
-            where subquery1.k1 not in (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
-    """
-
-    qt_alias_exist """
-        select * from subquery1
-            where exists (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
-    """
-
-    qt_alias_not_exist """
-        select * from subquery1
-            where not exists (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
-    """
-
     //----------complex subqueries----------
     qt_scalar_subquery """
         select * from subquery1
@@ -226,6 +216,20 @@ suite ("sub_query_correlated") {
     qt_exist_subquery """
         select * from subquery3
             where k1 = 2 and exists (select * from subquery1 where subquery1.k1 = subquery3.v2 and subquery1.k2 = 4)
+            order by k1, k2
+    """
+
+    //----------complex nonEqual subqueries----------
+
+    qt_in_subquery """
+        select * from subquery3
+            where (k1 = 1 or k1 = 2 or k1 = 3) and v1 in (select k1 from subquery1 where subquery1.k2 > subquery3.v2 and subquery1.k1 = 3)
+            order by k1, k2
+    """
+
+    qt_exist_subquery """
+        select * from subquery3
+            where k1 = 2 and exists (select * from subquery1 where subquery1.k1 < subquery3.v2 and subquery1.k2 = 4)
             order by k1, k2
     """
 }

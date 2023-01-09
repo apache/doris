@@ -440,8 +440,9 @@ public class EsUtil {
             case "ip":
             case "nested":
             case "object":
-            default:
                 return ScalarType.createStringType();
+            default:
+                return Type.UNSUPPORTED;
         }
     }
 
