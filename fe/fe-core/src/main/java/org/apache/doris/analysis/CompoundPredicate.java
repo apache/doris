@@ -198,13 +198,6 @@ public class CompoundPredicate extends Predicate {
         return new CompoundPredicate(Operator.AND, rhs, lhs);
     }
 
-    public static Expr createDisjunction(Expr lhs, Expr rhs) {
-        if (rhs == null) {
-            return lhs;
-        }
-        return new CompoundPredicate(Operator.OR, rhs, lhs);
-    }
-
     /**
      * Creates a conjunctive predicate from a list of exprs.
      */
@@ -221,23 +214,19 @@ public class CompoundPredicate extends Predicate {
     }
 
     /**
-     * Creates a disjunctive predicate from a list of exprs in reverse order.
-     * Usually we collect disjunctions from "a or b or c" in list [a, b, c]
-     * and we prefer that createDisjunctivePredicate([a, b, c]) to create "a or b or c", keeping the original order
+     * Creates a disjunctive predicate from a list of exprs,
+     * reserve the expr order
      */
-    public static Expr createDisjunctivePredicate(List<Expr> conjuncts) {
-        Expr conjunctivePred = null;
-        int count = conjuncts.size();
-        //in reverse order, but do not change conjuncts
-        for (int i = 0; i < count; i++) {
-            Expr expr = conjuncts.get(count - i - 1);
-            if (conjunctivePred == null) {
-                conjunctivePred = expr;
+    public static Expr createDisjunctivePredicate(List<Expr> disjunctions) {
+        Expr result = null;
+        for (Expr expr : disjunctions) {
+            if (result == null) {
+                result = expr;
                 continue;
             }
-            conjunctivePred = new CompoundPredicate(CompoundPredicate.Operator.OR, expr, conjunctivePred);
+            result = new CompoundPredicate(CompoundPredicate.Operator.OR, result, expr);
         }
-        return conjunctivePred;
+        return result;
     }
 
     @Override
@@ -287,5 +276,12 @@ public class CompoundPredicate extends Predicate {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
 
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(getChild(0)).append(" ").append(op).append(" ").append(getChild(1));
+        return builder.toString();
     }
 }
