@@ -301,7 +301,7 @@ bool MemTable::need_flush() const {
 }
 
 bool MemTable::need_agg() const {
-    if (keys_type() == KeysType::AGG_KEYS) {
+    if (_keys_type == KeysType::AGG_KEYS) {
         return memory_usage() >= config::write_buffer_size_for_agg;
     }
 
