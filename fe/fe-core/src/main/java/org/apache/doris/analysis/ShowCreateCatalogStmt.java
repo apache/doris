@@ -36,7 +36,7 @@ public class ShowCreateCatalogStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Catalog", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Create Catalog", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("CreateCatalog", ScalarType.createVarchar(30)))
                     .build();
 
     private String catalog;
