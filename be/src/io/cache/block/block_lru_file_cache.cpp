@@ -698,8 +698,8 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
     }
 
     /// Shuffle cells to have random order in LRUQueue as at startup all cells have the same priority.
-    auto rng = std::default_random_engine {
-            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())};
+    auto rng = std::default_random_engine(
+            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::shuffle(queue_entries.begin(), queue_entries.end(), rng);
     for (const auto& [it, is_persistent] : queue_entries) {
         LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
