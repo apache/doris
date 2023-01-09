@@ -17,8 +17,6 @@
 
 #include "vec/exec/vschema_scan_node.h"
 
-#include <glog/logging.h>
-
 #include "common/status.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
@@ -29,6 +27,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/exec/vschema_scan_node.h"
 namespace doris::vectorized {
 
 VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
