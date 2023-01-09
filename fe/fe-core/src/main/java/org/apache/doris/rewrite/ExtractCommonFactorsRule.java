@@ -44,10 +44,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 /**
@@ -461,57 +463,87 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Expr rewriteOrToIn(List<Expr> exprs) {
         // remainingOR  expr = BP IP
         InPredicate inPredicate = null;
-        boolean isOrToInAllowed = true;
-        Set<String> slotSet = new LinkedHashSet<>();
-
         int rewriteThreshold;
         if (ConnectContext.get() == null) {
             rewriteThreshold = 2;
         } else {
             rewriteThreshold = ConnectContext.get().getSessionVariable().getRewriteOrToInPredicateThreshold();
         }
+        List<Expr> notMergedExprs = Lists.newArrayList();
+        /**
+         * col1= 1 or col1=2 or col2=3 or col2=4 or col1 != 5 or col1 not in (2)
+         * ==>
+         * slotNameToMergeExprsMap:
+         *  {
+         *      col1:[col1=1, col1=2],
+         *      col2:[col2=3, col2=4]
+         *  }
+         * notMergedExprs: [col1 != 5, col1 not in (2)]
+         */
+        Map<String, List<Expr>> slotNameToMergeExprsMap = new HashMap<>();
+        /*
+        slotNameForMerge is keys of slotNameToMergeExprsMap, but reserves slot orders in original expr.
+        To reserve orders, we can get stable output, and hence good for unit/regression test.
+         */
+        List<String> slotNameForMerge = Lists.newArrayList();
 
         for (int i = 0; i < exprs.size(); i++) {
             Expr predicate = exprs.get(i);
             if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
-                isOrToInAllowed = false;
-                break;
+                notMergedExprs.add(predicate);
             } else if (!(predicate.getChild(0) instanceof SlotRef)) {
-                isOrToInAllowed = false;
-                break;
+                notMergedExprs.add(predicate);
             } else if (!(predicate.getChild(1) instanceof LiteralExpr)) {
-                isOrToInAllowed = false;
-                break;
+                notMergedExprs.add(predicate);
             } else if (predicate instanceof BinaryPredicate
                     && ((BinaryPredicate) predicate).getOp() != BinaryPredicate.Operator.EQ) {
-                isOrToInAllowed = false;
-                break;
+                notMergedExprs.add(predicate);
+            } else if (predicate instanceof InPredicate
+                    && ((InPredicate) predicate).isNotIn()) {
+                notMergedExprs.add(predicate);
             } else {
                 TableName tableName = ((SlotRef) predicate.getChild(0)).getTableName();
+                String columnWithTable;
                 if (tableName != null) {
                     String tblName = tableName.toString();
-                    String columnWithTable = tblName + "." + ((SlotRef) predicate.getChild(0)).getColumnName();
-                    slotSet.add(columnWithTable);
+                    columnWithTable = tblName + "." + ((SlotRef) predicate.getChild(0)).getColumnName();
                 } else {
-                    slotSet.add(((SlotRef) predicate.getChild(0)).getColumnName());
+                    columnWithTable = ((SlotRef) predicate.getChild(0)).getColumnName();
+                }
+                slotNameToMergeExprsMap.computeIfAbsent(columnWithTable, key -> {
+                    slotNameForMerge.add(columnWithTable);
+                    return Lists.newArrayList();
+                });
+
+                slotNameToMergeExprsMap.get(columnWithTable).add(predicate);
+            }
+        }
+        Expr notMerged = null;
+        if (!notMergedExprs.isEmpty()) {
+            notMerged = CompoundPredicate.createDisjunctivePredicate(notMergedExprs);
+        }
+        List<Expr> rewritten = Lists.newArrayList();
+        if (!slotNameToMergeExprsMap.isEmpty()) {
+            for (String columnNameWithTable : slotNameForMerge) {
+                List<Expr> toMerge = slotNameToMergeExprsMap.get(columnNameWithTable);
+                if (toMerge.size() < rewriteThreshold) {
+                    rewritten.addAll(toMerge);
+                } else {
+                    List<Expr> deduplicationExprs = getDeduplicationList(toMerge);
+                    inPredicate = new InPredicate(deduplicationExprs.get(0),
+                            deduplicationExprs.subList(1, deduplicationExprs.size()), false);
+                    rewritten.add(inPredicate);
                 }
             }
         }
-
-        // isOrToInAllowed : true, means can rewrite
-        // slotSet.size : nums of columnName in exprs, should be 1
-        if (isOrToInAllowed && slotSet.size() == 1) {
-            if (exprs.size() < rewriteThreshold) {
-                return null;
+        if (rewritten.isEmpty()) {
+            return notMerged;
+        } else {
+            if (notMerged != null) {
+                rewritten.add(notMerged);
             }
-
-            // get deduplication list
-            List<Expr> deduplicationExprs = getDeduplicationList(exprs);
-            inPredicate = new InPredicate(deduplicationExprs.get(0),
-                    deduplicationExprs.subList(1, deduplicationExprs.size()), false);
+            return CompoundPredicate.createDisjunctivePredicate(rewritten);
         }
-
-        return inPredicate;
     }
 
     public List<Expr> getDeduplicationList(List<Expr> exprs) {
