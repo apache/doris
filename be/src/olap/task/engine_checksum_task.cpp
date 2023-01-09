@@ -39,6 +39,7 @@ Status EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
+    OlapStopWatch watch;
 
     if (_checksum == nullptr) {
         return Status::InvalidArgument("invalid checksum which is nullptr");
@@ -56,6 +57,10 @@ Status EngineChecksumTask::_compute_checksum() {
         LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
                      << "res=" << acquire_reader_st;
         return acquire_reader_st;
+    }
+    size_t input_size = 0;
+    for (const auto& rowset : input_rowsets) {
+        input_size += rowset->data_disk_size();
     }
     vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
@@ -83,7 +88,8 @@ Status EngineChecksumTask::_compute_checksum() {
     *_checksum = (checksum64 >> 32) ^ (checksum64 & 0xffffffff);
 
     LOG(INFO) << "success to finish compute checksum. tablet_id = " << _tablet_id
-              << ", rows = " << rows << ", checksum=" << *_checksum;
+              << ", rows = " << rows << ", checksum=" << *_checksum
+              << ", total_size = " << input_size << ", cost(us): " << watch.get_elapse_time_us();
     return Status::OK();
 }
 

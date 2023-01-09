@@ -537,7 +537,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, pipe));
 
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
-        set_pipe(params.params.fragment_instance_id, pipe);
+        set_pipe(params.params.fragment_instance_id, pipe,
+                 params.txn_conf.__isset.enable_pipeline_txn_load &&
+                         params.txn_conf.enable_pipeline_txn_load);
         return Status::OK();
     } else {
         return exec_plan_fragment(params, empty_function);
@@ -561,8 +563,14 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 }
 
 void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
-                           std::shared_ptr<io::StreamLoadPipe> pipe) {
-    {
+                           std::shared_ptr<io::StreamLoadPipe> pipe, bool enable_pipeline_engine) {
+    if (enable_pipeline_engine) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _pipeline_map.find(fragment_instance_id);
+        if (iter != _pipeline_map.end()) {
+            _pipeline_map[fragment_instance_id]->set_pipe(std::move(pipe));
+        }
+    } else {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
@@ -574,11 +582,16 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
 std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
     {
         std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _fragment_map.find(fragment_instance_id);
-        if (iter != _fragment_map.end()) {
-            return _fragment_map[fragment_instance_id]->get_pipe();
+        auto pipeline_iter = _pipeline_map.find(fragment_instance_id);
+        if (pipeline_iter != _pipeline_map.end()) {
+            return _pipeline_map[fragment_instance_id]->get_pipe();
         } else {
-            return nullptr;
+            auto fragment_iter = _fragment_map.find(fragment_instance_id);
+            if (fragment_iter != _fragment_map.end()) {
+                return _fragment_map[fragment_instance_id]->get_pipe();
+            } else {
+                return nullptr;
+            }
         }
     }
 }
@@ -611,6 +624,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
     std::shared_ptr<FragmentExecState> exec_state;
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx;
+    bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
+                                   params.query_options.enable_pipeline_engine;
     if (params.is_simplified_param) {
         // Get common components from _fragments_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -642,6 +657,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->set_rsc_info = true;
         }
 
+        fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(
+                pipeline_engine_enabled);
         fragments_ctx->timeout_second = params.query_options.query_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
@@ -701,8 +718,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     int64_t duration_ns = 0;
-    if (!params.query_options.__isset.enable_pipeline_engine ||
-        !params.query_options.enable_pipeline_engine) {
+    if (!pipeline_engine_enabled) {
         {
             SCOPED_RAW_TIMER(&duration_ns);
             RETURN_IF_ERROR(exec_state->prepare(params));
@@ -740,6 +756,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
             fragments_ctx->set_ready_to_execute_only();
         }
+        _setup_shared_hashtable_for_broadcast_join(params, exec_state->executor()->runtime_state(),
+                                                   fragments_ctx.get());
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineFragmentContext>(
                         fragments_ctx->query_id, fragment_instance_id, params.backend_num,
@@ -1107,6 +1125,33 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     }
     RETURN_IF_ERROR(filter_controller->merge(request, attach_data));
     return Status::OK();
+}
+
+void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                             RuntimeState* state,
+                                                             QueryFragmentsCtx* fragments_ctx) {
+    if (!params.query_options.__isset.enable_share_hash_table_for_broadcast_join ||
+        !params.query_options.enable_share_hash_table_for_broadcast_join) {
+        return;
+    }
+
+    if (!params.__isset.fragment || !params.fragment.__isset.plan ||
+        params.fragment.plan.nodes.empty()) {
+        return;
+    }
+    for (auto& node : params.fragment.plan.nodes) {
+        if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
+            !node.hash_join_node.__isset.is_broadcast_join ||
+            !node.hash_join_node.is_broadcast_join) {
+            continue;
+        }
+
+        if (params.build_hash_table_for_broadcast_join) {
+            fragments_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
+                    params.params.fragment_instance_id, params.instances_sharing_hash_table,
+                    node.node_id);
+        }
+    }
 }
 
 } // namespace doris

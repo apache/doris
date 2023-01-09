@@ -53,8 +53,7 @@ class VDataStreamRecvr {
 public:
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, int total_buffer_limit,
-                     RuntimeProfile* profile,
+                     int num_senders, bool is_merging, RuntimeProfile* profile,
                      std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     virtual ~VDataStreamRecvr();
@@ -90,7 +89,7 @@ public:
     void close();
 
     bool exceeds_limit(int batch_size) {
-        return _num_buffered_bytes + batch_size > _total_buffer_limit;
+        return _num_buffered_bytes + batch_size > config::exchg_node_buffer_size_bytes;
     }
 
     bool is_closed() const { return _is_closed; }
@@ -111,11 +110,6 @@ private:
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;
     PlanNodeId _dest_node_id;
-
-    // soft upper limit on the total amount of buffering allowed for this stream across
-    // all sender queues. we stop acking incoming data once the amount of buffered data
-    // exceeds this value
-    int _total_buffer_limit;
 
     // Row schema, copied from the caller of CreateRecvr().
     RowDescriptor _row_desc;

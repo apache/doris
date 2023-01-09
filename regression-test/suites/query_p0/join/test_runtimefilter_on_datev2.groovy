@@ -215,4 +215,11 @@ suite("test_runtimefilter_on_datev2", "query_p0") {
     qt_join8 """
         SELECT * FROM ${dateV2Table} a, ${dateV2Table2} b WHERE a.date = b.date;
     """
+
+    sql 'set enable_vectorized_engine=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=true'
+    qt_join1 """
+        SELECT * FROM ${dateTable} a, ${dateV2Table} b WHERE a.date = b.date;
+    """
 }

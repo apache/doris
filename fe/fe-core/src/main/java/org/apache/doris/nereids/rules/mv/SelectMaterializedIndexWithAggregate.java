@@ -700,7 +700,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         @Override
         public PreAggStatus visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, CheckContext context) {
-            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(bitmapUnionCount.child());
+            Expression expr = bitmapUnionCount.child();
+            if (expr instanceof ToBitmap) {
+                expr = expr.child(0);
+            }
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(expr);
             if (slotOpt.isPresent() && context.exprIdToValueColumn.containsKey(slotOpt.get().getExprId())) {
                 return PreAggStatus.on();
             } else {
@@ -769,8 +773,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     .stream()
                     .collect(Collectors.groupingBy(
                             Column::isKey,
-                            Collectors.toMap(Column::getName, Function.identity())
-                    ));
+                            Collectors.toMap(Column::getNameWithoutMvPrefix, Function.identity())));
             Map<String, Column> keyNameToColumn = nameToColumnGroupingByIsKey.get(true);
             Map<String, Column> valueNameToColumn = nameToColumnGroupingByIsKey.getOrDefault(false, ImmutableMap.of());
             Map<String, ExprId> nameToExprId = Stream.concat(

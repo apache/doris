@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -38,7 +37,7 @@ import java.util.Objects;
  * so the aggregate function don't need to care about the phase of
  * aggregate.
  */
-public class AggregateExpression extends Expression implements UnaryExpression, PropagateNullable {
+public class AggregateExpression extends Expression implements UnaryExpression {
     private final AggregateFunction function;
 
     private final AggregateParam aggregateParam;
@@ -142,5 +141,10 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), function, aggregateParam, child());
+    }
+
+    @Override
+    public boolean nullable() {
+        return function.nullable();
     }
 }

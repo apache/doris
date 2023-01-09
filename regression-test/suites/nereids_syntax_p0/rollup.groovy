@@ -82,11 +82,9 @@ suite("rollup") {
         contains("PREAGGREGATION: ON")
     }
 
-    // TODO: add these qt tests back when nereids planner could get correct plan when
-    // light schema change is enabled.
-    // order_qt_rollup1 "select k2, sum(v1) from rollup_t1 group by k2"
+    order_qt_rollup1 "select k2, sum(v1) from rollup_t1 group by k2"
 
-    // order_qt_rollup2 "select k1, sum(v1) from rollup_t1 group by k1"
+    order_qt_rollup2 "select k1, sum(v1) from rollup_t1 group by k1"
 
     explain {
         sql("select k1, max(v1) from rollup_t1 group by k1")

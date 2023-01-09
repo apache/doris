@@ -55,7 +55,7 @@ private:
     Path absolute_path(const Path& path) const;
 };
 
-FileSystemSPtr global_local_filesystem();
+const FileSystemSPtr& global_local_filesystem();
 
 } // namespace io
 } // namespace doris

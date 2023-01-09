@@ -168,7 +168,7 @@ public:
     /**
      * Release all resources once this operator done its work.
      */
-    virtual Status close(RuntimeState* state) = 0;
+    virtual Status close(RuntimeState* state);
 
     Status set_child(OperatorPtr child) {
         if (is_source()) {
@@ -355,7 +355,10 @@ public:
         DCHECK(_child);
         RETURN_IF_ERROR(_child->get_block(state, block, source_state));
         bool eos = false;
-        RETURN_IF_ERROR(_node->pull(state, block, &eos));
+        RETURN_IF_ERROR(_node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         return Status::OK();
     }
 
@@ -437,7 +440,10 @@ public:
 
         if (!node->need_more_input_data()) {
             bool eos = false;
-            RETURN_IF_ERROR(node->pull(state, block, &eos));
+            RETURN_IF_ERROR(node->get_next_after_projects(
+                    state, block, &eos,
+                    std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
             if (eos) {
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {

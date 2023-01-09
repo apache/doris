@@ -91,6 +91,7 @@ enum TPrimitiveType {
   DECIMAL64,
   DECIMAL128I,
   JSONB,
+  UNSUPPORTED
 }
 
 enum TTypeNodeType {

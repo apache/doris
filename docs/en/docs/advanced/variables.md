@@ -563,3 +563,4 @@ Translated with www.DeepL.com/Translator (free version)
 * `rewrite_or_to_in_predicate_threshold`
 
     The default threshold of rewriting OR to IN. The default value is 2, which means that when there are 2 ORs, if they can be compact, they will be rewritten as IN predicate.
+

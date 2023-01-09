@@ -26,3 +26,15 @@
 -- !select --
 16.020	16.02000	16.02000
 
+-- !nereids_round_arg1 --
+10.0
+
+-- !nereids_round_arg2 --
+10.12
+
+-- !nereids_round_bankers_arg1 --
+10.0
+
+-- !nereids_round_bankers_arg2 --
+10.12
+

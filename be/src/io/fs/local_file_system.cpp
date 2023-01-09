@@ -144,7 +144,7 @@ Status LocalFileSystem::list(const Path& path, std::vector<Path>* files) {
 
 static FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
 
-FileSystemSPtr global_local_filesystem() {
+const FileSystemSPtr& global_local_filesystem() {
     return local_fs;
 }
 

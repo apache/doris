@@ -24,9 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
 
 # Multi-Catalog
+
+<version since="1.2.0">
 
 Multi-Catalog is a feature introduced in Doris 1.2.0, which aims to make it easier to interface with external data sources to enhance Doris' data lake analysis and federated data query capabilities.
 
@@ -39,6 +40,8 @@ The new Multi-Catalog function adds a new layer of Catalog to the original metad
 3. JDBC: Connect to the standard database access interface (JDBC) to access data of various databases. (currently only support `jdbc:mysql`)
 
 This function will be used as a supplement and enhancement to the previous external table connection method (External Table) to help users perform fast multi-catalog federated queries.
+
+</version>
 
 ## Basic Concepts
 
@@ -96,12 +99,16 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+// The properties in 'PROPERTIES' will overwrite the properties in "Resource"
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
 
 **Create catalog through properties**
 
-Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+Version `1.2.0` creates a catalog through properties.
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
@@ -295,15 +302,15 @@ The following example creates a Catalog connection named es to the specified ES 
 -- 1.2.0+ Version
 CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
-    "elasticsearch.nodes_discovery"="false"
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
 );
 CREATE CATALOG es WITH RESOURCE es_resource;
 
 -- 1.2.0 Version
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -372,15 +379,17 @@ Parameter | Description
 
 The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
 
+**mysql catalog example**
+
 ```sql
 -- 1.2.0+ Version
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
@@ -392,16 +401,38 @@ CREATE CATALOG jdbc PROPERTIES (
 )
 ```
 
+**postgresql catalog example**
+
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE pg_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
+);
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
 Where `jdbc.driver_url` can be a remote jar package
 
 ```sql
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
 
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -423,6 +454,8 @@ MySQL [(none)]> show catalogs;
 +-----------+-------------+----------+
 2 rows in set (0.02 sec)
 ```
+
+> Note: In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
 
 Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
 
@@ -569,6 +602,28 @@ MySQL [db1]> select * from tbl1;
 
 After the user creates the catalog, Doris will automatically synchronize the database and tables of the data catalog. For different data catalog and data table formats, Doris will perform the following mapping relationships.
 
+<version since="dev">
+
+For types that cannot currently be mapped to Doris column types, such as map, struct, etc. Doris will map the column type to UNSUPPORTED type. For queries of type UNSUPPORTED, an example is as follows:
+
+Suppose the table schema after synchronization is:
+
+```
+k1 INT,
+k2 INT,
+k3 UNSUPPORTED,
+k4 INT
+```
+
+```
+select * from table;                // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select * except(k3) from table;     // Query OK.
+select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select k1, k4 from table;           // Query OK.
+```
+
+</version>
+
 ### Hive MetaStore
 
 For Hive/Iceberge/Hudi
@@ -640,6 +695,30 @@ For Hive/Iceberge/Hudi
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
 
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit` type corresponds to the `STRING` type of DORIS. The data read is `true/false`, not `1/0` |
+| uuid/josnb | STRING | |
+
 ## Privilege Management
 
 Using Doris to access the databases and tables in the External Catalog is not controlled by the permissions of the external data source itself, but relies on Doris's own permission access management.
@@ -654,4 +733,14 @@ Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../
 
 Automatic synchronization of metadata will be supported soon.
 
-</version>
+## FAQ
+
+### Iceberg
+
+The following configurations solves the problem `failed to get schema for table xxx in db xxx` and `java.lang.UnsupportedOperationException: Storage schema reading not supported` when reading data from `Hive Metastore`.
+
+- Place iceberg runtime jar in the hive lib directory.
+- hive-site.xml add the property `metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`.
+
+Restart `Hive Metastore` after the configuration is complete. 
+

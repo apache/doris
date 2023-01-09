@@ -126,6 +126,12 @@ private:
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
     // time fro bitmap inverted index read and filter
     RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
+
+    RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+
+    RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
+
     // number of created olap scanners
     RuntimeProfile::Counter* _num_scanners = nullptr;
 

@@ -23,7 +23,6 @@
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/field.h"
-#include "olap/row_block2.h"
 #include "olap/wrapper_field.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"

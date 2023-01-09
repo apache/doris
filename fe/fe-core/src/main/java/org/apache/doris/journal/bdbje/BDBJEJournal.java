@@ -32,6 +32,7 @@ import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
+import com.sleepycat.je.DatabaseNotFoundException;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.InsufficientLogException;
@@ -303,6 +304,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort,
                         Env.getServingEnv().isElectable());
             } catch (Exception e) {
+                if (e instanceof DatabaseNotFoundException) {
+                    LOG.error("It is not allowed to set metadata_failure_recovery to true "
+                            + "when meta dir or bdbje dir is empty， which may mean it is "
+                            + "the first time to start this node");
+                }
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
             }
