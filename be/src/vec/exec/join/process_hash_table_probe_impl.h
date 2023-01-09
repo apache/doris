@@ -719,6 +719,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
 
         auto& iter = hash_table_ctx.iter;
         auto block_size = 0;
+        auto& visited_iter = _join_node->_right_outer_pull_visited_iter;
 
         auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
             block_size++;
@@ -728,12 +729,10 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             }
         };
 
-        if (_join_node->_pull_mapped_visited_iter.ok()) {
+        if (visited_iter.ok()) {
             DCHECK((std::is_same_v<Mapped, RowRefListWithFlag>));
-            for (; _join_node->_pull_mapped_visited_iter.ok() && block_size < _batch_size;
-                 ++_join_node->_pull_mapped_visited_iter) {
-                insert_from_hash_table(_join_node->_pull_mapped_visited_iter->block_offset,
-                                       _join_node->_pull_mapped_visited_iter->row_num);
+            for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
             }
         }
 
@@ -748,15 +747,12 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     }
                 } else {
                     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-                        _join_node->_pull_mapped_visited_iter = mapped.begin();
-                        for (;
-                             _join_node->_pull_mapped_visited_iter.ok() && block_size < _batch_size;
-                             ++_join_node->_pull_mapped_visited_iter) {
-                            insert_from_hash_table(
-                                    _join_node->_pull_mapped_visited_iter->block_offset,
-                                    _join_node->_pull_mapped_visited_iter->row_num);
+                        visited_iter = mapped.begin();
+                        for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                            insert_from_hash_table(visited_iter->block_offset,
+                                                   visited_iter->row_num);
                         }
-                        if (!_join_node->_pull_mapped_visited_iter.ok()) {
+                        if (!visited_iter.ok()) {
                             ++iter;
                         } // else, block_size >= _batch_size, quit for loop
                     } else {
