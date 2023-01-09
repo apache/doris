@@ -21,6 +21,10 @@ parser grammar DorisParser;
 
 options { tokenVocab = DorisLexer; }
 
+@members {
+    public boolean doris_legacy_SQL_syntax = true;
+}
+
 multiStatements
     : (statement SEMICOLON*)+ EOF
     ;
@@ -53,7 +57,8 @@ planType
 
 //  -----------------Query-----------------
 query
-    : cte? queryTerm queryOrganization
+    : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
+    | {doris_legacy_SQL_syntax}? queryTerm
     ;
 
 queryTerm
@@ -74,11 +79,13 @@ queryPrimary
     ;
 
 querySpecification
-    : selectClause
+    : {doris_legacy_SQL_syntax}? cte?
+      selectClause
       fromClause?
       whereClause?
       aggClause?
-      havingClause?                                                         #regularQuerySpecification
+      havingClause?
+      {doris_legacy_SQL_syntax}? queryOrganization                                               #regularQuerySpecification
     ;
 
 cte
