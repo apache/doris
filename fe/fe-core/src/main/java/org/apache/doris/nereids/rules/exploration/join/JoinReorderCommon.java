@@ -20,28 +20,26 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * Common
  */
 class JoinReorderCommon {
     /**
-     * check project inside Join.
+     * check project inside Join to prevent matching some pattern.
+     * just allow projection is slot or Alias(slot) to prevent reorder when:
+     * - output of project function is in condition, A join (project [abs(B.id), ..] B join C on ..) on abs(B.id)=A.id.
+     * - hyper edge in projection. project A.id + B.id A join B on .. (this project will prevent join reorder).
      */
     static boolean checkProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        Set<Slot> left = project.child().left().getOutputSet();
-        Set<Slot> right = project.child().right().getOutputSet();
         List<NamedExpression> exprs = project.getProjects();
         // must be slot or Alias(slot)
-        if (!exprs.stream().allMatch(expr -> {
+        return exprs.stream().allMatch(expr -> {
             if (expr instanceof Slot) {
                 return true;
             }
@@ -51,14 +49,6 @@ class JoinReorderCommon {
                 }
             }
             return false;
-        })) {
-            return false;
-        }
-
-        // check project exist hyper edge
-        return exprs.stream().allMatch(expr -> {
-            Set<Slot> slots = expr.collect(SlotReference.class::isInstance);
-            return !(ExpressionUtils.isIntersecting(left, slots) && ExpressionUtils.isIntersecting(right, slots));
         });
     }
 }
