@@ -220,17 +220,13 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
                         + "union all select k1 from t3 "
                         + "limit 10")
                 .rewrite()
-                .matches(logicalLimit(
+                .matches(
                         logicalUnion(
-                                logicalLimit(
-                                        logicalProject(
-                                                logicalOlapScan().when(scan -> "t1".equals(scan.getTable().getName()))
-                                        )
+                                logicalProject(
+                                        logicalOlapScan().when(scan -> "t1".equals(scan.getTable().getName()))
                                 ),
-                                logicalLimit(
-                                        logicalProject(
-                                                logicalOlapScan().when(scan -> "t2".equals(scan.getTable().getName()))
-                                        )
+                                logicalProject(
+                                        logicalOlapScan().when(scan -> "t2".equals(scan.getTable().getName()))
                                 ),
                                 logicalLimit(
                                         logicalProject(
@@ -238,7 +234,7 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
                                         )
                                 )
                         )
-                ));
+                );
     }
 
     private void test(JoinType joinType, boolean hasProject, PatternDescriptor<? extends Plan> pattern) {
