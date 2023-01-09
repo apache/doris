@@ -190,32 +190,30 @@ struct UInt256 {
 } // namespace doris::vectorized
 
 /// Overload hash for type casting
-namespace std {
 template <>
-struct hash<doris::vectorized::UInt128> {
+struct std::hash<doris::vectorized::UInt128> {
     size_t operator()(const doris::vectorized::UInt128& u) const {
         return Hash128to64({u.low, u.high});
     }
 };
 
 template <>
-struct is_signed<doris::vectorized::UInt128> {
+struct std::is_signed<doris::vectorized::UInt128> {
     static constexpr bool value = false;
 };
 
 template <>
-struct is_unsigned<doris::vectorized::UInt128> {
+struct std::is_unsigned<doris::vectorized::UInt128> {
     static constexpr bool value = true;
 };
 
 template <>
-struct is_integral<doris::vectorized::UInt128> {
+struct std::is_integral<doris::vectorized::UInt128> {
     static constexpr bool value = true;
 };
 
-// Operator +, -, /, *, % aren't implemented so it's not an arithmetic type
+// Operator +, -, /, *, % aren't implemented, so it's not an arithmetic type
 template <>
-struct is_arithmetic<doris::vectorized::UInt128> {
+struct std::is_arithmetic<doris::vectorized::UInt128> {
     static constexpr bool value = false;
 };
-} // namespace std
