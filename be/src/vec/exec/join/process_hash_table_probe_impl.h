@@ -719,7 +719,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
 
         auto& iter = hash_table_ctx.iter;
         auto block_size = 0;
-        auto& visited_iter = _join_node->_right_outer_pull_visited_iter;
+        auto& visited_iter = _join_node->_outer_join_pull_visited_iter;
 
         auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
             block_size++;

@@ -266,7 +266,8 @@ private:
 
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
-    ForwardIterator<RowRefListWithFlag> _right_outer_pull_visited_iter;
+    // for full/right outer join
+    ForwardIterator<RowRefListWithFlag> _outer_join_pull_visited_iter;
 
     std::shared_ptr<std::vector<Block>> _build_blocks;
     Block _probe_block;
