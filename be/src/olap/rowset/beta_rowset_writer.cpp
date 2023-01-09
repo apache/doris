@@ -637,50 +637,6 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
-    int64_t size = 0;
-    int64_t sum_size = 0;
-    // Create segment writer for each memtable, so that
-    // all memtables can be flushed in parallel.
-    std::unique_ptr<segment_v2::SegmentWriter> writer;
-
-    MemTable::Iterator it(memtable);
-    for (it.seek_to_first(); it.valid(); it.next()) {
-        if (PREDICT_FALSE(writer == nullptr)) {
-            RETURN_NOT_OK(_segcompaction_if_necessary());
-            RETURN_NOT_OK(_create_segment_writer(&writer));
-        }
-        ContiguousRow dst_row = it.get_current_row();
-        auto s = writer->append_row(dst_row);
-        _raw_num_rows_written++;
-        if (PREDICT_FALSE(!s.ok())) {
-            LOG(WARNING) << "failed to append row: " << s.to_string();
-            return Status::Error<WRITER_DATA_WRITE_ERROR>();
-        }
-
-        if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                          writer->num_rows_written() >= _context.max_rows_per_segment)) {
-            auto s = _flush_segment_writer(&writer, &size);
-            sum_size += size;
-            if (OLAP_UNLIKELY(!s.ok())) {
-                *flush_size = sum_size;
-                return s;
-            }
-        }
-    }
-
-    if (writer != nullptr) {
-        auto s = _flush_segment_writer(&writer, &size);
-        sum_size += size;
-        *flush_size = sum_size;
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
-
-    return Status::OK();
-}
-
 Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
     if (block->rows() == 0) {
         return Status::OK();
