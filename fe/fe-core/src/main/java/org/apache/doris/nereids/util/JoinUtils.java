@@ -152,6 +152,7 @@ public class JoinUtils {
 
         for (Expression expr : join.getHashJoinConjuncts()) {
             EqualTo equalTo = (EqualTo) expr;
+            // TODO: we could meet a = cast(b as xxx) here, need fix normalize join hash equals future
             Optional<Slot> leftSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.left());
             Optional<Slot> rightSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.right());
             if (!leftSlot.isPresent() || !rightSlot.isPresent()) {

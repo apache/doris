@@ -361,9 +361,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> output = emptyRelation.getOutput();
         TupleDescriptor tupleDescriptor = generateTupleDesc(output, null, context);
         for (int i = 0; i < output.size(); i++) {
-            SlotDescriptor slotDescriptor = tupleDescriptor.getSlots().get(i);
-            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
-
             Slot slot = output.get(i);
             SlotRef slotRef = context.findSlotRef(slot.getExprId());
             slotRef.setLabel(slot.getName());
@@ -1102,13 +1099,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-        if (!(inputPlanNode instanceof EmptySetNode)) {
-            inputPlanNode.setProjectList(execExprList);
-        }
-
+        inputPlanNode.setProjectList(execExprList);
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
 
-        if (inputPlanNode instanceof OlapScanNode || inputPlanNode instanceof EmptySetNode) {
+        if (inputPlanNode instanceof OlapScanNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
             return inputFragment;
         }

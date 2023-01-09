@@ -213,7 +213,8 @@ public class TypeCoercionUtils {
             }
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
-        } else if (left instanceof CharacterType && right instanceof DateLikeType) {
+        } else if (left instanceof CharacterType && right instanceof DateLikeType
+                    || left instanceof DateLikeType && right instanceof CharacterType) {
             // TODO: need check implicitCastMap to keep the behavior consistent with old optimizer
             tightestCommonType = right;
         } else if (left instanceof CharacterType || right instanceof CharacterType) {

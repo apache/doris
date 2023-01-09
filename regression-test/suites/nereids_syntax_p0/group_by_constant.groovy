@@ -47,5 +47,12 @@ suite("group_by_constant") {
         exception "GROUP BY expression must not contain aggregate functions: sum(lo_tax)"
     }
 
+    test {
+        sql "select SUM(lo_tax) FROM lineorder group by SUM(lo_tax);"
+        exception "GROUP BY expression must not contain aggregate functions: sum(lo_tax)"
+    }
+
     qt_sql """select SUM(if(lo_tax=1,lo_tax,0)) FROM lineorder where false;"""
+
+    qt_sql """select 2 FROM lineorder group by 1;"""
 }

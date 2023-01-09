@@ -17,16 +17,16 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
@@ -76,10 +76,11 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                     int ord = i.getIntValue();
                                     checkOrd(ord, aggOutput.size());
                                     Expression aggExpr = aggOutput.get(ord - 1);
-                                    if (aggExpr.containsType(AggregateFunction.class)) {
-                                        throw new AnalysisException(
-                                                "GROUP BY expression must not contain aggregate functions: "
-                                                        + aggExpr.toSql());
+                                    if (aggExpr instanceof Alias) {
+                                        aggExpr = ((Alias) aggExpr).child();
+                                        if (aggExpr instanceof Literal) {
+                                            aggExpr = groupByExpr;
+                                        }
                                     }
                                     groupByWithoutOrd.add(aggExpr);
                                     ordExists = true;
