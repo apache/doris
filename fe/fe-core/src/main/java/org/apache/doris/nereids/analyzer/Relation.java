@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.RelationId;
 
 import java.util.List;
 
@@ -26,4 +27,6 @@ import java.util.List;
  */
 public interface Relation {
     List<Slot> getOutput();
+
+    RelationId getId();
 }

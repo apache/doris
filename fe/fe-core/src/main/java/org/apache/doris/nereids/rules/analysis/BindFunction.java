@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -204,9 +203,7 @@ public class BindFunction implements AnalysisRuleFactory {
             if (!(function instanceof TableValuedFunction)) {
                 throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
             }
-
-            RelationId relationId = statementContext.getNextRelationId();
-            return new LogicalTVFRelation(relationId, (TableValuedFunction) function);
+            return new LogicalTVFRelation(unboundTVFRelation.getId(), (TableValuedFunction) function);
         }
 
         /**
