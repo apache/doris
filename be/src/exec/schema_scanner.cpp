@@ -245,4 +245,158 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     return Status::OK();
 }
 
+Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
+                                       const SlotDescriptor* slot_desc) {
+    if (!block->has(slot_desc->col_name())) {
+        return Status::OK();
+    }
+    vectorized::IColumn* col_ptr = const_cast<vectorized::IColumn*>(
+            block->get_by_name(slot_desc->col_name()).column.get());
+
+    if (data == nullptr) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+        nullable_column->get_null_map_data().push_back(1);
+        nullable_column->insert_data(nullptr, 0);
+        return Status::OK();
+    }
+    if (slot_desc->is_nullable()) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+        nullable_column->get_null_map_data().push_back(0);
+        col_ptr = &nullable_column->get_nested_column();
+    }
+    switch (slot_desc->type().type) {
+    case TYPE_HLL: {
+        HyperLogLog* hll_slot = reinterpret_cast<HyperLogLog*>(data);
+        reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
+        break;
+    }
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
+    case TYPE_STRING: {
+        StringValue* str_slot = reinterpret_cast<StringValue*>(data);
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->ptr,
+                                                                          str_slot->len);
+        break;
+    }
+
+    case TYPE_BOOLEAN: {
+        uint8_t num = *reinterpret_cast<bool*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_TINYINT: {
+        int8_t num = *reinterpret_cast<int8_t*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_SMALLINT: {
+        int16_t num = *reinterpret_cast<int16_t*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_INT: {
+        int32_t num = *reinterpret_cast<int32_t*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_BIGINT: {
+        int64_t num = *reinterpret_cast<int64_t*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_LARGEINT: {
+        __int128 num;
+        memcpy(&num, data, sizeof(__int128));
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_FLOAT: {
+        float num = *reinterpret_cast<float*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)->insert_value(
+                num);
+        break;
+    }
+
+    case TYPE_DOUBLE: {
+        double num = *reinterpret_cast<double*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
+                num);
+        break;
+    }
+
+    case TYPE_DATE: {
+        vectorized::VecDateTimeValue value;
+        DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
+        value.convert_dt_to_vec_dt(ts_slot);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                reinterpret_cast<char*>(&value), 0);
+        break;
+    }
+
+    case TYPE_DATEV2: {
+        uint32_t num = *reinterpret_cast<uint32_t*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_DATETIME: {
+        vectorized::VecDateTimeValue value;
+        DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
+        value.convert_dt_to_vec_dt(ts_slot);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                reinterpret_cast<char*>(&value), 0);
+        break;
+    }
+
+    case TYPE_DATETIMEV2: {
+        uint32_t num = *reinterpret_cast<uint64_t*>(data);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
+    case TYPE_DECIMALV2: {
+        const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
+        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
+        reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+
+    case TYPE_DECIMAL32: {
+        const int32_t num = *reinterpret_cast<int32_t*>(data);
+        reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+
+    case TYPE_DECIMAL64: {
+        const int64_t num = *reinterpret_cast<int64_t*>(data);
+        reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&num), 0);
+        break;
+    }
+
+    default: {
+        DCHECK(false) << "bad slot type: " << slot_desc->type();
+        std::stringstream ss;
+        ss << "Fail to convert schema type:'" << slot_desc->type() << " on column:`"
+           << slot_desc->col_name() + "`";
+        return Status::InternalError(ss.str());
+    }
+    }
+
+    return Status::OK();
+}
+
 } // namespace doris

@@ -262,17 +262,14 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
 
     if (_schema_scanner->type() == TSchemaTableType::SCH_TABLES) {
         do {
-            bool mem_reuse = block->mem_reuse();
-            DCHECK(block->rows() == 0);
+            block->clear();
 
-            if (!mem_reuse) {
-                for (int i = 0; i < _slot_num; ++i) {
-                    int j = _index_map[i];
-                    const auto slot_desc = _src_tuple_desc->slots()[j];
-                    block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                        slot_desc->get_data_type_ptr(),
-                                                        slot_desc->col_name()));
-                }
+            for (int i = 0; i < _slot_num; ++i) {
+                int j = _index_map[i];
+                const auto slot_desc = _src_tuple_desc->slots()[j];
+                block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+                                                    slot_desc->get_data_type_ptr(),
+                                                    slot_desc->col_name()));
             }
 
             while (true) {

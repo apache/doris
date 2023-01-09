@@ -97,6 +97,7 @@ protected:
     Status create_tuple_desc(ObjectPool* pool);
     Status create_columns(const std::vector<TSchemaTableStructure>* table_structure,
                           ObjectPool* pool);
+    Status fill_dest_column(vectorized::Block* block, void* data, const SlotDescriptor* slot_desc);
 
     bool _is_init;
     // this is used for sub class
