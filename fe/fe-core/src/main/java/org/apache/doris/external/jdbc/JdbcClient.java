@@ -18,29 +18,23 @@
 package org.apache.doris.external.jdbc;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Lists;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
 import lombok.Getter;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -51,10 +45,6 @@ import java.util.List;
 @Getter
 public class JdbcClient {
     private static final Logger LOG = LogManager.getLogger(JdbcClient.class);
-    private static final String MYSQL = "MYSQL";
-    private static final String POSTGRESQL = "POSTGRESQL";
-    // private static final String ORACLE = "ORACLE";
-    // private static final String SQLSERVER = "SQLSERVER";
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     private String dbType;
@@ -63,7 +53,6 @@ public class JdbcClient {
     private String jdbcUrl;
     private String driverUrl;
     private String driverClass;
-    private String checkSum;
 
     private URLClassLoader classLoader = null;
 
@@ -76,8 +65,7 @@ public class JdbcClient {
         this.jdbcUrl = jdbcUrl;
         this.driverUrl = driverUrl;
         this.driverClass = driverClass;
-        this.dbType = parseDbType(jdbcUrl);
-        this.checkSum = computeObjectChecksum();
+        this.dbType = JdbcResource.parseDbType(jdbcUrl);
 
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
@@ -103,20 +91,6 @@ public class JdbcClient {
 
     public void closeClient() {
         dataSource.close();
-    }
-
-    public String parseDbType(String url) {
-        if (url.startsWith("jdbc:mysql") || url.startsWith("jdbc:mariadb")) {
-            return MYSQL;
-        } else if (url.startsWith("jdbc:postgresql")) {
-            return POSTGRESQL;
-        }
-        // else if (url.startsWith("jdbc:oracle")) {
-        //     return ORACLE;
-        // }
-        // else if (url.startsWith("jdbc:sqlserver")) {
-        //     return SQLSERVER;
-        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + jdbcUrl);
     }
 
     public Connection getConnection() throws JdbcClientException {
@@ -181,10 +155,10 @@ public class JdbcClient {
         try {
             stmt = conn.createStatement();
             switch (dbType) {
-                case MYSQL:
+                case JdbcResource.MYSQL:
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
-                case POSTGRESQL:
+                case JdbcResource.POSTGRESQL:
                     rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
                             + "where schema_owner='" + jdbcUser + "';");
                     break;
@@ -214,10 +188,10 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
-                case MYSQL:
+                case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
                     break;
-                case POSTGRESQL:
+                case JdbcResource.POSTGRESQL:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -241,11 +215,14 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
-                case MYSQL:
+                case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
+                case JdbcResource.POSTGRESQL:
+                    rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
                 default:
-                    throw new JdbcClientException("Unknown database type");
+                    throw new JdbcClientException("Unknown database type: " + dbType);
             }
             if (rs.next()) {
                 return true;
@@ -306,10 +283,10 @@ public class JdbcClient {
             // columnNamePattern - column name, `null` means get all columns
             //                     Can contain single-character wildcards ("_"), or multi-character wildcards ("%")
             switch (dbType) {
-                case MYSQL:
+                case JdbcResource.MYSQL:
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
-                case POSTGRESQL:
+                case JdbcResource.POSTGRESQL:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -338,9 +315,9 @@ public class JdbcClient {
 
     public Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         switch (dbType) {
-            case MYSQL:
+            case JdbcResource.MYSQL:
                 return mysqlTypeToDoris(fieldSchema);
-            case POSTGRESQL:
+            case JdbcResource.POSTGRESQL:
                 return postgresqlTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
@@ -518,33 +495,5 @@ public class JdbcClient {
                     true, null, -1));
         }
         return dorisTableSchema;
-    }
-
-    private String computeObjectChecksum() {
-        if (FeConstants.runningUnitTest) {
-            // skip checking checksum when running ut
-            return "";
-        }
-
-        InputStream inputStream = null;
-        try {
-            inputStream = Util.getInputStreamFromUrl(driverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
-            MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] buf = new byte[4096];
-            int bytesRead = 0;
-            do {
-                bytesRead = inputStream.read(buf);
-                if (bytesRead < 0) {
-                    break;
-                }
-                digest.update(buf, 0, bytesRead);
-            } while (true);
-            return Hex.encodeHexString(digest.digest());
-        } catch (IOException e) {
-            throw new JdbcClientException("compute driver checksum from url: " + driverUrl + " meet an IOException.");
-        } catch (NoSuchAlgorithmException e) {
-            throw new JdbcClientException(
-                    "compute driver checksum from url: " + driverUrl + " could not find algorithm.");
-        }
     }
 }

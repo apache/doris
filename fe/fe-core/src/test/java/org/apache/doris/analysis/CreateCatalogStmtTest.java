@@ -53,7 +53,7 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "testCatalog", props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "testCatalog", null, props);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCatalog", stmt.getCatalogName());
         Assert.assertNotNull(stmt.getProperties());
@@ -65,7 +65,7 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "", props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, "", null, props);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
@@ -75,7 +75,7 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, null, props);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
@@ -84,7 +84,7 @@ public class CreateCatalogStmtTest {
     public void testPropsTypeException() throws UserException {
         Map<String, String> props = Maps.newHashMap();
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, null, props);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }

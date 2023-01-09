@@ -46,7 +46,7 @@ suite("test_jdbc_query_mysql", "p0") {
         sql """drop table if exists $jdbcMysql57Table1"""
         sql """
             CREATE EXTERNAL TABLE `$jdbcMysql57Table1` (
-                k1 boolean,
+                k1 tinyint,
                 k2 char(100),
                 k3 varchar(128),
                 k4 date,
@@ -541,7 +541,7 @@ suite("test_jdbc_query_mysql", "p0") {
                  birthday DATETIME,
                  country varchar(128),
                  gender varchar(128),
-                 covid BOOLEAN
+                 covid tinyint
                ) ENGINE=JDBC
                COMMENT "JDBC Mysql 外部表"
                PROPERTIES (
