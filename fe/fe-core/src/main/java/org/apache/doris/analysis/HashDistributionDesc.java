@@ -25,13 +25,10 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
@@ -141,16 +138,5 @@ public class HashDistributionDesc extends DistributionDesc {
         HashDistributionInfo hashDistributionInfo =
                                 new HashDistributionInfo(numBucket, autoBucket, distributionColumns);
         return hashDistributionInfo;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        int count = distributionColumnNames.size();
-        out.writeInt(count);
-        for (String colName : distributionColumnNames) {
-            Text.writeString(out, colName);
-        }
     }
 }

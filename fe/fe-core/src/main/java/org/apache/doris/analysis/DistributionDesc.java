@@ -22,17 +22,13 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import org.apache.commons.lang.NotImplementedException;
 
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
-public class DistributionDesc implements Writable {
+public class DistributionDesc {
     protected DistributionInfoType type;
     protected int numBucket;
     protected boolean autoBucket;
@@ -68,12 +64,5 @@ public class DistributionDesc implements Writable {
 
     public DistributionInfo toDistributionInfo(List<Column> columns) throws DdlException {
         throw new NotImplementedException();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-        out.writeInt(numBucket);
-        out.writeBoolean(autoBucket);
     }
 }
