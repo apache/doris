@@ -317,8 +317,6 @@ public:
 
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
-    bool enable_vectorized_exec() const { return true; }
-
     int be_exec_version() const {
         if (!_query_options.__isset.be_exec_version) {
             return 0;

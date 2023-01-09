@@ -45,7 +45,7 @@
 
 namespace doris {
 
-// Convert RowBatch to an Arrow::Array
+// Convert Block to an Arrow::Array
 // We should keep this function to keep compatible with arrow's type visitor
 // Now we inherit TypeVisitor to use default Visit implementation
 class FromBlockConverter : public arrow::TypeVisitor {
