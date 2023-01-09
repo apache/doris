@@ -99,12 +99,16 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+// 在 PROERPTIES 中指定的配置，将会覆盖 Resource 中的配置。
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
 
 **通过 properties 创建 catalog**
 
-`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+`1.2.0` 版本通过 properties 创建 catalog
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',

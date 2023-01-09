@@ -1740,11 +1740,11 @@ create_stmt ::=
     /* Catalog */
     | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, properties);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties);
     :}
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password

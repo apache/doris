@@ -99,12 +99,16 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+// The properties in 'PROPERTIES' will overwrite the properties in "Resource"
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
 
 **Create catalog through properties**
 
-Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+Version `1.2.0` creates a catalog through properties.
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
