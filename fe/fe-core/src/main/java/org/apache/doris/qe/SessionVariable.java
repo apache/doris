@@ -258,6 +258,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
 
+    public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -667,6 +669,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD, checker = "checkExternalSortBytesThreshold")
     public long externalSortBytesThreshold = 0;
 
+<<<<<<< HEAD
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
@@ -674,6 +677,12 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
     public long twoPhaseReadLimitThreshold = 512;
+=======
+    // Default value is false, which means the group by and having clause
+    // should first use column name not alias. According to mysql.
+    @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
+    public boolean groupByAndHavingUseAliasFirst = false;
+>>>>>>> ab3569ac1 (save)
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1232,6 +1241,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isExtractWideRangeExpr() {
         return extractWideRangeExpr;
+    }
+
+    public boolean isGroupByAndHavingUseAliasFirst() {
+        return groupByAndHavingUseAliasFirst;
     }
 
     public int getCpuResourceLimit() {
