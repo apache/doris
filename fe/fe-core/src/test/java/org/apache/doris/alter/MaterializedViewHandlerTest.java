@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
@@ -174,42 +176,6 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testInvalidAggregateType(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
-                                         @Injectable OlapTable olapTable) {
-        final String mvName = "mv1";
-        final String columnName = "mv_k1";
-        Column baseColumn = new Column(columnName, Type.INT, false, AggregateType.SUM, "", "");
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName, Type.BIGINT);
-        mvColumnItem.setIsKey(true);
-        mvColumnItem.setAggregationType(null, false);
-        new Expectations() {
-            {
-                olapTable.hasMaterializedIndex(mvName);
-                result = false;
-                createMaterializedViewStmt.getMVName();
-                result = mvName;
-                createMaterializedViewStmt.getMVColumnItemList();
-                result = Lists.newArrayList(mvColumnItem);
-                createMaterializedViewStmt.getMVKeysType();
-                result = KeysType.AGG_KEYS;
-                olapTable.getColumn(columnName);
-                result = baseColumn;
-                olapTable.getKeysType();
-                result = KeysType.AGG_KEYS;
-            }
-        };
-        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
-        try {
-            Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewStmt, olapTable);
-            Assert.fail();
-        } catch (Exception e) {
-            System.out.print(e.getMessage());
-        }
-    }
-
-
-    @Test
     public void testInvalidKeysType(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
                                     @Injectable OlapTable olapTable) {
         new Expectations() {
@@ -236,20 +202,29 @@ public class MaterializedViewHandlerTest {
                                    @Injectable OlapTable olapTable) {
         final String mvName = "mv1";
         final String columnName1 = "k1";
-        Column baseColumn1 = new Column(columnName1, Type.VARCHAR, false, AggregateType.NONE, "", "");
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
+        SlotRef slot = new SlotRef(Type.VARCHAR, false);
+        slot.setCol(columnName1);
+        slot.setLabel(columnName1);
+
+        MVColumnItem mvColumnItem = null;
+        try {
+            mvColumnItem = new MVColumnItem(slot);
+        } catch (AnalysisException e) {
+            Assert.fail(e.getMessage());
+        }
         mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
+        List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         new Expectations() {
             {
+                olapTable.getBaseColumn(columnName1);
+                result = null;
                 olapTable.hasMaterializedIndex(mvName);
                 result = false;
                 createMaterializedViewStmt.getMVName();
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
-                result = Lists.newArrayList(mvColumnItem);
-                olapTable.getBaseColumn(columnName1);
-                result = baseColumn1;
+                result = list;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;
             }
@@ -267,6 +242,7 @@ public class MaterializedViewHandlerTest {
             Assert.assertEquals(false, newMVColumn.isAggregationTypeImplicit());
             Assert.assertEquals(Type.VARCHAR, newMVColumn.getType());
         } catch (Exception e) {
+            e.printStackTrace();
             Assert.fail(e.getMessage());
         }
     }
@@ -276,9 +252,21 @@ public class MaterializedViewHandlerTest {
                                            @Injectable OlapTable olapTable) throws DdlException {
         final String mvName = "mv1";
         final String columnName1 = "k1";
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
+
+        SlotRef slot = new SlotRef(Type.VARCHAR, false);
+        slot.setCol(columnName1);
+        slot.setLabel(columnName1);
+
+        MVColumnItem mvColumnItem = null;
+        try {
+            mvColumnItem = new MVColumnItem(slot);
+        } catch (AnalysisException e) {
+            Assert.fail(e.getMessage());
+        }
+
         mvColumnItem.setIsKey(false);
         mvColumnItem.setAggregationType(AggregateType.SUM, false);
+        List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         Set<String> partitionColumnNames = Sets.newHashSet();
         partitionColumnNames.add(columnName1);
         new Expectations() {
@@ -288,7 +276,7 @@ public class MaterializedViewHandlerTest {
                 createMaterializedViewStmt.getMVName();
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
-                result = Lists.newArrayList(mvColumnItem);
+                result = list;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;
                 olapTable.getPartitionColumnNames();

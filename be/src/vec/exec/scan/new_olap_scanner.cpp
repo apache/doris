@@ -311,6 +311,11 @@ Status NewOlapScanner::_init_return_columns() {
                                 : _tablet_schema->field_index(slot->col_name());
 
         if (index < 0) {
+            const std::string MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
+            index = _tablet_schema->field_index(MATERIALIZED_VIEW_NAME_PREFIX + slot->col_name());
+        }
+
+        if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
             LOG(WARNING) << ss.str();

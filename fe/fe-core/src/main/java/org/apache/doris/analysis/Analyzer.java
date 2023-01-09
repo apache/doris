@@ -65,6 +65,7 @@ import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
+import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
@@ -422,6 +423,7 @@ public class Analyzer {
             exprRewriter = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
+            mvRewriteRules.add(ExprToSlotRefRule.INSTANCE);
             mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmapOrHLLRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmap.INSTANCE);
