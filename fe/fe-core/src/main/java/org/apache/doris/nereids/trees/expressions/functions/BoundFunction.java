@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Suppliers;
 
@@ -57,11 +56,6 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     public FunctionSignature getSignature() {
         return signatureCache.get();
-    }
-
-    @Override
-    public DataType getDataType() {
-        return ComputeSignature.super.getDataType();
     }
 
     @Override

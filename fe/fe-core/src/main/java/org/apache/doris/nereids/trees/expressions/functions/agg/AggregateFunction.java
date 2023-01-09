@@ -73,11 +73,6 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return new PartialAggType(getArguments(), intermediateTypes());
     }
 
-    @Override
-    public final DataType getDataType() {
-        return (DataType) getSignature().returnType;
-    }
-
     public boolean isDistinct() {
         return distinct;
     }

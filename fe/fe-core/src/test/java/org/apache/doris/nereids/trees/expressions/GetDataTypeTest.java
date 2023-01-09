@@ -76,15 +76,16 @@ public class GetDataTypeTest {
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(doubleLiteral)));
         Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(27, 9), checkAndGetDataType(new Sum(decimalLiteral)));
         Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(bigIntLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(charLiteral).checkLegalityBeforeTypeCoercion());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(varcharLiteral).checkLegalityBeforeTypeCoercion());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(stringLiteral).checkLegalityBeforeTypeCoercion());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(dateLiteral).checkLegalityBeforeTypeCoercion());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(dateTimeLiteral).checkLegalityBeforeTypeCoercion());
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(charLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(varcharLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(stringLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateTimeLiteral)));
     }
 
-    private DataType checkAndGetDataType(Sum sum) {
-        sum.checkLegalityBeforeTypeCoercion();
-        return sum.getDataType();
+    private DataType checkAndGetDataType(Expression expression) {
+        expression.checkLegalityBeforeTypeCoercion();
+        expression.checkLegalityAfterRewrite();
+        return expression.getDataType();
     }
 }
