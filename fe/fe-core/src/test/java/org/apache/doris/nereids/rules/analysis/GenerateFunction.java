@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -74,7 +75,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.commons.text.CaseUtils;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -186,6 +186,7 @@ public class GenerateFunction {
             .put("var_pop", "variance")
             .put("variance_pop", "variance")
             .put("var_samp", "variance_samp")
+            .put("hist", "histogram")
             .build();
 
     static final Map<String, String> formatClassName = ImmutableMap.<String, String>builder()
@@ -268,20 +269,21 @@ public class GenerateFunction {
     }
 
     @Test
-    @Disabled
+    // @Disabled
     @Developing
     public void generate() throws IOException {
         Class<? extends Function> catalogFunctionType = AggregateFunction.class;
         Map<String, String> functionCodes = collectFunctionCodes(catalogFunctionType);
 
-        /* functionCodes = functionCodes.entrySet()
+        functionCodes = functionCodes.entrySet()
                  .stream()
                  .filter(kv -> {
-                     String[] functions = ("array,array_avg,array_compact,array_contains,array_difference,array_distinct,array_enumerate,array_except,array_intersect,array_join,array_max,array_min,array_popback,array_position,array_product,array_range,array_remove,array_size,array_slice,array_sort,array_sum,array_union,array_with_constant,arrays_overlap,"
+                     /*String[] functions = ("array,array_avg,array_compact,array_contains,array_difference,array_distinct,array_enumerate,array_except,array_intersect,array_join,array_max,array_min,array_popback,array_position,array_product,array_range,array_remove,array_size,array_slice,array_sort,array_sum,array_union,array_with_constant,arrays_overlap,"
                               + "bitmap_from_array,bitmap_to_array,cardinality,concat_ws,countequal,element_at,%element_extract%,%element_slice%,if,multi_match_any,multi_search_all_positions,reverse,size,split_by_char,split_by_string").split(",");
-                     return ImmutableSet.copyOf(functions).contains(kv.getKey());
+                     return ImmutableSet.copyOf(functions).contains(kv.getKey());*/
+                     return kv.getValue().contains(NullableAggregateFunction.class.getSimpleName());
                  })
-                 .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue)); */
+                 .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
 
         // Pair<className, Pair<functionName, code>>
         List<Pair<String, Pair<String, String>>> codeInfos = functionCodes.entrySet()
@@ -579,6 +581,12 @@ public class GenerateFunction {
         }
         List<Class> interfaces = getInterfaces(functionName, hasVarArg, functions, functionSet);
 
+        boolean nullableAggregateFunction = interfaces.contains(PropagateNullable.class)
+                && org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class.isAssignableFrom(nereidsFunctionType);
+        if (nullableAggregateFunction) {
+            interfaces.remove(PropagateNullable.class);
+        }
+
         String interfaceStr = interfaces.isEmpty()
                 ? ""
                 : "\n        implements " + interfaces.stream()
@@ -598,6 +606,8 @@ public class GenerateFunction {
         if (FunctionCallExpr.TIME_FUNCTIONS_WITH_PRECISION.contains(functionName)) {
             extendsClass = "DateTimeWithPrecision";
             imports.add(DateTimeWithPrecision.class);
+        } else if (nullableAggregateFunction) {
+            extendsClass = NullableAggregateFunction.class.getSimpleName();
         }
         imports.add(DataType.class);
 
@@ -621,7 +631,7 @@ public class GenerateFunction {
             code += generator.get().fields();
         }
 
-        code += generateConstructors(className, functions, catalogFunctionType);
+        code += generateConstructors(className, functions, catalogFunctionType, nullableAggregateFunction);
 
         if (generator.isPresent()) {
             code += generator.get().computeSignature();
@@ -638,9 +648,12 @@ public class GenerateFunction {
         }
 
         if (AggregateFunction.class.isAssignableFrom(catalogFunctionType)) {
-            code += generateWithDistinctAndChildren(className, hasVarArg, functions, catalogFunctionType);
+            code += generateWithDistinctAndChildren(className, hasVarArg, nullableAggregateFunction, functions, catalogFunctionType);
+            if (nullableAggregateFunction) {
+                code += generateWithAlwaysNullable(className, hasVarArg, functions, catalogFunctionType);
+            }
         } else {
-            code += generateWithChildren(className, hasVarArg, functions, catalogFunctionType);
+            code += generateWithChildren(className, hasVarArg, nullableAggregateFunction, functions, catalogFunctionType);
         }
 
         code += generateAccept(className);
@@ -780,7 +793,7 @@ public class GenerateFunction {
         }
     }
 
-    private String generateWithChildren(String className, boolean hasVarArg,
+    private String generateWithChildren(String className, boolean hasVarArg, boolean nullableAggregate,
             List<Function> functions, Class catalogFunctionType) {
         Optional<Integer> minVarArity = functions.stream()
                 .filter(Function::hasVarArgs)
@@ -833,17 +846,17 @@ public class GenerateFunction {
 
                 String conditionPrefix = isFirstIf ? "        if" : "        else if";
                 code += conditionPrefix + " (children.size() == " + arity + ") {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, nullableAggregate, catalogFunctionType) + ");\n"
                         + "        }";
                 isFirstIf = false;
             }
 
             // invoke new Function with variable-length arguments
             if (isFirstIf) {
-                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n";
+                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, nullableAggregate, catalogFunctionType) + ");\n";
             } else {
                 code += "        else {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, nullableAggregate, catalogFunctionType) + ");\n"
                         + "        }";
             }
         } else {
@@ -851,7 +864,7 @@ public class GenerateFunction {
                 // LeafPlan has default withChildren method
                 return "";
             } else if (sortedAritySet.size() == 1) {
-                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, catalogFunctionType);
+                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, nullableAggregate, catalogFunctionType);
                 code += "        return new " + className + "(" + withChildrenParams + ");\n";
             } else {
                 Iterator<Integer> arityIt = sortedAritySet.iterator();
@@ -862,7 +875,7 @@ public class GenerateFunction {
                             + "        }";
                 } else {
                     code += "        if (children.size() == " + firstArity + ") {\n"
-                            + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, catalogFunctionType) + ");\n"
+                            + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, nullableAggregate, catalogFunctionType) + ");\n"
                             + "        }";
                 }
 
@@ -871,11 +884,11 @@ public class GenerateFunction {
 
                     if (arityIt.hasNext()) {
                         code += " else if (children.size() == " + arity + ") {\n"
-                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, nullableAggregate, catalogFunctionType) + ");\n"
                                 + "        }";
                     } else {
                         code += " else {\n"
-                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, nullableAggregate, catalogFunctionType) + ");\n"
                                 + "        }\n";
                     }
                 }
@@ -885,7 +898,7 @@ public class GenerateFunction {
         return code;
     }
 
-    private String generateWithDistinctAndChildren(String className, boolean hasVarArg,
+    private String generateWithDistinctAndChildren(String className, boolean hasVarArg, boolean alwaysNullable,
             List<Function> functions, Class catalogFunctionType) {
         Optional<Integer> minVarArity = functions.stream()
                 .filter(Function::hasVarArgs)
@@ -927,28 +940,28 @@ public class GenerateFunction {
 
                 String conditionPrefix = isFirstIf ? "        if" : "        else if";
                 code += conditionPrefix + " (children.size() == " + arity + ") {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, alwaysNullable, catalogFunctionType) + ");\n"
                         + "        }";
                 isFirstIf = false;
             }
 
             // invoke new Function with variable-length arguments
             if (isFirstIf) {
-                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n";
+                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, alwaysNullable, catalogFunctionType) + ");\n";
             } else {
                 code += "        else {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, alwaysNullable, catalogFunctionType) + ");\n"
                         + "        }";
             }
         } else {
             if (sortedAritySet.size() == 1) {
-                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, catalogFunctionType);
+                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, alwaysNullable, catalogFunctionType);
                 code += "        return new " + className + "(" + withChildrenParams + ");\n";
             } else {
                 Iterator<Integer> arityIt = sortedAritySet.iterator();
                 Integer firstArity = arityIt.next();
                 code += "        if (children.size() == " + firstArity + ") {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, catalogFunctionType) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, alwaysNullable, catalogFunctionType) + ");\n"
                         + "        }";
 
                 while (arityIt.hasNext()) {
@@ -956,11 +969,11 @@ public class GenerateFunction {
 
                     if (arityIt.hasNext()) {
                         code += " else if (children.size() == " + arity + ") {\n"
-                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, alwaysNullable, catalogFunctionType) + ");\n"
                                 + "        }";
                     } else {
                         code += " else {\n"
-                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, alwaysNullable, catalogFunctionType) + ");\n"
                                 + "        }\n";
                     }
                 }
@@ -970,41 +983,116 @@ public class GenerateFunction {
         return code;
     }
 
-    private String generateConstructors(String className, List<Function> scalarFunctions, Class catalogFunctionType) {
+    private String generateWithAlwaysNullable(String className, boolean hasVarArg,
+            List<Function> functions, Class catalogFunctionType) {
+        Set<Integer> sortedAritySet = Sets.newTreeSet(functions.stream()
+                .map(f -> f.getArgs().length)
+                .collect(Collectors.toSet())
+        );
+        String code = "    /**\n"
+                + "     * withAlwaysNullable.\n"
+                + "     */\n"
+                + "    @Override\n"
+                + "    public " + className + " withAlwaysNullable(boolean alwaysNullable) {\n";
+        if (hasVarArg) {
+            Iterator<Integer> arityIt = sortedAritySet.iterator();
+            Integer arity;
+
+            boolean isFirstIf = true;
+            // invoke new Function with fixed-length arguments
+            while (arityIt.hasNext()) {
+                arity = arityIt.next();
+                if (arity >= minVarArity.get()) {
+                    break;
+                }
+
+                String conditionPrefix = isFirstIf ? "        if" : "        else if";
+                code += conditionPrefix + " (children.size() == " + arity + ") {\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, true, catalogFunctionType) + ");\n"
+                        + "        }";
+                isFirstIf = false;
+            }
+
+            // invoke new Function with variable-length arguments
+            if (isFirstIf) {
+                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, true, catalogFunctionType) + ");\n";
+            } else {
+                code += "        else {\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, true, catalogFunctionType) + ");\n"
+                        + "        }";
+            }
+        } else {
+            if (sortedAritySet.size() == 1) {
+                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, true, catalogFunctionType);
+                code += "        return new " + className + "(" + withChildrenParams + ");\n";
+            } else {
+                Iterator<Integer> arityIt = sortedAritySet.iterator();
+                Integer firstArity = arityIt.next();
+                code += "        if (children.size() == " + firstArity + ") {\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, true, catalogFunctionType) + ");\n"
+                        + "        }";
+
+                while (arityIt.hasNext()) {
+                    Integer arity = arityIt.next();
+
+                    if (arityIt.hasNext()) {
+                        code += " else if (children.size() == " + arity + ") {\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, true, catalogFunctionType) + ");\n"
+                                + "        }";
+                    } else {
+                        code += " else {\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, true, catalogFunctionType) + ");\n"
+                                + "        }\n";
+                    }
+                }
+            }
+        }
+        code += "    }\n\n";
+        return code;
+    }
+
+    private String generateConstructors(String className, List<Function> functions, Class catalogFunctionType, boolean nullableAggregateFunction) {
         Set<Integer> generatedConstructorArity = Sets.newTreeSet();
 
         String code = "";
-        for (Function scalarFunction : scalarFunctions) {
-            int arity = scalarFunction.getArgs().length;
+        for (Function function : functions) {
+            int arity = function.getArgs().length;
             if (generatedConstructorArity.contains(arity)) {
                 continue;
             }
             generatedConstructorArity.add(arity);
-            boolean isVarArg = scalarFunction.hasVarArgs();
+            boolean isVarArg = function.hasVarArgs();
             boolean isAgg = catalogFunctionType.equals(AggregateFunction.class);
 
-            String constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, false);
-            String constructorParams = getConstructorParams(arity, isVarArg, false);
-            String functionName = scalarFunction.getFunctionName().getFunction();
+            String constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, false, false);
+            String constructorParams = getConstructorParams(arity, isVarArg, false, "false");
+            String functionName = function.getFunctionName().getFunction();
 
-            code += generateConstructor(arity, isVarArg, className, functionName, constructorDeclareParams, constructorParams);
+            code += generateConstructor(arity, isVarArg, false, className, functionName, constructorDeclareParams, constructorParams);
 
             if (isAgg) {
-                constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, true);
-                constructorParams = getConstructorParams(arity, isVarArg, true);
-                code += generateConstructor(arity, isVarArg, className, functionName, constructorDeclareParams, constructorParams);
+                constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, true, false);
+                constructorParams = getConstructorParams(arity, isVarArg, true, "false");
+                code += generateConstructor(arity, isVarArg, false, className, functionName, constructorDeclareParams, constructorParams);
+
+
+                if (nullableAggregateFunction) {
+                    constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, true, true);
+                    constructorParams = getConstructorParams(arity, isVarArg, true, "alwaysNullable");
+                    code += generateConstructor(arity, isVarArg, nullableAggregateFunction, className, functionName, constructorDeclareParams, constructorParams);
+                }
             }
         }
 
         return code;
     }
 
-    private String generateConstructor(int arity, boolean isVarArg, String className, String functionName,
+    private String generateConstructor(int arity, boolean isVarArg, boolean nullableAggregateFunction, String className, String functionName,
             String constructorDeclareParams, String constructorParams) {
         return "    /**\n"
                 + "     * constructor with " + arity + (isVarArg ? " or more" : "") + " argument" + (arity > 1 || isVarArg ? "s.\n" : ".\n")
                 + "     */\n"
-                + "    public " + className + "(" + constructorDeclareParams + ") {\n"
+                + "    " + (nullableAggregateFunction ? "private " : "public ") + className + "(" + constructorDeclareParams + ") {\n"
                 + "        super(\"" + functionName + "\"" + (constructorParams.isEmpty() ? "" : ", " + constructorParams) + ");\n"
                 + "    }\n"
                 + "\n";
@@ -1109,10 +1197,13 @@ public class GenerateFunction {
         return null;
     }
 
-    private String getConstructorDeclareParams(int arity, boolean isVarArg, boolean addDistinct) {
+    private String getConstructorDeclareParams(int arity, boolean isVarArg, boolean addDistinct, boolean addAlwaysNullable) {
         List<String> params = Lists.newArrayList();
         if (addDistinct) {
             params.add("boolean distinct");
+        }
+        if (addAlwaysNullable) {
+            params.add("boolean alwaysNullable");
         }
         for (int i = 0; i < arity; i++) {
             if (arity > 1) {
@@ -1127,7 +1218,7 @@ public class GenerateFunction {
         return StringUtils.join(params, ", ");
     }
 
-    private String getConstructorParams(int arity, boolean isVarArg, boolean addDistinct) {
+    private String getConstructorParams(int arity, boolean isVarArg, boolean addDistinct, String alwaysNullableValue) {
         List<String> params = Lists.newArrayList();
         for (int i = 0; i < arity; i++) {
             if (arity > 1) {
@@ -1139,6 +1230,10 @@ public class GenerateFunction {
         if (isVarArg) {
             params.add("varArgs");
             if (addDistinct) {
+                if (alwaysNullableValue != null) {
+                    return "distinct, " + alwaysNullableValue + ",\n"
+                            + "                ExpressionUtils.mergeArguments(" + StringUtils.join(params, ", ") + ")";
+                }
                 return "distinct,\n"
                         + "                ExpressionUtils.mergeArguments(" + StringUtils.join(params, ", ") + ")";
             } else {
@@ -1147,7 +1242,16 @@ public class GenerateFunction {
         } else {
             if (addDistinct) {
                 if (params.isEmpty()) {
+                    if (alwaysNullableValue != null) {
+                        return "distinct, " + alwaysNullableValue;
+                    }
                     return "distinct";
+                }
+                if (params.isEmpty()) {
+                    if (alwaysNullableValue != null) {
+                        return "distinct, " + alwaysNullableValue + ", " + StringUtils.join(params, ", ");
+                    }
+                    return "distinct, " + StringUtils.join(params, ", ");
                 }
                 return "distinct, " + StringUtils.join(params, ", ");
             } else {
@@ -1156,10 +1260,13 @@ public class GenerateFunction {
         }
     }
 
-    private String getWithChildrenParams(int arity, boolean isVarArg, Class catalogFunctionType) {
+    private String getWithChildrenParams(int arity, boolean isVarArg, boolean alwaysNullable, Class catalogFunctionType) {
         List<String> params = Lists.newArrayList();
         if (catalogFunctionType.equals(AggregateFunction.class)) {
             params.add("distinct");
+            if (alwaysNullable) {
+                params.add("alwaysNullable");
+            }
         }
         for (int i = 0; i < arity; i++) {
             params.add("children.get(" + i + ")");

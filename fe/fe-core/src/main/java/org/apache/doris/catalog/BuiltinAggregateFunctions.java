@@ -90,7 +90,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(GroupBitXor.class, "group_bit_xor"),
             agg(GroupBitmapXor.class, "group_bitmap_xor"),
             agg(GroupConcat.class, "group_concat"),
-            agg(Histogram.class, "histogram"),
+            agg(Histogram.class, "hist", "histogram"),
             agg(HllUnion.class, "hll_raw_agg", "hll_union"),
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(IntersectCount.class, "intersect_count"),
