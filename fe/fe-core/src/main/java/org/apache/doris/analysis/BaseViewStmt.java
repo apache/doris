@@ -24,6 +24,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -106,24 +108,33 @@ public class BaseViewStmt extends DdlStmt {
 
         // format view def string
         if (cols == null) {
-            try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
-                // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
-                // we don't need the slot id info, so using ToSqlContext to remove it.
-                toSqlContext.setNeedSlotRefId(false);
-                inlineViewDef = viewDefStmt.toSql();
-            }
+            setInlineViewDef(viewDefStmt);
             return;
         }
 
         Analyzer tmpAnalyzer = new Analyzer(analyzer);
         List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
         cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
+        setInlineViewDef(cloneStmt);
+    }
 
+    private void setInlineViewDef(QueryStmt stmt) {
+        boolean nereidsState = false;
+        SessionVariable sessionVariable = null;
+        if (ConnectContext.get() != null) {
+            sessionVariable = ConnectContext.get().getSessionVariable();
+            nereidsState = sessionVariable.isEnableNereidsPlanner();
+            sessionVariable.setEnableNereidsPlanner(false);
+        }
         try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
             // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
             // we don't need the slot id info, so using ToSqlContext to remove it.
             toSqlContext.setNeedSlotRefId(false);
-            inlineViewDef = cloneStmt.toSql();
+            inlineViewDef = stmt.toSql();
+        } finally {
+            if (sessionVariable != null) {
+                sessionVariable.setEnableNereidsPlanner(nereidsState);
+            }
         }
     }
 
