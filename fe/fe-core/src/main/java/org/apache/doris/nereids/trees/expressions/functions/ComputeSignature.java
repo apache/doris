@@ -24,6 +24,9 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+
 import java.util.List;
 
 /**
@@ -65,7 +68,18 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default List<AbstractDataType> expectedInputTypes() {
-        return getSignature().argumentsTypes;
+        FunctionSignature signature = getSignature();
+        int arity = arity();
+        if (signature.hasVarArgs && arity > signature.arity) {
+            Builder<AbstractDataType> varTypes = ImmutableList.<AbstractDataType>builder()
+                    .addAll(signature.argumentsTypes);
+            AbstractDataType varType = signature.getVarArgType().get();
+            for (int i = signature.arity; i < arity; ++i) {
+                varTypes.add(varType);
+            }
+            return varTypes.build();
+        }
+        return signature.argumentsTypes;
     }
 
     /**

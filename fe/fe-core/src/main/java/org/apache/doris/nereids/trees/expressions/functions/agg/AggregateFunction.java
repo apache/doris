@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.PartialAggType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -77,11 +76,6 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     @Override
     public final DataType getDataType() {
         return (DataType) getSignature().returnType;
-    }
-
-    @Override
-    public List<AbstractDataType> expectedInputTypes() {
-        return getSignature().argumentsTypes;
     }
 
     public boolean isDistinct() {

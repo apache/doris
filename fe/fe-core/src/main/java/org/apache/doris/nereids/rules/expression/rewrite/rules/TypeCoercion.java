@@ -192,24 +192,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     private Expression visitImplicitCastInputTypes(Expression expr,
             List<AbstractDataType> expectedInputTypes, ExpressionRewriteContext ctx) {
         expr = expr.withChildren(child -> rewrite(child, ctx));
-        List<Optional<DataType>> inputImplicitCastTypes = null;
-        /*if (expr instanceof ComputeSignature) {
-            // the ComputeSignature interface already find the correct implicit cast types.
-            if (expectedInputTypes.stream().allMatch(type -> type instanceof DataType)) {
-                for (int i = 0; i < expectedInputTypes.size(); i++) {
-                    DataType argType = (DataType) expectedInputTypes.get(i);
-
-                }
-                inputImplicitCastTypes = expectedInputTypes.stream()
-                        .map(DataType.class::cast)
-                        .map(type -> Optional.of(expr.getArgumentType().getDataType().acceptsType(type) ? ex))
-                        .collect(Collectors.toList());
-            }
-        }*/
-
-        if (inputImplicitCastTypes == null) {
-            inputImplicitCastTypes = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
-        }
+        List<Optional<DataType>> inputImplicitCastTypes
+                = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
         return castInputs(expr, inputImplicitCastTypes);
     }
 
