@@ -59,6 +59,8 @@ public abstract class DataType implements AbstractDataType {
             .put(FloatType.class, () -> DoubleType.INSTANCE)
             .build();
 
+    @Developing("This map is just use to search which itemType of the ArrayType is implicit castable for temporary."
+            + "Maybe complete it after refactor TypeCoercion.")
     private static final Map<Class<? extends DataType>, Promotion<DataType>> FULL_PRIMITIVE_TYPE_PROMOTION_MAP
             = Promotion.builder()
             .add(BooleanType.class, () -> ImmutableList.of(TinyIntType.INSTANCE))

@@ -728,8 +728,8 @@ public class GenerateFunction {
     }
 
     private List<Class> getInterfaces(String functionName, boolean hasVarArgs,
-            List<Function> scalarFunctions, FunctionSet functionSet) {
-        Set<Integer> aritySet = scalarFunctions.stream()
+            List<Function> functions, FunctionSet functionSet) {
+        Set<Integer> aritySet = functions.stream()
                 .map(f -> f.getArgs().length)
                 .collect(Collectors.toSet());
         Class arityExpressionType = getArityExpressionType(hasVarArgs, aritySet);
@@ -743,7 +743,7 @@ public class GenerateFunction {
             interfaces.add(Nondeterministic.class);
         }
 
-        Function function = scalarFunctions.get(0);
+        Function function = functions.get(0);
         if (!customNullableFunctions.contains(functionName)) {
             boolean isPropagateNullable = function.getNullableMode() == NullableMode.DEPEND_ON_ARGUMENT;
             if (isPropagateNullable && !functionName.equals("substring")) {
@@ -971,22 +971,22 @@ public class GenerateFunction {
         return code;
     }
 
-    private String generateConstructors(String className, List<Function> scalarFunctions, Class catalogFunctionType) {
+    private String generateConstructors(String className, List<Function> functions, Class catalogFunctionType) {
         Set<Integer> generatedConstructorArity = Sets.newTreeSet();
 
         String code = "";
-        for (Function scalarFunction : scalarFunctions) {
-            int arity = scalarFunction.getArgs().length;
+        for (Function function : functions) {
+            int arity = function.getArgs().length;
             if (generatedConstructorArity.contains(arity)) {
                 continue;
             }
             generatedConstructorArity.add(arity);
-            boolean isVarArg = scalarFunction.hasVarArgs();
+            boolean isVarArg = function.hasVarArgs();
             boolean isAgg = catalogFunctionType.equals(AggregateFunction.class);
 
             String constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, false);
             String constructorParams = getConstructorParams(arity, isVarArg, false);
-            String functionName = scalarFunction.getFunctionName().getFunction();
+            String functionName = function.getFunctionName().getFunction();
 
             code += generateConstructor(arity, isVarArg, className, functionName, constructorDeclareParams, constructorParams);
 
@@ -1173,7 +1173,7 @@ public class GenerateFunction {
         }
     }
 
-    private String generateFunctionHeader(List<Function> scalarFunctions,
+    private String generateFunctionHeader(List<Function> functions,
             boolean hasVarArgs, List<Class> interfaces, Set<Class> imports, Class catalogFunctionType) {
         List<Class> importDorisClasses = Lists.newArrayList(
                 interfaces.stream()
@@ -1198,7 +1198,7 @@ public class GenerateFunction {
                 .collect(Collectors.toList()));
 
         importDorisClasses.add(Expression.class);
-        if (!scalarFunctions.isEmpty()) {
+        if (!functions.isEmpty()) {
             importDorisClasses.add(FunctionSignature.class);
             importThirdPartyClasses.add(ImmutableList.class);
         }
@@ -1252,7 +1252,7 @@ public class GenerateFunction {
                 .filter(i -> i.getPackage().getName().startsWith("java."))
                 .collect(Collectors.toList()));
 
-        if (!scalarFunctions.isEmpty() || !interfaces.contains(LeafExpression.class)) {
+        if (!functions.isEmpty() || !interfaces.contains(LeafExpression.class)) {
             importJdkClasses.add(List.class);
         }
         if (!importJdkClasses.isEmpty()) {
