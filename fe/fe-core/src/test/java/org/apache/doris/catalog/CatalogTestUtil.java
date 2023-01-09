@@ -216,7 +216,7 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -275,7 +275,7 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId2, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId2, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId2, new ReplicaAllocation((short) 1));
         OlapTable table = new OlapTable(testTableId2, testTable2, columns, KeysType.DUP_KEYS, partitionInfo,
                 distributionInfo);
