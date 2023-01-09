@@ -18,7 +18,7 @@
 #include "io/fs/hdfs_file_system.h"
 
 #include "gutil/hash/hash.h"
-#include "io/cloud/cached_remote_file_reader.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/hdfs_builder.h"
 #include "service/backend_options.h"

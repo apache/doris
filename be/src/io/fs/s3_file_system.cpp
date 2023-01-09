@@ -34,7 +34,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/stringpiece.h"
-#include "io/cloud/cached_remote_file_reader.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"

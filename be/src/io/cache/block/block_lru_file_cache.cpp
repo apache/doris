@@ -1,4 +1,24 @@
-#include "io/cloud/cloud_lru_file_cache.h"
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/LRUFileCachePriority.cpp
+// and modified by Doris
+
+#include "io/cache/block/block_lru_file_cache.h"
 
 #include <filesystem>
 #include <random>
@@ -6,8 +26,8 @@
 #include <utility>
 
 #include "common/status.h"
-#include "io/cloud/cloud_file_cache.h"
-#include "io/cloud/cloud_file_cache_settings.h"
+#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block/block_file_cache_settings.h"
 #include "util/time.h"
 #include "vec/common/hex.h"
 #include "vec/common/sip_hash.h"
@@ -39,8 +59,8 @@ Status LRUFileCache::initialize() {
     return Status::OK();
 }
 
-void LRUFileCache::use_cell(const FileSegmentCell& cell, const TUniqueId& query_id,
-                            bool is_persistent, FileSegments& result,
+void LRUFileCache::use_cell(const FileBlockCell& cell, const TUniqueId& query_id,
+                            bool is_persistent, FileBlocks& result,
                             std::lock_guard<std::mutex>& cache_lock) {
     auto file_segment = cell.file_segment;
     LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
@@ -57,9 +77,9 @@ void LRUFileCache::use_cell(const FileSegmentCell& cell, const TUniqueId& query_
     queue->move_to_end(*cell.queue_iterator, cache_lock);
 }
 
-LRUFileCache::FileSegmentCell* LRUFileCache::get_cell(
-        const Key& key, bool is_persistent, size_t offset,
-        std::lock_guard<std::mutex>& /* cache_lock */) {
+LRUFileCache::FileBlockCell* LRUFileCache::get_cell(const Key& key, bool is_persistent,
+                                                    size_t offset,
+                                                    std::lock_guard<std::mutex>& /* cache_lock */) {
     auto it = _files.find(std::make_pair(key, is_persistent));
     if (it == _files.end()) {
         return nullptr;
@@ -74,9 +94,9 @@ LRUFileCache::FileSegmentCell* LRUFileCache::get_cell(
     return &cell_it->second;
 }
 
-FileSegments LRUFileCache::get_impl(const Key& key, const TUniqueId& query_id, bool is_persistent,
-                                    const FileSegment::Range& range,
-                                    std::lock_guard<std::mutex>& cache_lock) {
+FileBlocks LRUFileCache::get_impl(const Key& key, const TUniqueId& query_id, bool is_persistent,
+                                  const FileBlock::Range& range,
+                                  std::lock_guard<std::mutex>& cache_lock) {
     /// Given range = [left, right] and non-overlapping ordered set of file segments,
     /// find list [segment1, ..., segmentN] of segments which intersect with given range.
     auto file_key = std::make_pair(key, is_persistent);
@@ -104,7 +124,7 @@ FileSegments LRUFileCache::get_impl(const Key& key, const TUniqueId& query_id, b
         return {};
     }
 
-    FileSegments result;
+    FileBlocks result;
     auto segment_it = file_segments.lower_bound(range.left);
     if (segment_it == file_segments.end()) {
         /// N - last cached segment for given file key, segment{N}.offset < range.left:
@@ -156,10 +176,10 @@ FileSegments LRUFileCache::get_impl(const Key& key, const TUniqueId& query_id, b
     return result;
 }
 
-FileSegments LRUFileCache::split_range_into_cells(const Key& key, const TUniqueId& query_id,
-                                                  bool is_persistent, size_t offset, size_t size,
-                                                  FileSegment::State state,
-                                                  std::lock_guard<std::mutex>& cache_lock) {
+FileBlocks LRUFileCache::split_range_into_cells(const Key& key, const TUniqueId& query_id,
+                                                bool is_persistent, size_t offset, size_t size,
+                                                FileBlock::State state,
+                                                std::lock_guard<std::mutex>& cache_lock) {
     DCHECK(size > 0);
 
     auto current_pos = offset;
@@ -168,17 +188,17 @@ FileSegments LRUFileCache::split_range_into_cells(const Key& key, const TUniqueI
     size_t current_size = 0;
     size_t remaining_size = size;
 
-    FileSegments file_segments;
+    FileBlocks file_segments;
     while (current_pos < end_pos_non_included) {
         current_size = std::min(remaining_size, _max_file_segment_size);
         remaining_size -= current_size;
         state = try_reserve(key, query_id, is_persistent, current_pos, current_size, cache_lock)
                         ? state
-                        : FileSegment::State::SKIP_CACHE;
-        if (UNLIKELY(state == FileSegment::State::SKIP_CACHE)) {
+                        : FileBlock::State::SKIP_CACHE;
+        if (UNLIKELY(state == FileBlock::State::SKIP_CACHE)) {
             auto file_segment =
-                    std::make_shared<FileSegment>(current_pos, current_size, key, this,
-                                                  FileSegment::State::SKIP_CACHE, is_persistent);
+                    std::make_shared<FileBlock>(current_pos, current_size, key, this,
+                                                FileBlock::State::SKIP_CACHE, is_persistent);
             file_segments.push_back(std::move(file_segment));
         } else {
             auto* cell = add_cell(key, is_persistent, current_pos, current_size, state, cache_lock);
@@ -194,10 +214,10 @@ FileSegments LRUFileCache::split_range_into_cells(const Key& key, const TUniqueI
     return file_segments;
 }
 
-void LRUFileCache::fill_holes_with_empty_file_segments(FileSegments& file_segments, const Key& key,
+void LRUFileCache::fill_holes_with_empty_file_segments(FileBlocks& file_segments, const Key& key,
                                                        const TUniqueId& query_id,
                                                        bool is_persistent,
-                                                       const FileSegment::Range& range,
+                                                       const FileBlock::Range& range,
                                                        std::lock_guard<std::mutex>& cache_lock) {
     /// There are segments [segment1, ..., segmentN]
     /// (non-overlapping, non-empty, ascending-ordered) which (maybe partially)
@@ -240,7 +260,7 @@ void LRUFileCache::fill_holes_with_empty_file_segments(FileSegments& file_segmen
 
         file_segments.splice(
                 it, split_range_into_cells(key, query_id, is_persistent, current_pos, hole_size,
-                                           FileSegment::State::EMPTY, cache_lock));
+                                           FileBlock::State::EMPTY, cache_lock));
 
         current_pos = segment_range.right + 1;
         ++it;
@@ -257,13 +277,13 @@ void LRUFileCache::fill_holes_with_empty_file_segments(FileSegments& file_segmen
         file_segments.splice(
                 file_segments.end(),
                 split_range_into_cells(key, query_id, is_persistent, current_pos, hole_size,
-                                       FileSegment::State::EMPTY, cache_lock));
+                                       FileBlock::State::EMPTY, cache_lock));
     }
 }
 
-FileSegmentsHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t size,
-                                            bool is_persistent, const TUniqueId& query_id) {
-    FileSegment::Range range(offset, offset + size - 1);
+FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t size,
+                                          bool is_persistent, const TUniqueId& query_id) {
+    FileBlock::Range range(offset, offset + size - 1);
 
     std::lock_guard cache_lock(_mutex);
 
@@ -272,20 +292,20 @@ FileSegmentsHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_
 
     if (file_segments.empty()) {
         file_segments = split_range_into_cells(key, query_id, is_persistent, offset, size,
-                                               FileSegment::State::EMPTY, cache_lock);
+                                               FileBlock::State::EMPTY, cache_lock);
     } else {
         fill_holes_with_empty_file_segments(file_segments, key, query_id, is_persistent, range,
                                             cache_lock);
     }
 
     DCHECK(!file_segments.empty());
-    return FileSegmentsHolder(std::move(file_segments));
+    return FileBlocksHolder(std::move(file_segments));
 }
 
-LRUFileCache::FileSegmentCell* LRUFileCache::add_cell(const Key& key, bool is_persistent,
-                                                      size_t offset, size_t size,
-                                                      FileSegment::State state,
-                                                      std::lock_guard<std::mutex>& cache_lock) {
+LRUFileCache::FileBlockCell* LRUFileCache::add_cell(const Key& key, bool is_persistent,
+                                                    size_t offset, size_t size,
+                                                    FileBlock::State state,
+                                                    std::lock_guard<std::mutex>& cache_lock) {
     /// Create a file segment cell and put it in `files` map by [key][offset].
     if (size == 0) {
         return nullptr; /// Empty files are not cached.
@@ -306,14 +326,13 @@ LRUFileCache::FileSegmentCell* LRUFileCache::add_cell(const Key& key, bool is_pe
             if (ec) {
                 LOG(WARNING) << fmt::format("cannot create {}: {}", key_path,
                                             std::strerror(ec.value()));
-                state = FileSegment::State::SKIP_CACHE;
+                state = FileBlock::State::SKIP_CACHE;
             }
         }
     }
 
-    FileSegmentCell cell(
-            std::make_shared<FileSegment>(offset, size, key, this, state, is_persistent), this,
-            cache_lock);
+    FileBlockCell cell(std::make_shared<FileBlock>(offset, size, key, this, state, is_persistent),
+                       this, cache_lock);
 
     cell.queue_iterator = queue->add(key, offset, is_persistent, size, cache_lock);
     auto [it, inserted] = offsets.insert({offset, std::move(cell)});
@@ -342,8 +361,8 @@ bool LRUFileCache::try_reserve(const Key& key, const TUniqueId& query_id, bool i
     size_t queue_size = queue->get_elements_num(cache_lock);
 
     std::vector<IFileCache::LRUQueue::Iterator> ghost;
-    std::vector<FileSegmentCell*> trash;
-    std::vector<FileSegmentCell*> to_evict;
+    std::vector<FileBlockCell*> trash;
+    std::vector<FileBlockCell*> to_evict;
 
     size_t max_size = is_persistent ? _persistent_max_size : _max_size;
     size_t max_element_size = is_persistent ? _persistent_max_element_size : _max_element_size;
@@ -376,7 +395,7 @@ bool LRUFileCache::try_reserve(const Key& key, const TUniqueId& query_id, bool i
                 std::lock_guard segment_lock(file_segment->_mutex);
 
                 switch (file_segment->_download_state) {
-                case FileSegment::State::DOWNLOADED: {
+                case FileBlock::State::DOWNLOADED: {
                     to_evict.push_back(cell);
                     break;
                 }
@@ -391,8 +410,8 @@ bool LRUFileCache::try_reserve(const Key& key, const TUniqueId& query_id, bool i
         }
     }
 
-    auto remove_file_segment_if = [&](FileSegmentCell* cell) {
-        FileSegmentSPtr file_segment = cell->file_segment;
+    auto remove_file_segment_if = [&](FileBlockCell* cell) {
+        FileBlockSPtr file_segment = cell->file_segment;
         if (file_segment) {
             size_t file_segment_size = cell->size();
             query_context->remove(file_segment->key(), file_segment->offset(),
@@ -433,8 +452,8 @@ bool LRUFileCache::try_reserve_for_main_list(const Key& key, QueryContextPtr que
                queue_size >= max_element_size;
     };
 
-    std::vector<FileSegmentCell*> to_evict;
-    std::vector<FileSegmentCell*> trash;
+    std::vector<FileBlockCell*> to_evict;
+    std::vector<FileBlockCell*> trash;
 
     for (const auto& [entry_key, entry_offset, entry_size, _] : *queue) {
         if (!is_overflow()) {
@@ -457,7 +476,7 @@ bool LRUFileCache::try_reserve_for_main_list(const Key& key, QueryContextPtr que
             std::lock_guard segment_lock(file_segment->_mutex);
 
             switch (file_segment->_download_state) {
-            case FileSegment::State::DOWNLOADED: {
+            case FileBlock::State::DOWNLOADED: {
                 /// Cell will actually be removed only if
                 /// we managed to reserve enough space.
 
@@ -475,8 +494,8 @@ bool LRUFileCache::try_reserve_for_main_list(const Key& key, QueryContextPtr que
         }
     }
 
-    auto remove_file_segment_if = [&](FileSegmentCell* cell) {
-        FileSegmentSPtr file_segment = cell->file_segment;
+    auto remove_file_segment_if = [&](FileBlockCell* cell) {
+        FileBlockSPtr file_segment = cell->file_segment;
         if (file_segment) {
             std::lock_guard segment_lock(file_segment->_mutex);
             remove(file_segment->key(), file_segment->is_persistent(), file_segment->offset(),
@@ -508,7 +527,7 @@ void LRUFileCache::remove_if_exists(const Key& key, bool is_persistent) {
 
     auto& offsets = it->second;
 
-    std::vector<FileSegmentCell*> to_remove;
+    std::vector<FileBlockCell*> to_remove;
     to_remove.reserve(offsets.size());
 
     for (auto& [offset, cell] : offsets) {
@@ -557,7 +576,7 @@ void LRUFileCache::remove_if_releasable(bool is_persistent) {
 
     std::lock_guard cache_lock(_mutex);
     LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
-    std::vector<FileSegment*> to_remove;
+    std::vector<FileBlock*> to_remove;
     for (auto it = queue->begin(); it != queue->end();) {
         const auto& [key, offset, size, _] = *it++;
         auto* cell = get_cell(key, is_persistent, offset, cache_lock);
@@ -660,7 +679,7 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
 
             if (try_reserve(key, TUniqueId(), is_persistent, offset, size, cache_lock)) {
                 auto* cell = add_cell(key, is_persistent, offset, size,
-                                      FileSegment::State::DOWNLOADED, cache_lock);
+                                      FileBlock::State::DOWNLOADED, cache_lock);
                 if (cell) {
                     queue_entries.emplace_back(*cell->queue_iterator, is_persistent);
                 }
@@ -696,7 +715,7 @@ std::vector<std::string> LRUFileCache::try_get_cache_paths(const Key& key, bool 
     const auto& cells_by_offset = _files[std::make_pair(key, is_persistent)];
 
     for (const auto& [offset, cell] : cells_by_offset) {
-        if (cell.file_segment->state() == FileSegment::State::DOWNLOADED) {
+        if (cell.file_segment->state() == FileBlock::State::DOWNLOADED) {
             cache_paths.push_back(get_path_in_local_cache(key, offset, is_persistent));
         }
     }
@@ -737,8 +756,8 @@ size_t LRUFileCache::get_file_segments_num_unlocked(bool is_persistent,
     return queue->get_elements_num(cache_lock);
 }
 
-LRUFileCache::FileSegmentCell::FileSegmentCell(FileSegmentSPtr file_segment_, LRUFileCache* cache,
-                                               std::lock_guard<std::mutex>& cache_lock)
+LRUFileCache::FileBlockCell::FileBlockCell(FileBlockSPtr file_segment_, LRUFileCache* cache,
+                                           std::lock_guard<std::mutex>& cache_lock)
         : file_segment(file_segment_) {
     /**
      * Cell can be created with either DOWNLOADED or EMPTY file segment's state.
@@ -747,14 +766,14 @@ LRUFileCache::FileSegmentCell::FileSegmentCell(FileSegmentSPtr file_segment_, LR
      */
 
     switch (file_segment->_download_state) {
-    case FileSegment::State::DOWNLOADED:
-    case FileSegment::State::EMPTY:
-    case FileSegment::State::SKIP_CACHE: {
+    case FileBlock::State::DOWNLOADED:
+    case FileBlock::State::EMPTY:
+    case FileBlock::State::SKIP_CACHE: {
         break;
     }
     default:
         DCHECK(false) << "Can create cell with either EMPTY, DOWNLOADED, SKIP_CACHE state, got: "
-                      << FileSegment::state_to_string(file_segment->_download_state);
+                      << FileBlock::state_to_string(file_segment->_download_state);
     }
 }
 

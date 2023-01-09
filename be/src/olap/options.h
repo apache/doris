@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include "io/cloud/cloud_file_cache_settings.h"
+#include "io/cache/block/block_file_cache_settings.h"
 #include "olap/olap_define.h"
 #include "util/uid_util.h"
 

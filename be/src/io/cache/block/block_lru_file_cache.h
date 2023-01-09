@@ -1,3 +1,23 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/LRUFileCachePriority.h
+// and modified by Doris
+
 #pragma once
 
 #include <chrono>
@@ -6,8 +26,8 @@
 #include <optional>
 #include <unordered_map>
 
-#include "io/cloud/cloud_file_cache.h"
-#include "io/cloud/cloud_file_segment.h"
+#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block/block_file_segment.h"
 
 namespace doris {
 namespace io {
@@ -27,8 +47,8 @@ public:
     /**
      * get the files which range contain [offset, offset+size-1]
      */
-    FileSegmentsHolder get_or_set(const Key& key, size_t offset, size_t size, bool is_persistent,
-                                  const TUniqueId& query_id) override;
+    FileBlocksHolder get_or_set(const Key& key, size_t offset, size_t size, bool is_persistent,
+                                const TUniqueId& query_id) override;
 
     // init file cache
     Status initialize() override;
@@ -46,54 +66,54 @@ public:
     size_t get_file_segments_num(bool is_persistent) const override;
 
 private:
-    struct FileSegmentCell {
-        FileSegmentSPtr file_segment;
+    struct FileBlockCell {
+        FileBlockSPtr file_segment;
 
         /// Iterator is put here on first reservation attempt, if successful.
         std::optional<LRUQueue::Iterator> queue_iterator;
 
         /// Pointer to file segment is always hold by the cache itself.
         /// Apart from pointer in cache, it can be hold by cache users, when they call
-        /// getorSet(), but cache users always hold it via FileSegmentsHolder.
+        /// getorSet(), but cache users always hold it via FileBlocksHolder.
         bool releasable() const { return file_segment.unique(); }
 
         size_t size() const { return file_segment->_segment_range.size(); }
 
-        FileSegmentCell(FileSegmentSPtr file_segment_, LRUFileCache* cache,
-                        std::lock_guard<std::mutex>& cache_lock);
+        FileBlockCell(FileBlockSPtr file_segment_, LRUFileCache* cache,
+                      std::lock_guard<std::mutex>& cache_lock);
 
-        FileSegmentCell(FileSegmentCell&& other) noexcept
+        FileBlockCell(FileBlockCell&& other) noexcept
                 : file_segment(std::move(other.file_segment)),
                   queue_iterator(other.queue_iterator) {}
 
-        FileSegmentCell& operator=(const FileSegmentCell&) = delete;
-        FileSegmentCell(const FileSegmentCell&) = delete;
+        FileBlockCell& operator=(const FileBlockCell&) = delete;
+        FileBlockCell(const FileBlockCell&) = delete;
     };
 
-    using FileSegmentsByOffset = std::map<size_t, FileSegmentCell>;
+    using FileBlocksByOffset = std::map<size_t, FileBlockCell>;
 
     struct HashCachedFileKey {
         std::size_t operator()(const std::pair<Key, bool>& k) const { return KeyHash()(k.first); }
     };
     // key: <file key, is_persistent>
     using CachedFiles =
-            std::unordered_map<std::pair<Key, bool>, FileSegmentsByOffset, HashCachedFileKey>;
+            std::unordered_map<std::pair<Key, bool>, FileBlocksByOffset, HashCachedFileKey>;
 
     CachedFiles _files;
     LRUQueue _queue;
     LRUQueue _persistent_queue;
 
-    FileSegments get_impl(const Key& key, const TUniqueId& query_id, bool is_persistent,
-                          const FileSegment::Range& range, std::lock_guard<std::mutex>& cache_lock);
+    FileBlocks get_impl(const Key& key, const TUniqueId& query_id, bool is_persistent,
+                        const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);
 
-    FileSegmentCell* get_cell(const Key& key, bool is_persistent, size_t offset,
-                              std::lock_guard<std::mutex>& cache_lock);
+    FileBlockCell* get_cell(const Key& key, bool is_persistent, size_t offset,
+                            std::lock_guard<std::mutex>& cache_lock);
 
-    FileSegmentCell* add_cell(const Key& key, bool is_persistent, size_t offset, size_t size,
-                              FileSegment::State state, std::lock_guard<std::mutex>& cache_lock);
+    FileBlockCell* add_cell(const Key& key, bool is_persistent, size_t offset, size_t size,
+                            FileBlock::State state, std::lock_guard<std::mutex>& cache_lock);
 
-    void use_cell(const FileSegmentCell& cell, const TUniqueId& query_id, bool is_persistent,
-                  FileSegments& result, std::lock_guard<std::mutex>& cache_lock);
+    void use_cell(const FileBlockCell& cell, const TUniqueId& query_id, bool is_persistent,
+                  FileBlocks& result, std::lock_guard<std::mutex>& cache_lock);
 
     bool try_reserve(const Key& key, const TUniqueId& query_id, bool is_persistent, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock) override;
@@ -110,17 +130,16 @@ private:
 
     void load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
 
-    FileSegments split_range_into_cells(const Key& key, const TUniqueId& query_id,
-                                        bool is_persistent, size_t offset, size_t size,
-                                        FileSegment::State state,
-                                        std::lock_guard<std::mutex>& cache_lock);
+    FileBlocks split_range_into_cells(const Key& key, const TUniqueId& query_id, bool is_persistent,
+                                      size_t offset, size_t size, FileBlock::State state,
+                                      std::lock_guard<std::mutex>& cache_lock);
 
     std::string dump_structure_unlocked(const Key& key, bool is_persistent,
                                         std::lock_guard<std::mutex>& cache_lock);
 
-    void fill_holes_with_empty_file_segments(FileSegments& file_segments, const Key& key,
+    void fill_holes_with_empty_file_segments(FileBlocks& file_segments, const Key& key,
                                              const TUniqueId& query_id, bool is_persistent,
-                                             const FileSegment::Range& range,
+                                             const FileBlock::Range& range,
                                              std::lock_guard<std::mutex>& cache_lock);
 
     size_t get_used_cache_size_unlocked(bool is_persistent,

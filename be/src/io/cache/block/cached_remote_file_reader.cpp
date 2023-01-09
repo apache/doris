@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/cloud/cached_remote_file_reader.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 
-#include "io/cloud/cloud_file_cache.h"
-#include "io/cloud/cloud_file_cache_factory.h"
+#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
@@ -96,16 +96,16 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
     }
     bool is_persistent = _io_ctx->is_persistent;
     TUniqueId query_id = _io_ctx->query_id ? *(_io_ctx->query_id) : TUniqueId();
-    FileSegmentsHolder holder =
+    FileBlocksHolder holder =
             cache->get_or_set(_cache_key, align_left, align_size, is_persistent, query_id);
-    std::vector<FileSegmentSPtr> empty_segments;
+    std::vector<FileBlockSPtr> empty_segments;
     for (auto& segment : holder.file_segments) {
-        if (segment->state() == FileSegment::State::EMPTY) {
+        if (segment->state() == FileBlock::State::EMPTY) {
             segment->get_or_set_downloader();
             if (segment->is_downloader()) {
                 empty_segments.push_back(segment);
             }
-        } else if (segment->state() == FileSegment::State::SKIP_CACHE) {
+        } else if (segment->state() == FileBlock::State::SKIP_CACHE) {
             empty_segments.push_back(segment);
             stats.bytes_skip_cache += segment->range().size();
         }
@@ -121,7 +121,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
         RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                      *_io_ctx, &size));
         for (auto& segment : empty_segments) {
-            if (segment->state() == FileSegment::State::SKIP_CACHE) {
+            if (segment->state() == FileBlock::State::SKIP_CACHE) {
                 continue;
             }
             char* cur_ptr = buffer.get() + segment->range().left - empty_start;
@@ -164,15 +164,15 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
             current_offset = right + 1;
             continue;
         }
-        FileSegment::State segment_state;
+        FileBlock::State segment_state;
         int64_t wait_time = 0;
         static int64_t MAX_WAIT_TIME = 10;
         do {
             segment_state = segment->wait();
-            if (segment_state == FileSegment::State::DOWNLOADED) {
+            if (segment_state == FileBlock::State::DOWNLOADED) {
                 break;
             }
-            if (segment_state != FileSegment::State::DOWNLOADING) {
+            if (segment_state != FileBlock::State::DOWNLOADING) {
                 return Status::IOError(
                         "File Cache State is {}, the cache downloader encounters an error, please "
                         "retry it",

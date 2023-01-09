@@ -1,3 +1,23 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileSegment.h
+// and modified by Doris
+
 #pragma once
 
 #include <condition_variable>
@@ -6,20 +26,20 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "io/cloud/cloud_file_cache.h"
+#include "io/cache/block/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 
 namespace doris {
 namespace io {
 
-class FileSegment;
-using FileSegmentSPtr = std::shared_ptr<FileSegment>;
-using FileSegments = std::list<FileSegmentSPtr>;
+class FileBlock;
+using FileBlockSPtr = std::shared_ptr<FileBlock>;
+using FileBlocks = std::list<FileBlockSPtr>;
 
-class FileSegment {
+class FileBlock {
     friend class LRUFileCache;
-    friend struct FileSegmentsHolder;
+    friend struct FileBlocksHolder;
 
 public:
     using Key = IFileCache::Key;
@@ -43,14 +63,14 @@ public:
         SKIP_CACHE,
     };
 
-    FileSegment(size_t offset_, size_t size_, const Key& key_, IFileCache* cache_,
-                State download_state_, bool is_persistent);
+    FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* cache_,
+              State download_state_, bool is_persistent);
 
-    ~FileSegment();
+    ~FileBlock();
 
     State state() const;
 
-    static std::string state_to_string(FileSegment::State state);
+    static std::string state_to_string(FileBlock::State state);
 
     /// Represents an interval [left, right] including both boundaries.
     struct Range {
@@ -110,8 +130,8 @@ public:
 
     std::string get_path_in_local_cache() const;
 
-    FileSegment& operator=(const FileSegment&) = delete;
-    FileSegment(const FileSegment&) = delete;
+    FileBlock& operator=(const FileBlock&) = delete;
+    FileBlock(const FileBlock&) = delete;
 
 private:
     size_t get_downloaded_size(std::lock_guard<std::mutex>& segment_lock) const;
@@ -122,7 +142,7 @@ private:
     bool is_downloader_impl(std::lock_guard<std::mutex>& segment_lock) const;
 
     /// complete() without any completion state is called from destructor of
-    /// FileSegmentsHolder. complete() might check if the caller of the method
+    /// FileBlocksHolder. complete() might check if the caller of the method
     /// is the last alive holder of the segment. Therefore, complete() and destruction
     /// of the file segment pointer must be done under the same cache mutex.
     void complete(std::lock_guard<std::mutex>& cache_lock);
@@ -151,8 +171,8 @@ private:
 
     /// Protects downloaded_size access with actual write into fs.
     /// downloaded_size is not protected by download_mutex in methods which
-    /// can never be run in parallel to FileSegment::write() method
-    /// as downloaded_size is updated only in FileSegment::write() method.
+    /// can never be run in parallel to FileBlock::write() method
+    /// as downloaded_size is updated only in FileBlock::write() method.
     /// Such methods are identified by isDownloader() check at their start,
     /// e.g. they are executed strictly by the same thread, sequentially.
     mutable std::mutex _download_mutex;
@@ -164,19 +184,19 @@ private:
     bool _is_persistent = false;
 };
 
-struct FileSegmentsHolder {
-    explicit FileSegmentsHolder(FileSegments&& file_segments_)
+struct FileBlocksHolder {
+    explicit FileBlocksHolder(FileBlocks&& file_segments_)
             : file_segments(std::move(file_segments_)) {}
 
-    FileSegmentsHolder(FileSegmentsHolder&& other) noexcept
+    FileBlocksHolder(FileBlocksHolder&& other) noexcept
             : file_segments(std::move(other.file_segments)) {}
 
-    FileSegmentsHolder& operator=(const FileSegmentsHolder&) = delete;
-    FileSegmentsHolder(const FileSegmentsHolder&) = delete;
+    FileBlocksHolder& operator=(const FileBlocksHolder&) = delete;
+    FileBlocksHolder(const FileBlocksHolder&) = delete;
 
-    ~FileSegmentsHolder();
+    ~FileBlocksHolder();
 
-    FileSegments file_segments {};
+    FileBlocks file_segments {};
 
     std::string to_string();
 };

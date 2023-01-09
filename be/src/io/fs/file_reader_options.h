@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "io/cloud/cloud_file_cache.h"
+#include "io/cache/block/block_file_cache.h"
 
 namespace doris {
 namespace io {

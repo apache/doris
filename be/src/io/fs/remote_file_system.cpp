@@ -18,8 +18,8 @@
 #include "io/fs/remote_file_system.h"
 
 #include "gutil/strings/stringpiece.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 #include "io/cache/file_cache_manager.h"
-#include "io/cloud/cached_remote_file_reader.h"
 #include "io/fs/file_reader_options.h"
 
 namespace doris {
