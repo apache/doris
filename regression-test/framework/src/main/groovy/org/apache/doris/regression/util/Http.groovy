@@ -104,7 +104,6 @@ class Http {
         return result.toString();
     }
 
-
     public static String httpPostJson(String url,String json) throws Exception{
         String data="";
         CloseableHttpClient httpClient = null;
