@@ -37,36 +37,35 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/core/types.h"
 
-namespace std {
 // for string value
 template <>
-struct hash<doris::StringValue> {
+struct std::hash<doris::StringValue> {
     uint64_t operator()(const doris::StringValue& rhs) const { return hash_value(rhs); }
 };
 
 template <>
-struct equal_to<doris::StringValue> {
+struct std::equal_to<doris::StringValue> {
     bool operator()(const doris::StringValue& lhs, const doris::StringValue& rhs) const {
         return lhs == rhs;
     }
 };
 // for decimal12_t
 template <>
-struct hash<doris::decimal12_t> {
+struct std::hash<doris::decimal12_t> {
     int64_t operator()(const doris::decimal12_t& rhs) const {
         return hash<int64_t>()(rhs.integer) ^ hash<int32_t>()(rhs.fraction);
     }
 };
 
 template <>
-struct equal_to<doris::decimal12_t> {
+struct std::equal_to<doris::decimal12_t> {
     bool operator()(const doris::decimal12_t& lhs, const doris::decimal12_t& rhs) const {
         return lhs == rhs;
     }
 };
 // for uint24_t
 template <>
-struct hash<doris::uint24_t> {
+struct std::hash<doris::uint24_t> {
     size_t operator()(const doris::uint24_t& rhs) const {
         uint32_t val(rhs);
         return hash<int>()(val);
@@ -74,12 +73,11 @@ struct hash<doris::uint24_t> {
 };
 
 template <>
-struct equal_to<doris::uint24_t> {
+struct std::equal_to<doris::uint24_t> {
     bool operator()(const doris::uint24_t& lhs, const doris::uint24_t& rhs) const {
         return lhs == rhs;
     }
 };
-} // namespace std
 
 namespace doris {
 
