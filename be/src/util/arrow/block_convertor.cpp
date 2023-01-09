@@ -113,6 +113,24 @@ public:
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
+            case vectorized::TypeIndex::DateV2: {
+                char buf[64];
+                const vectorized::DateV2Value<vectorized::DateV2ValueType>* time_val =
+                        (const vectorized::DateV2Value<
+                                vectorized::DateV2ValueType>*)(data_ref.data);
+                int len = time_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
+                break;
+            }
+            case vectorized::TypeIndex::DateTimeV2: {
+                char buf[64];
+                const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
+                        (const vectorized::DateV2Value<
+                                vectorized::DateTimeV2ValueType>*)(data_ref.data);
+                int len = time_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
+                break;
+            }
             case vectorized::TypeIndex::Int128: {
                 auto string_temp = LargeIntValue::to_string(
                         reinterpret_cast<const PackedInt128*>(data_ref.data)->value);
@@ -129,27 +147,94 @@ public:
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
 
-    // process doris DecimalV2
+    // process doris Decimal
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
-        std::shared_ptr<arrow::DataType> s_decimal_ptr =
-                std::make_shared<arrow::Decimal128Type>(27, 9);
-        arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
         size_t num_rows = _block.rows();
-        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-        for (size_t i = 0; i < num_rows; ++i) {
-            bool is_null = _cur_col->is_null_at(i);
-            if (is_null) {
-                ARROW_RETURN_NOT_OK(builder.AppendNull());
-                continue;
+        if (auto* decimalv2_column = vectorized::check_and_get_column<
+                    vectorized::ColumnDecimal<vectorized::Decimal128>>(
+                    *vectorized::remove_nullable(_cur_col))) {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(27, 9);
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_col->is_null_at(i);
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                const auto& data_ref = decimalv2_column->get_data_at(i);
+                const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+                int64_t high = (p_value->value) >> 64;
+                uint64 low = p_value->value;
+                arrow::Decimal128 value(high, low);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
             }
-            const auto& data_ref = _cur_col->get_data_at(i);
-            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
-            int64_t high = (p_value->value) >> 64;
-            uint64 low = p_value->value;
-            arrow::Decimal128 value(high, low);
-            ARROW_RETURN_NOT_OK(builder.Append(value));
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        } else if (auto* decimal128_column = vectorized::check_and_get_column<
+                           vectorized::ColumnDecimal<vectorized::Decimal128I>>(
+                           *vectorized::remove_nullable(_cur_col))) {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(38, decimal128_column->get_scale());
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_col->is_null_at(i);
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                const auto& data_ref = decimal128_column->get_data_at(i);
+                const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+                int64_t high = (p_value->value) >> 64;
+                uint64 low = p_value->value;
+                arrow::Decimal128 value(high, low);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        } else if (auto* decimal32_column = vectorized::check_and_get_column<
+                           vectorized::ColumnDecimal<vectorized::Decimal32>>(
+                           *vectorized::remove_nullable(_cur_col))) {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(8, decimal32_column->get_scale());
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_col->is_null_at(i);
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                const auto& data_ref = decimal32_column->get_data_at(i);
+                const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data);
+                int64_t high = *p_value > 0 ? 0 : 1UL << 63;
+                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        } else if (auto* decimal64_column = vectorized::check_and_get_column<
+                           vectorized::ColumnDecimal<vectorized::Decimal64>>(
+                           *vectorized::remove_nullable(_cur_col))) {
+            std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                    std::make_shared<arrow::Decimal128Type>(18, decimal64_column->get_scale());
+            arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+            ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
+            for (size_t i = 0; i < num_rows; ++i) {
+                bool is_null = _cur_col->is_null_at(i);
+                if (is_null) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    continue;
+                }
+                const auto& data_ref = decimal64_column->get_data_at(i);
+                const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data);
+                int64_t high = *p_value > 0 ? 0 : 1UL << 63;
+                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+            return builder.Finish(&_arrays[_cur_field_idx]);
+        } else {
+            return arrow::Status::TypeError("Unsupported column:" + _cur_col->get_name());
         }
-        return builder.Finish(&_arrays[_cur_field_idx]);
     }
     // process boolean
     arrow::Status Visit(const arrow::BooleanType& type) override {
