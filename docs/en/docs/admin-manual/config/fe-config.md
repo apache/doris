@@ -2363,16 +2363,6 @@ Default：10
 
 fe will call es api to get es index shard info every es_state_sync_interval_secs
 
-#### `enable_new_es_dsl`
-
-Default：true
-
-Is it possible to dynamically configure: true
-
-Is it a configuration item unique to the Master FE node: false
-
-Use new fe generate es dsl.
-
 ### External Resources
 
 #### `dpp_hadoop_client_path`
