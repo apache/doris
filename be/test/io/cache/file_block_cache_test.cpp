@@ -39,8 +39,7 @@ fs::path caches_dir = fs::current_path() / "lru_cache_test";
 std::string cache_base_path = caches_dir / "cache1" / "";
 
 void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_segment,
-                  const io::FileBlock::Range& expected_range,
-                  io::FileBlock::State expected_state) {
+                  const io::FileBlock::Range& expected_range, io::FileBlock::State expected_state) {
     auto range = file_segment->range();
 
     ASSERT_EQ(range.left, expected_range.left);
@@ -49,12 +48,11 @@ void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_segme
 }
 
 std::vector<io::FileBlockSPtr> fromHolder(const io::FileBlocksHolder& holder) {
-    return std::vector<io::FileBlockSPtr>(holder.file_segments.begin(),
-                                            holder.file_segments.end());
+    return std::vector<io::FileBlockSPtr>(holder.file_segments.begin(), holder.file_segments.end());
 }
 
 std::string getFileBlockPath(const std::string& base_path, const io::IFileCache::Key& key,
-                               size_t offset) {
+                             size_t offset) {
     auto key_str = key.to_string();
     return fs::path(base_path) / key_str / std::to_string(offset);
 }
@@ -135,8 +133,7 @@ void test_file_cache(bool is_persistent) {
             /// Range was not present in cache. It should be added in cache as one while file segment.
             ASSERT_GE(segments.size(), 1);
 
-            assert_range(1, segments[0], io::FileBlock::Range(0, 9),
-                         io::FileBlock::State::EMPTY);
+            assert_range(1, segments[0], io::FileBlock::Range(0, 9), io::FileBlock::State::EMPTY);
 
             /// Exception because space not reserved.
             /// EXPECT_THROW(download(segments[0]), DB::Exception);
@@ -165,8 +162,7 @@ void test_file_cache(bool is_persistent) {
 
             assert_range(4, segments[0], io::FileBlock::Range(0, 9),
                          io::FileBlock::State::DOWNLOADED);
-            assert_range(5, segments[1], io::FileBlock::Range(10, 14),
-                         io::FileBlock::State::EMPTY);
+            assert_range(5, segments[1], io::FileBlock::Range(10, 14), io::FileBlock::State::EMPTY);
 
             ASSERT_TRUE(segments[1]->get_or_set_downloader() == io::FileBlock::get_caller_id());
             download(segments[1]);
@@ -345,14 +341,10 @@ void test_file_cache(bool is_persistent) {
             auto f = fromHolder(holder6);
             ASSERT_EQ(f.size(), 9);
 
-            assert_range(27, f[0], io::FileBlock::Range(0, 1),
-                         io::FileBlock::State::SKIP_CACHE);
-            assert_range(28, f[2], io::FileBlock::Range(5, 22),
-                         io::FileBlock::State::SKIP_CACHE);
-            assert_range(29, f[6], io::FileBlock::Range(28, 29),
-                         io::FileBlock::State::SKIP_CACHE);
-            assert_range(30, f[8], io::FileBlock::Range(32, 39),
-                         io::FileBlock::State::SKIP_CACHE);
+            assert_range(27, f[0], io::FileBlock::Range(0, 1), io::FileBlock::State::SKIP_CACHE);
+            assert_range(28, f[2], io::FileBlock::Range(5, 22), io::FileBlock::State::SKIP_CACHE);
+            assert_range(29, f[6], io::FileBlock::Range(28, 29), io::FileBlock::State::SKIP_CACHE);
+            assert_range(30, f[8], io::FileBlock::Range(32, 39), io::FileBlock::State::SKIP_CACHE);
         }
 
         {
@@ -399,8 +391,7 @@ void test_file_cache(bool is_persistent) {
                 assert_range(37, segments_2[2], io::FileBlock::Range(28, 29),
                              io::FileBlock::State::DOWNLOADING);
 
-                ASSERT_TRUE(segments[2]->get_or_set_downloader() !=
-                            io::FileBlock::get_caller_id());
+                ASSERT_TRUE(segments[2]->get_or_set_downloader() != io::FileBlock::get_caller_id());
                 ASSERT_TRUE(segments[2]->state() == io::FileBlock::State::DOWNLOADING);
 
                 {
@@ -443,8 +434,7 @@ void test_file_cache(bool is_persistent) {
             assert_range(38, segments[0], io::FileBlock::Range(2, 4),
                          io::FileBlock::State::DOWNLOADED);
 
-            assert_range(39, segments[1], io::FileBlock::Range(5, 23),
-                         io::FileBlock::State::EMPTY);
+            assert_range(39, segments[1], io::FileBlock::Range(5, 23), io::FileBlock::State::EMPTY);
             ASSERT_TRUE(segments[1]->get_or_set_downloader() == io::FileBlock::get_caller_id());
             ASSERT_TRUE(segments[1]->state() == io::FileBlock::State::DOWNLOADING);
 
@@ -537,10 +527,8 @@ void test_file_cache(bool is_persistent) {
 
         ASSERT_EQ(segments1.size(), 3);
         assert_range(48, segments1[0], io::FileBlock::Range(0, 9), io::FileBlock::State::EMPTY);
-        assert_range(49, segments1[1], io::FileBlock::Range(10, 19),
-                     io::FileBlock::State::EMPTY);
-        assert_range(50, segments1[2], io::FileBlock::Range(20, 24),
-                     io::FileBlock::State::EMPTY);
+        assert_range(49, segments1[1], io::FileBlock::Range(10, 19), io::FileBlock::State::EMPTY);
+        assert_range(50, segments1[2], io::FileBlock::Range(20, 24), io::FileBlock::State::EMPTY);
     }
 }
 
