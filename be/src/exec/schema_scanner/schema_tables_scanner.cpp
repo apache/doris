@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/schema_scanner/schema_tables_scanner.h"
+
 #include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
-#include "exec/schema_scanner/schema_tables_scanner.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_complex.h"
 #include "vec/common/string_ref.h"
