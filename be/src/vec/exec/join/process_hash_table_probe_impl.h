@@ -734,9 +734,12 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                 insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
             }
+            if (!visited_iter.ok()) {
+                ++iter;
+            }
         }
 
-        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size;) {
+        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
             auto& mapped = iter->get_second();
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 if (mapped.visited) {
@@ -752,11 +755,10 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                             insert_from_hash_table(visited_iter->block_offset,
                                                    visited_iter->row_num);
                         }
-                        if (!visited_iter.ok()) {
-                            ++iter;
-                        } // else, block_size >= _batch_size, quit for loop
-                    } else {
-                        ++iter;
+                        if (visited_iter.ok()) {
+                            // block_size >= _batch_size, quit for loop
+                            break;
+                        }
                     }
                 }
             } else {
@@ -771,7 +773,6 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                         }
                     }
                 }
-                ++iter;
             }
         }
 
