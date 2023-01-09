@@ -58,7 +58,7 @@ public class Divide extends BinaryArithmetic {
     @Override
     public DataType getDataType() throws UnboundException {
         DataType commonType = super.getDataType();
-        if (commonType.isDecimalType()) {
+        if (commonType.isDecimalV2Type()) {
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else {
             return DoubleType.INSTANCE;
