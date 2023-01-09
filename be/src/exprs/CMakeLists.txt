@@ -24,14 +24,10 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 add_library(Exprs
   encryption_functions.cpp
   aggregate_functions.cpp
-  agg_fn_evaluator.cpp
   anyval_util.cpp
   arithmetic_expr.cpp
-  binary_predicate.cpp
-  case_expr.cpp
   cast_expr.cpp
   cast_functions.cpp
-  compound_predicate.cpp
   conditional_functions.cpp
   decimalv2_operators.cpp
   time_operators.cpp
@@ -42,7 +38,6 @@ add_library(Exprs
   expr_context.cpp
   in_predicate.cpp
   new_in_predicate.cpp
-  bloomfilter_predicate.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
   runtime_filter.cpp
@@ -55,7 +50,6 @@ add_library(Exprs
   scalar_fn_call.cpp
   rpc_fn.cpp
   rpc_fn_comm.cpp
-  rpc_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
   array_functions.cpp
@@ -67,8 +61,6 @@ add_library(Exprs
   json_functions.cpp
   operators.cpp
   hll_hash_function.cpp
-  agg_fn.cpp
-  new_agg_fn_evaluator.cc
   bitmap_function.cpp
   hll_function.cpp
   quantile_function.cpp

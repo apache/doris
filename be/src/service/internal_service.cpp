@@ -593,8 +593,6 @@ Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    if (!t_request.__isset.vec_exec || !t_request.vec_exec)
-        return FoldConstantExecutor().fold_constant_expr(t_request, response);
 
     return FoldConstantExecutor().fold_constant_vexpr(t_request, response);
 }

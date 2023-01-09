@@ -21,9 +21,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/binary_predicate.h"
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
@@ -324,25 +322,6 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
     return Status::OK();
 }
 
-BinaryPredicate* create_bin_predicate(ObjectPool* pool, PrimitiveType prim_type,
-                                      TExprOpcode::type opcode) {
-    TExprNode node;
-    TScalarType tscalar_type;
-    tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
-    TTypeNode ttype_node;
-    ttype_node.__set_type(TTypeNodeType::SCALAR);
-    ttype_node.__set_scalar_type(tscalar_type);
-    TTypeDesc t_type_desc;
-    t_type_desc.types.push_back(ttype_node);
-    node.__set_type(t_type_desc);
-    node.__set_opcode(opcode);
-    node.__set_child_type(to_thrift(prim_type));
-    node.__set_num_children(2);
-    node.__set_output_scale(-1);
-    node.__set_node_type(TExprNodeType::BINARY_PRED);
-    return (BinaryPredicate*)pool->add(BinaryPredicate::from_thrift(node));
-}
-
 Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExprOpcode::type opcode,
                              doris::vectorized::VExpr** expr, TExprNode* tnode) {
     TExprNode node;
@@ -609,9 +588,6 @@ public:
         }
         return real_filter_type;
     }
-
-    template <class T>
-    Status get_push_context(T* container, RuntimeState* state, ExprContext* prob_expr);
 
     Status get_push_vexprs(std::vector<doris::vectorized::VExpr*>* container, RuntimeState* state,
                            doris::vectorized::VExprContext* prob_expr);
@@ -1156,14 +1132,6 @@ void IRuntimeFilter::publish_finally() {
     join_rpc();
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs) {
-    DCHECK(is_consumer());
-    if (!_is_ignored) {
-        return _wrapper->get_push_context(push_expr_ctxs, _state, _probe_ctx);
-    }
-    return Status::OK();
-}
-
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
     DCHECK(is_consumer());
     if (!_is_ignored) {
@@ -1174,31 +1142,6 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_
         _profile->add_info_string("Info", _format_status());
         return Status::OK();
     }
-}
-
-Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs,
-                                          ExprContext* probe_ctx) {
-    DCHECK(is_producer());
-    return _wrapper->get_push_context(push_expr_ctxs, _state, probe_ctx);
-}
-
-Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                            const RowDescriptor& desc) {
-    if (_is_ignored) {
-        return Status::OK();
-    }
-    DCHECK(!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY);
-    DCHECK(is_consumer());
-    std::lock_guard<std::mutex> guard(_inner_mutex);
-
-    if (_push_down_ctxs.empty()) {
-        RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
-        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc));
-        RETURN_IF_ERROR(Expr::open(_push_down_ctxs, _state));
-    }
-    // push expr
-    push_expr_ctxs->insert(push_expr_ctxs->end(), _push_down_ctxs.begin(), _push_down_ctxs.end());
-    return Status::OK();
 }
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
@@ -1353,7 +1296,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _filter_id = desc->filter_id;
 
     ExprContext* build_ctx = nullptr;
-    RETURN_IF_ERROR(Expr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
+    //RETURN_IF_ERROR(Expr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
 
     RuntimeFilterParams params;
     params.fragment_instance_id = fragment_instance_id;
@@ -1389,7 +1332,6 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
             DCHECK(false) << "runtime filter not found node_id:" << node_id;
             return Status::InternalError("not found a node id");
         }
-        RETURN_IF_ERROR(Expr::create_expr_tree(_pool, iter->second, &_probe_ctx));
         RETURN_IF_ERROR(
                 doris::vectorized::VExpr::create_expr_tree(_pool, iter->second, &_vprobe_ctx));
     }
@@ -1813,79 +1755,6 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
 Status IRuntimeFilter::consumer_close() {
     DCHECK(is_consumer());
     Expr::close(_push_down_ctxs, _state);
-    return Status::OK();
-}
-
-template <class T>
-Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* state,
-                                                 ExprContext* prob_expr) {
-    DCHECK(state != nullptr);
-    DCHECK(container != nullptr);
-    DCHECK(_pool != nullptr);
-    DCHECK(prob_expr->root()->type().type == _column_return_type ||
-           (is_string_type(prob_expr->root()->type().type) && is_string_type(_column_return_type)));
-
-    auto real_filter_type = get_real_type();
-    switch (real_filter_type) {
-    case RuntimeFilterType::IN_FILTER: {
-        if (!_is_ignored_in_filter) {
-            TTypeDesc type_desc = create_type_desc(_column_return_type);
-            TExprNode node;
-            node.__set_type(type_desc);
-            node.__set_node_type(TExprNodeType::IN_PRED);
-            node.in_predicate.__set_is_not_in(false);
-            node.__set_opcode(TExprOpcode::FILTER_IN);
-            node.__isset.vector_opcode = true;
-            node.__set_vector_opcode(to_in_opcode(_column_return_type));
-            auto in_pred = _pool->add(new InPredicate(node));
-            RETURN_IF_ERROR(in_pred->prepare(state, _context.hybrid_set.get()));
-            in_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-            ExprContext* ctx = _pool->add(new ExprContext(in_pred));
-            container->push_back(ctx);
-        }
-        break;
-    }
-    case RuntimeFilterType::MINMAX_FILTER: {
-        // create max filter
-        Expr* max_literal = nullptr;
-        auto max_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::LE);
-        RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
-                                              _context.minmax_func->get_max(),
-                                              (void**)&max_literal));
-        max_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-        max_pred->add_child(max_literal);
-        container->push_back(_pool->add(new ExprContext(max_pred)));
-        // create min filter
-        Expr* min_literal = nullptr;
-        auto min_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::GE);
-        RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
-                                              _context.minmax_func->get_min(),
-                                              (void**)&min_literal));
-        min_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-        min_pred->add_child(min_literal);
-        container->push_back(_pool->add(new ExprContext(min_pred)));
-        break;
-    }
-    case RuntimeFilterType::BLOOM_FILTER: {
-        // create a bloom filter
-        TTypeDesc type_desc = create_type_desc(_column_return_type);
-        TExprNode node;
-        node.__set_type(type_desc);
-        node.__set_node_type(TExprNodeType::BLOOM_PRED);
-        node.__set_opcode(TExprOpcode::RT_FILTER);
-        node.__isset.vector_opcode = true;
-        node.__set_vector_opcode(to_in_opcode(_column_return_type));
-        auto bloom_pred = _pool->add(new BloomFilterPredicate(node));
-        RETURN_IF_ERROR(bloom_pred->prepare(state, _context.bloom_filter_func));
-        bloom_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-        ExprContext* ctx = _pool->add(new ExprContext(bloom_pred));
-        container->push_back(ctx);
-        break;
-    }
-    default:
-        DCHECK(false);
-        break;
-    }
     return Status::OK();
 }
 

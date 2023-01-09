@@ -26,7 +26,6 @@
 #include "exprs/array_functions.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/cast_functions.h"
-#include "exprs/compound_predicate.h"
 #include "exprs/decimalv2_operators.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/es_functions.h"
@@ -387,7 +386,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DecimalV2Operators::init();
     TimeOperators::init();
     UtilityFunctions::init();
-    CompoundPredicate::init();
     JsonFunctions::init();
     HllHashFunctions::init();
     ESFunctions::init();

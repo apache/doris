@@ -432,9 +432,6 @@ Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
             RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns));
-            if (_success) {
-                free_expr_local_allocations();
-            }
         }
     }
     columns.clear();

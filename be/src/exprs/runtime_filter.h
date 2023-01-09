@@ -147,7 +147,6 @@ public:
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               _always_true(false),
-              _probe_ctx(nullptr),
               _is_ignored(false),
               registration_time_(MonotonicMillis()) {}
 
@@ -178,16 +177,7 @@ public:
     // This function can only be called once
     // _wrapper's function will be clear
     // only consumer could call this
-    Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs);
-
     Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
-
-    // This function is used by UT and producer
-    Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs, ExprContext* probe_ctx);
-
-    // This function can be called multiple times
-    Status get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                const RowDescriptor& desc);
 
     Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
                                const RowDescriptor& desc);
@@ -352,7 +342,6 @@ protected:
     // probe expr_context
     // it only used in consumer to generate runtime_filter expr_context
     // we don't have to prepare it or close it
-    ExprContext* _probe_ctx;
     doris::vectorized::VExprContext* _vprobe_ctx;
 
     // Indicate whether runtime filter expr has been ignored

@@ -85,8 +85,6 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
-
-    RETURN_IF_ERROR(Expr::prepare(_fn_ctxs, state, _row_descriptor));
     for (auto fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }

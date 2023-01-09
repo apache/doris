@@ -17,7 +17,6 @@
 
 #include "vec/exec/scan/new_es_scan_node.h"
 
-#include "exec/es/es_query_builder.h"
 #include "exec/es/es_scroll_query.h"
 #include "vec/exec/scan/new_es_scanner.h"
 #include "vec/utils/util.hpp"

@@ -174,109 +174,6 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple) {
-    RETURN_IF_ERROR(_fill_dest_tuple(dest_tuple, mem_pool));
-    if (_success) {
-        free_expr_local_allocations();
-        *fill_tuple = true;
-    } else {
-        *fill_tuple = false;
-    }
-    return Status::OK();
-}
-
-Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
-    // filter src tuple by preceding filter first
-    if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
-        _counter->num_rows_unselected++;
-        _success = false;
-        return Status::OK();
-    }
-
-    // convert and fill dest tuple
-    int ctx_idx = 0;
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-
-        int dest_index = ctx_idx++;
-        ExprContext* ctx = _dest_expr_ctx[dest_index];
-        void* value = ctx->get_value(_src_tuple_row);
-        if (value == nullptr) {
-            // Only when the expr return value is null, we will check the error message.
-            std::string expr_error = ctx->get_error_msg();
-            if (!expr_error.empty()) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string { return expr_error; }, &_scanner_eof));
-                _counter->num_rows_filtered++;
-                // The ctx is reused, so must clear the error state and message.
-                ctx->clear_error_msg();
-                _success = false;
-                return Status::OK();
-            }
-            // If _strict_mode is false, _src_slot_descs_order_by_dest size could be zero
-            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) &&
-                !_src_tuple->is_null(
-                        _src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string {
-                            // Type of the slot is must be Varchar in _src_tuple.
-                            StringValue* raw_value = _src_tuple->get_string_slot(
-                                    _src_slot_descs_order_by_dest[dest_index]->tuple_offset());
-                            std::string raw_string;
-                            if (raw_value != nullptr) { //is not null then get raw value
-                                raw_string = raw_value->to_string();
-                            }
-                            fmt::memory_buffer error_msg;
-                            fmt::format_to(error_msg,
-                                           "column({}) value is incorrect while strict mode is {}, "
-                                           "src value is {}",
-                                           slot_desc->col_name(), _strict_mode, raw_string);
-                            return fmt::to_string(error_msg);
-                        },
-                        &_scanner_eof));
-                _counter->num_rows_filtered++;
-                _success = false;
-                return Status::OK();
-            }
-            if (!slot_desc->is_nullable()) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string {
-                            fmt::memory_buffer error_msg;
-                            fmt::format_to(
-                                    error_msg,
-                                    "column({}) values is null while columns is not nullable",
-                                    slot_desc->col_name());
-                            return fmt::to_string(error_msg);
-                        },
-                        &_scanner_eof));
-                _counter->num_rows_filtered++;
-                _success = false;
-                return Status::OK();
-            }
-            dest_tuple->set_null(slot_desc->null_indicator_offset());
-            continue;
-        }
-        if (slot_desc->is_nullable()) {
-            dest_tuple->set_not_null(slot_desc->null_indicator_offset());
-        }
-        void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
-        RawValue::write(value, slot, slot_desc->type(), mem_pool);
-    }
-    _success = true;
-    return Status::OK();
-}
-
 Status BaseScanner::_filter_src_block() {
     auto origin_column_num = _src_block.columns();
     // filter block
@@ -431,17 +328,7 @@ void BaseScanner::fill_slots_of_columns_from_path(
     }
 }
 
-void BaseScanner::free_expr_local_allocations() {
-    if (++_line_counter % RELEASE_CONTEXT_COUNTER == 0) {
-        ExprContext::free_local_allocations(_dest_expr_ctx);
-    }
-}
-
 void BaseScanner::close() {
-    if (!_pre_filter_ctxs.empty()) {
-        Expr::close(_pre_filter_ctxs, _state);
-    }
-
     if (_vpre_filter_ctx_ptr) {
         (*_vpre_filter_ctx_ptr)->close(_state);
     }

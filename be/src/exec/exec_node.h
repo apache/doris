@@ -35,7 +35,6 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-class Expr;
 class ExprContext;
 class ObjectPool;
 class Counters;
@@ -191,16 +190,8 @@ public:
     // This improve is cautious, we ensure the correctness firstly.
     void try_do_aggregate_serde_improve();
 
-    using EvalConjunctsFn = bool (*)(ExprContext* const*, int, TupleRow*);
-    // Evaluate exprs over row.  Returns true if all exprs return true.
-    // TODO: This doesn't use the vector<Expr*> signature because I haven't figured
-    // out how to deal with declaring a templated std:vector type in IR
-    static bool eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
-
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
-
-    virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
     // recursive helper method for generating a string for Debug_string().
     // implementations should call debug_string(int, std::stringstream) on their children.
@@ -256,7 +247,6 @@ protected:
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool;
-    std::vector<Expr*> _conjuncts;
     std::vector<ExprContext*> _conjunct_ctxs;
     std::vector<TupleId> _tuple_ids;
 

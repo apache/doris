@@ -163,38 +163,6 @@ public:
     // Returns the number of slots added to the vector
     virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const;
 
-    /// Create expression tree from the list of nodes contained in texpr within 'pool'.
-    /// Returns the root of expression tree in 'expr' and the corresponding ExprContext in
-    /// 'ctx'.
-    static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, ExprContext** ctx);
-
-    /// Creates vector of ExprContexts containing exprs from the given vector of
-    /// TExprs within 'pool'.  Returns an error if any of the individual conversions caused
-    /// an error, otherwise OK.
-    static Status create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texprs,
-                                    std::vector<ExprContext*>* ctxs);
-
-    /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
-    /// is stored in ObjectPool 'pool' and returned in 'expr' on success. 'row_desc' is the
-    /// tuple row descriptor of the input tuple row. On failure, 'expr' is set to nullptr and
-    /// the expr tree (if created) will be closed. Error status will be returned too.
-    static Status create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                         ObjectPool* pool, Expr** expr);
-
-    /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
-    /// is stored in ObjectPool 'state->obj_pool()' and returned in 'expr'. 'row_desc' is
-    /// the tuple row descriptor of the input tuple row. Returns error status on failure.
-    static Status create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                         Expr** expr);
-
-    /// Convenience functions creating multiple ScalarExpr.
-    static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                         RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs);
-
-    /// Convenience functions creating multiple ScalarExpr.
-    static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                         RuntimeState* state, std::vector<Expr*>* exprs);
-
     /// Convenience function for preparing multiple expr trees.
     /// Allocations from 'ctxs' will be counted against 'tracker'.
     static Status prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
@@ -273,7 +241,6 @@ protected:
     friend class TimestampFunctions;
     friend class ConditionalFunctions;
     friend class UtilityFunctions;
-    friend class CaseExpr;
     friend class InPredicate;
     friend class InfoFunc;
     friend class FunctionCall;
@@ -284,14 +251,8 @@ protected:
     friend class JsonFunctions;
     friend class Literal;
     friend class ExprContext;
-    friend class CompoundPredicate;
     friend class ScalarFnCall;
     friend class HllHashFunction;
-
-    /// Constructs an Expr tree from the thrift Expr 'texpr'. 'root' is the root of the
-    /// Expr tree created from texpr.nodes[0] by the caller (either ScalarExpr or AggFn).
-    /// The newly created Expr nodes are added to 'pool'. Returns error status on failure.
-    static Status create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root);
 
     int fn_ctx_idx() const { return _fn_ctx_idx; }
 
@@ -385,28 +346,6 @@ private:
     friend class ExprTest;
     friend class QueryJitter;
 
-    // Create a new Expr based on texpr_node.node_type within 'pool'.
-    static Status create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** expr);
-
-    // Create a new Expr based on texpr_node.node_type within 'pool'.
-    static Status create_expr(ObjectPool* pool, const Expr* old_expr, Expr** new_expr);
-
-    /// Creates an expr tree for the node rooted at 'node_idx' via depth-first traversal.
-    /// parameters
-    ///   nodes: vector of thrift expression nodes to be translated
-    ///   parent: parent of node at node_idx (or nullptr for node_idx == 0)
-    ///   node_idx:
-    ///     in: root of TExprNode tree
-    ///     out: next node in 'nodes' that isn't part of tree
-    ///   root_expr: out: root of constructed expr tree
-    ///   ctx: out: context of constructed expr tree
-    /// return
-    ///   status.ok() if successful
-    ///   !status.ok() if tree is inconsistent or corrupt
-    static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
-                                          Expr* parent, int* node_idx, Expr** root_expr,
-                                          ExprContext** ctx);
-
     /// Static wrappers around the virtual Get*Val() functions. Calls the appropriate
     /// Get*Val() function on expr, passing it the context and row arguments.
     //
@@ -425,23 +364,6 @@ private:
     static DateTimeVal get_datetime_val(Expr* expr, ExprContext* context, TupleRow* row);
     static CollectionVal get_array_val(Expr* expr, ExprContext* context, TupleRow* row);
     static DecimalV2Val get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row);
-
-    /// Creates an expression tree rooted at 'root' via depth-first traversal.
-    /// Called recursively to create children expr trees for sub-expressions.
-    ///
-    /// parameters:
-    ///   nodes: vector of thrift expression nodes to be unpacked.
-    ///          It is essentially an Expr tree encoded in a depth-first manner.
-    ///   pool: Object pool in which Expr created from nodes are stored.
-    ///   root: root of the new tree. Created and initialized by the caller.
-    ///   child_node_idx: index into 'nodes' to be unpacked. It's the root of the next child
-    ///                   child Expr tree to be added to 'root'. Updated as 'nodes' are
-    ///                   consumed to construct the tree.
-    /// return
-    ///   status.ok() if successful
-    ///   !status.ok() if tree is inconsistent or corrupt
-    static Status create_tree_internal(const std::vector<TExprNode>& nodes, ObjectPool* pool,
-                                       Expr* parent, int* child_node_idx);
 
     /// 'fn_ctx_idx_' is the index into the FunctionContext vector in ScalarExprEvaluator
     /// for storing FunctionContext needed to evaluate this ScalarExprNode. It's -1 if this

@@ -17,7 +17,6 @@
 
 #include <string>
 
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "gtest/gtest.h"
 #include "runtime/string_value.h"

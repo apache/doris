@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "exprs/binary_predicate.h"
 #include "exprs/cast_functions.h"
 #include "exprs/literal.h"
 #include "exprs/slot_ref.h"

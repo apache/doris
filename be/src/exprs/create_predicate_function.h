@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "olap/bitmap_filter_predicate.h"

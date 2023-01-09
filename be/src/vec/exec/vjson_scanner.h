@@ -39,7 +39,6 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
-class ExprContext;
 class RuntimeState;
 struct ScannerCounter;
 

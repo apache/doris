@@ -33,7 +33,6 @@ class CollectionValue;
 class TupleDescriptor;
 class DateTimeValue;
 class TupleRow;
-class ExprContext;
 
 // A tuple is stored as a contiguous sequence of bytes containing a fixed number
 // of fixed-size slots. The slots are arranged in order of increasing byte length;
@@ -105,17 +104,6 @@ public:
     void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset) {
         deep_copy(desc, data, offset, false);
     }
-
-    // Materialize this by evaluating the expressions in materialize_exprs
-    // over the specified 'row'. 'pool' is used to allocate var-length data.
-    // (Memory for this tuple itself must already be allocated.)
-    // If collect_string_vals is true, the materialized non-nullptr string value
-    // slots and the total length of the string slots are returned in var_values
-    // and total_var_len.
-    template <bool collect_string_vals>
-    void materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
-                           const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
-                           std::vector<StringValue*>* non_null_var_len_values, int* total_var_len);
 
     // Turn null indicator bit on.
     // Turn null indicator bit on. For non-nullable slots, the mask will be 0 and

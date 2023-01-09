@@ -36,9 +36,6 @@ class TQueryGlobals;
 // This class used to fold constant expr from fe
 class FoldConstantExecutor {
 public:
-    // fold constant expr
-    Status fold_constant_expr(const TFoldConstantParams& params, PConstantExprResult* response);
-
     // fold constant vexpr
     Status fold_constant_vexpr(const TFoldConstantParams& params, PConstantExprResult* response);
 
