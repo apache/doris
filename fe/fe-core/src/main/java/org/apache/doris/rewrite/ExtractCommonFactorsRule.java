@@ -496,7 +496,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                     && ((CompoundPredicate) predicate).getOp() == Operator.AND) {
                 CompoundPredicate and = (CompoundPredicate) predicate;
                 Expr left = apply(and.getChild(0), analyzer, clauseType);
+                if (CompoundPredicate.isOr(left)) {
+                    left.setPrintSqlInParens(true);
+                }
                 Expr right = apply(and.getChild(1), analyzer, clauseType);
+                if (CompoundPredicate.isOr(right)) {
+                    right.setPrintSqlInParens(true);
+                }
                 notMergedExprs.add(new CompoundPredicate(Operator.AND, left, right));
             } else if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
                 notMergedExprs.add(predicate);

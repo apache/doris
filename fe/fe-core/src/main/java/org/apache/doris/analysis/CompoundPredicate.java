@@ -229,6 +229,11 @@ public class CompoundPredicate extends Predicate {
         return result;
     }
 
+    public static boolean isOr(Expr expr) {
+        return expr instanceof CompoundPredicate
+                && ((CompoundPredicate) expr).getOp() == Operator.OR;
+    }
+
     @Override
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
