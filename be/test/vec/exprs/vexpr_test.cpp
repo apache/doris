@@ -53,8 +53,6 @@ TEST(TEST_VEXPR, ABSTEST) {
     doris::vectorized::VExprContext* context = nullptr;
     doris::vectorized::VExpr::create_expr_tree(&object_pool, exprx, &context);
 
-    int32_t k1 = -100;
-
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
     runtime_stat.init_mem_trackers();
@@ -79,8 +77,6 @@ TEST(TEST_VEXPR, ABSTEST2) {
 
     doris::vectorized::VExprContext* context = nullptr;
     doris::vectorized::VExpr::create_expr_tree(&object_pool, exprx, &context);
-
-    int32_t k1 = -100;
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
