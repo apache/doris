@@ -1075,6 +1075,12 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().reset();
         Queriable queryStmt = (Queriable) parsedStmt;
 
+        if (queryStmt.isExplain()) {
+            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
+            handleExplainStmt(explainString);
+            return;
+        }
+
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
                 DebugUtil.printId(context.queryId()),
                 context.getStartTime(), -1, -1,
@@ -1083,12 +1089,6 @@ public class StmtExecutor implements ProfileWriter {
                 originStmt.originStmt);
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
-
-        if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
-            handleExplainStmt(explainString);
-            return;
-        }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()) {
