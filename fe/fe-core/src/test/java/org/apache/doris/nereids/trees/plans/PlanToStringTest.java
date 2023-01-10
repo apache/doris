@@ -101,6 +101,6 @@ public class PlanToStringTest {
                 new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true));
 
         LogicalSort<Plan> plan = new LogicalSort<>(orderKeyList, child);
-        Assertions.assertTrue(plan.toString().matches("LogicalSort \\( orderKeys=\\[col1#\\d+, col2#\\d+] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalSort \\( orderKeys=\\[col1#\\d+ asc null first, col2#\\d+ asc null first] \\)"));
     }
 }

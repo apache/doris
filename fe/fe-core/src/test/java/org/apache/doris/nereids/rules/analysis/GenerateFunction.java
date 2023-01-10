@@ -71,6 +71,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.commons.text.CaseUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -95,7 +96,7 @@ import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-public class GenerateScalarFunction {
+public class GenerateFunction {
 
     static final Set<String> unaryArithmeticOperators = Arrays.stream(ArithmeticExpr.Operator.values())
             .filter(ArithmeticExpr.Operator::isUnary)
@@ -177,6 +178,15 @@ public class GenerateScalarFunction {
             .put("curdate", "current_date")
             .put("ucase", "upper")
             .put("lcase", "lower")
+            .put("hll_raw_agg", "hll_union")
+            .put("approx_count_distinct", "ndv")
+            .put("any", "any_value")
+            .put("char_length", "character_length")
+            .put("stddev_pop", "stddev")
+            .put("var_pop", "variance")
+            .put("variance_pop", "variance")
+            .put("var_samp", "variance_samp")
+            .put("hist", "histogram")
             .build();
 
     static final Map<String, String> formatClassName = ImmutableMap.<String, String>builder()
@@ -199,6 +209,12 @@ public class GenerateScalarFunction {
             .put("esquery", "EsQuery")
             .put("nullif", "NullIf")
             .put("to_datev2", "ToDateV2")
+            .put("topn", "TopN")
+            .put("topn_array", "TopNArray")
+            .put("topn_weighted", "TopNWeighted")
+            .put("countequal", "CountEqual")
+            .put("%element_extract%", "ElementExtract")
+            .put("%element_slice%", "ElementSlice")
             .build();
 
     static final Set<String> customNullableFunctions = ImmutableSet.of("if", "ifnull", "nvl", "coalesce",
@@ -222,9 +238,19 @@ public class GenerateScalarFunction {
                     .add("min").add("max").add("lead").add("lag")
                     .add("first_value").add("last_value").add("abs")
                     .add("positive").add("negative").build();
+
     private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("sum").add("avg").add("multi_distinct_sum").build();
+
+    private static final Set<String> onlyUsedInAnalyticFunction = ImmutableSet.of(
+            "lag", "lead", "dense_rank", "rank", "row_number", "first_value", "last_value", "first_value_rewrite",
+            "ntile"
+    );
+
+    private static final Set<String> distinctFunctions = ImmutableSet.of(
+            "approx_count_distinct", "multi_distinct_count", "multi_distinct_sum", "sum_distinct"
+    );
 
     static boolean isIdenticalSignature(String functionName) {
         return functionName.startsWith("castto") || identicalSignatureFunctions.contains(functionName);
@@ -246,7 +272,18 @@ public class GenerateScalarFunction {
     @Disabled
     @Developing
     public void generate() throws IOException {
-        Map<String, String> functionCodes = collectFunctionCodes();
+        Class<? extends Function> catalogFunctionType = AggregateFunction.class;
+        Map<String, String> functionCodes = collectFunctionCodes(catalogFunctionType);
+
+        /* functionCodes = functionCodes.entrySet()
+                 .stream()
+                 .filter(kv -> {
+                     String[] functions = ("array,array_avg,array_compact,array_contains,array_difference,array_distinct,array_enumerate,array_except,array_intersect,array_join,array_max,array_min,array_popback,array_position,array_product,array_range,array_remove,array_size,array_slice,array_sort,array_sum,array_union,array_with_constant,arrays_overlap,"
+                              + "bitmap_from_array,bitmap_to_array,cardinality,concat_ws,countequal,element_at,%element_extract%,%element_slice%,if,multi_match_any,multi_search_all_positions,reverse,size,split_by_char,split_by_string").split(",");
+                     return ImmutableSet.copyOf(functions).contains(kv.getKey());
+                 })
+                 .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue)); */
+
         // Pair<className, Pair<functionName, code>>
         List<Pair<String, Pair<String, String>>> codeInfos = functionCodes.entrySet()
                 .stream()
@@ -254,38 +291,43 @@ public class GenerateScalarFunction {
                 .sorted(Comparator.comparing(Pair::key))
                 .collect(Collectors.toList());
 
-        System.out.println(codeInfos.stream().map(kv -> kv.second.first).collect(Collectors.joining("\n")));
+        // System.out.println(codeInfos.stream().map(kv -> kv.second.first).collect(Collectors.joining("\n")));
 
-        generateFunctionsFile(codeInfos);
+        generateFunctionsFile(catalogFunctionType, codeInfos);
 
-        generateScalarFunctionVisitorFile(codeInfos);
+        generateFunctionVisitorFile(catalogFunctionType, codeInfos);
 
-        generateBuiltinScalarFunctionsFile(codeInfos);
+        generateBuiltinFunctionsFile(catalogFunctionType, codeInfos);
     }
 
-    private void generateFunctionsFile(List<Pair<String, Pair<String, String>>> codesInfo) throws IOException {
-        File scalarFunPath = new File(getClass().getResource("/").getFile(),
-                "../generated-sources/org/apache/doris/nereids/trees/expressions/functions/scalar");
-        scalarFunPath.mkdirs();
+    private void generateFunctionsFile(Class catalogFunctionType, List<Pair<String, Pair<String, String>>> codesInfo) throws IOException {
+        File generatedFunPath = new File(getClass().getResource("/").getFile(),
+                "../generated-sources/org/apache/doris/nereids/trees/expressions/functions/" + getPackageType(catalogFunctionType));
+        // File funPath = new File(getClass().getResource("/").getFile(),
+        //         "../../src/main/java/org/apache/doris/nereids/trees/expressions/functions/" + getPackageType(catalogFunctionType));
+        generatedFunPath.mkdirs();
         for (Pair<String, Pair<String, String>> codeInfo : codesInfo) {
             String className = codeInfo.key();
             String code = codeInfo.value().value();
-            File functionFile = new File(scalarFunPath, className + ".java");
-            if (!functionFile.exists()) {
-                functionFile.createNewFile();
-                FileUtils.writeStringToFile(functionFile, code, StandardCharsets.UTF_8);
+            File generatedFunctionFile = new File(generatedFunPath, className + ".java");
+            // File functionFile = new File(funPath, className + ".java");
+            if (!generatedFunctionFile.exists()) {
+                generatedFunctionFile.createNewFile();
+                FileUtils.writeStringToFile(generatedFunctionFile, code, StandardCharsets.UTF_8);
             }
         }
     }
 
-    private void generateBuiltinScalarFunctionsFile(List<Pair<String, Pair<String, String>>> codesInfo) throws IOException {
+    private void generateBuiltinFunctionsFile(
+            Class<? extends Function> catalogFunctionType, List<Pair<String, Pair<String, String>>> codesInfo) throws IOException {
         File catalogPath = new File(getClass().getResource("/").getFile(),
                 "../generated-sources/org/apache/doris/catalog");
         catalogPath.mkdirs();
 
+        String packageType = getPackageType(catalogFunctionType);
         List<String> importFunctions = Lists.newArrayList();
         codesInfo.forEach(kv -> {
-            importFunctions.add("org.apache.doris.nereids.trees.expressions.functions.scalar." + kv.first);
+            importFunctions.add("org.apache.doris.nereids.trees.expressions.functions." + packageType + "." + kv.first);
         });
         importFunctions.sort(this::sortImportPackageByCheckStyle);
 
@@ -305,8 +347,12 @@ public class GenerateScalarFunction {
                     .collect(Collectors.joining(", "));
             Collections.sort(aliasList);
 
-            registerCodes.add("scalar(" + className + ".class, " + alias + ")");
+            registerCodes.add(packageType + "(" + className + ".class, " + alias + ")");
         }
+
+        String builtinFunctionType = getBuiltinFunctionType(catalogFunctionType);
+        String funcType = getFuncType(catalogFunctionType);
+        String normalizedType = getNormalizedType(catalogFunctionType);
 
         String code = "// Licensed to the Apache Software Foundation (ASF) under one\n"
                 + "// or more contributor license agreements.  See the NOTICE file\n"
@@ -334,23 +380,23 @@ public class GenerateScalarFunction {
                 + "import java.util.List;\n"
                 + "\n"
                 + "/**\n"
-                + " * Builtin scalar functions.\n"
+                + " * Builtin " + normalizedType + " functions.\n"
                 + " *\n"
                 + " * Note: Please ensure that this class only has some lists and no procedural code.\n"
                 + " *       It helps to be clear and concise.\n"
                 + " */\n"
-                + "public class BuiltinScalarFunctions implements FunctionHelper {\n"
-                + "    public final List<ScalarFunc> scalarFunctions = ImmutableList.of(\n"
+                + "public class " + builtinFunctionType + " implements FunctionHelper {\n"
+                + "    public final List<" + funcType + "> " + normalizedType + "Functions = ImmutableList.of(\n"
                 + registerCodes.stream().map(r -> "            " + r).collect(Collectors.joining(",\n", "", "\n"))
                 + "    );\n"
                 + "\n"
-                + "    public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();\n"
+                + "    public static final " + builtinFunctionType + " INSTANCE = new " + builtinFunctionType + "();\n"
                 + "\n"
                 + "    // Note: Do not add any code here!\n"
-                + "    private BuiltinScalarFunctions() {}\n"
+                + "    private " + builtinFunctionType + "() {}\n"
                 + "}\n";
 
-        FileUtils.writeStringToFile(new File(catalogPath, "BuiltinScalarFunctions.java"), code, StandardCharsets.UTF_8);
+        FileUtils.writeStringToFile(new File(catalogPath, builtinFunctionType + ".java"), code, StandardCharsets.UTF_8);
     }
 
     private Multimap<String, String> aliasReverseMap() {
@@ -361,15 +407,18 @@ public class GenerateScalarFunction {
         return multimap;
     }
 
-    private void generateScalarFunctionVisitorFile(List<Pair<String, Pair<String, String>>> codesInfo) throws IOException {
+    private void generateFunctionVisitorFile(
+            Class<? extends Function> catalogFunctionType,
+            List<Pair<String, Pair<String, String>>> codesInfo) throws IOException {
 
         File visitorPath = new File(getClass().getResource("/").getFile(),
                 "../generated-sources/org/apache/doris/nereids/trees/expressions/visitor");
         visitorPath.mkdirs();
 
-        List<String> importFunctions = Lists.newArrayList("org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction");
+        List<String> importFunctions = Lists.newArrayList(getNereidsFunctionType(catalogFunctionType).getName());
+        String packageType = getPackageType(catalogFunctionType);
         codesInfo.forEach(kv -> {
-            importFunctions.add("org.apache.doris.nereids.trees.expressions.functions.scalar." + kv.first);
+            importFunctions.add("org.apache.doris.nereids.trees.expressions.functions." + packageType + "." + kv.first);
         });
 
         importFunctions.sort(this::sortImportPackageByCheckStyle);
@@ -399,32 +448,34 @@ public class GenerateScalarFunction {
             code += "import " + importFunction + ";\n";
         }
 
+        String functionTypeName = catalogFunctionType.getSimpleName();
+        String visitorName = functionTypeName + "Visitor";
         code += "\n"
-                + "/** ScalarFunctionVisitor. */\n"
-                + "public interface ScalarFunctionVisitor<R, C> {\n"
+                + "/** " + visitorName + ". */\n"
+                + "public interface " + visitorName + "<R, C> {\n"
                 + "\n"
-                + "    R visitScalarFunction(ScalarFunction scalarFunction, C context);\n"
+                + "    R visit" + functionTypeName + "(" + functionTypeName + " function, C context);\n"
                 + "\n";
 
         for (Pair<String, Pair<String, String>> kv : codesInfo) {
-            code += generateVisitMethod(kv.key()) + "\n";
+            code += generateVisitMethod(kv.key(), catalogFunctionType) + "\n";
         }
         code = code.trim() + "\n}\n";
-        FileUtils.writeStringToFile(new File(visitorPath, "ScalarFunctionVisitor.java"), code, StandardCharsets.UTF_8);
+        FileUtils.writeStringToFile(new File(visitorPath, visitorName + ".java"), code, StandardCharsets.UTF_8);
     }
 
-    private String generateVisitMethod(String className) {
+    private String generateVisitMethod(String className, Class catalogFunctionType) {
         String instanceName = className.substring(0, 1).toLowerCase() + className.substring(1);
 
         if (instanceName.equals("if") || instanceName.length() > 20) {
             instanceName = "function";
         }
         return "    default R visit" + className + "(" + className + " " + instanceName + ", C context) {\n"
-                + "        return visitScalarFunction(" + instanceName + ", context);\n"
+                + "        return visit" + catalogFunctionType.getSimpleName() + "(" + instanceName + ", context);\n"
                 + "    }\n";
     }
 
-    private Map<String, String> collectFunctionCodes() {
+    private Map<String, String> collectFunctionCodes(Class<? extends Function> catalogFunctionType) {
         FunctionSet<Object> functionSet = new FunctionSet<>();
         functionSet.init();
 
@@ -435,20 +486,19 @@ public class GenerateScalarFunction {
                 continue;
             }
             for (Function function : kv.getValue()) {
-                if (function instanceof ScalarFunction) {
-                    // if (function.getArgs().length == 1 && function.getArgs()[0].isDatetimeV2()) {
-                    //     System.out.println(function.getReturnType() + " " + functionName + "(datetimev2)");
-                    // }
-                    ScalarFunction scalarFunction = (ScalarFunction) function;
-                    if (operators.contains(functionName) || functionName.startsWith("castto") || isArrayFunction(function)) {
-                        continue;
-                    }
-                    functionMap.put(functionName, scalarFunction);
+                if (!function.isUserVisible()) {
+                    continue;
                 }
-
-                if (function instanceof AggregateFunction) {
-                    functionMap.put(functionName, function);
+                if (!(catalogFunctionType.isInstance(function))) {
+                    continue;
                 }
+                if (operators.contains(functionName)
+                        || functionName.startsWith("castto")
+                        || (distinctFunctions.contains(functionName))
+                        || onlyUsedInAnalyticFunction.contains(functionName)) {
+                    continue;
+                }
+                functionMap.put(functionName, function);
             }
         }
 
@@ -496,7 +546,7 @@ public class GenerateScalarFunction {
                             }
                         }
                     }
-                    String code = generateFunctions(kv.getKey(), functionsNeedGenerate, functionSet, name2Generator);
+                    String code = generateFunctions(kv.getKey(), functionsNeedGenerate, functionSet, name2Generator, catalogFunctionType);
                     if (code.isEmpty()) {
                         throw new IllegalStateException(
                                 "can not generate code for " + functionsNeedGenerate.get(0).functionName());
@@ -516,15 +566,17 @@ public class GenerateScalarFunction {
     }
 
     private String generateFunctions(String functionName, List<Function> functions,
-            FunctionSet functionSet, Map<String, FunctionCodeGenerator> name2Generator) {
+            FunctionSet functionSet, Map<String, FunctionCodeGenerator> name2Generator, Class catalogFunctionType) {
         checkFunctions(functions);
 
-        Class functionType = getFunctionType(functions.get(0));
+        Class nereidsFunctionType = getFunctionType(functions.get(0));
         String className = getClassName(functionName);
 
         boolean hasVarArg = functions.stream().anyMatch(Function::hasVarArgs);
         if (hasVarArg && !functions.stream().allMatch(Function::hasVarArgs)) {
-            throw new IllegalStateException("can not generate");
+            if (!functionName.equalsIgnoreCase("concat_ws")) {
+                throw new IllegalStateException("can not generate");
+            }
         }
         List<Class> interfaces = getInterfaces(functionName, hasVarArg, functions, functionSet);
 
@@ -543,15 +595,16 @@ public class GenerateScalarFunction {
 
         List<String> signatures = generateSignatures(functions, imports);
 
-        String extendsClass = functionType.getSimpleName();
+        String extendsClass = nereidsFunctionType.getSimpleName();
         if (FunctionCallExpr.TIME_FUNCTIONS_WITH_PRECISION.contains(functionName)) {
             extendsClass = "DateTimeWithPrecision";
             imports.add(DateTimeWithPrecision.class);
         }
+        imports.add(DataType.class);
 
-        String code = generateFunctionHeader(functions, hasVarArg, interfaces, imports, functionType)
+        String code = generateFunctionHeader(functions, hasVarArg, interfaces, imports, catalogFunctionType)
                 + "/**\n"
-                + " * " + functionType.getSimpleName() + " '" + functionName + "'. This class is generated by GenerateFunction.\n"
+                + " * " + nereidsFunctionType.getSimpleName() + " '" + functionName + "'. This class is generated by GenerateFunction.\n"
                 + " */\n";
 
         if (generator.isPresent()) {
@@ -569,7 +622,7 @@ public class GenerateScalarFunction {
             code += generator.get().fields();
         }
 
-        code += generateConstructors(className, functions);
+        code += generateConstructors(className, functions, catalogFunctionType);
 
         if (generator.isPresent()) {
             code += generator.get().computeSignature();
@@ -585,7 +638,13 @@ public class GenerateScalarFunction {
             code += generator.get().methods();
         }
 
-        code += generateWithChildren(className, hasVarArg, functions);
+        if (AggregateFunction.class.isAssignableFrom(catalogFunctionType)) {
+            code += generateWithDistinctAndChildren(className, hasVarArg, functions, catalogFunctionType);
+        } else {
+            code += generateWithChildren(className, hasVarArg, functions, catalogFunctionType);
+        }
+
+        code += generateAccept(className);
 
         if (!signatures.isEmpty()) {
             code += "    @Override\n"
@@ -594,8 +653,6 @@ public class GenerateScalarFunction {
                     + "    }\n"
                     + "\n";
         }
-
-        code += generateAccept(className);
 
         return code.trim() + "\n}\n";
     }
@@ -610,18 +667,36 @@ public class GenerateScalarFunction {
         }
     }
 
+    private void addNestedType(DataType dataType, Set<Class> imports) {
+        imports.add(dataType.getClass());
+        if (dataType instanceof org.apache.doris.nereids.types.ArrayType) {
+            addNestedType(((org.apache.doris.nereids.types.ArrayType) dataType).getItemType(), imports);
+        }
+    }
+
     private List<String> generateSignatures(List<Function> functions, Set<Class> imports) {
         List<String> signatures = Lists.newArrayList();
+        // (returnType, args, buildArgs)
+        Set<Triple<String, String, String>> existsFunction = Sets.newLinkedHashSet();
         for (Function function : functions) {
             imports.add(DataType.fromCatalogType(function.getReturnType()).getClass());
             String returnType = getDataTypeAndInstance(function.getReturnType()).second;
             String args = Arrays.stream(function.getArgs())
                     .map(type -> {
-                        imports.add(DataType.fromCatalogType(type).getClass());
+                        DataType dataType = DataType.fromCatalogType(type);
+                        addNestedType(dataType, imports);
                         return getDataTypeAndInstance(type).second;
                     })
                     .collect(Collectors.joining(", "));
+
             String buildArgs = function.hasVarArgs() ? "varArgs" : "args";
+
+            Triple<String, String, String> functionSig = Triple.of(returnType, args, buildArgs);
+            if (existsFunction.contains(functionSig)) {
+                throw new IllegalStateException("Exists the function signature: " + functionSig);
+            }
+            existsFunction.add(functionSig);
+
             String signature = "            FunctionSignature.ret(" + returnType + ")." + buildArgs + "(" + args + ")";
             if (signature.length() <= 119) {
                 signatures.add(signature);
@@ -653,8 +728,8 @@ public class GenerateScalarFunction {
     }
 
     private List<Class> getInterfaces(String functionName, boolean hasVarArgs,
-            List<Function> scalarFunctions, FunctionSet functionSet) {
-        Set<Integer> aritySet = scalarFunctions.stream()
+            List<Function> functions, FunctionSet functionSet) {
+        Set<Integer> aritySet = functions.stream()
                 .map(f -> f.getArgs().length)
                 .collect(Collectors.toSet());
         Class arityExpressionType = getArityExpressionType(hasVarArgs, aritySet);
@@ -668,15 +743,19 @@ public class GenerateScalarFunction {
             interfaces.add(Nondeterministic.class);
         }
 
-        Function scalarFunction = scalarFunctions.get(0);
+        Function function = functions.get(0);
         if (!customNullableFunctions.contains(functionName)) {
-            boolean isPropagateNullable = scalarFunction.getNullableMode() == NullableMode.DEPEND_ON_ARGUMENT;
+            boolean isPropagateNullable = function.getNullableMode() == NullableMode.DEPEND_ON_ARGUMENT;
             if (isPropagateNullable && !functionName.equals("substring")) {
                 interfaces.add(PropagateNullable.class);
-            } else if (scalarFunction.getNullableMode() == NullableMode.ALWAYS_NULLABLE || functionName.equals("substring")) {
+            } else if (function.getNullableMode() == NullableMode.ALWAYS_NULLABLE || functionName.equals("substring")) {
                 interfaces.add(AlwaysNullable.class);
-            } else if (scalarFunction.getNullableMode() == NullableMode.ALWAYS_NOT_NULLABLE) {
+            } else if (function.getNullableMode() == NullableMode.ALWAYS_NOT_NULLABLE) {
                 interfaces.add(AlwaysNotNullable.class);
+            } else if (function.getNullableMode() == NullableMode.DEPEND_ON_ARGUMENT) {
+                interfaces.add(PropagateNullable.class);
+            } else {
+                throw new IllegalStateException("Unsupported nullable mode: " + function.getNullableMode());
             }
         }
 
@@ -702,12 +781,13 @@ public class GenerateScalarFunction {
         }
     }
 
-    private String generateWithChildren(String className, boolean hasVarArg, List<Function> scalarFunctions) {
-        Optional<Integer> minVarArity = scalarFunctions.stream()
+    private String generateWithChildren(String className, boolean hasVarArg,
+            List<Function> functions, Class catalogFunctionType) {
+        Optional<Integer> minVarArity = functions.stream()
                 .filter(Function::hasVarArgs)
                 .map(f -> f.getArgs().length)
                 .min(Ordering.natural());
-        Set<Integer> sortedAritySet = Sets.newTreeSet(scalarFunctions.stream()
+        Set<Integer> sortedAritySet = Sets.newTreeSet(functions.stream()
                 .map(f -> f.getArgs().length)
                 .collect(Collectors.toSet())
         );
@@ -754,25 +834,25 @@ public class GenerateScalarFunction {
 
                 String conditionPrefix = isFirstIf ? "        if" : "        else if";
                 code += conditionPrefix + " (children.size() == " + arity + ") {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(arity, false) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
                         + "        }";
                 isFirstIf = false;
             }
 
             // invoke new Function with variable-length arguments
             if (isFirstIf) {
-                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true) + ");\n";
+                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n";
             } else {
                 code += "        else {\n"
-                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true) + ");\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n"
                         + "        }";
             }
         } else {
             if (maxArity == 0) {
-                // LeafExpression has default withChildren method
+                // LeafPlan has default withChildren method
                 return "";
             } else if (sortedAritySet.size() == 1) {
-                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false);
+                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, catalogFunctionType);
                 code += "        return new " + className + "(" + withChildrenParams + ");\n";
             } else {
                 Iterator<Integer> arityIt = sortedAritySet.iterator();
@@ -783,7 +863,7 @@ public class GenerateScalarFunction {
                             + "        }";
                 } else {
                     code += "        if (children.size() == " + firstArity + ") {\n"
-                            + "            return new " + className + "(" + getWithChildrenParams(firstArity, false) + ");\n"
+                            + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, catalogFunctionType) + ");\n"
                             + "        }";
                 }
 
@@ -792,11 +872,11 @@ public class GenerateScalarFunction {
 
                     if (arityIt.hasNext()) {
                         code += " else if (children.size() == " + arity + ") {\n"
-                                + "            return new " + className + "(" + getWithChildrenParams(arity, false) + ");\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
                                 + "        }";
                     } else {
                         code += " else {\n"
-                                + "            return new " + className + "(" + getWithChildrenParams(arity, false) + ");\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
                                 + "        }\n";
                     }
                 }
@@ -806,31 +886,129 @@ public class GenerateScalarFunction {
         return code;
     }
 
-    private String generateConstructors(String className, List<Function> scalarFunctions) {
+    private String generateWithDistinctAndChildren(String className, boolean hasVarArg,
+            List<Function> functions, Class catalogFunctionType) {
+        Optional<Integer> minVarArity = functions.stream()
+                .filter(Function::hasVarArgs)
+                .map(f -> f.getArgs().length)
+                .min(Ordering.natural());
+        Set<Integer> sortedAritySet = Sets.newTreeSet(functions.stream()
+                .map(f -> f.getArgs().length)
+                .collect(Collectors.toSet())
+        );
+        String code = "    /**\n"
+                + "     * withDistinctAndChildren.\n"
+                + "     */\n"
+                + "    @Override\n"
+                + "    public " + className + " withDistinctAndChildren(boolean distinct, List<Expression> children) {\n";
+        List<String> argumentNumChecks = Lists.newArrayList();
+        if (hasVarArg) {
+            argumentNumChecks.add("children.size() >= " + minVarArity.get());
+        }
+        argumentNumChecks.addAll(sortedAritySet.stream()
+                .filter(arity -> !hasVarArg || arity < minVarArity.get())
+                .map(arity -> "children.size() == " + arity)
+                .collect(Collectors.toList()));
+
+        String argumentNumCheck = argumentNumChecks.stream()
+                .collect(Collectors.joining("\n                || "));
+        code += "        Preconditions.checkArgument(" + argumentNumCheck + ");\n";
+
+        if (hasVarArg) {
+            Iterator<Integer> arityIt = sortedAritySet.iterator();
+            Integer arity;
+
+            boolean isFirstIf = true;
+            // invoke new Function with fixed-length arguments
+            while (arityIt.hasNext()) {
+                arity = arityIt.next();
+                if (arity >= minVarArity.get()) {
+                    break;
+                }
+
+                String conditionPrefix = isFirstIf ? "        if" : "        else if";
+                code += conditionPrefix + " (children.size() == " + arity + ") {\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                        + "        }";
+                isFirstIf = false;
+            }
+
+            // invoke new Function with variable-length arguments
+            if (isFirstIf) {
+                code += "        return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n";
+            } else {
+                code += "        else {\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(minVarArity.get(), true, catalogFunctionType) + ");\n"
+                        + "        }";
+            }
+        } else {
+            if (sortedAritySet.size() == 1) {
+                String withChildrenParams = getWithChildrenParams(sortedAritySet.iterator().next(), false, catalogFunctionType);
+                code += "        return new " + className + "(" + withChildrenParams + ");\n";
+            } else {
+                Iterator<Integer> arityIt = sortedAritySet.iterator();
+                Integer firstArity = arityIt.next();
+                code += "        if (children.size() == " + firstArity + ") {\n"
+                        + "            return new " + className + "(" + getWithChildrenParams(firstArity, false, catalogFunctionType) + ");\n"
+                        + "        }";
+
+                while (arityIt.hasNext()) {
+                    Integer arity = arityIt.next();
+
+                    if (arityIt.hasNext()) {
+                        code += " else if (children.size() == " + arity + ") {\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                                + "        }";
+                    } else {
+                        code += " else {\n"
+                                + "            return new " + className + "(" + getWithChildrenParams(arity, false, catalogFunctionType) + ");\n"
+                                + "        }\n";
+                    }
+                }
+            }
+        }
+        code += "    }\n\n";
+        return code;
+    }
+
+    private String generateConstructors(String className, List<Function> functions, Class catalogFunctionType) {
         Set<Integer> generatedConstructorArity = Sets.newTreeSet();
 
         String code = "";
-        for (Function scalarFunction : scalarFunctions) {
-            int arity = scalarFunction.getArgs().length;
+        for (Function function : functions) {
+            int arity = function.getArgs().length;
             if (generatedConstructorArity.contains(arity)) {
                 continue;
             }
             generatedConstructorArity.add(arity);
-            boolean isVarArg = scalarFunction.hasVarArgs();
-            String constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg);
-            String constructorParams = getConstructorParams(arity, isVarArg);
-            String functionName = scalarFunction.getFunctionName().getFunction();
+            boolean isVarArg = function.hasVarArgs();
+            boolean isAgg = catalogFunctionType.equals(AggregateFunction.class);
 
-            code += "    /**\n"
-                    + "     * constructor with " + arity + (isVarArg ? " or more" : "") + " argument" + (arity > 1 || isVarArg ? "s.\n" : ".\n")
-                    + "     */\n"
-                    + "    public " + className + "(" + constructorDeclareParams + ") {\n"
-                    + "        super(\"" + functionName + "\"" + (constructorParams.isEmpty() ? "" : ", " + constructorParams) + ");\n"
-                    + "    }\n"
-                    + "\n";
+            String constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, false);
+            String constructorParams = getConstructorParams(arity, isVarArg, false);
+            String functionName = function.getFunctionName().getFunction();
+
+            code += generateConstructor(arity, isVarArg, className, functionName, constructorDeclareParams, constructorParams);
+
+            if (isAgg) {
+                constructorDeclareParams = getConstructorDeclareParams(arity, isVarArg, true);
+                constructorParams = getConstructorParams(arity, isVarArg, true);
+                code += generateConstructor(arity, isVarArg, className, functionName, constructorDeclareParams, constructorParams);
+            }
         }
 
         return code;
+    }
+
+    private String generateConstructor(int arity, boolean isVarArg, String className, String functionName,
+            String constructorDeclareParams, String constructorParams) {
+        return "    /**\n"
+                + "     * constructor with " + arity + (isVarArg ? " or more" : "") + " argument" + (arity > 1 || isVarArg ? "s.\n" : ".\n")
+                + "     */\n"
+                + "    public " + className + "(" + constructorDeclareParams + ") {\n"
+                + "        super(\"" + functionName + "\"" + (constructorParams.isEmpty() ? "" : ", " + constructorParams) + ");\n"
+                + "    }\n"
+                + "\n";
     }
 
     private void checkFunctions(List<Function> functions) {
@@ -884,7 +1062,7 @@ public class GenerateScalarFunction {
                 if (Modifier.isPublic(field.getModifiers()) && Modifier.isStatic(field.getModifiers())
                         && Modifier.isFinal(field.getModifiers())) {
                     Object instance = field.get(null);
-                    if (instance == dataType) {
+                    if (instance == dataType || instance.equals(dataType)) {
                         return field.getName();
                     }
                 }
@@ -932,8 +1110,11 @@ public class GenerateScalarFunction {
         return null;
     }
 
-    private String getConstructorDeclareParams(int arity, boolean isVarArg) {
+    private String getConstructorDeclareParams(int arity, boolean isVarArg, boolean addDistinct) {
         List<String> params = Lists.newArrayList();
+        if (addDistinct) {
+            params.add("boolean distinct");
+        }
         for (int i = 0; i < arity; i++) {
             if (arity > 1) {
                 params.add("Expression arg" + i);
@@ -947,7 +1128,7 @@ public class GenerateScalarFunction {
         return StringUtils.join(params, ", ");
     }
 
-    private String getConstructorParams(int arity, boolean isVarArg) {
+    private String getConstructorParams(int arity, boolean isVarArg, boolean addDistinct) {
         List<String> params = Lists.newArrayList();
         for (int i = 0; i < arity; i++) {
             if (arity > 1) {
@@ -958,14 +1139,29 @@ public class GenerateScalarFunction {
         }
         if (isVarArg) {
             params.add("varArgs");
-            return "ExpressionUtils.mergeArguments(" + StringUtils.join(params, ", ") + ")";
+            if (addDistinct) {
+                return "distinct,\n"
+                        + "                ExpressionUtils.mergeArguments(" + StringUtils.join(params, ", ") + ")";
+            } else {
+                return "ExpressionUtils.mergeArguments(" + StringUtils.join(params, ", ") + ")";
+            }
         } else {
-            return StringUtils.join(params, ", ");
+            if (addDistinct) {
+                if (params.isEmpty()) {
+                    return "distinct";
+                }
+                return "distinct, " + StringUtils.join(params, ", ");
+            } else {
+                return StringUtils.join(params, ", ");
+            }
         }
     }
 
-    private String getWithChildrenParams(int arity, boolean isVarArg) {
+    private String getWithChildrenParams(int arity, boolean isVarArg, Class catalogFunctionType) {
         List<String> params = Lists.newArrayList();
+        if (catalogFunctionType.equals(AggregateFunction.class)) {
+            params.add("distinct");
+        }
         for (int i = 0; i < arity; i++) {
             params.add("children.get(" + i + ")");
         }
@@ -977,8 +1173,8 @@ public class GenerateScalarFunction {
         }
     }
 
-    private String generateFunctionHeader(List<Function> scalarFunctions,
-            boolean hasVarArgs, List<Class> interfaces, Set<Class> imports, Class functionType) {
+    private String generateFunctionHeader(List<Function> functions,
+            boolean hasVarArgs, List<Class> interfaces, Set<Class> imports, Class catalogFunctionType) {
         List<Class> importDorisClasses = Lists.newArrayList(
                 interfaces.stream()
                         .filter(i -> i.getPackage().getName().startsWith("org.apache.doris"))
@@ -1002,7 +1198,7 @@ public class GenerateScalarFunction {
                 .collect(Collectors.toList()));
 
         importDorisClasses.add(Expression.class);
-        if (!scalarFunctions.isEmpty()) {
+        if (!functions.isEmpty()) {
             importDorisClasses.add(FunctionSignature.class);
             importThirdPartyClasses.add(ImmutableList.class);
         }
@@ -1013,6 +1209,8 @@ public class GenerateScalarFunction {
         if (!interfaces.contains(LeafExpression.class)) {
             importThirdPartyClasses.add(Preconditions.class);
         }
+
+        String packageType = getPackageType(catalogFunctionType);
 
         String code = "// Licensed to the Apache Software Foundation (ASF) under one\n"
                 + "// or more contributor license agreements.  See the NOTICE file\n"
@@ -1031,7 +1229,7 @@ public class GenerateScalarFunction {
                 + "// specific language governing permissions and limitations\n"
                 + "// under the License.\n"
                 + "\n"
-                + "package org.apache.doris.nereids.trees.expressions.functions.scalar;\n"
+                + "package org.apache.doris.nereids.trees.expressions.functions." + packageType + ";\n"
                 + "\n";
 
         if (!importDorisClasses.isEmpty()) {
@@ -1054,7 +1252,7 @@ public class GenerateScalarFunction {
                 .filter(i -> i.getPackage().getName().startsWith("java."))
                 .collect(Collectors.toList()));
 
-        if (!scalarFunctions.isEmpty() || !interfaces.contains(LeafExpression.class)) {
+        if (!functions.isEmpty() || !interfaces.contains(LeafExpression.class)) {
             importJdkClasses.add(List.class);
         }
         if (!importJdkClasses.isEmpty()) {
@@ -1064,6 +1262,56 @@ public class GenerateScalarFunction {
                     .collect(Collectors.joining("")) + "\n";
         }
         return code;
+    }
+
+    private String getPackageType(Class catalogFunctionType) {
+        if (ScalarFunction.class.equals(catalogFunctionType)) {
+            return "scalar";
+        } else if (AggregateFunction.class.equals(catalogFunctionType)) {
+            return "agg";
+        } else {
+            throw new IllegalStateException("Unsupported class: " + catalogFunctionType);
+        }
+    }
+
+    private String getNormalizedType(Class catalogFunctionType) {
+        if (ScalarFunction.class.equals(catalogFunctionType)) {
+            return "scalar";
+        } else if (AggregateFunction.class.equals(catalogFunctionType)) {
+            return "aggregate";
+        } else {
+            throw new IllegalStateException("Unsupported class: " + catalogFunctionType);
+        }
+    }
+
+    private String getBuiltinFunctionType(Class catalogFunctionType) {
+        if (ScalarFunction.class.equals(catalogFunctionType)) {
+            return "BuiltinScalarFunctions";
+        } else if (AggregateFunction.class.equals(catalogFunctionType)) {
+            return "BuiltinAggregateFunctions";
+        } else {
+            throw new IllegalStateException("Unsupported class: " + catalogFunctionType);
+        }
+    }
+
+    private String getFuncType(Class catalogFunctionType) {
+        if (ScalarFunction.class.equals(catalogFunctionType)) {
+            return "ScalarFunc";
+        } else if (AggregateFunction.class.equals(catalogFunctionType)) {
+            return "AggregateFunc";
+        } else {
+            throw new IllegalStateException("Unsupported class: " + catalogFunctionType);
+        }
+    }
+
+    private Class getNereidsFunctionType(Class catalogFunctionType) {
+        if (ScalarFunction.class.equals(catalogFunctionType)) {
+            return org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction.class;
+        } else if (AggregateFunction.class.equals(catalogFunctionType)) {
+            return org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
+        } else {
+            throw new IllegalStateException("Unsupported class: " + catalogFunctionType);
+        }
     }
 
     private int sortImportPackageByCheckStyle(String c1, String c2) {
@@ -1147,10 +1395,9 @@ public class GenerateScalarFunction {
         @Override
         public String fields() {
             return "    private final Supplier<DataType> widerType = Suppliers.memoize(() -> {\n"
-                    + "        List<DataType> argumentsTypes = getSignature().argumentsTypes;\n"
                     + "        Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(\n"
-                    + "                argumentsTypes.get(1).toCatalogDataType(),\n"
-                    + "                argumentsTypes.get(2).toCatalogDataType(),\n"
+                    + "                getArgumentType(1).toCatalogDataType(),\n"
+                    + "                getArgumentType(2).toCatalogDataType(),\n"
                     + "                true);\n"
                     + "        return DataType.fromCatalogType(assignmentCompatibleType);\n"
                     + "    });\n"
@@ -1160,9 +1407,14 @@ public class GenerateScalarFunction {
         @Override
         public String computeSignature() {
             return "    @Override\n"
-                    + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
+                    + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        DataType widerType = this.widerType.get();\n"
-                    + "        signature = signature.withArgumentTypes(children(), (sigType, argType) -> widerType)\n"
+                    + "        List<AbstractDataType> newArgumentsTypes = new ImmutableList.Builder<AbstractDataType>()\n"
+                    + "                .add(signature.argumentsTypes.get(0))\n"
+                    + "                .add(widerType)\n"
+                    + "                .add(widerType)\n"
+                    + "                .build();\n"
+                    + "        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes)\n"
                     + "                .withReturnType(widerType);\n"
                     + "        return super.computeSignature(signature);\n"
                     + "    }\n"
@@ -1305,7 +1557,7 @@ public class GenerateScalarFunction {
         @Override
         public String computeSignature() {
             return "    @Override\n"
-                    + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
+                    + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        /*\n"
                     + "         * The return type of str_to_date depends on whether the time part is included in the format.\n"
                     + "         * If included, it is datetime, otherwise it is date.\n"
@@ -1379,7 +1631,7 @@ public class GenerateScalarFunction {
         @Override
         public String computeSignature() {
             return "    @Override\n"
-                    + "    protected FunctionSignature computeSignature(FunctionSignature signature) {\n"
+                    + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        Optional<Expression> length = getLength();\n"
                     + "        DataType returnType = VarcharType.SYSTEM_DEFAULT;\n"
                     + "        if (length.isPresent() && length.get() instanceof IntegerLiteral) {\n"

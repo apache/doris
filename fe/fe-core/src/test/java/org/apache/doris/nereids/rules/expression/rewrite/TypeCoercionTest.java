@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -103,14 +104,14 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
     @Test
     public void testSumImplicitCast() {
         Assertions.assertThrows(AnalysisException.class, () -> {
-            new Sum(new StringLiteral("1")).getDataType();
+            checkAndGetDataType(new Sum(new StringLiteral("1")));
         });
     }
 
     @Test
     public void testAvgImplicitCast() {
         Assertions.assertThrows(AnalysisException.class, () -> {
-            new Avg(new StringLiteral("1")).getDataType();
+            checkAndGetDataType(new Avg(new StringLiteral("1")));
         });
     }
 
@@ -185,5 +186,10 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         Expression expected = new Divide(new Cast(Literal.of((short) 1), DoubleType.INSTANCE),
                 new Cast(Literal.of(10L), DoubleType.INSTANCE));
         assertRewrite(actual, expected);
+    }
+
+    private DataType checkAndGetDataType(Expression expression) {
+        expression.checkLegalityBeforeTypeCoercion();
+        return expression.getDataType();
     }
 }
