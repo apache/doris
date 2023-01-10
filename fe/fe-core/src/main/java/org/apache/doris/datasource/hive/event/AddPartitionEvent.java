@@ -71,7 +71,7 @@ public class AddPartitionEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            debugLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNames:[{}]", catalogName, dbName, tblName,
+            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNames:[{}]", catalogName, dbName, tblName,
                     partitionNames.toString());
             // bail out early if there are not partitions to process
             if (partitionNames.isEmpty()) {

@@ -43,6 +43,6 @@ public class AlterDatabaseEvent extends MetastoreEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         // only can change properties,we do nothing
-        debugLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+        infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
     }
 }

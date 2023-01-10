@@ -73,7 +73,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         boolean hasExist = Env.getCurrentEnv().getCatalogMgr()
-                .externalTableExist(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
+                .externalTableExistInLocal(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
         if (hasExist) {
             infoLog("AlterExternalTable canceled,because tableAfter has exist, "
                             + "catalogName:[{}],dbName:[{}],tableName:[{}]",
@@ -94,7 +94,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            debugLog("catalogName:[{}],dbName:[{}],tableBefore:[{}],tableAfter:[{}]", catalogName, dbName,
+            infoLog("catalogName:[{}],dbName:[{}],tableBefore:[{}],tableAfter:[{}]", catalogName, dbName,
                     tableBefore.getTableName(), tableAfter.getTableName());
             if (isRename) {
                 processRename();

@@ -95,6 +95,17 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
     /**
+     * check if the specified table exist in doris.
+     *
+     * @param dbName
+     * @param tblName
+     * @return true if table exists, false otherwise
+     */
+    public boolean tableExistInLocal(String dbName, String tblName) {
+        throw new NotImplementedException();
+    }
+
+    /**
      * Catalog can't be init when creating because the external catalog may depend on third system.
      * So you have to make sure the client of third system is initialized before any method was called.
      */

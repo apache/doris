@@ -38,6 +38,6 @@ public class IgnoredEvent extends MetastoreEvent {
 
     @Override
     public void process() {
-        debugLog("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
+        infoLog("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
     }
 }

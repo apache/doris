@@ -163,6 +163,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return client.tableExists(getRealTableName(dbName), tblName);
     }
 
+    @Override
+    public boolean tableExistInLocal(String dbName, String tblName) {
+        makeSureInitialized();
+        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (hmsExternalDatabase == null) {
+            return false;
+        }
+        return hmsExternalDatabase.getTable(getRealTableName(tblName)).isPresent();
+    }
+
     public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;

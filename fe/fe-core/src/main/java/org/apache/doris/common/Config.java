@@ -1952,6 +1952,6 @@ public class Config extends ConfigBase {
      * HMS polling interval in milliseconds.
      */
     @ConfField(masterOnly = true)
-    public static int hms_events_polling_interval_ms = 20000;
+    public static int hms_events_polling_interval_ms = 10000;
 }
 

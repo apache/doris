@@ -46,7 +46,7 @@ public class CreateDatabaseEvent extends MetastoreEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            debugLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+            infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
                     .createExternalDatabase(dbName, catalogName);
         } catch (DdlException e) {

@@ -57,9 +57,9 @@ public class CreateTableEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            debugLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
+            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
             boolean hasExist = Env.getCurrentEnv().getCatalogMgr()
-                    .externalTableExist(dbName, hmsTbl.getTableName(), catalogName);
+                    .externalTableExistInLocal(dbName, hmsTbl.getTableName(), catalogName);
             if (hasExist) {
                 infoLog(
                         "CreateExternalTable canceled,because table has exist,"

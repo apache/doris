@@ -38,7 +38,11 @@ import java.util.stream.Collectors;
 public class AlterPartitionEvent extends MetastoreTableEvent {
     private final Table hmsTbl;
     private final org.apache.hadoop.hive.metastore.api.Partition partitionAfter;
-    private final String partitionName;
+    private final org.apache.hadoop.hive.metastore.api.Partition partitionBefore;
+    private final String partitionNameBefore;
+    private final String partitionNameAfter;
+    // true if this alter event was due to a rename operation
+    private final boolean isRename;
 
     private AlterPartitionEvent(NotificationEvent event,
             String catalogName) {
@@ -51,10 +55,13 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
                     MetastoreEventsProcessor.getMessageDeserializer()
                             .getAlterPartitionMessage(event.getMessage());
             hmsTbl = Preconditions.checkNotNull(alterPartitionMessage.getTableObj());
+            partitionBefore = Preconditions.checkNotNull(alterPartitionMessage.getPtnObjBefore());
             partitionAfter = Preconditions.checkNotNull(alterPartitionMessage.getPtnObjAfter());
             List<String> partitionColNames = hmsTbl.getPartitionKeys().stream()
                     .map(FieldSchema::getName).collect(Collectors.toList());
-            partitionName = FileUtils.makePartName(partitionColNames, partitionAfter.getValues());
+            partitionNameBefore = FileUtils.makePartName(partitionColNames, partitionBefore.getValues());
+            partitionNameAfter = FileUtils.makePartName(partitionColNames, partitionAfter.getValues());
+            isRename = !partitionNameBefore.equalsIgnoreCase(partitionNameAfter);
         } catch (Exception ex) {
             throw new MetastoreNotificationException(ex);
         }
@@ -68,11 +75,18 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            debugLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionName:[{}]", catalogName, dbName, tblName,
-                    partitionName);
-            Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
-                            Lists.newArrayList(partitionName));
+            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNameBefore:[{}],partitionNameAfter:[{}]",
+                    catalogName, dbName, tblName, partitionNameBefore, partitionNameAfter);
+            if (isRename) {
+                Env.getCurrentEnv().getCatalogMgr()
+                        .dropExternalPartitions(catalogName, dbName, tblName, Lists.newArrayList(partitionNameBefore));
+                Env.getCurrentEnv().getCatalogMgr()
+                        .addExternalPartitions(catalogName, dbName, tblName, Lists.newArrayList(partitionNameAfter));
+            } else {
+                Env.getCurrentEnv().getCatalogMgr()
+                        .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                                Lists.newArrayList(partitionNameAfter));
+            }
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"));

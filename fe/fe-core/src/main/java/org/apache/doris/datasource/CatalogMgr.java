@@ -623,7 +623,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
 
-    public boolean externalTableExist(String dbName, String tableName, String catalogName) throws DdlException {
+    public boolean externalTableExistInLocal(String dbName, String tableName, String catalogName) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -631,7 +631,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog Tables");
         }
-        return ((ExternalCatalog) catalog).tableExist(null, dbName, tableName);
+        return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
     public void createExternalTable(String dbName, String tableName, String catalogName) throws DdlException {
