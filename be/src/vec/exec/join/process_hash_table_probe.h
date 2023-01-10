@@ -19,6 +19,7 @@
 
 #include <vector>
 
+#include "join_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
