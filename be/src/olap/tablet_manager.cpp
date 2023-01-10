@@ -1281,8 +1281,14 @@ struct SortCtx {
     SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
     TabletSharedPtr tablet;
-    int64_t cooldown_timestamp;
+    uint64_t cooldown_timestamp;
     int64_t file_size;
+    bool operator<(const SortCtx other) const {
+        if (this->cooldown_timestamp == other.cooldown_timestamp) {
+            return this->file_size > other.file_size;
+        }
+        return this->cooldown_timestamp < other.cooldown_timestamp;
+    }
 };
 
 void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) {
@@ -1299,21 +1305,7 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) 
         }
     }
 
-    std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end(), [](SortCtx a, SortCtx b) {
-        if (a.cooldown_timestamp != -1 && b.cooldown_timestamp != -1) {
-            return a.cooldown_timestamp < b.cooldown_timestamp;
-        }
-
-        if (a.cooldown_timestamp != -1 && b.cooldown_timestamp == -1) {
-            return true;
-        }
-
-        if (a.cooldown_timestamp == -1 && b.cooldown_timestamp != -1) {
-            return false;
-        }
-
-        return a.file_size > b.file_size;
-    });
+    std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end());
 
     for (SortCtx& ctx : sort_ctx_vec) {
         VLOG_DEBUG << "get cooldown tablet: " << ctx.tablet->tablet_id();

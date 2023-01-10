@@ -699,8 +699,10 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         // TODO(luwei) : a more efficient way to get cooldown tablets
         _tablet_manager->get_cooldown_tablets(&tablets);
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
+        int max_priority = tablets.size();
         for (const auto& tablet : tablets) {
-            Status st = _cooldown_thread_pool->submit_func([tablet, tablets, this]() {
+            PriorityThreadPool::Task task;
+            task.work_function = [tablet, tablets, this]() {
                 {
                     // Cooldown tasks on the same tablet cannot be executed concurrently
                     std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
@@ -709,21 +711,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                         return;
                     }
 
-                    // the number of concurrent cooldown tasks in each directory
-                    // cannot exceed the configured value
-                    auto dir_it = _running_cooldown_tasks_cnt.find(tablet->data_dir());
-                    if (dir_it != _running_cooldown_tasks_cnt.end() &&
-                        dir_it->second >= config::concurrency_per_dir) {
-                        return;
-                    }
-
                     _running_cooldown_tablets.insert(tablet->tablet_id());
-                    dir_it = _running_cooldown_tasks_cnt.find(tablet->data_dir());
-                    if (dir_it != _running_cooldown_tasks_cnt.end()) {
-                        _running_cooldown_tasks_cnt[tablet->data_dir()]++;
-                    } else {
-                        _running_cooldown_tasks_cnt[tablet->data_dir()] = 1;
-                    }
                 }
 
                 Status st = tablet->cooldown();
@@ -739,13 +727,14 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
 
                 {
                     std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-                    _running_cooldown_tasks_cnt[tablet->data_dir()]--;
                     _running_cooldown_tablets.erase(tablet->tablet_id());
                 }
-            });
+            };
+            task.priority = max_priority--;
+            bool submited = _cooldown_thread_pool->offer(task);
 
-            if (!st.ok()) {
-                LOG(INFO) << "failed to submit cooldown task, err msg: " << st;
+            if (submited) {
+                LOG(INFO) << "failed to submit cooldown task";
             }
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));

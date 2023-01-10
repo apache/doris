@@ -1846,22 +1846,17 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
     }
 
     int64_t oldest_cooldown_time = std::numeric_limits<int64_t>::max();
-    if (cooldown_ttl_sec >= 0) {
-        oldest_cooldown_time = rowset->oldest_write_timestamp() + cooldown_ttl_sec;
-    }
-    if (cooldown_datetime > 0) {
-        oldest_cooldown_time = std::min(oldest_cooldown_time, cooldown_datetime);
-    }
-
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
     if (cooldown_ttl_sec >= 0) {
+        oldest_cooldown_time = rowset->oldest_write_timestamp() + cooldown_ttl_sec;
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
     }
     if (cooldown_datetime > 0) {
+        oldest_cooldown_time = std::min(oldest_cooldown_time, cooldown_datetime);
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
-    if (oldest_cooldown_time + config::cooldown_lag_time_sec < UnixSeconds()) {
+    if (oldest_cooldown_time < UnixSeconds()) {
         *cooldown_timestamp = oldest_cooldown_time;
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " cooldown_timestamp: " << *cooldown_timestamp;
