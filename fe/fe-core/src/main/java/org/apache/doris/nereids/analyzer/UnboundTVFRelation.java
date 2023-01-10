@@ -61,7 +61,6 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
         return properties;
     }
 
-    @Override
     public RelationId getId() {
         return id;
     }

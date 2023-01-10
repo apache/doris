@@ -62,7 +62,6 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
         this.projects = ImmutableList.copyOf(projects);
     }
 
-    @Override
     public RelationId getId() {
         return id;
     }
