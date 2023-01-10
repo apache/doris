@@ -192,34 +192,19 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
     case TPrimitiveType::DECIMAL128I: {
-        std::stringstream stream;
-        stream << "decimalv3(";
-        if (desc.__isset.columnPrecision) {
-            stream << desc.columnPrecision;
-        } else {
-            stream << "UNKNOWN";
-        }
-        stream << ",";
-        if (desc.__isset.columnScale) {
-            stream << desc.columnScale;
-        } else {
-            stream << "UNKNOWN";
-        }
-        stream << ")";
-        return stream.str();
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "decimalv3({}, {})",
+                       desc.__isset.columnPrecision ? desc.columnPrecision : "UNKNOWN",
+                       desc.__isset.columnScale ? desc.columnScale : "UNKNOWN");
+        return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::DATEV2:
         return "datev2";
     case TPrimitiveType::DATETIMEV2: {
-        std::stringstream stream;
-        stream << "datetimev2(";
-        if (desc.__isset.columnScale) {
-            stream << desc.columnScale;
-        } else {
-            stream << "UNKNOWN";
-        }
-        stream << ")";
-        return stream.str();
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "datetimev2({})",
+                       desc.__isset.columnScale ? desc.columnScale : "UNKNOWN");
+        return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::HLL: {
         return "hll";
