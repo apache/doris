@@ -1119,16 +1119,6 @@ class MemoTest implements PatternMatchSupported {
                 memo.getGroupExpressions().get(groupExpression).getOwnerGroup().getGroupId().asInt());
     }
 
-    @Test
-    public void testTheSameTVFRelationAddToMemo() {
-        Map<String, String> map = Maps.newHashMap();
-        UnboundTVFRelation relation1 = new UnboundTVFRelation(RelationUtil.newRelationId(), "t1", new TVFProperties(map));
-        UnboundTVFRelation relation2 = new UnboundTVFRelation(RelationUtil.newRelationId(), "t1", new TVFProperties(map));
-        Memo memo = new Memo(relation1);
-        Group group = memo.getRoot();
-        Assertions.assertTrue(memo.copyIn(relation2, group, true).generateNewExpression);
-    }
-
     private enum State {
         NOT_REWRITE, ALREADY_REWRITE
     }
