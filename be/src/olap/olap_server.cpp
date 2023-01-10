@@ -120,20 +120,14 @@ Status StorageEngine::start_bg_threads() {
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
-                    [this, data_dir]() {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-                        this->_path_scan_thread_callback(data_dir);
-                    },
+                    [this, data_dir]() { this->_path_scan_thread_callback(data_dir); },
                     &path_scan_thread));
             _path_scan_threads.emplace_back(path_scan_thread);
 
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
-                    [this, data_dir]() {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-                        this->_path_gc_thread_callback(data_dir);
-                    },
+                    [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
         }

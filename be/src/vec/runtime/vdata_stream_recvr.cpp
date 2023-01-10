@@ -308,8 +308,9 @@ VDataStreamRecvr::VDataStreamRecvr(
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
-    _mem_tracker = std::make_unique<MemTracker>(
-            "VDataStreamRecvr:" + print_id(_fragment_instance_id), _profile);
+    _mem_tracker =
+            std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id),
+                                         _profile, nullptr, "PeakMemoryUsage");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Create one queue per sender if is_merging is true.

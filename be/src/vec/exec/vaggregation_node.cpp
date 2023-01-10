@@ -759,7 +759,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
 
 void AggregationNode::_update_memusage_without_key() {
     auto arena_memory_usage = _agg_arena_pool->size() - _mem_usage_record.used_in_arena;
-    mem_tracker_held()->consume(arena_memory_usage);
+    mem_tracker()->consume(arena_memory_usage);
     _serialize_key_arena_memory_usage->add(arena_memory_usage);
     _mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
@@ -1368,9 +1368,9 @@ void AggregationNode::_update_memusage_with_serialized_key() {
                 auto arena_memory_usage = _agg_arena_pool->size() +
                                           _aggregate_data_container->memory_usage() -
                                           _mem_usage_record.used_in_arena;
-                mem_tracker_held()->consume(arena_memory_usage);
-                mem_tracker_held()->consume(data.get_buffer_size_in_bytes() -
-                                            _mem_usage_record.used_in_state);
+                mem_tracker()->consume(arena_memory_usage);
+                mem_tracker()->consume(data.get_buffer_size_in_bytes() -
+                                       _mem_usage_record.used_in_state);
                 _serialize_key_arena_memory_usage->add(arena_memory_usage);
                 COUNTER_UPDATE(_hash_table_memory_usage,
                                data.get_buffer_size_in_bytes() - _mem_usage_record.used_in_state);
@@ -1397,7 +1397,7 @@ void AggregationNode::_close_with_serialized_key() {
 }
 
 void AggregationNode::release_tracker() {
-    mem_tracker_held()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
+    mem_tracker()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 }
 
 void AggregationNode::_release_mem() {

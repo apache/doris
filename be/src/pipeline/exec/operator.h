@@ -262,8 +262,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         return Status::OK();
     }
 
@@ -319,8 +320,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
         return Status::OK();
     }

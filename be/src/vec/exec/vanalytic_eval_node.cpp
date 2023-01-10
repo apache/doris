@@ -566,7 +566,7 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
         _ordey_by_column_idxs[i] = result_col_id;
     }
 
-    mem_tracker_held()->consume(input_block->allocated_bytes());
+    mem_tracker()->consume(input_block->allocated_bytes());
     _blocks_memory_usage->add(input_block->allocated_bytes());
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
@@ -631,7 +631,7 @@ Status VAnalyticEvalNode::_output_current_block(Block* block) {
 
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker_held()->consume(-block->allocated_bytes());
+    mem_tracker()->consume(-block->allocated_bytes());
     if (_origin_cols.size() < block->columns()) {
         block->erase_not_in(_origin_cols);
     }

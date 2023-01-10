@@ -167,7 +167,7 @@ Status VSortNode::open(RuntimeState* state) {
 
     child(0)->close(state);
 
-    mem_tracker_held()->consume(_sorter->data_size());
+    mem_tracker()->consume(_sorter->data_size());
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());
 
     return Status::OK();

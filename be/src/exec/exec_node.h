@@ -229,7 +229,7 @@ public:
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
-    MemTracker* mem_tracker_held() const { return _mem_tracker_held.get(); }
+    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
     MemTracker* mem_tracker_growh() const { return _mem_tracker_growh.get(); }
     std::shared_ptr<MemTracker> mem_tracker_growh_shared() const { return _mem_tracker_growh; }
 
@@ -279,10 +279,13 @@ protected:
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
-    // Record the memory size held by this node.
-    std::unique_ptr<MemTracker> _mem_tracker_held;
-    // Record the memory size allocated by this node.
-    // Similar to tcmalloc heap profile growh, only track memory alloc, not track memory free.
+    // Record this node memory size by manual record.
+    // It is expected that artificial guarantees are accurate,
+    // which will providea reference for operator memory
+    std::unique_ptr<MemTracker> _mem_tracker;
+    // Record this node memory size by mem hook.
+    // the accuracy cannot be guaranteed, because the memory transfer between
+    // operators cannot be enumerated, so this is experimental and hidden from users.
     std::shared_ptr<MemTracker> _mem_tracker_growh;
 
     RuntimeProfile::Counter* _rows_returned_counter;

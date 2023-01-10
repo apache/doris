@@ -77,8 +77,9 @@ public:
 
     // after SCOPED_ATTACH_TASK;
     void init_scanner_mem_trackers() {
-        _scanner_mem_tracker = std::make_shared<MemTracker>(
-                fmt::format("Scanner#QueryId={}", print_id(_query_id)));
+        _scanner_mem_tracker =
+                std::make_shared<MemTracker>(fmt::format("Scanner#QueryId={}", print_id(_query_id)),
+                                             ExecEnv::GetInstance()->experimental_mem_tracker());
     }
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
