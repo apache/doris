@@ -1022,35 +1022,37 @@ public class SelectStmt extends QueryStmt {
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
 
-            // according to mysql
-            // having clause should use column name inside group by clause, prior to alias.
-            // case1: having clause use column name table.v1, because v1 inside group by clause
-            //     select id, sum(v1) v1 from table group by id,v1 having(v1>1);
-            // case2: having clause use alias name v2, because v2 is not inside group by clause
-            //     select id, sum(v1) v1, sum(v2) v2 from table group by id,v1 having(v1>1 AND v2>1);
-            // case3: having clause use alias name v, because table do not have column name v
-            //     select id, floor(v1) v, sum(v2) v2 from table group by id,v having(v>1 AND v2>1);
+            /* according to mysql (https://dev.mysql.com/doc/refman/8.0/en/select.html)
+             * "For GROUP BY or HAVING clauses, it searches the FROM clause before searching in the
+             * select_expr values. (For GROUP BY and HAVING, this differs from the pre-MySQL 5.0 behavior
+             * that used the same rules as for ORDER BY.)"
+             * case1: having clause use column name table.v1, because it searches the FROM clause firstly
+             *     select id, sum(v1) v1 from table group by id,v1 having(v1>1);
+             * case2: having clause used in aggregate functions, such as sum(v2) here
+             *     select id, sum(v1) v1, sum(v2) v2 from table group by id,v1 having(v1>1 AND sum(v2)>1);
+             * case3: having clause use alias name v, because table do not have column name v
+             *     select id, floor(v1) v, sum(v2) v2 from table group by id,v having(v>1 AND v2>1);
+             * case4: having clause use alias name vsum, because table do not have column name vsum
+             *     select id, floor(v1) v, sum(v2) vsum from table group by id,v having(v>1 AND vsum>1);
+             */
             if (groupByClause != null) {
-                ExprSubstitutionMap excludeGroupByaliasSMap = aliasSMap.clone();
-                // according to case2, maybe some having slots inside group by clause, some do not
-                List<Expr> groupBySlots = Lists.newArrayList();
-                for (Expr expr : groupByClause.getGroupingExprs()) {
-                    expr.collect(SlotRef.class, groupBySlots);
-                }
-                for (Expr expr : groupBySlots) {
-                    if (excludeGroupByaliasSMap.get(expr) == null) {
+                ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
+                List<Expr> havingSlots = Lists.newArrayList();
+                havingClause.collect(SlotRef.class, havingSlots);
+                for (Expr expr : havingSlots) {
+                    if (excludeAliasSMap.get(expr) == null) {
                         continue;
                     }
                     try {
                         // try to use column name firstly
                         expr.clone().analyze(analyzer);
                         // analyze success means column name exist, do not use alias name
-                        excludeGroupByaliasSMap.removeByLhsExpr(expr);
+                        excludeAliasSMap.removeByLhsExpr(expr);
                     } catch (AnalysisException ex) {
                         // according to case3, column name do not exist, keep alias name inside alias map
                     }
                 }
-                havingClauseAfterAnaylzed = havingClause.substitute(excludeGroupByaliasSMap, analyzer, false);
+                havingClauseAfterAnaylzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
