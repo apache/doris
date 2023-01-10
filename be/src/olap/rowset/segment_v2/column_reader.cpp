@@ -142,6 +142,15 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
+Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
+                                                 InvertedIndexIterator** iterator) {
+    RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
+    if (_inverted_index) {
+        RETURN_IF_ERROR(_inverted_index->new_iterator(index_meta, iterator));
+    }
+    return Status::OK();
+}
+
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
@@ -358,6 +367,32 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
         _bitmap_index.reset(new BitmapIndexReader(_file_reader, _bitmap_index_meta));
         return _bitmap_index->load(use_page_cache, kept_in_memory);
     }
+    return Status::OK();
+}
+
+Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
+    std::lock_guard<std::mutex> wlock(_load_index_lock);
+
+    if (_inverted_index && index_meta &&
+        _inverted_index->get_index_id() == index_meta->index_id()) {
+        return Status::OK();
+    }
+
+    FieldType type;
+    if ((FieldType)_meta.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        type = (FieldType)_meta.children_columns(0).type();
+    } else {
+        type = _type_info->type();
+    }
+
+    if (is_string_type(type)) {
+        // todo(wy): implement
+    } else if (is_numeric_type(type)) {
+        // todo(wy): implement
+    } else {
+        _inverted_index.reset();
+    }
+
     return Status::OK();
 }
 

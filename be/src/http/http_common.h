@@ -51,6 +51,7 @@ static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 static const std::string HTTP_LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 static const std::string HTTP_HIDDEN_COLUMNS = "hidden_columns";
+static const std::string HTTP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";

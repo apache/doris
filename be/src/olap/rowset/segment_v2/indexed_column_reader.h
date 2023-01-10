@@ -131,6 +131,9 @@ public:
     // from Arena
     Status next_batch(size_t* n, ColumnBlockView* column_view);
 
+    // After one seek, we can only call this function once to read data
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
+
 private:
     Status _read_data_page(const PagePointer& pp);
 

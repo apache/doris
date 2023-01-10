@@ -26,7 +26,7 @@ under the License.
     <name>Remote UDF Demo in Java</name>
     <url>https://doris.apache.org/</url>
     <properties>
-        <protobuf.version>3.14.0</protobuf.version>
+        <protobuf.version>3.15.0</protobuf.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <grpc.version>1.44.1</grpc.version>

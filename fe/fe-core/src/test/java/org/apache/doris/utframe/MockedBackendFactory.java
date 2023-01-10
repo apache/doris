@@ -371,12 +371,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public void tabletWriterAddBatch(InternalService.PTabletWriterAddBatchRequest request, StreamObserver<InternalService.PTabletWriterAddBatchResult> responseObserver) {
-            responseObserver.onNext(null);
-            responseObserver.onCompleted();
-        }
-
-        @Override
         public void tabletWriterCancel(InternalService.PTabletWriterCancelRequest request, StreamObserver<InternalService.PTabletWriterCancelResult> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();

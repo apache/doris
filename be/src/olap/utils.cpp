@@ -62,8 +62,14 @@ using namespace ErrorCode;
 Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                      size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
-        LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
-                     << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
+        LOG(WARNING) << "input param with nullptr pointer. src_buf is nullptr: "
+                     << (src_buf == nullptr ? "true" : "false") << " src_buf=["
+                     << (src_buf == nullptr ? "nullptr" : src_buf)
+                     << "], dest_buf is nullptr: " << (dest_buf == nullptr ? "true" : "false")
+                     << " dest_buf=[" << (dest_buf == nullptr ? "nullptr" : dest_buf)
+                     << "], written_len is nullptr: "
+                     << (written_len == nullptr ? "true" : " false") << " written_len=["
+                     << (dest_buf == nullptr ? -1 : *dest_buf) << "]";
 
         return Status::Error<INVALID_ARGUMENT>();
     }

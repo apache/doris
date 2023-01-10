@@ -182,6 +182,7 @@ public class StatisticsRepository {
         if (dataSize != null) {
             builder.setDataSize(Double.parseDouble(dataSize));
         }
+
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
         params.put("id", constructId(objects.table.getId(), -1, colName));
@@ -198,6 +199,15 @@ public class StatisticsRepository {
         params.put("max", max == null ? "NULL" : max);
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
         StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-        Env.getCurrentEnv().getStatisticsCache().updateCache(objects.table.getId(), -1, colName, builder.build());
+
+        Histogram histogram = Env.getCurrentEnv().getStatisticsCache()
+                .getHistogram(objects.table.getId(), -1, colName);
+
+        Statistic statistic = new Statistic();
+        statistic.setHistogram(histogram);
+        statistic.setColumnStatistic(builder.build());
+
+        Env.getCurrentEnv().getStatisticsCache()
+                .updateCache(objects.table.getId(), -1, colName, statistic);
     }
 }

@@ -32,8 +32,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Maps;
 
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Eliminate outer join.
@@ -46,10 +46,10 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                     logicalJoin().when(join -> join.getJoinType().isOuterJoin())
                 ).then(filter -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
-                    List<Expression> conjuncts = filter.getConjuncts();
-                    List<Expression> leftPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
+                    Set<Expression> conjuncts = filter.getConjuncts();
+                    Set<Expression> leftPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
                             join.left().getOutputSet());
-                    List<Expression> rightPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
+                    Set<Expression> rightPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
                             join.right().getOutputSet());
                     boolean canFilterLeftNull = canFilterNull(leftPredicates);
                     boolean canFilterRightNull = canFilterNull(rightPredicates);
@@ -82,7 +82,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
         return joinType;
     }
 
-    private boolean canFilterNull(List<Expression> predicates) {
+    private boolean canFilterNull(Set<Expression> predicates) {
         Literal nullLiteral = Literal.of(null);
         for (Expression predicate : predicates) {
             Map<Expression, Expression> replaceMap = Maps.newHashMap();

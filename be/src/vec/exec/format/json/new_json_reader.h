@@ -22,6 +22,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include "io/fs/file_reader.h"
 #include "vec/exec/format/generic_reader.h"
 namespace doris {
 
@@ -48,8 +49,8 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
-    Status get_parsered_schema(std::vector<std::string>* col_names,
-                               std::vector<TypeDescriptor>* col_types) override;
+    Status get_parsed_schema(std::vector<std::string>* col_names,
+                             std::vector<TypeDescriptor>* col_types) override;
 
 private:
     Status _get_range_params();
@@ -92,7 +93,8 @@ private:
 
     std::string _print_json_value(const rapidjson::Value& value);
 
-private:
+    Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+
     Status (NewJsonReader::*_vhandle_json_callback)(
             std::vector<vectorized::MutableColumnPtr>& columns,
             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
@@ -103,12 +105,8 @@ private:
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
-    // _file_reader_s is for stream load pipe reader,
-    // and _file_reader is for other file reader.
-    // TODO: refactor this to use only shared_ptr or unique_ptr
-    std::unique_ptr<FileReader> _file_reader;
-    std::shared_ptr<FileReader> _file_reader_s;
-    FileReader* _real_file_reader;
+    std::unique_ptr<io::FileSystem> _file_system;
+    io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;
 
@@ -134,9 +132,8 @@ private:
     char _value_buffer[4 * 1024 * 1024]; // 4MB
     char _parse_buffer[512 * 1024];      // 512KB
 
-    typedef rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
-                                       rapidjson::MemoryPoolAllocator<>>
-            Document;
+    using Document = rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
+                                                rapidjson::MemoryPoolAllocator<>>;
     rapidjson::MemoryPoolAllocator<> _value_allocator;
     rapidjson::MemoryPoolAllocator<> _parse_allocator;
     Document _origin_json_doc;   // origin json document object from parsed json string
@@ -144,6 +141,8 @@ private:
     std::unordered_map<std::string, int> _name_map;
 
     bool* _scanner_eof;
+
+    size_t _current_offset;
 
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;

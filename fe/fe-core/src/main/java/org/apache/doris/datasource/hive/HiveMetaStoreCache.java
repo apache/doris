@@ -266,11 +266,7 @@ public class HiveMetaStoreCache {
 
     private Configuration getConfiguration() {
         Configuration configuration = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getProperties().entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
-        Map<String, String> s3Properties = catalog.getCatalogProperty().getS3Properties();
-        for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
+        for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
             configuration.set(entry.getKey(), entry.getValue());
         }
         return configuration;

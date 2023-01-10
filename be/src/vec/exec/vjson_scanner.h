@@ -32,7 +32,9 @@
 
 #include "common/status.h"
 #include "exec/base_scanner.h"
-#include "exec/json_scanner.h"
+#include "exec/line_reader.h"
+#include "exprs/json_functions.h"
+#include "io/file_reader.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 
@@ -45,28 +47,58 @@ namespace vectorized {
 class VJsonReader;
 
 template <typename JsonReader>
-class VJsonScanner : public JsonScanner {
+class VJsonScanner : public BaseScanner {
 public:
     VJsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                  const std::vector<TBrokerRangeDesc>& ranges,
                  const std::vector<TNetworkAddress>& broker_addresses,
                  const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
-                    bool* fill_tuple) override {
-        return Status::NotSupported("Not Implemented get tuple");
-    }
+    ~VJsonScanner() override;
+
+    // Open this scanner, will initialize information needed
+    Status open() override;
+
     Status get_next(vectorized::Block* output_block, bool* eof) override;
 
-private:
-    Status open_vjson_reader();
-    Status open_next_reader();
+    void close() override;
 
 private:
+    Status _open_vjson_reader();
+    Status _open_next_reader();
+
+    Status _open_file_reader();
+    Status _open_line_reader();
+    Status _open_json_reader();
+
+    Status _open_based_reader();
+    Status _get_range_params(std::string& jsonpath, std::string& json_root, bool& strip_outer_array,
+                             bool& num_as_string, bool& fuzzy_parse);
+    std::string _jsonpath;
+    std::string _jsonpath_file;
+
+    std::string _line_delimiter;
+    int _line_delimiter_length;
+
+    // Reader
+    // _cur_file_reader_s is for stream load pipe reader,
+    // and _cur_file_reader is for other file reader.
+    // TODO: refactor this to use only shared_ptr or unique_ptr
+    std::unique_ptr<FileReader> _cur_file_reader;
+    std::shared_ptr<FileReader> _cur_file_reader_s;
+    FileReader* _real_reader;
+    LineReader* _cur_line_reader;
+    JsonReader* _cur_json_reader;
+    bool _cur_reader_eof;
+    bool _read_json_by_line;
+
+    // When we fetch range doesn't start from 0,
+    // we will read to one ahead, and skip the first line
+    bool _skip_next_line;
     std::unique_ptr<JsonReader> _cur_vjson_reader = nullptr;
 };
 
-class VJsonReader : public JsonReader {
+class VJsonReader {
 public:
     VJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
                 bool strip_outer_array, bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
@@ -112,6 +144,53 @@ private:
 
     Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
                              std::string col_name, bool* valid);
+
+    void _fill_slot(doris::Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
+                    const uint8_t* value, int32_t len);
+    Status _parse_json_doc(size_t* size, bool* eof);
+    Status _set_tuple_value(rapidjson::Value& objectValue, doris::Tuple* tuple,
+                            const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
+                            bool* valid);
+    Status _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc,
+                                doris::Tuple* tuple, MemPool* tuple_pool, bool* valid);
+    std::string _print_json_value(const rapidjson::Value& value);
+
+    void _close();
+    Status _generate_json_paths(const std::string& jsonpath,
+                                std::vector<std::vector<JsonPath>>* vect);
+    Status _parse_jsonpath_and_json_root(const std::string& jsonpath, const std::string& json_root);
+
+    int _next_line;
+    int _total_lines;
+    RuntimeState* _state;
+    ScannerCounter* _counter;
+    RuntimeProfile* _profile;
+    FileReader* _file_reader;
+    LineReader* _line_reader;
+    bool _closed;
+    bool _strip_outer_array;
+    bool _num_as_string;
+    bool _fuzzy_parse;
+    RuntimeProfile::Counter* _bytes_read_counter;
+    RuntimeProfile::Counter* _read_timer;
+    RuntimeProfile::Counter* _file_read_timer;
+
+    std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
+    std::vector<JsonPath> _parsed_json_root;
+
+    char _value_buffer[4 * 1024 * 1024];
+    char _parse_buffer[512 * 1024];
+
+    using Document = rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
+                                                rapidjson::MemoryPoolAllocator<>>;
+    rapidjson::MemoryPoolAllocator<> _value_allocator;
+    rapidjson::MemoryPoolAllocator<> _parse_allocator;
+    Document _origin_json_doc;   // origin json document object from parsed json string
+    rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
+    std::unordered_map<std::string, int> _name_map;
+
+    // point to the _scanner_eof of JsonScanner
+    bool* _scanner_eof;
 };
 
 class VSIMDJsonReader {

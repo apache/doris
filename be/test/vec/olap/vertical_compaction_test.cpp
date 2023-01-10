@@ -29,6 +29,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
@@ -54,8 +55,6 @@ protected:
         }
         EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
         EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
-        _data_dir->update_capacity();
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         StorageEngine::_s_instance = k_engine;
@@ -163,10 +162,9 @@ protected:
         rowset_id.init(inc_id);
         rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
-        rowset_writer_context->rowset_dir = "tablet_path";
+        rowset_writer_context->rowset_dir = absolute_dir + "/tablet_path";
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
@@ -252,35 +250,7 @@ protected:
                 "hi": -5350970832824939812,
                 "lo": -6717994719194512122
             },
-            "creation_time": 1553765670,
-            "alpha_rowset_extra_meta_pb": {
-                "segment_groups": [
-                {
-                    "segment_group_id": 0,
-                    "num_segments": 2,
-                    "index_size": 132,
-                    "data_size": 576,
-                    "num_rows": 5,
-                    "zone_maps": [
-                    {
-                        "min": "MQ==",
-                        "max": "NQ==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MQ==",
-                        "max": "Mw==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "J2J1c2gn",
-                        "max": "J3RvbSc=",
-                        "null_flag": false
-                    }
-                    ],
-                    "empty": false
-                }]
-            }
+            "creation_time": 1553765670
         })";
         pb1->init_from_json(json_rowset_meta);
         pb1->set_start_version(start);
@@ -391,7 +361,6 @@ protected:
 private:
     const std::string kTestDir = "/ut_dir/vertical_compaction_test";
     string absolute_dir;
-    std::unique_ptr<DataDir> _data_dir;
 };
 
 TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {

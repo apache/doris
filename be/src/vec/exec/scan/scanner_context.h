@@ -78,7 +78,7 @@ public:
     // Get next block from blocks queue. Called by ScanNode
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
-    Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
+    virtual Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
@@ -118,7 +118,7 @@ public:
 
     void clear_and_join();
 
-    virtual bool can_finish();
+    virtual bool no_schedule();
 
     std::string debug_string();
 
@@ -221,6 +221,8 @@ protected:
     // Not need to protect by lock, because only one scheduler thread will access to it.
     std::mutex _scanners_lock;
     std::list<VScanner*> _scanners;
+    std::vector<int64_t> _finished_scanner_runtime;
+    std::vector<int64_t> _finished_scanner_rows_read;
 
     int64_t _num_ctx_scheduling = 0;
     int64_t _num_scanner_scheduling = 0;

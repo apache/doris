@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.List;
@@ -45,11 +46,13 @@ public class JoinCommute extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> check(swapType, join))
+                .whenNot(LogicalJoin::hasJoinHint)
                 .then(join -> {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
                             join.getOtherJoinConjuncts(),
+                            JoinHint.NONE,
                             join.right(), join.left(),
                             join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
@@ -65,8 +68,15 @@ public class JoinCommute extends OneExplorationRuleFactory {
         LEFT_DEEP, ZIG_ZAG, BUSHY
     }
 
+    /**
+     * Check if commutative law needs to be enforced.
+     */
     public static boolean check(SwapType swapType, LogicalJoin<GroupPlan, GroupPlan> join) {
         if (swapType == SwapType.LEFT_DEEP && isNotBottomJoin(join)) {
+            return false;
+        }
+
+        if (join.getJoinType().isNullAwareLeftAntiJoin()) {
             return false;
         }
 

@@ -20,6 +20,8 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
+#include "data_type_time.h"
+
 namespace doris::vectorized {
 
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
@@ -92,12 +94,15 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_TIME:
     case TYPE_TIMEV2:
+        nested = std::make_shared<vectorized::DataTypeTime>();
+        break;
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_BINARY:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case TYPE_JSONB:

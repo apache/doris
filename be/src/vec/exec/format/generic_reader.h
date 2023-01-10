@@ -39,9 +39,9 @@ public:
         return Status::NotSupported("get_columns is not implemented");
     }
 
-    virtual Status get_parsered_schema(std::vector<std::string>* col_names,
-                                       std::vector<TypeDescriptor>* col_types) {
-        return Status::NotSupported("get_parser_schema is not implemented for this reader.");
+    virtual Status get_parsed_schema(std::vector<std::string>* col_names,
+                                     std::vector<TypeDescriptor>* col_types) {
+        return Status::NotSupported("get_parsed_schema is not implemented for this reader.");
     }
     virtual ~GenericReader() = default;
 

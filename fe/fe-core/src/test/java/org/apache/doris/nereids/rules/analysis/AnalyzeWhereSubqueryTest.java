@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnProjectUnderAgg;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilterUnderApplyProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
@@ -154,10 +155,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         logicalFilter()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                         new Alias(new ExprId(7),
-                                                new Sum(
+                                                (new Sum(
                                                         new SlotReference(new ExprId(4), "k3",
                                                                 BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7"))),
+                                                                ImmutableList.of(
+                                                                        "default_cluster:test",
+                                                                        "t7")))).withAlwaysNullable(
+                                                                                true),
                                                 "sum(k3)"))))
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
@@ -176,9 +180,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                         logicalApply(
                                 any(),
                                 logicalAggregate().when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                                new Alias(new ExprId(7), new Sum(
+                                                new Alias(new ExprId(7), (new Sum(
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7"))),
+                                                                ImmutableList.of("default_cluster:test", "t7")))).withAlwaysNullable(true),
                                                         "sum(k3)"),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t7"))
@@ -240,36 +244,26 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     }
 
     @Test
-    public void testInSql4AfterPushProjectRule() {
+    public void testInSql4AfterEliminateFilterUnderApplyProjectRule() {
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .applyBottomUp(new PushApplyUnderProject())
+                .applyBottomUp(new EliminateFilterUnderApplyProject())
                 .matches(
-                        logicalProject(
-                                logicalApply().when(FieldChecker.check("correlationFilter", Optional.empty()))
-                                        .when(FieldChecker.check("correlationSlot", ImmutableList.of(
-                                                new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6")))))
-                        ).when(FieldChecker.check("projects", ImmutableList.of(
-                                new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")),
-                                new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")))))
-                );
-    }
-
-    @Test
-    public void testInSql4AfterPushFilterRule() {
-        PlanChecker.from(connectContext)
-                .analyze(sql4)
-                .applyBottomUp(new PushApplyUnderProject())
-                .applyBottomUp(new PushApplyUnderFilter())
-                .matches(
-                        logicalApply().when(FieldChecker.check("correlationFilter", Optional.of(
+                        logicalApply(
+                                any(),
+                                logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
+                                        new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t7")),
+                                        new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t7")))))
+                        ).when(FieldChecker.check("correlationFilter", Optional.of(
                                 new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                         ImmutableList.of("default_cluster:test", "t7")),
                                         new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6"))))))
+                                .when(FieldChecker.check("correlationSlot", ImmutableList.of(
+                                        new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t6")))))
                 );
     }
 
@@ -277,15 +271,14 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     public void testInSql4AfterInToJoin() {
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .applyBottomUp(new PushApplyUnderProject())
-                .applyBottomUp(new PushApplyUnderFilter())
+                .applyBottomUp(new EliminateFilterUnderApplyProject())
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
                                 .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
-                                                new SlotReference(new ExprId(2), "k1", BigIntType.INSTANCE, false,
+                                                new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, false,
                                                         ImmutableList.of("default_cluster:test", "t7"))),
                                         new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")),
@@ -393,9 +386,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         )))
                                     ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
                                         new Alias(new ExprId(8),
-                                                new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
                                                         true,
-                                                        ImmutableList.of("t2"))), "max(aa)")
+                                                        ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
                                     )))
                                     .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
                                 )
@@ -454,8 +447,8 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 logicalAggregate(
                                         logicalProject()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("t2"))), "max(aa)"),
+                                        new Alias(new ExprId(8), (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)"),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")))))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(

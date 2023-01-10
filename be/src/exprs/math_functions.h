@@ -66,6 +66,11 @@ public:
     static doris_udf::BigIntVal floor(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
     static doris_udf::BigIntVal round(doris_udf::FunctionContext* ctx,
                                       const doris_udf::DoubleVal& v);
+    static doris_udf::BigIntVal round_bankers(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::DoubleVal& v);
+    static doris_udf::DoubleVal round_bankers(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::DoubleVal& v,
+                                              const doris_udf::IntVal& scale);
     static doris_udf::DoubleVal round_up_to(doris_udf::FunctionContext* ctx,
                                             const doris_udf::DoubleVal& v,
                                             const doris_udf::IntVal& scale);

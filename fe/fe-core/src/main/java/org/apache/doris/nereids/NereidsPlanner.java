@@ -354,4 +354,24 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = explainOptions.getExplainLevel();
         return explainLevel == null ? ExplainLevel.NONE : explainLevel;
     }
+
+    @VisibleForTesting
+    public Plan getParsedPlan() {
+        return parsedPlan;
+    }
+
+    @VisibleForTesting
+    public Plan getAnalyzedPlan() {
+        return analyzedPlan;
+    }
+
+    @VisibleForTesting
+    public Plan getRewrittenPlan() {
+        return rewrittenPlan;
+    }
+
+    @VisibleForTesting
+    public Plan getOptimizedPlan() {
+        return optimizedPlan;
+    }
 }

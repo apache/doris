@@ -46,6 +46,31 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
 
+    sql 'set enable_vectorized_engine=true;'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=true'
+
+    test {
+        sql "select distinct user_ids from test_group_by_hll_and_bitmap"
+        exception "${error_msg}"
+    }
+
+    test {
+        sql "select distinct hll_set from test_group_by_hll_and_bitmap"
+        exception "${error_msg}"
+    }
+
+    test {
+        sql "select user_ids from test_group_by_hll_and_bitmap order by user_ids"
+        exception "${error_msg}"
+    }
+
+    test {
+        sql "select hll_set from test_group_by_hll_and_bitmap order by hll_set"
+        exception "${error_msg}"
+    }
+    sql 'set enable_nereids_planner=false'
+
     sql "DROP TABLE test_group_by_hll_and_bitmap"
 
     sql "DROP TABLE IF EXISTS test_group_by_array"
@@ -67,6 +92,21 @@ suite("aggregate_group_by_metric_type") {
         sql "select c_array,count(*) from test_group_by_array group by c_array"
         exception "${error_msg}"
     }
+
+    sql 'set enable_nereids_planner=true'
+    test {
+        sql "select distinct c_array from test_group_by_array"
+        exception "${error_msg}"
+    }
+    test {
+        sql "select c_array from test_group_by_array order by c_array"
+        exception "${error_msg}"
+    }
+    test {
+        sql "select c_array,count(*) from test_group_by_array group by c_array"
+        exception "${error_msg}"
+    }
+    sql 'set enable_nereids_planner=false'
 
     sql "DROP TABLE test_group_by_array"
 }

@@ -26,7 +26,6 @@
 #include "common/utils.h"
 #include "gen_cpp/Data_types.h"
 #include "gen_cpp/data.pb.h"
-#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -200,10 +199,6 @@ void RowBatch::clear() {
         ExecEnv::GetInstance()->buffer_pool()->FreeBuffer(buffer_info.client, &buffer_info.buffer);
     }
 
-    close_tuple_streams();
-    for (int i = 0; i < _blocks.size(); ++i) {
-        _blocks[i]->del();
-    }
     DCHECK(_tuple_ptrs != nullptr);
     free(_tuple_ptrs);
     _tuple_ptrs = nullptr;
@@ -348,18 +343,6 @@ Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* 
     return Status::OK();
 }
 
-void RowBatch::add_tuple_stream(BufferedTupleStream2* stream) {
-    DCHECK(stream != nullptr);
-    _tuple_streams.push_back(stream);
-    _auxiliary_mem_usage += stream->byte_size();
-}
-
-void RowBatch::add_block(BufferedBlockMgr2::Block* block) {
-    DCHECK(block != nullptr);
-    _blocks.push_back(block);
-    _auxiliary_mem_usage += block->buffer_len();
-}
-
 void RowBatch::reset() {
     _num_rows = 0;
     _capacity = _tuple_ptrs_size / (_num_tuples_per_row * sizeof(Tuple*));
@@ -378,23 +361,10 @@ void RowBatch::reset() {
     }
     _buffers.clear();
 
-    close_tuple_streams();
-    for (int i = 0; i < _blocks.size(); ++i) {
-        _blocks[i]->del();
-    }
-    _blocks.clear();
     _auxiliary_mem_usage = 0;
     _need_to_return = false;
     _flush = FlushMode::NO_FLUSH_RESOURCES;
     _needs_deep_copy = false;
-}
-
-void RowBatch::close_tuple_streams() {
-    for (int i = 0; i < _tuple_streams.size(); ++i) {
-        _tuple_streams[i]->close();
-        delete _tuple_streams[i];
-    }
-    _tuple_streams.clear();
 }
 
 void RowBatch::transfer_resource_ownership(RowBatch* dest) {
@@ -414,21 +384,6 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
     }
     _buffers.clear();
 
-    for (int i = 0; i < _tuple_streams.size(); ++i) {
-        dest->_tuple_streams.push_back(_tuple_streams[i]);
-        dest->_auxiliary_mem_usage += _tuple_streams[i]->byte_size();
-    }
-    // Resource release should be done by dest RowBatch. if we don't clear the corresponding resources.
-    // This Rowbatch calls the reset() method, dest Rowbatch will also call the reset() method again,
-    // which will cause the core problem of double delete
-    _tuple_streams.clear();
-
-    for (int i = 0; i < _blocks.size(); ++i) {
-        dest->_blocks.push_back(_blocks[i]);
-        dest->_auxiliary_mem_usage += _blocks[i]->buffer_len();
-    }
-    _blocks.clear();
-
     dest->_need_to_return |= _need_to_return;
 
     if (_needs_deep_copy) {
@@ -437,57 +392,6 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
         dest->mark_flush_resources();
     }
     reset();
-}
-
-vectorized::Block RowBatch::convert_to_vec_block() const {
-    std::vector<vectorized::MutableColumnPtr> columns;
-    for (const auto tuple_desc : _row_desc.tuple_descriptors()) {
-        for (const auto slot_desc : tuple_desc->slots()) {
-            columns.emplace_back(slot_desc->get_empty_mutable_column());
-        }
-    }
-
-    std::vector<SlotDescriptor*> slot_descs;
-    std::vector<int> tuple_idx;
-    int column_numbers = 0;
-    for (int i = 0; i < _row_desc.tuple_descriptors().size(); ++i) {
-        auto tuple_desc = _row_desc.tuple_descriptors()[i];
-        for (int j = 0; j < tuple_desc->slots().size(); ++j) {
-            slot_descs.push_back(tuple_desc->slots()[j]);
-            tuple_idx.push_back(i);
-        }
-        column_numbers += tuple_desc->slots().size();
-    }
-    for (int i = 0; i < column_numbers; ++i) {
-        auto slot_desc = slot_descs[i];
-        for (int j = 0; j < _num_rows; ++j) {
-            TupleRow* src_row = get_row(j);
-            auto tuple = src_row->get_tuple(tuple_idx[i]);
-            if (slot_desc->is_nullable() && tuple->is_null(slot_desc->null_indicator_offset())) {
-                columns[i]->insert_data(nullptr, 0);
-            } else if (slot_desc->type().is_string_type()) {
-                auto string_value =
-                        static_cast<const StringValue*>(tuple->get_slot(slot_desc->tuple_offset()));
-                columns[i]->insert_data(string_value->ptr, string_value->len);
-            } else {
-                columns[i]->insert_data(
-                        static_cast<const char*>(tuple->get_slot(slot_desc->tuple_offset())),
-                        slot_desc->slot_size());
-            }
-        }
-    }
-
-    doris::vectorized::ColumnsWithTypeAndName columns_with_type_and_name;
-    auto n_columns = 0;
-    for (const auto tuple_desc : _row_desc.tuple_descriptors()) {
-        for (const auto slot_desc : tuple_desc->slots()) {
-            columns_with_type_and_name.emplace_back(columns[n_columns++]->get_ptr(),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name());
-        }
-    }
-
-    return {columns_with_type_and_name};
 }
 
 size_t RowBatch::get_batch_size(const PRowBatch& batch) {
@@ -516,9 +420,6 @@ void RowBatch::acquire_state(RowBatch* src) {
     }
     src->_io_buffers.clear();
     src->_auxiliary_mem_usage = 0;
-
-    DCHECK(src->_tuple_streams.empty());
-    DCHECK(src->_blocks.empty());
 
     _has_in_flight_row = src->_has_in_flight_row;
     _num_rows = src->_num_rows;

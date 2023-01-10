@@ -376,10 +376,8 @@ public class MTMVTaskManager {
             }
             MTMVTask status = runningTask.getTask();
             if (status.getTaskId().equals(changeTask.getTaskId())) {
-                if (toStatus == TaskState.FAILED) {
-                    status.setMessage(changeTask.getErrorMessage());
-                    status.setErrorCode(changeTask.getErrorCode());
-                }
+                status.setMessage(changeTask.getErrorMessage());
+                status.setErrorCode(changeTask.getErrorCode());
                 status.setState(toStatus);
                 status.setFinishTime(changeTask.getFinishTime());
                 addHistory(status);

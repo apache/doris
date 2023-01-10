@@ -59,12 +59,11 @@ public:
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
-    virtual Status flush_columns() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
-    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
-
-    virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
+    virtual Status flush_columns(bool is_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
+    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
+
     virtual Status flush_single_memtable(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }

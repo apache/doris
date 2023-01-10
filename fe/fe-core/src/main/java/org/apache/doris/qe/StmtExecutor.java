@@ -314,6 +314,8 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
                 String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
         infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
+        infos.put(ProfileManager.PARALLEL_FRAGMENT_EXEC_INSTANCE,
+                String.valueOf(context.sessionVariable.parallelExecInstanceNum));
         return infos;
     }
 
@@ -1237,7 +1239,8 @@ public class StmtExecutor implements ProfileWriter {
                 return;
             }
             TTxnParams txnParams = new TTxnParams();
-            txnParams.setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
+            txnParams.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 txnParams.setMaxFilterRatio(0);
             } else {
@@ -1416,7 +1419,9 @@ public class StmtExecutor implements ProfileWriter {
     // Process a select statement.
     private void handleInsertStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
-        context.getMysqlChannel().reset();
+        if (context.getMysqlChannel() != null) {
+            context.getMysqlChannel().reset();
+        }
         // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
@@ -1439,6 +1444,7 @@ public class StmtExecutor implements ProfileWriter {
         int filteredRows = 0;
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
         String errMsg = "";
+        TableType tblType = insertStmt.getTargetTable().getType();
         if (context.isTxnModel()) {
             if (insertStmt.getQueryStmt() instanceof SelectStmt) {
                 if (((SelectStmt) insertStmt.getQueryStmt()).getTableRefs().size() > 0) {
@@ -1498,7 +1504,7 @@ public class StmtExecutor implements ProfileWriter {
                     }
                 }
 
-                if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
+                if (tblType != TableType.OLAP && tblType != TableType.MATERIALIZED_VIEW) {
                     // no need to add load job.
                     // MySQL table is already being inserted.
                     context.getState().setOk(loadedRows, filteredRows, null);
@@ -1570,6 +1576,9 @@ public class StmtExecutor implements ProfileWriter {
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label).append("', 'status':'").append(txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
+        if (tblType == TableType.MATERIALIZED_VIEW) {
+            sb.append("', 'rows':'").append(loadedRows).append("'");
+        }
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
         }

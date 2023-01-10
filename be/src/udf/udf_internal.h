@@ -109,6 +109,12 @@ public:
 
     const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; }
 
+    const bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
+
+    bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
+        return _check_overflow_for_decimal = check_overflow_for_decimal;
+    }
+
 private:
     friend class doris_udf::FunctionContext;
     friend class ExprContext;
@@ -180,6 +186,8 @@ private:
     // to pass AnyVal* arguments to the scalar function directly, rather than codegening a
     // call that passes the correct AnyVal subclass pointer type.
     std::vector<doris_udf::AnyVal*> _staging_input_vals;
+
+    bool _check_overflow_for_decimal = false;
 
     // Indicates whether this context has been closed. Used for verification/debugging.
     bool _closed;

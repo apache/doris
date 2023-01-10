@@ -69,6 +69,9 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     if (NULL != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
+    if (nullptr != _param->catalog) {
+        db_params.__set_catalog(*(_param->catalog));
+    }
     if (NULL != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {

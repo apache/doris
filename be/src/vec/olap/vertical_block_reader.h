@@ -46,15 +46,11 @@ public:
         return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
     }
 
-    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) override {
-        return Status::OK();
-    }
-
     uint64_t merged_rows() const override {
         DCHECK(_vcollect_iter);
         return _vcollect_iter->merged_rows();
     }
+    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
@@ -71,7 +67,8 @@ private:
 
     Status _get_segment_iterators(const ReaderParams& read_params,
                                   std::vector<RowwiseIterator*>* segment_iters,
-                                  std::vector<bool>* iterator_init_flag);
+                                  std::vector<bool>* iterator_init_flag,
+                                  std::vector<RowsetId>* rowset_ids);
 
     void _init_agg_state(const ReaderParams& read_params);
     void _append_agg_data(MutableColumns& columns);
@@ -108,6 +105,8 @@ private:
     std::vector<bool> _stored_has_string_tag;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
+
+    std::vector<RowLocation> _block_row_locations;
 };
 
 } // namespace vectorized

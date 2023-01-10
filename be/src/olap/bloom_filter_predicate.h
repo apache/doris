@@ -46,13 +46,6 @@ public:
 
     PredicateType type() const override { return PredicateType::BF; }
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                     bool* flags) const override {};
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {};
-
     Status evaluate(BitmapIndexIterator* iterators, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return Status::OK();
@@ -137,29 +130,6 @@ private:
     mutable bool _has_calculate_filter = false;
     int _be_exec_version;
 };
-
-template <PrimitiveType T>
-void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
-                                             uint16_t* size) const {
-    uint16_t new_size = 0;
-    if (block->is_nullable()) {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            const auto* cell_value = reinterpret_cast<const void*>(block->cell(idx).cell_ptr());
-            new_size +=
-                    (!block->cell(idx).is_null() && _specific_filter->find_olap_engine(cell_value));
-        }
-    } else {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            const auto* cell_value = reinterpret_cast<const void*>(block->cell(idx).cell_ptr());
-            new_size += _specific_filter->find_olap_engine(cell_value);
-        }
-    }
-    *size = new_size;
-}
 
 template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,

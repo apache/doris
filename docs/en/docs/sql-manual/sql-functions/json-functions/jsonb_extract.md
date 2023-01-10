@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## jsonb_extract
+
+<version since="1.2.0">
+
+jsonb_extract
+
+</version>
+
 ### description
 
 jsonb_extract functions extract field specified by json_path from JSONB. A series of functions are provided for different datatype.

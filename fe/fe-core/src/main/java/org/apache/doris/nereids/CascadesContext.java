@@ -215,22 +215,6 @@ public class CascadesContext {
         return this;
     }
 
-    public void addToTable(Table table) {
-        tables.add(table);
-    }
-
-    public void lockTableOnRead() {
-        for (Table t : tables) {
-            t.readLock();
-        }
-    }
-
-    public void releaseTableReadLock() {
-        for (Table t : tables) {
-            t.readUnlock();
-        }
-    }
-
     /**
      * Extract tables.
      */
@@ -261,7 +245,7 @@ public class CascadesContext {
     }
 
     private Set<UnboundRelation> extractUnboundRelationFromFilter(LogicalFilter filter) {
-        Set<SubqueryExpr> subqueryExprs = filter.getPredicates()
+        Set<SubqueryExpr> subqueryExprs = filter.getPredicate()
                 .collect(SubqueryExpr.class::isInstance);
         Set<UnboundRelation> relations = new HashSet<>();
         for (SubqueryExpr expr : subqueryExprs) {

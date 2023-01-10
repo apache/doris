@@ -824,7 +824,9 @@ void AggregateFunctions::string_concat_update(FunctionContext* ctx, const String
         const auto header_len = sizeof(StringConcatHeader);
         DCHECK(header_len == sizeof(sep->len));
         *result = StringVal(ctx->allocate(header_len), header_len);
-        *reinterpret_cast<StringConcatHeader*>(result->ptr) = sep->len;
+        if (result->ptr) {
+            *reinterpret_cast<StringConcatHeader*>(result->ptr) = sep->len;
+        }
     }
     result->append(ctx, sep->ptr, sep->len, src.ptr, src.len);
 }

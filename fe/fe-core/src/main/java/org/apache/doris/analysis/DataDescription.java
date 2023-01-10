@@ -145,6 +145,7 @@ public class DataDescription {
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
+    private boolean trimDoubleQuotes = false;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -250,6 +251,7 @@ public class DataDescription {
         this.readJsonByLine = taskInfo.isReadJsonByLine();
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
+        this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -639,6 +641,10 @@ public class DataDescription {
 
     public boolean isReadJsonByLine() {
         return readJsonByLine;
+    }
+
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
     }
 
     /*

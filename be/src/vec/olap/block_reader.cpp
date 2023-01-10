@@ -213,7 +213,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
             return res;
         }
 
-        if (!_next_row.is_same) {
+        if (!_get_next_row_same()) {
             if (target_block_row == _batch_size) {
                 break;
             }
@@ -280,6 +280,12 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
     if (_filter_delete) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
+        if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
+            LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
+                         << delete_sign_idx
+                         << " not invalid, skip filter delete in base compaction";
+            return Status::OK();
+        }
         MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
@@ -404,6 +410,15 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->destroy(place);
             function->create(place);
         }
+    }
+}
+
+bool BlockReader::_get_next_row_same() {
+    if (_next_row.is_same) {
+        return true;
+    } else {
+        auto block = _next_row.block.get();
+        return block->get_same_bit(_next_row.row_pos);
     }
 }
 

@@ -40,7 +40,6 @@ class Expr;
 class ExprContext;
 class ObjectPool;
 class Counters;
-class RowBatch;
 class RuntimeState;
 class TPlan;
 class TupleRow;
@@ -109,10 +108,11 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status get_next_after_projects(
+            RuntimeState* state, vectorized::Block* block, bool* eos,
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn);
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
@@ -222,6 +222,9 @@ public:
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
+    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
+    // and add block rows for profile
+    void reached_limit(vectorized::Block* block, bool* eos);
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
@@ -259,56 +262,8 @@ protected:
     // 2. delete and release the column which create by function all and other reason
     void release_block_memory(vectorized::Block& block, uint16_t child_idx = 0);
 
-    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
-    // and add block rows for profile
-    void reached_limit(vectorized::Block* block, bool* eos);
-
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
-
-    /// Extends blocking queue for row batches. Row batches have a property that
-    /// they must be processed in the order they were produced, even in cancellation
-    /// paths. Preceding row batches can contain ptrs to memory in subsequent row batches
-    /// and we need to make sure those ptrs stay valid.
-    /// Row batches that are added after Shutdown() are queued in another queue, which can
-    /// be cleaned up during Close().
-    /// All functions are thread safe.
-    class RowBatchQueue : public BlockingQueue<RowBatch*> {
-    public:
-        /// max_batches is the maximum number of row batches that can be queued.
-        /// When the queue is full, producers will block.
-        RowBatchQueue(int max_batches);
-        ~RowBatchQueue();
-
-        /// Adds a batch to the queue. This is blocking if the queue is full.
-        void AddBatch(RowBatch* batch);
-
-        /// Adds a batch to the queue. If the queue is full, this blocks until space becomes
-        /// available or 'timeout_micros' has elapsed.
-        /// Returns true if the element was added to the queue, false if it wasn't. If this
-        /// method returns false, the queue didn't take ownership of the batch and it must be
-        /// managed externally.
-        bool AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros);
-
-        /// Gets a row batch from the queue. Returns nullptr if there are no more.
-        /// This function blocks.
-        /// Returns nullptr after Shutdown().
-        RowBatch* GetBatch();
-
-        /// Deletes all row batches in cleanup_queue_. Not valid to call AddBatch()
-        /// after this is called.
-        /// Returns the number of io buffers that were released (for debug tracking)
-        int Cleanup();
-
-    private:
-        /// Lock protecting cleanup_queue_
-        // SpinLock lock_;
-        // TODO(dhc): need to modify spinlock
-        std::mutex lock_;
-
-        /// Queue of orphaned row batches
-        std::list<RowBatch*> cleanup_queue_;
-    };
 
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;

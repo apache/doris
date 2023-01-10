@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -52,6 +53,7 @@ public class InnerJoinRightAssociate extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), group())
                 .when(InnerJoinRightAssociate::checkReorder)
+                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -87,7 +89,7 @@ public class InnerJoinRightAssociate extends OneExplorationRuleFactory {
                     List<Expression> newTopOtherJoinConjuncts = otherConjunctsSplit.get(false);
 
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, JoinHint.NONE,
                             b, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
                     newBottomJoin.getJoinReorderContext().setHasRightAssociate(false);
@@ -95,7 +97,7 @@ public class InnerJoinRightAssociate extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().setHasExchange(false);
 
                     LogicalJoin<GroupPlan, LogicalJoin<GroupPlan, GroupPlan>> newTopJoin = new LogicalJoin<>(
-                            JoinType.INNER_JOIN, newTopHashJoinConjuncts, newTopOtherJoinConjuncts,
+                            JoinType.INNER_JOIN, newTopHashJoinConjuncts, newTopOtherJoinConjuncts, JoinHint.NONE,
                             a, newBottomJoin, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
                     newTopJoin.getJoinReorderContext().setHasCommute(false);

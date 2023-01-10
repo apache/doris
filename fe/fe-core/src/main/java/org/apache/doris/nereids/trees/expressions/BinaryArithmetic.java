@@ -20,13 +20,15 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
-public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable {
+public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable, ImplicitCastInputTypes {
 
     private final Operator legacyOperator;
 
@@ -41,7 +43,17 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return left().getDataType();
+        if (left().getDataType().equals(right().getDataType())) {
+            return left().getDataType();
+        } else {
+            try {
+                return TypeCoercionUtils.findCommonNumericsType(left().getDataType(), right().getDataType());
+            } catch (Exception e) {
+                return TypeCoercionUtils.findTightestCommonType(this,
+                                left().getDataType(), right().getDataType())
+                        .orElseGet(() -> left().getDataType());
+            }
+        }
     }
 
     @Override

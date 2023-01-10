@@ -46,16 +46,13 @@ public:
              RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
              const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
-             const std::shared_ptr<MemTracker>& flush_mem_tracker, bool support_vec = false);
+             const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
-    KeysType keys_type() const { return _tablet->keys_type(); }
     size_t memory_usage() const {
         return _insert_mem_tracker->consumption() + _flush_mem_tracker->consumption();
     }
-
-    inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
@@ -70,18 +67,10 @@ public:
     Status close();
 
     int64_t flush_size() const { return _flush_size; }
+    int64_t merged_rows() const { return _merged_rows; }
 
 private:
     Status _do_flush(int64_t& duration_ns);
-
-    class RowCursorComparator : public RowComparator {
-    public:
-        RowCursorComparator(const Schema* schema);
-        int operator()(const char* left, const char* right) const override;
-
-    private:
-        const Schema* _schema;
-    };
 
     // row pos in _input_mutable_block
     struct RowInBlock {
@@ -114,34 +103,9 @@ private:
     };
 
 private:
-    using Table = SkipList<char*, RowComparator>;
-    using TableKey = Table::key_type;
     using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
 
-public:
-    /// The iterator of memtable, so that the data in this memtable
-    /// can be visited outside.
-    class Iterator {
-    public:
-        Iterator(MemTable* mem_table);
-        ~Iterator() = default;
-
-        void seek_to_first();
-        bool valid();
-        void next();
-        ContiguousRow get_current_row();
-
-    private:
-        MemTable* _mem_table;
-        Table::Iterator _it;
-    };
-
 private:
-    void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
-    void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
-    void _replace_row(const ContiguousRow& src_row, TableKey row_in_skiplist);
-    void _insert_dup(const Tuple* tuple);
-    void _insert_agg(const Tuple* tuple);
     // for vectorized
     void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
@@ -151,10 +115,9 @@ private:
 
 private:
     TabletSharedPtr _tablet;
+    const KeysType _keys_type;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
-    // the slot in _slot_descs are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* _slot_descs;
 
     // TODO: change to unique_ptr of comparator
     std::shared_ptr<RowComparator> _row_comparator;
@@ -185,8 +148,6 @@ private:
     ObjectPool _agg_object_pool;
 
     size_t _schema_size;
-    std::unique_ptr<Table> _skip_list;
-    Table::Hint _hint;
 
     std::unique_ptr<VecTable> _vec_skip_list;
     VecTable::Hint _vec_hint;
@@ -202,9 +163,7 @@ private:
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggregate key model.
     int64_t _rows = 0;
-    void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
-    void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,
-                                            TableKey row_in_skiplist) = nullptr;
+    int64_t _merged_rows = 0;
 
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;

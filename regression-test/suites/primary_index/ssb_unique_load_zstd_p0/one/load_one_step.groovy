@@ -34,7 +34,7 @@ suite("load_one_step") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/ssb/sf0.1/${tableName}.tbl.gz"""
+            file """${getS3Url()}/regression/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 

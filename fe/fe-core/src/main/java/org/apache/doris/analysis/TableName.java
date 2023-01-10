@@ -28,7 +28,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -69,9 +68,6 @@ public class TableName implements Writable {
             if (Strings.isNullOrEmpty(ctl)) {
                 ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
-        }
-        if (!ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            Util.checkCatalogEnabled();
         }
         if (Strings.isNullOrEmpty(db)) {
             db = analyzer.getDefaultDb();

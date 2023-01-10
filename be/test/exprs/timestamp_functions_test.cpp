@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
 #include "runtime/test_env.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
@@ -40,23 +39,13 @@ class TimestampFunctionsTest : public testing::Test {
 public:
     TimestampFunctionsTest() {}
 
-    void SetUp() {
-        TQueryGlobals globals;
-        globals.__set_now_string("2019-08-06 01:38:57");
-        globals.__set_timestamp_ms(1565080737805);
-        globals.__set_time_zone("America/Los_Angeles");
-        state = new RuntimeState(globals);
-        utils = new FunctionUtils(state);
+    void SetUp() override {
+        utils = new FunctionUtils();
         ctx = utils->get_fn_ctx();
     }
 
-    void TearDown() {
-        delete state;
-        delete utils;
-    }
+    void TearDown() override { delete utils; }
 
-private:
-    RuntimeState* state = nullptr;
     FunctionUtils* utils = nullptr;
     FunctionContext* ctx = nullptr;
 };
@@ -341,7 +330,7 @@ TEST_F(TimestampFunctionsTest, now) {
 }
 
 TEST_F(TimestampFunctionsTest, from_unix) {
-    IntVal unixtimestamp(1565080737);
+    IntVal unixtimestamp(1565026737);
     StringVal sval = TimestampFunctions::from_unix(ctx, unixtimestamp);
     EXPECT_EQ("2019-08-06 01:38:57", std::string((char*)sval.ptr, sval.len));
 
@@ -354,9 +343,9 @@ TEST_F(TimestampFunctionsTest, to_unix) {
     DateTimeVal dt_val;
     dt_val.packed_time = 1847544683002068992;
     dt_val.type = TIME_DATETIME;
-    EXPECT_EQ(1565080737, TimestampFunctions::to_unix(ctx).val);
-    EXPECT_EQ(1565080737, TimestampFunctions::to_unix(ctx, dt_val).val);
-    EXPECT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"),
+    EXPECT_EQ(1565026737, TimestampFunctions::to_unix(ctx).val);
+    EXPECT_EQ(1565026737, TimestampFunctions::to_unix(ctx, dt_val).val);
+    EXPECT_EQ(1565026737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"),
                                                       "%Y-%m-%d %H:%i:%S")
                                   .val);
 

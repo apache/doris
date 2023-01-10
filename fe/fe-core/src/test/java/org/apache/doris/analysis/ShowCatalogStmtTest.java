@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
 import org.junit.Assert;
@@ -27,7 +26,6 @@ import org.junit.Test;
 public class ShowCatalogStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        Config.enable_multi_catalog = true;
         final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
         ShowCatalogStmt stmt = new ShowCatalogStmt();
         stmt.analyze(analyzer);

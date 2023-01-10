@@ -118,13 +118,21 @@ public class Config extends ConfigBase {
 
     /**
      * plugin_dir:
-     *      plugin install directory
+     * plugin install directory
      */
     @ConfField
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean plugin_enable = true;
+
+    /**
+     * The default path to save jdbc drivers.
+     * You can put all jdbc drivers in this path, and when creating jdbc resource with only jdbc driver file name,
+     * Doris will find jars from this path.
+     */
+    @ConfField
+    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
     /**
      * The default parallelism of the load execution plan
@@ -1452,7 +1460,7 @@ public class Config extends ConfigBase {
      * When the result set is large, you may need to increase this value.
      */
     @ConfField
-    public static int grpc_max_message_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
+    public static int grpc_max_message_size_bytes = 2147483647; // 2GB
 
     /**
      * Used to set minimal number of replication per tablet.
@@ -1680,13 +1688,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
-    /**
-     * Temp config for multi catalog feature.
-     * Should be removed when this feature is ready.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_multi_catalog = false;
-
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
 
@@ -1730,12 +1731,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_array_type = false;
-
-    /**
-     * Use new fe generate es dsl.
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_new_es_dsl = true;
 
     /**
      * The timeout of executing async remote fragment.
@@ -1927,5 +1922,30 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_fqdn_mode = false;
+
+    /**
+     * This is used whether to push down function to MYSQL in external Table with query sql
+     * like odbc, jdbc for mysql table
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_func_pushdown = true;
+
+    /**
+     * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
+     */
+    @ConfField(masterOnly = true)
+    public static boolean enable_hms_events_incremental_sync = false;
+
+    /**
+     * Maximum number of events to poll in each RPC.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int hms_events_batch_size_per_rpc = 500;
+
+    /**
+     * HMS polling interval in milliseconds.
+     */
+    @ConfField(masterOnly = true)
+    public static int hms_events_polling_interval_ms = 20000;
 }
 

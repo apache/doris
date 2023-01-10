@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 
@@ -50,6 +53,16 @@ public class Divide extends BinaryArithmetic {
     @Override
     public AbstractDataType inputType() {
         return NumericType.INSTANCE;
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        DataType commonType = super.getDataType();
+        if (commonType.isDecimalType()) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
+        } else {
+            return DoubleType.INSTANCE;
+        }
     }
 
     // Divide is implemented as a scalar function which return type is always nullable.

@@ -83,7 +83,6 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertEquals(1, StringUtils.countMatches(planString, "`tb1`.`k1` = `tb2`.`k1`"));
     }
 
-
     @Test
     public void testWideCommonFactorsWithOrPredicate() throws Exception {
         String query = "select * from tb1 where tb1.k1 > 1000 or tb1.k1 < 200 or tb1.k1 = 300";

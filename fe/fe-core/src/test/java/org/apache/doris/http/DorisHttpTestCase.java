@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -170,7 +171,7 @@ public abstract class DorisHttpTestCase {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -188,15 +189,16 @@ public abstract class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId + 100,
+                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId + 100, ReplicaAllocation.DEFAULT_ALLOCATION);
         EsTable table = null;
         Map<String, String> props = new HashMap<>();
-        props.put(EsTable.HOSTS, "http://node-1:8080");
-        props.put(EsTable.USER, "root");
-        props.put(EsTable.PASSWORD, "root");
-        props.put(EsTable.INDEX, "test");
-        props.put(EsTable.TYPE, "doc");
+        props.put(EsResource.HOSTS, "http://node-1:8080");
+        props.put(EsResource.USER, "root");
+        props.put(EsResource.PASSWORD, "root");
+        props.put(EsResource.INDEX, "test");
+        props.put(EsResource.TYPE, "doc");
         try {
             table = new EsTable(testTableId + 1, name, columns, props, partitionInfo);
         } catch (DdlException e) {

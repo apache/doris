@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -67,16 +68,12 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
     private Table getIcebergTable() {
         org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
         Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : table.getCatalog().getCatalogProperty().getProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        Map<String, String> s3Properties = table.getS3Properties();
-        for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
+        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
         hiveCatalog.setConf(conf);
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put("hive.metastore.uris", table.getMetastoreUri());
+        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, table.getMetastoreUri());
         catalogProperties.put("uri", table.getMetastoreUri());
         hiveCatalog.initialize("hive", catalogProperties);
         return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
@@ -102,7 +99,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
-        params.put("id", String.valueOf(tbl.getId()) + "-" + String.valueOf(col.getName()));
+        params.put("id", tbl.getId() + "-" + col.getName());
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));

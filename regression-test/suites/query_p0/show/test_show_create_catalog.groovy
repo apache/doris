@@ -21,7 +21,6 @@ suite("test_show_create_catalog", "query") {
         String enabled = context.config.otherConfigs.get("enableJdbcTest")
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            sql """admin set frontend config ("enable_multi_catalog" = "true")"""
             
             sql """drop catalog if exists ${catalog_name} """
 

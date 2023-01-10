@@ -102,7 +102,7 @@ public class JdbcScanNode extends ScanNode {
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         for (Expr p : conjunctsList) {
             if (OdbcScanNode.shouldPushDownConjunct(jdbcType, p)) {
-                String filter = p.toMySql();
+                String filter = OdbcScanNode.conjunctExprToString(jdbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
             }
@@ -195,6 +195,7 @@ public class JdbcScanNode extends ScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        msg.jdbc_scan_node.setTableType(jdbcType);
     }
 
     @Override

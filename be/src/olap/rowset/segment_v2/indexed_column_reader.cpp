@@ -258,5 +258,40 @@ Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view
     return Status::OK();
 }
 
+Status IndexedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    DCHECK(_seeked);
+    if (_current_ordinal == _reader->num_values()) {
+        *n = 0;
+        return Status::OK();
+    }
+
+    size_t remaining = *n;
+    while (remaining > 0) {
+        if (!_data_page.has_remaining()) {
+            // trying to read next data page
+            if (!_reader->_has_index_page) {
+                break; // no more data page
+            }
+            bool has_next = _current_iter->move_next();
+            if (!has_next) {
+                break; // no more data page
+            }
+            RETURN_IF_ERROR(_read_data_page(_current_iter->current_page_pointer()));
+        }
+
+        size_t rows_to_read = std::min(_data_page.remaining(), remaining);
+        size_t rows_read = rows_to_read;
+        RETURN_IF_ERROR(_data_page.data_decoder->next_batch(&rows_read, dst));
+        DCHECK(rows_to_read == rows_read);
+
+        _data_page.offset_in_page += rows_read;
+        _current_ordinal += rows_read;
+        remaining -= rows_read;
+    }
+    *n -= remaining;
+    _seeked = false;
+    return Status::OK();
+}
+
 } // namespace segment_v2
 } // namespace doris

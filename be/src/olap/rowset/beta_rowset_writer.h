@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
+#include "segment_v2/segment.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -55,7 +56,6 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
     Status flush_single_memtable(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
@@ -112,7 +112,8 @@ private:
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
-    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
+                                       size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     Status _wait_flying_segcompaction();

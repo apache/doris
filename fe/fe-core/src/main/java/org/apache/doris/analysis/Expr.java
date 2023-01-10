@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -31,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -691,12 +693,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public Expr trySubstitute(ExprSubstitutionMap smap, Analyzer analyzer,
                               boolean preserveRootType) throws AnalysisException {
+        return trySubstitute(smap, null, analyzer, preserveRootType);
+    }
+
+    public Expr trySubstitute(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer,
+            boolean preserveRootType) throws AnalysisException {
         Expr result = clone();
         // Return clone to avoid removing casts.
         if (smap == null) {
             return result;
         }
-        result = result.substituteImpl(smap, analyzer);
+        result = result.substituteImpl(smap, disjunctsMap, analyzer);
         result.analyze(analyzer);
         if (preserveRootType && !type.equals(result.getType())) {
             result = result.castTo(type);
@@ -717,8 +724,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public Expr substitute(ExprSubstitutionMap smap, Analyzer analyzer, boolean preserveRootType)
             throws AnalysisException {
+        return substitute(smap, null, analyzer, preserveRootType);
+    }
+
+    public Expr substitute(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap,
+            Analyzer analyzer, boolean preserveRootType)
+            throws AnalysisException {
         try {
-            return trySubstitute(smap, analyzer, preserveRootType);
+            return trySubstitute(smap, disjunctsMap, analyzer, preserveRootType);
         } catch (AnalysisException e) {
             throw e;
         } catch (Exception e) {
@@ -755,10 +768,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Exprs that have non-child exprs which should be affected by substitutions must
      * override this method and apply the substitution to such exprs as well.
      */
-    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
-            throws AnalysisException {
+    protected Expr substituteImpl(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer) {
         if (isImplicitCast()) {
-            return getChild(0).substituteImpl(smap, analyzer);
+            return getChild(0).substituteImpl(smap, disjunctsMap, analyzer);
         }
         if (smap != null) {
             Expr substExpr = smap.get(this);
@@ -766,8 +778,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return substExpr.clone();
             }
         }
+        if (Expr.IS_OR_PREDICATE.apply(this) && disjunctsMap != null) {
+            smap = disjunctsMap;
+            disjunctsMap = null;
+        }
         for (int i = 0; i < children.size(); ++i) {
-            children.set(i, children.get(i).substituteImpl(smap, analyzer));
+            children.set(i, children.get(i).substituteImpl(smap, disjunctsMap, analyzer));
         }
         // SlotRefs must remain analyzed to support substitution across query blocks. All
         // other exprs must be analyzed again after the substitution to add implicit casts
@@ -1209,6 +1225,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public Expr getRealSlotRef() {
         return this;
+    }
+
+    public Map<Long, Set<String>> getTableIdToColumnNames() {
+        Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
+        getTableIdToColumnNames(tableIdToColumnNames);
+        return tableIdToColumnNames;
     }
 
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
@@ -2022,6 +2044,25 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn.functionName().equalsIgnoreCase("concat_ws")) {
             return children.get(0).isNullable();
         }
+        if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
+        if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
+                || fn.functionName().equalsIgnoreCase(Operator.SUBTRACT.getName()))
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
         return true;
     }
 
@@ -2062,6 +2103,28 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else {
             return this instanceof LiteralExpr;
         }
+    }
+
+    public boolean matchExprs(List<Expr> exprs) {
+        for (Expr expr : exprs) {
+            if (expr == null) {
+                continue;
+            }
+            if (expr.toSql().equals(toSql())) {
+                return true;
+            }
+        }
+
+        if (getChildren().isEmpty()) {
+            return false;
+        }
+
+        for (Expr expr : getChildren()) {
+            if (!expr.matchExprs(exprs)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {

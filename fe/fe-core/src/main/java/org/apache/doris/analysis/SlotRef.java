@@ -84,7 +84,7 @@ public class SlotRef extends Expr {
         analysisDone();
     }
 
-    // nerieds use this constructor to build aggFnParam
+    // nereids use this constructor to build aggFnParam
     public SlotRef(Type type, boolean nullable) {
         super();
         // tuple id and slot id is meaningless here, nereids just use type and nullable
@@ -402,10 +402,10 @@ public class SlotRef extends Expr {
 
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(desc != null);
-        if (!desc.isMaterialized()) {
+        if (desc == null) {
             return;
         }
+
         if (col == null) {
             for (Expr expr : desc.getSourceExprs()) {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);

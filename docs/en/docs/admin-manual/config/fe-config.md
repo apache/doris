@@ -991,7 +991,7 @@ Whether to enable vectorized load
 
 #### `enable_new_load_scan_node`
 
-Default: false
+Default: true
 
 Whether to enable file scan node
 
@@ -2231,17 +2231,6 @@ In order not to wait too long for create table(index), set a max timeout.
 
 ### External Table
 
-#### `enable_multi_catalog`
-
-Default：false
-
-IsMutable：true
-
-MasterOnly：true
-
-Whether to enable the multi catalog function, it is disabled by default. 
-Subsequent versions may enable multi catalog by default, and this configuration will be deleted
-
 #### `file_scan_node_split_num`
 
 Default：128
@@ -2373,16 +2362,6 @@ Is it a configuration item unique to the Master FE node: false
 Default：10
 
 fe will call es api to get es index shard info every es_state_sync_interval_secs
-
-#### `enable_new_es_dsl`
-
-Default：true
-
-Is it possible to dynamically configure: true
-
-Is it a configuration item unique to the Master FE node: false
-
-Use new fe generate es dsl.
 
 ### External Resources
 
@@ -2583,3 +2562,25 @@ Default：x@8
 #### `proxy_auth_enable`
 
 Default：false
+
+#### `enable_func_pushdown`
+
+Default：true
+
+IsMutable：true
+
+MasterOnly：false
+
+Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables
+
+#### `jdbc_drivers_dir`
+
+Default: `${DORIS_HOME}/jdbc_drivers`;
+
+IsMutable：false
+
+MasterOnly：false
+
+The default dir to put jdbc drivers.
+
+

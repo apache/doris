@@ -19,33 +19,54 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * remove the project that output same with its child to avoid we get two consecutive projects in best plan.
  * for more information, please see <a href="https://github.com/apache/doris/pull/13886">this PR</a>
  */
-public class EliminateUnnecessaryProject extends OneRewriteRuleFactory {
-
+public class EliminateUnnecessaryProject implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return logicalProject(any())
-                .when(project -> project.getOutputSet().equals(project.child().getOutputSet()))
-                .thenApply(ctx -> {
-                    int rootGroupId = ctx.cascadesContext.getMemo().getRoot().getGroupId().asInt();
-                    LogicalProject<Plan> project = ctx.root;
-                    // if project is root, we need to ensure the output order is same.
-                    if (project.getGroupExpression().get().getOwnerGroup().getGroupId().asInt() == rootGroupId) {
-                        if (project.getOutput().equals(project.child().getOutput())) {
-                            return project.child();
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            RuleType.MARK_NECESSARY_PROJECT.build(
+                logicalSetOperation(logicalProject(), group())
+                    .thenApply(ctx -> {
+                        LogicalProject project = (LogicalProject) ctx.root.child(0);
+                        return ctx.root.withChildren(project.withEliminate(false), ctx.root.child(1));
+                    })
+            ),
+            RuleType.MARK_NECESSARY_PROJECT.build(
+                logicalSetOperation(group(), logicalProject())
+                    .thenApply(ctx -> {
+                        LogicalProject project = (LogicalProject) ctx.root.child(1);
+                        return ctx.root.withChildren(ctx.root.child(0), project.withEliminate(false));
+                    })
+            ),
+            RuleType.ELIMINATE_UNNECESSARY_PROJECT.build(
+                logicalProject(any())
+                    .when(LogicalProject::canEliminate)
+                    .when(project -> project.getOutputSet().equals(project.child().getOutputSet()))
+                    .thenApply(ctx -> {
+                        int rootGroupId = ctx.cascadesContext.getMemo().getRoot().getGroupId().asInt();
+                        LogicalProject<Plan> project = ctx.root;
+                        // if project is root, we need to ensure the output order is same.
+                        if (project.getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
+                                == rootGroupId) {
+                            if (project.getOutput().equals(project.child().getOutput())) {
+                                return project.child();
+                            } else {
+                                return null;
+                            }
                         } else {
-                            return null;
+                            return project.child();
                         }
-                    } else {
-                        return project.child();
-                    }
-                }).toRule(RuleType.ELIMINATE_UNNECESSARY_PROJECT);
+                    })));
     }
 }

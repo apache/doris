@@ -44,7 +44,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
     Status alloc_resource(RuntimeState* state) override;

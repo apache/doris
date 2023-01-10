@@ -66,6 +66,10 @@ public class MetricsTest {
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
             visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
-        Assert.assertTrue(sb.toString().contains("# TYPE doris_fe_query_latency_ms summary"));
+        String metricResult = sb.toString();
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",db=\"test_db\"} 10.0"));
+
     }
 }

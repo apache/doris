@@ -75,8 +75,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         String originUri = validParams.getOrDefault(S3_URI, "");
         if (originUri.toLowerCase().startsWith("s3")) {
-            // s3 protocol
-            forceVirtualHosted = false;
+            // s3 protocol, default virtual-hosted style
+            forceVirtualHosted = true;
         } else {
             // not s3 protocol, forceVirtualHosted is determined by USE_PATH_STYLE.
             forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
@@ -85,7 +85,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         try {
             s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
         } catch (UserException e) {
-            throw new AnalysisException("parse s3 uri failed, uri = " + validParams.get(S3_URI));
+            throw new AnalysisException("parse s3 uri failed, uri = " + validParams.get(S3_URI), e);
         }
         if (forceVirtualHosted) {
             // s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:

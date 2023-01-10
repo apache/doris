@@ -24,9 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
 
 # Multi-Catalog
+
+<version since="1.2.0">
 
 Multi-Catalog is a feature introduced in Doris 1.2.0, which aims to make it easier to interface with external data sources to enhance Doris' data lake analysis and federated data query capabilities.
 
@@ -39,6 +40,8 @@ The new Multi-Catalog function adds a new layer of Catalog to the original metad
 3. JDBC: Connect to the standard database access interface (JDBC) to access data of various databases. (currently only support `jdbc:mysql`)
 
 This function will be used as a supplement and enhancement to the previous external table connection method (External Table) to help users perform fast multi-catalog federated queries.
+
+</version>
 
 ## Basic Concepts
 
@@ -67,7 +70,7 @@ This function will be used as a supplement and enhancement to the previous exter
     
 4. Drop Catalog
 
-    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
+    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
 
     This operation will only delete the mapping information of the catalog in Doris, and will not modify or change the contents of any external data source.
 
@@ -78,12 +81,37 @@ This function will be used as a supplement and enhancement to the previous exter
 > 1. hive supports version 2.3.7 and above.
 > 2. Iceberg currently only supports V1 version, V2 version will be supported soon.
 > 3. Hudi currently only supports Snapshot Query for Copy On Write tables and Read Optimized Query for Merge On Read tables. In the future, Incremental Query and Snapshot Query for Merge On Read tables will be supported soon.
+> 4. Support access to hive tables whose data stored on tencent chdfs, usage is same as common hive table.
 
 The following example is used to create a Catalog named hive to connect the specified Hive MetaStore, and provide the HDFS HA connection properties to access the corresponding files in HDFS.
 
+**Create catalog through resource**
+
+In later versions of `1.2.0`, it is recommended to create a catalog through resource.
+```sql
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+
+// The properties in 'PROPERTIES' will overwrite the properties in "Resource"
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
+
+**Create catalog through properties**
+
+Version `1.2.0` creates a catalog through properties.
+```sql
 CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
@@ -96,13 +124,13 @@ CREATE CATALOG hive PROPERTIES (
 
 If you want to connect to a Hive MetaStore with kerberos authentication, you can do like this:
 
-```
-CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hive.metastore.sasl.enabled' = 'true',
     'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes. service1'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
@@ -111,6 +139,15 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
     'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
+);
+CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.kerberos.xxx' = 'xxx',
+    ...
 );
 ```
 
@@ -261,10 +298,19 @@ Query OK, 1000 rows affected (0.28 sec)
 
 The following example creates a Catalog connection named es to the specified ES and turns off node discovery.
 
-```
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE es_resource PROPERTIES (
+    "type"="es",
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
+);
+CREATE CATALOG es WITH RESOURCE es_resource;
+
+-- 1.2.0 Version
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -333,28 +379,63 @@ Parameter | Description
 
 The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
 
+**mysql catalog example**
+
 ```sql
+-- 1.2.0+ Version
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+)
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
+
+-- 1.2.0 Version
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    ...
+)
+```
+
+**postgresql catalog example**
+
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE pg_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
 );
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
 ```
 
 Where `jdbc.driver_url` can be a remote jar package
 
 ```sql
-CREATE CATALOG jdbc PROPERTIES (
-"type"="jdbc",
-"jdbc.user"="root",
-"jdbc.password"="123456",
-"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-"jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
-);
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 ```
 
 If the `jdbc.driver_url` is a remote jar package in the form of http, the Doris processing method is:
@@ -373,6 +454,8 @@ MySQL [(none)]> show catalogs;
 +-----------+-------------+----------+
 2 rows in set (0.02 sec)
 ```
+
+> Note: In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
 
 Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
 
@@ -449,7 +532,7 @@ MySQL [db1]> select * from tbl1;
 
 1. Create hive-site.xml
 
-    Create hive-site.xml and put it in `fe/conf` and `be/conf`.
+    Create hive-site.xml and put it in `fe/conf`.
     
     ```
     <?xml version="1.0"?>
@@ -495,20 +578,51 @@ MySQL [db1]> select * from tbl1;
 
 2. Restart FE and create a catalog with the `CREATE CATALOG` statement.
 
-    ```
+    HMS resource will read and analyze fe/conf/hive-site.xml
+    ```sql
+    -- 1.2.0+ Version
+    CREATE RESOURCE dlf_resource PROPERTIES (
+        "type"="hms",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    )
+    CREATE CATALOG dlf WITH RESOURCE dlf_resource;
+
+    -- 1.2.0 Version
     CREATE CATALOG dlf PROPERTIES (
         "type"="hms",
         "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-    );
+    )
     ```
     
     where `type` is fixed to `hms`. The value of `hive.metastore.uris` can be filled in at will, but it will not be used in practice. But it needs to be filled in the standard hive metastore thrift uri format.
 
-After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
+    After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
 
 ## Column Type Mapping
 
 After the user creates the catalog, Doris will automatically synchronize the database and tables of the data catalog. For different data catalog and data table formats, Doris will perform the following mapping relationships.
+
+<version since="dev">
+
+For types that cannot currently be mapped to Doris column types, such as map, struct, etc. Doris will map the column type to UNSUPPORTED type. For queries of type UNSUPPORTED, an example is as follows:
+
+Suppose the table schema after synchronization is:
+
+```
+k1 INT,
+k2 INT,
+k3 UNSUPPORTED,
+k4 INT
+```
+
+```
+select * from table;                // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select * except(k3) from table;     // Query OK.
+select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select k1, k4 from table;           // Query OK.
+```
+
+</version>
 
 ### Hive MetaStore
 
@@ -581,6 +695,30 @@ For Hive/Iceberge/Hudi
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
 
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit` type corresponds to the `STRING` type of DORIS. The data read is `true/false`, not `1/0` |
+| uuid/josnb | STRING | |
+
 ## Privilege Management
 
 Using Doris to access the databases and tables in the External Catalog is not controlled by the permissions of the external data source itself, but relies on Doris's own permission access management.
@@ -595,4 +733,14 @@ Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../
 
 Automatic synchronization of metadata will be supported soon.
 
-</version>
+## FAQ
+
+### Iceberg
+
+The following configurations solves the problem `failed to get schema for table xxx in db xxx` and `java.lang.UnsupportedOperationException: Storage schema reading not supported` when reading data from `Hive Metastore`.
+
+- Place iceberg runtime jar in the hive lib directory.
+- hive-site.xml add the property `metastore.storage.schema.reader.impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader`.
+
+Restart `Hive Metastore` after the configuration is complete. 
+

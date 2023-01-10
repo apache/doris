@@ -194,6 +194,7 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public boolean isView() {
+        makeSureInitialized();
         return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
     }
 
@@ -284,12 +285,16 @@ public class HMSExternalTable extends ExternalTable {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
 
-    public Map<String, String> getHdfsProperties() {
-        return catalog.getCatalogProperty().getHdfsProperties();
+    public Map<String, String> getCatalogProperties() {
+        return catalog.getProperties();
     }
 
-    public Map<String, String> getS3Properties() {
-        return catalog.getCatalogProperty().getS3Properties();
+    public Map<String, String> getS3HadoopProperties() {
+        return catalog.getCatalogProperty().getS3HadoopProperties();
+    }
+
+    public Map<String, String> getHadoopProperties() {
+        return catalog.getCatalogProperty().getHadoopProperties();
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {

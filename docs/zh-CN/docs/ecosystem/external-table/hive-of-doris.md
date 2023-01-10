@@ -33,6 +33,7 @@ Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能�
 1. 支持 Hive 数据源接入Doris
 2. 支持 Doris 与 Hive 数据源中的表联合查询，进行更加复杂的分析操作
 3. 支持 访问开启 kerberos 的 Hive 数据源
+4. 支持 访问数据存储在腾讯 CHDFS 上的 Hive 数据源
  
 本文档主要介绍该功能的使用方式和注意事项等。
 

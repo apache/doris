@@ -73,11 +73,6 @@ TEST(TEST_VEXPR, ABSTEST) {
     runtime_stat.set_desc_tbl(desc_tbl);
     context->prepare(&runtime_stat, row_desc);
     context->open(&runtime_stat);
-
-    auto block = row_batch.convert_to_vec_block();
-    int ts = -1;
-    context->execute(&block, &ts);
-
     context->close(&runtime_stat);
 }
 
@@ -118,10 +113,6 @@ TEST(TEST_VEXPR, ABSTEST2) {
     runtime_stat.set_desc_tbl(&desc_tbl);
     context->prepare(&runtime_stat, row_desc);
     context->open(&runtime_stat);
-
-    auto block = row_batch.convert_to_vec_block();
-    int ts = -1;
-    context->execute(&block, &ts);
     context->close(&runtime_stat);
 }
 

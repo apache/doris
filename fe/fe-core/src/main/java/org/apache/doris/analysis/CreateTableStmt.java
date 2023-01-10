@@ -390,7 +390,7 @@ public class CreateTableStmt extends DdlStmt {
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
-            if (columnDef.getType().isArrayType()) {
+            if (columnDef.getType().isArrayType() && engineName.equals("olap")) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
                     throw new AnalysisException("Array column can't support aggregation "
                             + columnDef.getAggregateType());
@@ -436,7 +436,7 @@ public class CreateTableStmt extends DdlStmt {
             if (distributionDesc == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
-            distributionDesc.analyze(columnSet, columnDefs);
+            distributionDesc.analyze(columnSet, columnDefs, keysDesc);
             if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {
                 if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                     throw new AnalysisException("Create unique keys table should not contain random distribution desc");

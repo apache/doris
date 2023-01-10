@@ -37,6 +37,8 @@ suite("test_string_basic") {
         CREATE TABLE IF NOT EXISTS ${tbName} (k1 VARCHAR(10) NULL, v1 STRING NULL) 
         UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
         """
+    // default repeat maximum is 10000
+    sql """set repeat_max_num=131073"""
     sql """
         INSERT INTO ${tbName} VALUES
          ("", ""),

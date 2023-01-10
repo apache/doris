@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.Comparator;
 import java.util.List;
@@ -61,21 +62,15 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
     }
 
-    /**
-     * 1. indexes have all the required columns.
-     * 2. find matching key prefix most.
-     * 3. sort by row count, column count and index id.
-     */
-    protected List<Long> filterAndOrder(
-            Stream<MaterializedIndex> candidates,
+    protected boolean containAllRequiredColumns(
+            MaterializedIndex index,
             LogicalOlapScan scan,
-            Set<Slot> requiredScanOutput,
-            List<Expression> predicates) {
+            Set<Slot> requiredScanOutput) {
 
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
-        Map<ExprId, String> exprIdToName = scan.getOutput()
-                .stream()
+        Map<ExprId, String> exprIdToName = Stream.concat(
+                        scan.getOutput().stream(), scan.getNonUserVisibleOutput().stream())
                 .collect(Collectors.toMap(NamedExpression::getExprId, NamedExpression::getName));
 
         // get required column names in metadata.
@@ -84,22 +79,37 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .map(slot -> exprIdToName.get(slot.getExprId()))
                 .collect(Collectors.toSet());
 
-        // 1. filter index contains all the required columns by column name.
-        List<MaterializedIndex> containAllRequiredColumns = candidates
-                .filter(index -> table.getSchemaByIndexId(index.getId(), true)
-                        .stream()
-                        .map(Column::getName)
-                        .collect(Collectors.toSet())
-                        .containsAll(requiredColumnNames)
-                ).collect(Collectors.toList());
+        Set<String> nameMap = table.getSchemaByIndexId(index.getId(), true).stream()
+                .map(Column::getNameWithoutMvPrefix)
+                .collect(Collectors.toSet());
 
-        // 2. find matching key prefix most.
-        List<MaterializedIndex> matchingKeyPrefixMost = matchPrefixMost(scan, containAllRequiredColumns, predicates,
-                exprIdToName);
+        table.getSchemaByIndexId(index.getId(), true).stream()
+                .forEach(column -> nameMap.add(column.getName()));
+
+        return nameMap
+                .containsAll(requiredColumnNames);
+    }
+
+    /**
+     * 1. find matching key prefix most.
+     * 2. sort by row count, column count and index id.
+     */
+    protected long selectBestIndex(
+            List<MaterializedIndex> candidates,
+            LogicalOlapScan scan,
+            Set<Expression> predicates) {
+        OlapTable table = scan.getTable();
+        // Scan slot exprId -> slot name
+        Map<ExprId, String> exprIdToName = scan.getOutput()
+                .stream()
+                .collect(Collectors.toMap(NamedExpression::getExprId, NamedExpression::getName));
+
+        // find matching key prefix most.
+        List<MaterializedIndex> matchingKeyPrefixMost = matchPrefixMost(scan, candidates, predicates, exprIdToName);
 
         List<Long> partitionIds = scan.getSelectedPartitionIds();
-        // 3. sort by row count, column count and index id.
-        return matchingKeyPrefixMost.stream()
+        // sort by row count, column count and index id.
+        List<Long> sortedIndexIds = matchingKeyPrefixMost.stream()
                 .map(MaterializedIndex::getId)
                 .sorted(Comparator
                         // compare by row count
@@ -111,12 +121,14 @@ public abstract class AbstractSelectMaterializedIndexRule {
                         // compare by index id
                         .thenComparing(rid -> (Long) rid))
                 .collect(Collectors.toList());
+
+        return CollectionUtils.isEmpty(sortedIndexIds) ? scan.getTable().getBaseIndexId() : sortedIndexIds.get(0);
     }
 
     protected List<MaterializedIndex> matchPrefixMost(
             LogicalOlapScan scan,
             List<MaterializedIndex> candidate,
-            List<Expression> predicates,
+            Set<Expression> predicates,
             Map<ExprId, String> exprIdToName) {
         Map<Boolean, Set<String>> split = filterCanUsePrefixIndexAndSplitByEquality(predicates, exprIdToName);
         Set<String> equalColNames = split.getOrDefault(true, ImmutableSet.of());
@@ -140,8 +152,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * when comparing the key column.
      */
     private Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
-            List<Expression> conjunct, Map<ExprId, String> exprIdToColName) {
-        return conjunct.stream()
+            Set<Expression> conjuncts, Map<ExprId, String> exprIdToColName) {
+        return conjuncts.stream()
                 .map(expr -> PredicateChecker.canUsePrefixIndex(expr, exprIdToColName))
                 .filter(result -> !result.equals(PrefixIndexCheckResult.FAILURE))
                 .collect(Collectors.groupingBy(

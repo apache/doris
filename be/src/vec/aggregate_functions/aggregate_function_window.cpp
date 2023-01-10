@@ -78,8 +78,8 @@ static IAggregateFunction* create_function_lead_lag_first_last(const String& nam
     TYPE_TO_BASIC_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
-    LOG(FATAL) << "with unknowed type, failed in  create_aggregate_function_" << name
-               << " and type is: " << argument_types[0]->get_name();
+    LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
+                 << " and type is: " << argument_types[0]->get_name();
     return nullptr;
 }
 

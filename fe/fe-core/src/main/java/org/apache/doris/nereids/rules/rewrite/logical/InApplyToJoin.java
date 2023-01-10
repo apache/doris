@@ -17,23 +17,28 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
 
+import java.util.List;
+
 /**
  * Convert InApply to LogicalJoin.
  * <p>
- * Not In -> LEFT_ANTI_JOIN
+ * Not In -> NULL_AWARE_LEFT_ANTI_JOIN
  * In -> LEFT_SEMI_JOIN
  */
 public class InApplyToJoin extends OneRewriteRuleFactory {
@@ -51,13 +56,21 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         apply.right().getOutput().get(0));
             }
 
+            //TODO nereids should support bitmap runtime filter in future
+            List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
+            if (conjuncts.stream().anyMatch(expression -> expression.children().stream()
+                    .anyMatch(expr -> expr.getDataType() == BitmapType.INSTANCE))) {
+                throw new AnalysisException("nereids don't support bitmap runtime filter");
+            }
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
-                return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(),
-                        ExpressionUtils.extractConjunction(predicate),
+                return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
+                        conjuncts,
+                        JoinHint.NONE,
                         apply.left(), apply.right());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
-                        ExpressionUtils.extractConjunction(predicate),
+                        conjuncts,
+                        JoinHint.NONE,
                         apply.left(), apply.right());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

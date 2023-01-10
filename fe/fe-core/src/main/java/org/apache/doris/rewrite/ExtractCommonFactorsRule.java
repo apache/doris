@@ -25,8 +25,10 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Preconditions;
@@ -42,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +71,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+        Expr resultExpr = null;
         if (expr == null) {
             return null;
         } else if (expr instanceof CompoundPredicate
@@ -77,12 +81,19 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 return rewrittenExpr;
             }
         } else {
-            for (int i = 0; i < expr.getChildren().size(); i++) {
+            if (!(expr instanceof CompoundPredicate)) {
+                return expr;
+            }
+
+            resultExpr = expr.clone();
+
+            for (int i = 0; i < resultExpr.getChildren().size(); i++) {
                 Expr rewrittenExpr = apply(expr.getChild(i), analyzer, clauseType);
                 if (rewrittenExpr != null) {
-                    expr.setChild(i, rewrittenExpr);
+                    resultExpr.setChild(i, rewrittenExpr);
                 }
             }
+            return resultExpr;
         }
         return expr;
     }
@@ -179,10 +190,10 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         if (CollectionUtils.isNotEmpty(commonFactorList)) {
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
                     makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
-                    makeCompound(remainingOrClause, CompoundPredicate.Operator.OR));
+                    makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR));
             result.setPrintSqlInParens(true);
         } else {
-            result = makeCompound(remainingOrClause, CompoundPredicate.Operator.OR);
+            result = makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("equal ors: " + result.toSql());
@@ -399,6 +410,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
     /**
      * Rebuild CompoundPredicate, [a, e, f] AND => a and e and f
+     * Rewrite  OR :[a, b, c]
+     *          while (a.columnName == b.columnName == c.columnName) && (a,b,c)
+     *          instance of (BinaryPredicate, InPredicate)
+     *          && (a,b,c).op = BinaryPredicate.Operator.EQ =======>>>>>>
+     *          =======>>>>>>  columnName IN (a.value,b.value,c.value)
      */
     private Expr makeCompound(List<Expr> exprs, CompoundPredicate.Operator op) {
         if (CollectionUtils.isEmpty(exprs)) {
@@ -413,6 +429,114 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
         result.setPrintSqlInParens(true);
         return result;
+    }
+
+    private Expr makeCompoundRemaining(List<Expr> exprs, CompoundPredicate.Operator op) {
+        if (CollectionUtils.isEmpty(exprs)) {
+            return null;
+        }
+        if (exprs.size() == 1) {
+            return exprs.get(0);
+        }
+
+        Expr rewritePredicate = null;
+        // only OR will be rewrite to IN
+        if (op == CompoundPredicate.Operator.OR) {
+            rewritePredicate = rewriteOrToIn(exprs);
+            // IF rewrite finished, rewritePredicate will not be null
+            // IF not rewrite, do compoundPredicate
+            if (rewritePredicate != null) {
+                return rewritePredicate;
+            }
+        }
+
+        CompoundPredicate result = new CompoundPredicate(op, exprs.get(0), exprs.get(1));
+        for (int i = 2; i < exprs.size(); i++) {
+            result = new CompoundPredicate(op, result.clone(), exprs.get(i));
+        }
+        result.setPrintSqlInParens(true);
+        return result;
+    }
+
+    private Expr rewriteOrToIn(List<Expr> exprs) {
+        // remainingOR  expr = BP IP
+        InPredicate inPredicate = null;
+        boolean isOrToInAllowed = true;
+        Set<String> slotSet = new LinkedHashSet<>();
+
+        int rewriteThreshold;
+        if (ConnectContext.get() == null) {
+            rewriteThreshold = 2;
+        } else {
+            rewriteThreshold = ConnectContext.get().getSessionVariable().getRewriteOrToInPredicateThreshold();
+        }
+
+        for (int i = 0; i < exprs.size(); i++) {
+            Expr predicate = exprs.get(i);
+            if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
+                isOrToInAllowed = false;
+                break;
+            } else if (!(predicate.getChild(0) instanceof SlotRef)) {
+                isOrToInAllowed = false;
+                break;
+            } else if (!(predicate.getChild(1) instanceof LiteralExpr)) {
+                isOrToInAllowed = false;
+                break;
+            } else if (predicate instanceof BinaryPredicate
+                    && ((BinaryPredicate) predicate).getOp() != BinaryPredicate.Operator.EQ) {
+                isOrToInAllowed = false;
+                break;
+            } else {
+                TableName tableName = ((SlotRef) predicate.getChild(0)).getTableName();
+                if (tableName != null) {
+                    String tblName = tableName.toString();
+                    String columnWithTable = tblName + "." + ((SlotRef) predicate.getChild(0)).getColumnName();
+                    slotSet.add(columnWithTable);
+                } else {
+                    slotSet.add(((SlotRef) predicate.getChild(0)).getColumnName());
+                }
+            }
+        }
+
+        // isOrToInAllowed : true, means can rewrite
+        // slotSet.size : nums of columnName in exprs, should be 1
+        if (isOrToInAllowed && slotSet.size() == 1) {
+            if (exprs.size() < rewriteThreshold) {
+                return null;
+            }
+
+            // get deduplication list
+            List<Expr> deduplicationExprs = getDeduplicationList(exprs);
+            inPredicate = new InPredicate(deduplicationExprs.get(0),
+                    deduplicationExprs.subList(1, deduplicationExprs.size()), false);
+        }
+
+        return inPredicate;
+    }
+
+    public List<Expr> getDeduplicationList(List<Expr> exprs) {
+        Set<Expr> set = new HashSet<>();
+        List<Expr> deduplicationExprList = new ArrayList<>();
+
+        deduplicationExprList.add(exprs.get(0).getChild(0));
+
+        for (Expr expr : exprs) {
+            if (expr instanceof BinaryPredicate) {
+                if (!set.contains(expr.getChild(1))) {
+                    set.add(expr.getChild(1));
+                    deduplicationExprList.add(expr.getChild(1));
+                }
+            } else {
+                List<Expr> childrenExprs = expr.getChildren();
+                for (Expr childrenExpr : childrenExprs.subList(1, childrenExprs.size())) {
+                    if (!set.contains(childrenExpr)) {
+                        set.add(childrenExpr);
+                        deduplicationExprList.add(childrenExpr);
+                    }
+                }
+            }
+        }
+        return deduplicationExprList;
     }
 
     /**

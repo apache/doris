@@ -22,7 +22,6 @@
 
 #include <vec/data_types/data_type_factory.hpp>
 
-#include "../format/table/iceberg_reader.h"
 #include "common/logging.h"
 #include "common/utils.h"
 #include "exec/arrow/orc_reader.h"
@@ -43,7 +42,8 @@ namespace doris::vectorized {
 using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           const TFileScanRange& scan_range, RuntimeProfile* profile)
+                           const TFileScanRange& scan_range, RuntimeProfile* profile,
+                           KVCache<std::string>& kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
@@ -52,6 +52,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _cur_reader_eof(false),
           _mem_pool(std::make_unique<MemPool>()),
           _profile(profile),
+          _kv_cache(kv_cache),
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
         _strict_mode = scan_range.params.strict_mode;
@@ -210,11 +211,10 @@ Status VFileScanner::_init_src_block(Block* block) {
             data_type = DataTypeFactory::instance().create_data_type(it->second, true);
         }
         if (data_type == nullptr) {
-            return Status::NotSupported(
-                    fmt::format("Not support data type:{} for column: {}",
-                                (it == _name_to_col_type.end() ? slot->type().debug_string()
-                                                               : it->second.debug_string()),
-                                slot->col_name()));
+            return Status::NotSupported("Not support data type {} for column {}",
+                                        it == _name_to_col_type.end() ? slot->type().debug_string()
+                                                                      : it->second.debug_string(),
+                                        slot->col_name());
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
@@ -494,9 +494,10 @@ Status VFileScanner::_get_next_reader() {
                                                       _push_down_expr);
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
-                IcebergTableReader* iceberg_reader = new IcebergTableReader(
-                        (GenericReader*)parquet_reader, _profile, _state, _params);
-                iceberg_reader->init_row_filters(range);
+                IcebergTableReader* iceberg_reader =
+                        new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
+                                               _params, range, _kv_cache);
+                RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 _cur_reader.reset((GenericReader*)parquet_reader);
@@ -656,8 +657,27 @@ Status VFileScanner::_init_expr_ctxes() {
         }
     }
 
+    // set column name to default value expr map
+    for (auto slot_desc : _real_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        vectorized::VExprContext* ctx = nullptr;
+        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
+        if (it != std::end(_params.default_value_of_src_slot)) {
+            if (!it->second.nodes.empty()) {
+                RETURN_IF_ERROR(
+                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+                RETURN_IF_ERROR(ctx->open(_state));
+            }
+            // if expr is empty, the default value will be null
+            _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
+        }
+    }
+
     if (_is_load) {
-        // follow desc expr map and src default value expr map is only for load task.
+        // follow desc expr map is only for load task.
         bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
         int idx = 0;
         for (auto slot_desc : _output_tuple_desc->slots()) {
@@ -694,24 +714,6 @@ Status VFileScanner::_init_expr_ctxes() {
                                                          full_src_index_map[_src_slot_it->first]);
                     _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
                 }
-            }
-        }
-
-        for (auto slot_desc : _real_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                continue;
-            }
-            vectorized::VExprContext* ctx = nullptr;
-            auto it = _params.default_value_of_src_slot.find(slot_desc->id());
-            if (it != std::end(_params.default_value_of_src_slot)) {
-                if (!it->second.nodes.empty()) {
-                    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_state->obj_pool(),
-                                                                        it->second, &ctx));
-                    RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
-                    RETURN_IF_ERROR(ctx->open(_state));
-                }
-                // if expr is empty, the default value will be null
-                _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
             }
         }
     }

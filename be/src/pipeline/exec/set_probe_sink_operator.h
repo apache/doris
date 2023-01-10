@@ -33,7 +33,7 @@ class SetProbeSinkOperatorBuilder final
         : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
 private:
     constexpr static auto builder_name =
-            is_intersect ? "IntersectProbeSinkOperatorBuilder" : "ExceptProbeSinkOperatorBuilder";
+            is_intersect ? "IntersectProbeSinkOperator" : "ExceptProbeSinkOperator";
 
 public:
     SetProbeSinkOperatorBuilder(int32_t id, int child_id, ExecNode* set_node);
@@ -53,9 +53,7 @@ public:
     bool can_write() override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-    Status finalize(RuntimeState* state) override;
     Status open(RuntimeState* /*state*/) override { return Status::OK(); }
-    Status close(RuntimeState* /*state*/) override { return Status::OK(); }
 
 private:
     int _child_id;

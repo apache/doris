@@ -46,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
+  aggregate_functions/aggregate_function_histogram.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -64,6 +65,8 @@ set(VEC_FILES
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
+  core/block_spill_reader.cpp
+  core/block_spill_writer.cpp
   core/column_with_type_and_name.cpp
   core/field.cpp
   core/field.cpp
@@ -88,6 +91,7 @@ set(VEC_FILES
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
+  data_types/data_type_time.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
@@ -225,6 +229,7 @@ set(VEC_FILES
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
   functions/function_running_difference.cpp
+  functions/match.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
@@ -280,9 +285,16 @@ set(VEC_FILES
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
   exec/format/table/iceberg_reader.cpp
-  exec/format/file_reader/new_file_factory.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
+  exec/format/file_reader/new_plain_binary_line_reader.cpp
   )
+
+if (WITH_MYSQL)
+    set(VEC_FILES
+            ${VEC_FILES}
+            exec/scan/mysql_scanner.cpp
+            )
+endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}

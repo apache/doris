@@ -42,10 +42,7 @@ import java.util.Map;
  * );
  */
 public class HdfsResource extends Resource {
-    public static final String HADOOP_PREFIX = "hadoop.";
     public static final String HADOOP_FS_PREFIX = "dfs.";
-    public static final String HIVE_PREFIX = "hive.";
-    public static final String YARN_PREFIX = "yarn.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
     // simple or kerberos
     public static String HADOOP_USER_NAME = "hadoop.username";
@@ -68,6 +65,7 @@ public class HdfsResource extends Resource {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        super.modifyProperties(properties);
     }
 
     @Override

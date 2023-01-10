@@ -67,6 +67,7 @@ PROPERTIES (
 "table_type"="mysql"
 );
 ```
+
 参数说明：
 
 | 参数           | 说明|
@@ -81,15 +82,22 @@ PROPERTIES (
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
 | **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
 
->**注意：**
+> **注意：**
 >
->如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
+> 如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
+
+<version since="1.2.1">
+
+> 在1.2.1及之后的版本中，可以将 driver 放到 FE/BE 的 `jdbc_drivers` 目录下，并直接指定文件名，如：`"driver_url" = "mysql-connector-java-5.1.47.jar"`。系统会自动在 `jdbc_drivers` 目录寻找文件。
+
+</version>
 
 ### 查询用法
 
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
+由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
 
 ### 数据写入
 
@@ -206,7 +214,7 @@ PROPERTIES (
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
-|   REAL   |   FLOAT  |
+|   REAL   |   DOUBLE |
 |   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 
@@ -266,6 +274,33 @@ PROPERTIES (
    可选参数为:EXCEPTION,CONVERT_TO_NULL,ROUND, 分别为异常报错，转为NULL值，转为"0001-01-01 00:00:00";
    可在url中添加:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull" 
 
+4. 读取mysql外表或其他外表时，出现加载类失败
+   
+   如以下异常：
+   failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
+   这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
+
+5. 读取mysql问题出现通信链路异常
+   
+   如果出现如下报错：
+   ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = PoolInitializationException: Failed to initialize pool: Communications link failure
+    
+    The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
+    CAUSED BY: CommunicationsException: Communications link failure
+    
+    The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
+    CAUSED BY: SSLHandshakeExcepti
+   ```
+   可查看be的be.out日志
+   如果包含以下信息：
+   ```
+   WARN: Establishing SSL connection without server's identity verification is not recommended. 
+   According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. 
+   For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. 
+   You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
+   ```
+   可在创建resource的jdbc_url把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
 
 ```
 可全局修改配置项

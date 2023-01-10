@@ -125,7 +125,7 @@ public class FunctionCallExpr extends Expr {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) children.get(0).getType()).getScalarScale());
+                        Math.max(((ScalarType) children.get(0).getType()).getScalarScale(), 4));
             } else {
                 return returnType;
             }
@@ -148,6 +148,7 @@ public class FunctionCallExpr extends Expr {
         });
 
         PRECISION_INFER_RULE.put("round", roundRule);
+        PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
         PRECISION_INFER_RULE.put("floor", roundRule);
         PRECISION_INFER_RULE.put("dround", roundRule);
@@ -377,8 +378,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
-            throws AnalysisException {
+    protected Expr substituteImpl(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer) {
         if (aggFnParams != null && aggFnParams.exprs() != null) {
             ArrayList<Expr> newParams = new ArrayList<Expr>();
             for (Expr expr : aggFnParams.exprs()) {
@@ -392,7 +392,7 @@ public class FunctionCallExpr extends Expr {
             aggFnParams = aggFnParams
                     .clone(newParams);
         }
-        return super.substituteImpl(smap, analyzer);
+        return super.substituteImpl(smap, disjunctsMap, analyzer);
     }
 
     @Override
@@ -739,6 +739,14 @@ public class FunctionCallExpr extends Expr {
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
         }
+        // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
+        if (fnName.getFunction().equalsIgnoreCase("avg") && arg.type.isDecimalV3()
+                && arg.type.getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
+            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), arg.type.getPrecision(),
+                    ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+            Expr e = getChild(0).castTo(t);
+            setChild(0, e);
+        }
         if (fnName.getFunction().equalsIgnoreCase("sum_distinct")
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(
@@ -817,10 +825,11 @@ public class FunctionCallExpr extends Expr {
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
                 || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
-                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG"))
+                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG")
+                || fnName.getFunction().equalsIgnoreCase("HLL_UNION"))
                 && !arg.type.isHllType()) {
             throw new AnalysisException(
-                    "HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
+                    "HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
         }
 
         if (fnName.getFunction().equalsIgnoreCase("min")
@@ -1319,6 +1328,9 @@ public class FunctionCallExpr extends Expr {
                             && argTypes[i].isDecimalV3() && args[ix].isDecimalV2()) {
                         uncheckedCastChild(ScalarType.createDecimalV3Type(argTypes[i].getPrecision(),
                                 ((ScalarType) argTypes[i]).getScalarScale()), i);
+                    } else if (fnName.getFunction().equalsIgnoreCase("money_format")
+                            && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
+                        continue;
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())
                             && (!fn.getReturnType().isDecimalV3()

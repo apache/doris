@@ -33,7 +33,8 @@
 
 namespace doris {
 
-NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile, io::FileReader* file_reader,
+NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
+                                               io::FileReaderSPtr file_reader,
                                                Decompressor* decompressor, size_t length,
                                                const std::string& line_delimiter,
                                                size_t line_delimiter_length, size_t current_offset)
@@ -134,11 +135,6 @@ void NewPlainTextLineReader::extend_input_buf() {
         _input_buf_limit -= _input_buf_pos;
         _input_buf_pos = 0;
     } while (false);
-
-    // LOG(INFO) << "extend input buf."
-    //           << " input_buf_size: " << _input_buf_size
-    //           << " input_buf_pos: " << _input_buf_pos
-    //           << " input_buf_limit: " << _input_buf_limit;
 }
 
 void NewPlainTextLineReader::extend_output_buf() {
@@ -176,11 +172,6 @@ void NewPlainTextLineReader::extend_output_buf() {
         _output_buf_limit -= _output_buf_pos;
         _output_buf_pos = 0;
     } while (false);
-
-    // LOG(INFO) << "extend output buf."
-    //           << " output_buf_size: " << _output_buf_size
-    //           << " output_buf_pos: " << _output_buf_pos
-    //           << " output_buf_limit: " << _output_buf_limit;
 }
 
 Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
@@ -241,9 +232,12 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     IOContext io_ctx;
                     RETURN_IF_ERROR(
                             _file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
+                    _current_offset += read_len;
+                    if (read_len == 0) {
+                        _file_eof = true;
+                    }
                     COUNTER_UPDATE(_bytes_read_counter, read_len);
                 }
-                // LOG(INFO) << "after read file: _file_eof: " << _file_eof << " read_len: " << read_len;
                 if (_file_eof || read_len == 0) {
                     if (!_stream_end) {
                         return Status::InternalError(

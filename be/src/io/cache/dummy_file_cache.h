@@ -69,7 +69,6 @@ public:
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
 
 private:
-    Status _clean_unfinished_cache();
     void _add_file_cache(const Path& data_file);
     void _load();
     Status _clean_cache_internal(const Path&, size_t*);
@@ -86,7 +85,7 @@ private:
     Path _cache_dir;
     int64_t _alive_time_sec;
 
-    std::list<Path> _unfinished_files;
+    std::vector<Path> _unfinished_files;
 };
 
 } // namespace io

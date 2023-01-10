@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -76,8 +77,7 @@ public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleF
             //filter = [(n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')
             //             or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')]
             //         and ...
-            List<Expression> conjuncts = ExpressionUtils.extractConjunction(filter.getPredicates())
-                    .stream().collect(Collectors.toList());
+            Set<Expression> conjuncts = filter.getConjuncts();
 
             List<Expression> redundants = Lists.newArrayList();
             for (Expression conjunct : conjuncts) {
@@ -118,10 +118,11 @@ public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleF
 
             }
             if (redundants.isEmpty()) {
-                return new LogicalFilter<>(filter.getPredicates(), true, filter.child());
+                return new LogicalFilter<>(filter.getConjuncts(), true, filter.child());
             } else {
-                Expression newPredicate = ExpressionUtils.and(filter.getPredicates(), ExpressionUtils.and(redundants));
-                return new LogicalFilter<>(newPredicate,
+                return new LogicalFilter<>(ImmutableSet.<Expression>builder()
+                        .addAll(filter.getConjuncts())
+                        .addAll(redundants).build(),
                         true, filter.child());
             }
         }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION);

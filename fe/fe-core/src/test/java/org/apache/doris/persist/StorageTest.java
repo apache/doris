@@ -118,20 +118,20 @@ public class StorageTest {
         Assert.assertEquals(5, storage.getLatestImageSeq());
         Assert.assertEquals(4, storage.getLatestValidatedImageSeq());
         Assert.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
-        Assert.assertTrue(
-                Storage.getCurrentEditsFile(new File("storageTestDir")).equals(new File("storageTestDir/edits")));
+        Assert.assertEquals(
+                Storage.getCurrentEditsFile(new File("storageTestDir")), new File("storageTestDir/edits"));
 
-        Assert.assertTrue(storage.getCurrentImageFile().equals(new File("storageTestDir/image.5")));
-        Assert.assertTrue(storage.getImageFile(0).equals(new File("storageTestDir/image.0")));
-        Assert.assertTrue(
-                Storage.getImageFile(new File("storageTestDir"), 0).equals(new File("storageTestDir/image.0")));
+        Assert.assertEquals(storage.getCurrentImageFile(), new File("storageTestDir/image.5"));
+        Assert.assertEquals(storage.getImageFile(0), new File("storageTestDir/image.0"));
+        Assert.assertEquals(
+                Storage.getImageFile(new File("storageTestDir"), 0), new File("storageTestDir/image.0"));
 
-        Assert.assertTrue(storage.getCurrentEditsFile().equals(new File("storageTestDir/edits")));
-        Assert.assertTrue(storage.getEditsFile(5).equals(new File("storageTestDir/edits.5")));
-        Assert.assertTrue(
-                Storage.getEditsFile(new File("storageTestDir"), 3).equals(new File("storageTestDir/edits.3")));
+        Assert.assertEquals(storage.getCurrentEditsFile(), new File("storageTestDir/edits"));
+        Assert.assertEquals(storage.getEditsFile(5), new File("storageTestDir/edits.5"));
+        Assert.assertEquals(
+                Storage.getEditsFile(new File("storageTestDir"), 3), new File("storageTestDir/edits.3"));
 
-        Assert.assertTrue(storage.getVersionFile().equals(new File("storageTestDir/VERSION")));
+        Assert.assertEquals(storage.getVersionFile(), new File("storageTestDir/VERSION"));
 
         Assert.assertEquals("storageTestDir", storage.getMetaDir());
 

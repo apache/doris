@@ -61,10 +61,10 @@ LIBEVENT_SOURCE=libevent-release-2.1.12-stable
 LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
 
 # openssl
-OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1m.tar.gz"
-OPENSSL_NAME=openssl-OpenSSL_1_1_1m.tar.gz
-OPENSSL_SOURCE=openssl-OpenSSL_1_1_1m
-OPENSSL_MD5SUM="710c2368d28f1a25ab92e25b5b9b11ec"
+OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
+OPENSSL_NAME=openssl-OpenSSL_1_1_1s.tar.gz
+OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
+OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
 THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
@@ -73,10 +73,10 @@ THRIFT_SOURCE=thrift-0.13.0
 THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
 
 # protobuf
-PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.14.0.tar.gz"
-PROTOBUF_NAME=protobuf-3.14.0.tar.gz
-PROTOBUF_SOURCE=protobuf-3.14.0
-PROTOBUF_MD5SUM="0c9d2a96f3656ba7ef3b23b533fb6170"
+PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
+PROTOBUF_NAME=protobuf-3.15.0.tar.gz
+PROTOBUF_SOURCE=protobuf-3.15.0
+PROTOBUF_MD5SUM="3fb6c41f7b3c621424543f43d54baa42"
 
 # gflags
 GFLAGS_DOWNLOAD="https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"
@@ -363,10 +363,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.2.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.2.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.2"
-HDFS3_MD5SUM="5087ffec0fda4fbcd60a53ed92eb4d2d"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.4.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.4.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.4"
+HDFS3_MD5SUM="5da1d32ec83b3732ccbe26346a7f5f9a"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -394,10 +394,10 @@ XSIMD_SOURCE=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2
 XSIMD_MD5SUM="d024855f71c0a2837a6918c0f8f66245"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
-SIMDJSON_NAME=simdjson-1.0.2.tar.gz
-SIMDJSON_SOURCE=simdjson-1.0.2
-SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
+SIMDJSON_NAME=simdjson-3.0.1.tar.gz
+SIMDJSON_SOURCE=simdjson-3.0.1
+SIMDJSON_MD5SUM="993576b47249f2bade2bfb2552b2896a"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"

@@ -31,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
 import java.util.List;
 
 /*
@@ -200,7 +199,6 @@ public class UserPrivTable extends PrivTable {
      */
     public CatalogPrivTable degradeToInternalCatalogPriv() throws IOException {
         CatalogPrivTable catalogPrivTable = new CatalogPrivTable();
-        List<PrivEntry> degradedEntries = new LinkedList<>();
         for (PrivEntry privEntry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
             if (!globalPrivEntry.match(UserIdentity.ROOT, true)
@@ -210,23 +208,22 @@ public class UserPrivTable extends PrivTable {
                     // USAGE_PRIV is no need to degrade.
                     PrivBitSet removeUsagePriv = globalPrivEntry.privSet.copy();
                     removeUsagePriv.unset(PaloPrivilege.USAGE_PRIV.getIdx());
+                    removeUsagePriv.unset(PaloPrivilege.NODE_PRIV.getIdx());
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
                             InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, removeUsagePriv);
                     entry.setSetByDomainResolver(false);
                     catalogPrivTable.addEntry(entry, false, false);
                     if (globalPrivEntry.privSet.containsResourcePriv()) {
-                        // Should keep the USAGE_PRIV in userPrivTable, and remove other privs and entries.
+                        // Should only keep the USAGE_PRIV in userPrivTable, and remove other privs and entries.
                         globalPrivEntry.privSet.and(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
                     } else {
-                        degradedEntries.add(globalPrivEntry);
+                        // Remove all other privs
+                        globalPrivEntry.privSet.clean();
                     }
                 } catch (Exception e) {
                     throw new IOException(e.getMessage());
                 }
             }
-        }
-        for (PrivEntry degraded : degradedEntries) {
-            dropEntry(degraded);
         }
         return catalogPrivTable;
     }

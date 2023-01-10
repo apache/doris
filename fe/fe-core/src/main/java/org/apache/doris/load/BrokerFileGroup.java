@@ -105,6 +105,7 @@ public class BrokerFileGroup implements Writable {
     private boolean fuzzyParse = true;
     private boolean readJsonByLine = false;
     private boolean numAsString = false;
+    private boolean trimDoubleQuotes = false;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -262,6 +263,7 @@ public class BrokerFileGroup implements Writable {
             readJsonByLine = dataDescription.isReadJsonByLine();
             numAsString = dataDescription.isNumAsString();
         }
+        trimDoubleQuotes = dataDescription.getTrimDoubleQuotes();
     }
 
     public long getTableId() {
@@ -414,6 +416,10 @@ public class BrokerFileGroup implements Writable {
             return false;
         }
         return fileFormat.equalsIgnoreCase("parquet") || fileFormat.equalsIgnoreCase("orc");
+    }
+
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
     }
 
     @Override

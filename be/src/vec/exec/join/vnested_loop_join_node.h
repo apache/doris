@@ -57,10 +57,6 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not Implemented VNestedLoopJoinNode::get_next scalar");
-    }
-
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
     const RowDescriptor& intermediate_row_desc() const override {
@@ -78,8 +74,11 @@ public:
 private:
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status _generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants) {
+        constexpr bool ignore_null = JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
+                                     JoinOpType::value == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                     JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN;
+
         MutableBlock mutable_join_block(&_join_block);
-        auto& dst_columns = mutable_join_block.mutable_columns();
 
         while (_join_block.rows() < state->batch_size() && !_matched_rows_done) {
             // If this left block is exhausted or empty, we need to pull data from left child.
@@ -100,16 +99,17 @@ private:
                     if constexpr (set_build_side_flag) {
                         _offset_stack.push(mutable_join_block.rows());
                     }
-                    _process_left_child_block(dst_columns, now_process_build_block);
+                    _process_left_child_block(mutable_join_block, now_process_build_block);
                 } while (_join_block.rows() < state->batch_size() &&
                          _current_build_pos < _build_blocks.size());
             }
 
             if constexpr (set_probe_side_flag) {
-                auto status = _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                                     set_probe_side_flag>(
-                        &_join_block, !_is_left_semi_anti);
-                _update_tuple_is_null_column(&_join_block);
+                auto status =
+                        _do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                               set_probe_side_flag, ignore_null>(
+                                &_join_block, !_is_left_semi_anti);
+                _update_additional_flags(&_join_block);
                 if (!status.ok()) {
                     return status;
                 }
@@ -122,7 +122,7 @@ private:
                     if (!_matched_rows_done) {
                         _finalize_current_phase<false,
                                                 JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
-                                dst_columns, state->batch_size());
+                                mutable_join_block, state->batch_size());
                         _reset_with_next_probe_row();
                     }
                     break;
@@ -130,15 +130,22 @@ private:
             }
 
             if (!_matched_rows_done && _current_build_pos == _build_blocks.size()) {
+                if (_is_mark_join && _build_blocks.empty()) {
+                    DCHECK_EQ(JoinOpType::value, TJoinOp::CROSS_JOIN);
+                    _append_left_data_with_null(mutable_join_block);
+                    _reset_with_next_probe_row();
+                    break;
+                }
                 _reset_with_next_probe_row();
             }
         }
 
         if constexpr (!set_probe_side_flag) {
-            Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                                   set_probe_side_flag>(
-                    &_join_block, !_is_right_semi_anti);
-            _update_tuple_is_null_column(&_join_block);
+            Status status =
+                    _do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
+                                                           ignore_null>(&_join_block,
+                                                                        !_is_right_semi_anti);
+            _update_additional_flags(&_join_block);
             mutable_join_block = MutableBlock(&_join_block);
             if (!status.ok()) {
                 return status;
@@ -147,9 +154,8 @@ private:
 
         if constexpr (set_build_side_flag) {
             if (_matched_rows_done && _output_null_idx_build_side < _build_blocks.size()) {
-                auto& cols = mutable_join_block.mutable_columns();
                 _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
-                        cols, state->batch_size());
+                        mutable_join_block, state->batch_size());
             }
         }
         return Status::OK();
@@ -159,10 +165,10 @@ private:
     // Processes a block from the left child.
     //  dst_columns: left_child_row and now_process_build_block to construct a bundle column of new block
     //  now_process_build_block: right child block now to process
-    void _process_left_child_block(MutableColumns& dst_columns,
+    void _process_left_child_block(MutableBlock& mutable_block,
                                    const Block& now_process_build_block) const;
 
-    template <bool SetBuildSideFlag, bool SetProbeSideFlag>
+    template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(Block* block, bool materialize);
 
     // TODO: replace it as template lambda after support C++20
@@ -172,7 +178,7 @@ private:
                                                      bool materialize, Filter& filter);
 
     template <bool BuildSide, bool IsSemi>
-    void _finalize_current_phase(MutableColumns& dst_columns, size_t batch_size);
+    void _finalize_current_phase(MutableBlock& mutable_block, size_t batch_size);
 
     void _reset_with_next_probe_row();
 
@@ -183,9 +189,13 @@ private:
     void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag);
 
     // add tuple is null flag column to Block for filter conjunct and output expr
-    void _update_tuple_is_null_column(Block* block);
+    void _update_additional_flags(Block* block);
 
     void _add_tuple_is_null_column(Block* block) override;
+
+    // For mark join, if the relation from right side is empty, we should construct intermediate
+    // block with data from left side and filled with null for right side
+    void _append_left_data_with_null(MutableBlock& mutable_block) const;
 
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;

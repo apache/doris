@@ -26,11 +26,11 @@
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
 #include "pipeline/task_scheduler.h"
+#include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/client_cache.h"
-#include "runtime/data_stream_mgr.h"
 #include "runtime/disk_io_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
@@ -90,7 +90,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     }
 
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    _stream_mgr = new DataStreamMgr();
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
@@ -152,6 +151,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _storage_policy_mgr = new StoragePolicyMgr();
+    _block_spill_mgr = new BlockSpillManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -374,7 +374,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_result_queue_mgr);
-    SAFE_DELETE(_stream_mgr);
     SAFE_DELETE(_stream_load_executor);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);

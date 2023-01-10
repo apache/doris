@@ -121,7 +121,7 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         ImmutableList<Expression> arguments = ImmutableList.of(Literal.of(1));
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder("foo", arguments);
         BoundFunction function = functionBuilder.build("foo", arguments);
-        Assertions.assertTrue(function.getClass().equals(ExtendFunction.class));
+        Assertions.assertEquals(function.getClass(), ExtendFunction.class);
         Assertions.assertEquals(arguments, function.getArguments());
     }
 

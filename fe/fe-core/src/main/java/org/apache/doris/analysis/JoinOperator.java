@@ -37,12 +37,12 @@ public enum JoinOperator {
     // NOT IN subqueries. It can have a single equality join conjunct
     // that returns TRUE when the rhs is NULL.
     NULL_AWARE_LEFT_ANTI_JOIN("NULL AWARE LEFT ANTI JOIN",
-        TJoinOp.NULL_AWARE_LEFT_ANTI_JOIN);
+            TJoinOp.NULL_AWARE_LEFT_ANTI_JOIN);
 
     private final String  description;
     private final TJoinOp thriftJoinOp;
 
-    private JoinOperator(String description, TJoinOp thriftJoinOp) {
+    JoinOperator(String description, TJoinOp thriftJoinOp) {
         this.description = description;
         this.thriftJoinOp = thriftJoinOp;
     }
@@ -72,16 +72,21 @@ public enum JoinOperator {
     }
 
     public boolean isLeftSemiJoin() {
-        return this == LEFT_SEMI_JOIN;
+        return this.thriftJoinOp == TJoinOp.LEFT_SEMI_JOIN;
     }
 
     public boolean isInnerJoin() {
-        return this == INNER_JOIN;
+        return this.thriftJoinOp == TJoinOp.INNER_JOIN;
     }
 
     public boolean isAntiJoin() {
         return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN
                 || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
+    public boolean supportMarkJoin() {
+        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.LEFT_SEMI_JOIN
+                || this == JoinOperator.CROSS_JOIN || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public boolean isCrossJoin() {

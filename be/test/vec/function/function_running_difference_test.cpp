@@ -55,7 +55,7 @@ TEST(FunctionRunningDifferenceTest, function_running_difference_test) {
                             {{std::string("2019-07-18 12:00:06")}, (double)1.0},
                             {{std::string("2019-07-18 12:00:08")}, (double)2.0},
                             {{std::string("2019-07-18 12:00:10")}, (double)2.0}};
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        check_function<DataTypeTime, true>(func_name, input_types, data_set);
     }
     {
         InputTypeSet input_types = {TypeIndex::Date};

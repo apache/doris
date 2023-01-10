@@ -128,7 +128,6 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         return Lists.newArrayList(idToTbl.values());
     }
 
-    // TODO(ftw): drew
     @Override
     public JdbcExternalTable getTableNullable(String tableName) {
         makeSureInitialized();

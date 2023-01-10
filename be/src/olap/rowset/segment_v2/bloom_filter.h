@@ -51,16 +51,25 @@ public:
     static const uint32_t MAXIMUM_BYTES = 128 * 1024 * 1024;
 
     // Factory function for BloomFilter
-    static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf);
+    static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf,
+                         size_t bf_size = 0);
 
     BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) {}
 
-    virtual ~BloomFilter() { delete[] _data; }
+    virtual ~BloomFilter() {
+        if (_data) {
+            delete[] _data;
+        }
+    }
+
+    virtual bool is_ngram_bf() const { return false; }
 
     // for write
     Status init(uint64_t n, double fpp, HashStrategyPB strategy) {
         return this->init(optimal_bit_num(n, fpp) / 8, strategy);
     }
+
+    Status init(uint64_t filter_size) { return init(filter_size, HASH_MURMUR3_X64_64); }
 
     Status init(uint64_t filter_size, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
@@ -81,7 +90,7 @@ public:
 
     // for read
     // use deep copy to acquire the data
-    Status init(const char* buf, uint32_t size, HashStrategyPB strategy) {
+    virtual Status init(const char* buf, uint32_t size, HashStrategyPB strategy) {
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
@@ -108,7 +117,7 @@ public:
         return hash_code;
     }
 
-    void add_bytes(const char* buf, uint32_t size) {
+    virtual void add_bytes(const char* buf, uint32_t size) {
         if (buf == nullptr) {
             *_has_null = true;
             return;
@@ -125,15 +134,19 @@ public:
         return test_hash(code);
     }
 
-    char* data() const { return _data; }
+    /// Checks if this contains everything from another bloom filter.
+    /// Bloom filters must have equal size and seed.
+    virtual bool contains(const BloomFilter& bf_) const = 0;
+
+    virtual char* data() const { return _data; }
 
     uint32_t num_bytes() const { return _num_bytes; }
 
-    uint32_t size() const { return _size; }
+    virtual uint32_t size() const { return _size; }
 
     void set_has_null(bool has_null) { *_has_null = has_null; }
 
-    bool has_null() const { return *_has_null; }
+    virtual bool has_null() const { return *_has_null; }
 
     virtual void add_hash(uint64_t hash) = 0;
     virtual bool test_hash(uint64_t hash) const = 0;

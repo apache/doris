@@ -18,35 +18,41 @@
 import {API_BASE} from 'Constants';
 import request from 'Utils/request';
 import {Result} from '@src/interfaces/http.interface';
+
 //login
 export function login<T>(data: any): Promise<Result<T>> {
     return request('/rest/v1/login', {
         method: 'POST',
-        headers:{Authorization: data.password?`Basic ${btoa(data.username+':'+data.password)}`:`Basic ${btoa(data.username+':')}`},
+        headers: {Authorization: data.password ? `Basic ${btoa(data.username + ':' + data.password)}` : `Basic ${btoa(data.username + ':')}`},
     });
 }
+
 //logout
 export function logOut<T>(): Promise<Result<T>> {
-    return request(`/rest/v1/logout`,{
+    return request(`/rest/v1/logout`, {
         method: 'POST',
     });
 }
+
 //home
 export function getHardwareInfo<T>(): Promise<Result<T>> {
-    return request(`/rest/v1/hardware_info/fe/`,{
+    return request(`/rest/v1/hardware_info/fe/`, {
         method: 'GET',
     });
 }
+
 //system
 export function getSystem<T>(data: any): Promise<Result<T>> {
-    return request(`/rest/v1/system${data.path}`,{
+    return request(`/rest/v1/system${data.path}`, {
         method: 'GET',
+        ...data
     });
 }
+
 //log
 export function getLog<T>(data: any): Promise<Result<T>> {
     let localUrl = '/rest/v1/log';
-    if(data.add_verbose){
+    if (data.add_verbose) {
         localUrl = `/rest/v1/log?add_verbose=${data.add_verbose}`;
     }
     if (data.del_verbose) {
@@ -55,71 +61,81 @@ export function getLog<T>(data: any): Promise<Result<T>> {
     // if (data.add_verbose && data.del_verbose) {
     //     localUrl += `/rest/v1/log?add_verbose=${data.add_verbose}&&del_verbose=${data.del_verbose}`;
     // }
-    return request(localUrl,{
-        method: (data.add_verbose || data.del_verbose)?'POST':'GET',
+    return request(localUrl, {
+        method: (data.add_verbose || data.del_verbose) ? 'POST' : 'GET',
+        ...data
     });
 }
+
 //query_profile
 export function queryProfile<T>(data: any): Promise<Result<T>> {
     let LocalUrl = '/rest/v1/query_profile/';
-    if(data.path){
+    if (data.path) {
         LocalUrl = `/rest/v1/query_profile/${data.path}`;
     }
-    return request(LocalUrl);
+    return request(LocalUrl, data);
 }
+
 //session
 export function getSession<T>(data: any): Promise<Result<T>> {
-    return request('/rest/v1/session');
+    return request('/rest/v1/session', data);
 }
+
 //config
 export function getConfig<T>(data: any): Promise<Result<T>> {
-    return request('/rest/v1/config/fe/');
+    return request('/rest/v1/config/fe/', data);
 }
+
 //query begin
-export function getDatabaseList<T>(data: any): Promise<Result<T>> {
+export function getDatabaseList<T>(data?: any): Promise<Result<T>> {
     let reURL = `${API_BASE}default_cluster/databases`;
-    if(data){
-        if(data.db_name){
+    if (data) {
+        if (data.db_name) {
             reURL += `/${data.db_name}/tables`;
         }
-        if(data.db_name&&data.tbl_name){
+        if (data.db_name && data.tbl_name) {
             reURL += `/${data.tbl_name}/schema`;
         }
     }
-    return request(reURL);
+    return request(reURL, data);
 }
+
 export function doQuery<T>(data: any): Promise<Result<T>> {
     return request(`/api/query/default_cluster/${data.db_name}`, {
-        method: 'POST',...data,
+        method: 'POST', ...data,
     });
 }
+
 export function doUp<T>(data: any): Promise<Result<T>> {
     let localHeader = {
         label: data.label,
         columns: data.columns,
-        column_separator: data. column_separator
+        column_separator: data.column_separator
     }
-    if(!localHeader.columns){
+    if (!localHeader.columns) {
         delete localHeader.columns
     }
     return request(`/api/default_cluster/${data.db_name}/${data.tbl_name}/upload?file_id=${data.file_id}&file_uuid=${data.file_uuid}`, {
-        method: 'PUT',headers:localHeader,
+        method: 'PUT', headers: localHeader,
     });
 }
+
 export function getUploadData<T>(data: any): Promise<Result<T>> {
     let localUrl = `/api/default_cluster/${data.db_name}/${data.tbl_name}/upload`
-    if(data.preview){
+    if (data.preview) {
         localUrl = `/api/default_cluster/${data.db_name}/${data.tbl_name}/upload?file_id=${data.file_id}&file_uuid=${data.file_uuid}&preview=true`
     }
-    return request(localUrl,{
+    return request(localUrl, {
         method: 'GET',
     });
 }
+
 export function deleteUploadData<T>(data: any): Promise<Result<T>> {
-    return request(`/api/default_cluster/${data.db_name}/${data.tbl_name}/upload?file_id=${data.file_id}&file_uuid=${data.file_uuid}`,{
+    return request(`/api/default_cluster/${data.db_name}/${data.tbl_name}/upload?file_id=${data.file_id}&file_uuid=${data.file_uuid}`, {
         method: 'DELETE',
     });
 }
+
 //query end
 export const AdHocAPI = {
     getDatabaseList,

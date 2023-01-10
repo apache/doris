@@ -45,11 +45,6 @@ Status SetProbeSinkOperator<is_intersect>::sink(RuntimeState* state, vectorized:
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperator<is_intersect>::finalize(RuntimeState* state) {
-    return this->_node->finalize_probe(state, _child_id);
-}
-
-template <bool is_intersect>
 bool SetProbeSinkOperator<is_intersect>::can_write() {
     DCHECK_GT(_child_id, 0);
     return this->_node->is_child_finished(_child_id - 1);

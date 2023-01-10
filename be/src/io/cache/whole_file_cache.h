@@ -54,9 +54,9 @@ public:
 
     Status clean_one_cache(size_t* cleaned_size) override;
 
-    int64_t get_oldest_match_time() const override { return _last_match_time; };
+    int64_t get_oldest_match_time() const override { return _gc_match_time; }
 
-    bool is_gc_finish() const override { return _cache_file_reader == nullptr; }
+    bool is_gc_finish() const override;
 
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);
@@ -70,9 +70,10 @@ private:
     int64_t _alive_time_sec;
     io::FileReaderSPtr _remote_file_reader;
 
-    int64_t _last_match_time;
+    int64_t _gc_match_time {0};
+    int64_t _last_match_time {0};
 
-    std::shared_mutex _cache_lock;
+    mutable std::shared_mutex _cache_lock;
     io::FileReaderSPtr _cache_file_reader;
 };
 
