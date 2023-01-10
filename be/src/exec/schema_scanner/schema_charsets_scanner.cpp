@@ -17,7 +17,6 @@
 
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 
-#include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 
 namespace doris {
@@ -32,7 +31,7 @@ SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
 
 SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
         {"utf8", "utf8_general_ci", "UTF-8 Unicode", 3},
-        {nullptr, nullptr, 0, 0},
+        {nullptr, nullptr, nullptr, 0},
 };
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
