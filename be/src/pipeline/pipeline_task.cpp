@@ -28,8 +28,17 @@ void PipelineTask::_init_profile() {
     auto* task_profile = new RuntimeProfile(ss.str());
     _parent_profile->add_child(task_profile, true, nullptr);
     _task_profile.reset(task_profile);
-    _sink_timer = ADD_TIMER(_task_profile, "SinkTime");
-    _get_block_timer = ADD_TIMER(_task_profile, "GetBlockTime");
+    _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
+
+    static const char* exec_time = "ExecuteTime";
+    _exec_timer = ADD_TIMER(_task_profile, exec_time);
+    _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
+    _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
+    _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
+    _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
+    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
+    _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
+
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
@@ -39,12 +48,16 @@ void PipelineTask::_init_profile() {
     _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
+    _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
 }
 
 Status PipelineTask::prepare(RuntimeState* state) {
     DCHECK(_sink);
     DCHECK(_cur_state == NOT_READY);
     _init_profile();
+    SCOPED_TIMER(_task_profile->total_time_counter());
+    SCOPED_CPU_TIMER(_task_cpu_timer);
+    SCOPED_TIMER(_prepare_timer);
     RETURN_IF_ERROR(_sink->prepare(state));
     for (auto& o : _operators) {
         RETURN_IF_ERROR(o->prepare(state));
@@ -94,6 +107,9 @@ bool PipelineTask::has_dependency() {
 }
 
 Status PipelineTask::open() {
+    SCOPED_TIMER(_task_profile->total_time_counter());
+    SCOPED_CPU_TIMER(_task_cpu_timer);
+    SCOPED_TIMER(_open_timer);
     for (auto& o : _operators) {
         RETURN_IF_ERROR(o->open(_state));
     }
@@ -105,8 +121,10 @@ Status PipelineTask::open() {
 }
 
 Status PipelineTask::execute(bool* eos) {
-    SCOPED_ATTACH_TASK(runtime_state());
     SCOPED_TIMER(_task_profile->total_time_counter());
+    SCOPED_CPU_TIMER(_task_cpu_timer);
+    SCOPED_TIMER(_exec_timer);
+    SCOPED_ATTACH_TASK(runtime_state());
     int64_t time_spent = 0;
     // The status must be runnable
     *eos = false;
@@ -170,15 +188,23 @@ Status PipelineTask::execute(bool* eos) {
 }
 
 Status PipelineTask::finalize() {
+    SCOPED_TIMER(_task_profile->total_time_counter());
+    SCOPED_CPU_TIMER(_task_cpu_timer);
+    SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
 }
 
 Status PipelineTask::close() {
-    auto s = _sink->close(_state);
-    for (auto& op : _operators) {
-        auto tem = op->close(_state);
-        if (!tem.ok() && s.ok()) {
-            s = tem;
+    int64_t close_ns = 0;
+    Status s;
+    {
+        SCOPED_RAW_TIMER(&close_ns);
+        s = _sink->close(_state);
+        for (auto& op : _operators) {
+            auto tem = op->close(_state);
+            if (!tem.ok() && s.ok()) {
+                s = tem;
+            }
         }
     }
     if (_opened) {
@@ -187,6 +213,8 @@ Status PipelineTask::close() {
         COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
         COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
+        COUNTER_UPDATE(_close_timer, close_ns);
+        COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
 }

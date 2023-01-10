@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -205,11 +206,15 @@ public class Column implements Writable, GsonPostProcessable {
         return this.name;
     }
 
+    public String getNameWithoutMvPrefix() {
+        return this.getNameWithoutPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+    }
+
     public String getDisplayName() {
         if (defineExpr == null) {
-            return name;
+            return getNameWithoutMvPrefix();
         } else {
-            return defineExpr.toSql();
+            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
     }
 

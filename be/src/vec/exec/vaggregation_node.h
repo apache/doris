@@ -845,6 +845,7 @@ private:
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
+    bool _child_eos = false;
 
     bool _should_limit_output = false;
     bool _reach_limit = false;

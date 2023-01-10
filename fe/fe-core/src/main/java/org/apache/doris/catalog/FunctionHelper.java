@@ -66,6 +66,7 @@ public interface FunctionHelper {
 
     default AggregateFunc agg(Class<? extends AggregateFunction> functionClass) {
         String functionName = functionClass.getSimpleName();
+        BuiltinAggregateFunctions.aggFuncNames.add(functionName.toLowerCase());
         return new AggregateFunc(functionClass, functionName);
     }
 
@@ -75,6 +76,7 @@ public interface FunctionHelper {
      * @return AggregateFunc which contains the functionName and the AggregateFunc
      */
     default AggregateFunc agg(Class<? extends AggregateFunction> functionClass, String... functionNames) {
+        Arrays.stream(functionNames).forEach(name -> BuiltinAggregateFunctions.aggFuncNames.add(name));
         return new AggregateFunc(functionClass, functionNames);
     }
 

@@ -51,6 +51,7 @@ public abstract class Type {
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
+    public static final ScalarType UNSUPPORTED = new ScalarType(PrimitiveType.UNSUPPORTED);
     public static final ScalarType NULL = new ScalarType(PrimitiveType.NULL_TYPE);
     public static final ScalarType BOOLEAN = new ScalarType(PrimitiveType.BOOLEAN);
     public static final ScalarType TINYINT = new ScalarType(PrimitiveType.TINYINT);
@@ -772,13 +773,17 @@ public abstract class Type {
                     type = ScalarType.createVarcharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
-                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
-                        || scalarType.getType() == TPrimitiveType.DECIMAL32
+                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetPrecision());
+                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                            scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
                         || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
-                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
@@ -1419,7 +1424,6 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.DECIMAL128;
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.DECIMAL128;
 
-
         // HLL
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1455,7 +1459,6 @@ public abstract class Type {
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
 
-
         // TIME why here not???
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1485,7 +1488,8 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
-                        || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) {
+                        || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
+                        || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
@@ -1509,17 +1513,15 @@ public abstract class Type {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case DATETIMEV2:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
                 return VARCHAR;
-            case DATETIMEV2:
-                return DEFAULT_DATETIMEV2;
-            case TIMEV2:
-                return DEFAULT_TIMEV2;
             case DECIMALV2:
                 return DECIMALV2;
             case DECIMAL32:

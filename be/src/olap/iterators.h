@@ -24,6 +24,7 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 
@@ -94,12 +95,16 @@ public:
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool record_rowids = false;
+    // flag for enable topn opt
+    bool use_topn_opt = false;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    // runtime state
+    RuntimeState* runtime_state = nullptr;
 };
 
 class RowwiseIterator {

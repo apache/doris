@@ -24,9 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
 
 # 多源数据目录
+
+<version since="1.2.0">
 
 多源数据目录（Multi-Catalog）是 Doris 1.2.0 版本中推出的功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
 
@@ -39,6 +40,8 @@ under the License.
 3. JDBC: 对接数据库访问的标准接口(JDBC)来访问各式数据库的数据。（目前只支持访问MYSQL）
 
 该功能将作为之前外表连接方式（External Table）的补充和增强，帮助用户进行快速的多数据目录联邦查询。
+
+</version>
 
 ## 基础概念
 
@@ -96,12 +99,16 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+// 在 PROERPTIES 中指定的配置，将会覆盖 Resource 中的配置。
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
 
 **通过 properties 创建 catalog**
 
-`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+`1.2.0` 版本通过 properties 创建 catalog
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
@@ -295,15 +302,15 @@ Query OK, 1000 rows affected (0.28 sec)
 -- 1.2.0+ 版本
 CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
-    "elasticsearch.nodes_discovery"="false"
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
 );
 CREATE CATALOG es WITH RESOURCE es_resource;
 
 -- 1.2.0 版本
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -443,16 +450,19 @@ mysql> select * from test;
 ### 连接JDBC
 
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
-jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前只支持MYSQL数据库类型。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL数据库类型。
+
+**MYSQL catalog示例**
+
 ```sql
 -- 1.2.0+ 版本
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
@@ -464,16 +474,38 @@ CREATE CATALOG jdbc PROPERTIES (
 )
 ```
 
+**POSTGRESQL catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE pg_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
+);
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
 其中`jdbc.driver_url`可以是远程jar包：
 
 ```sql
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
 
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -517,6 +549,8 @@ MySQL [(none)]> show databases;
 +--------------------+
 9 rows in set (0.67 sec)
 ```
+
+> 注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
 
 查看`db1`数据库下的表，并查询：
 ```sql
@@ -566,6 +600,28 @@ MySQL [db1]> select * from tbl1;
 ## 列类型映射
 
 用户创建 Catalog 后，Doris 会自动同步数据目录的数据库和表，针对不同的数据目录和数据表格式，Doris 会进行以下列映射关系。
+
+<version since="dev">
+
+对于当前无法映射到 Doris 列类型的外表类型，如 map，struct 等。Doris 会将列类型映射为 UNSUPPORTED 类型。对于 UNSUPPORTED 类型的查询，示例如下：
+
+假设同步后的表 schema 为：
+
+```
+k1 INT,
+k2 INT,
+k3 UNSUPPORTED,
+k4 INT
+```
+
+```
+select * from table;                // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select * except(k3) from table;     // Query OK.
+select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select k1, k4 from table;           // Query OK.
+```
+
+</version>
 
 ### Hive MetaStore
 
@@ -637,6 +693,31 @@ MySQL [db1]> select * from tbl1;
 | CHAR | CHAR | |
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
+| uuid/josnb | STRING | |
+
 ## 权限管理
 
 使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。
@@ -662,4 +743,3 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
   
 配置完成后需要重启Hive Metastore。
 
-</version>

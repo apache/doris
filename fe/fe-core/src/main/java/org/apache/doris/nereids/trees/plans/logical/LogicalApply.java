@@ -100,6 +100,10 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         return !correlationSlot.isEmpty();
     }
 
+    public boolean alreadyExecutedEliminateFilter() {
+        return correlationFilter.isPresent();
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()

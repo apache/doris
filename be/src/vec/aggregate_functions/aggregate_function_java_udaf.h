@@ -347,11 +347,11 @@ public:
                      << _fn.name.function_name;
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t /*place_offset*/,
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
-            places_address[i] = reinterpret_cast<int64_t>(places[i]);
+            places_address[i] = reinterpret_cast<int64_t>(places[i] + place_offset);
         }
         this->data(_exec_place).add(places_address, false, columns, 0, batch_size, argument_types);
     }

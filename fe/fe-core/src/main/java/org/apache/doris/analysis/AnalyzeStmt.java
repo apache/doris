@@ -64,6 +64,8 @@ public class AnalyzeStmt extends DdlStmt {
     // time to wait for collect  statistics
     public static final String CBO_STATISTICS_TASK_TIMEOUT_SEC = "cbo_statistics_task_timeout_sec";
 
+    public boolean isHistogram = false;
+
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CBO_STATISTICS_TASK_TIMEOUT_SEC)
             .build();
@@ -76,7 +78,7 @@ public class AnalyzeStmt extends DdlStmt {
 
     private TableIf table;
 
-    private final PartitionNames optPartitionNames;
+    private PartitionNames optPartitionNames;
     private List<String> optColumnNames;
     private Map<String, String> optProperties;
 
@@ -84,6 +86,16 @@ public class AnalyzeStmt extends DdlStmt {
     private long dbId;
 
     private final List<String> partitionNames = Lists.newArrayList();
+
+    public AnalyzeStmt(TableName tableName,
+            List<String> optColumnNames,
+            Map<String, String> optProperties) {
+        this.tableName = tableName;
+        this.optColumnNames = optColumnNames;
+        wholeTbl = CollectionUtils.isEmpty(optColumnNames);
+        isHistogram = true;
+        this.optProperties = optProperties;
+    }
 
     public AnalyzeStmt(TableName tableName,
             List<String> optColumnNames,

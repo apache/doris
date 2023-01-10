@@ -27,6 +27,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 
+import org.apache.parquet.Strings;
+
 import java.util.Map;
 import java.util.Optional;
 
@@ -71,44 +73,37 @@ public class CatalogFactory {
 
     private static CatalogIf constructorCatalog(
             long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
-        CatalogIf catalog;
-        if (resource == null) {
-            String type = props.get("type");
-            if (type == null) {
-                throw new DdlException("Need catalog type in properties");
-            }
-            switch (type) {
-                case "hms":
-                    catalog = new HMSExternalCatalog(catalogId, name, null, props);
-                    break;
-                case "es":
-                    catalog = new EsExternalCatalog(catalogId, name, null, props);
-                    break;
-                case "jdbc":
-                    catalog = new JdbcExternalCatalog(catalogId, name, null, props);
-                    break;
-                default:
-                    throw new DdlException("Unknown catalog type: " + type);
-            }
-        } else if (props.size() == 0) {
+        // get catalog type from resource or properties
+        String catalogType;
+        if (!Strings.isNullOrEmpty(resource)) {
             Resource catalogResource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(resource))
                     .orElseThrow(() -> new DdlException("Resource doesn't exist: " + resource));
-            Resource.ResourceType type = catalogResource.getType();
-            switch (type) {
-                case HMS:
-                    catalog = new HMSExternalCatalog(catalogId, name, resource, props);
-                    break;
-                case ES:
-                    catalog = new EsExternalCatalog(catalogId, name, resource, props);
-                    break;
-                case JDBC:
-                    catalog = new JdbcExternalCatalog(catalogId, name, resource, props);
-                    break;
-                default:
-                    throw new DdlException("Unknown catalog type with resource: " + resource + ", type: " + type);
+            catalogType = catalogResource.getType().name().toLowerCase();
+            if (props.containsKey("type")) {
+                throw new DdlException("Can not set 'type' when creating catalog with resource");
             }
         } else {
-            throw new DdlException("Can't provide resource and properties for catalog simultaneously");
+            String type = props.get("type");
+            if (Strings.isNullOrEmpty(type)) {
+                throw new DdlException("Missing property 'type' in properties");
+            }
+            catalogType = type.toLowerCase();
+        }
+
+        // create catalog
+        CatalogIf catalog;
+        switch (catalogType) {
+            case "hms":
+                catalog = new HMSExternalCatalog(catalogId, name, resource, props);
+                break;
+            case "es":
+                catalog = new EsExternalCatalog(catalogId, name, resource, props);
+                break;
+            case "jdbc":
+                catalog = new JdbcExternalCatalog(catalogId, name, resource, props);
+                break;
+            default:
+                throw new DdlException("Unknown catalog type: " + catalogType);
         }
         return catalog;
     }

@@ -62,7 +62,7 @@ public class MysqlHandshakePacketTest {
         // assert protocol version
         Assert.assertEquals(10, MysqlProto.readInt1(buffer));
         // server version
-        Assert.assertEquals("5.7.37", new String(MysqlProto.readNulTerminateString(buffer)));
+        Assert.assertEquals("5.7.99", new String(MysqlProto.readNulTerminateString(buffer)));
         // connection id
         Assert.assertEquals(1090, MysqlProto.readInt4(buffer));
         // plugin data 1

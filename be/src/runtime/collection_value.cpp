@@ -116,9 +116,39 @@ struct CollectionValueSubTypeTrait<TYPE_DATETIME> {
 };
 
 template <>
+struct CollectionValueSubTypeTrait<TYPE_DATEV2> {
+    using CppType = uint32_t;
+    using AnyValType = IntVal;
+};
+
+template <>
+struct CollectionValueSubTypeTrait<TYPE_DATETIMEV2> {
+    using CppType = uint64_t;
+    using AnyValType = BigIntVal;
+};
+
+template <>
 struct CollectionValueSubTypeTrait<TYPE_DECIMALV2> {
     using CppType = decimal12_t;
     using AnyValType = DecimalV2Val;
+};
+
+template <>
+struct CollectionValueSubTypeTrait<TYPE_DECIMAL32> {
+    using CppType = int32_t;
+    using AnyValType = IntVal;
+};
+
+template <>
+struct CollectionValueSubTypeTrait<TYPE_DECIMAL64> {
+    using CppType = int64_t;
+    using AnyValType = BigIntVal;
+};
+
+template <>
+struct CollectionValueSubTypeTrait<TYPE_DECIMAL128I> {
+    using CppType = int128_t;
+    using AnyValType = LargeIntVal;
 };
 
 template <>
@@ -352,12 +382,27 @@ ArrayIterator CollectionValue::internal_iterator(PrimitiveType child_type) const
     case TYPE_DATETIME:
         return ArrayIterator(const_cast<CollectionValue*>(this),
                              static_cast<ArrayIteratorFunctions<TYPE_DATETIME>*>(nullptr));
+    case TYPE_DATEV2:
+        return ArrayIterator(const_cast<CollectionValue*>(this),
+                             static_cast<ArrayIteratorFunctions<TYPE_DATEV2>*>(nullptr));
+    case TYPE_DATETIMEV2:
+        return ArrayIterator(const_cast<CollectionValue*>(this),
+                             static_cast<ArrayIteratorFunctions<TYPE_DATETIMEV2>*>(nullptr));
     case TYPE_ARRAY:
         return ArrayIterator(const_cast<CollectionValue*>(this),
                              static_cast<ArrayIteratorFunctions<TYPE_ARRAY>*>(nullptr));
     case TYPE_DECIMALV2:
         return ArrayIterator(const_cast<CollectionValue*>(this),
                              static_cast<ArrayIteratorFunctions<TYPE_DECIMALV2>*>(nullptr));
+    case TYPE_DECIMAL32:
+        return ArrayIterator(const_cast<CollectionValue*>(this),
+                             static_cast<ArrayIteratorFunctions<TYPE_DECIMAL32>*>(nullptr));
+    case TYPE_DECIMAL64:
+        return ArrayIterator(const_cast<CollectionValue*>(this),
+                             static_cast<ArrayIteratorFunctions<TYPE_DECIMAL64>*>(nullptr));
+    case TYPE_DECIMAL128I:
+        return ArrayIterator(const_cast<CollectionValue*>(this),
+                             static_cast<ArrayIteratorFunctions<TYPE_DECIMAL128I>*>(nullptr));
     default:
         DCHECK(false) << "Invalid child type: " << child_type;
         __builtin_unreachable();
@@ -389,8 +434,13 @@ Status type_check(PrimitiveType type) {
 
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
 
     case TYPE_DECIMALV2:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
 
     case TYPE_ARRAY:
         break;

@@ -139,8 +139,7 @@ suite("test_nereids_set_operation") {
             select * from (select k1, k2 from setOperationTableNotNullable union all select k1, k5 from setOperationTable) t;
     """
 
-    order_qt_select21 """
-            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
+    order_qt_select21 """            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
     """
 
     order_qt_select24 """select * from (select 1 a, 2 b 
@@ -214,4 +213,54 @@ suite("test_nereids_set_operation") {
         }
     }
     qt_union39 """(select  k1 from setOperationTable order by k1) union all (select k1 from setOperationTableNotNullable order by k1) order by k1;"""
+
+    qt_union40 """
+        SELECT k1 FROM setOperationTable WHERE k2 = 2 
+        INTERSECT 
+        SELECT k1 FROM setOperationTable WHERE k1 = 1 
+        UNION 
+        SELECT k1 FROM setOperationTable WHERE k3 = 2
+    """
+
+    qt_union41 """
+    SELECT k1 FROM setOperationTable WHERE k2 = 1
+    EXCEPT
+    SELECT k1 FROM setOperationTable WHERE k3 = 2
+    UNION
+    (SELECT k1 FROM setOperationTable WHERE k3 = 2
+    INTERSECT
+    SELECT k1 FROM setOperationTable WHERE k2 > 0)
+    """
+
+    qt_union42 """
+    SELECT k1 FROM setOperationTable WHERE k2 = 1
+    EXCEPT
+    SELECT k1 FROM setOperationTable WHERE k3 = 2
+    UNION ALL
+    (SELECT k1 FROM setOperationTable WHERE k3 = 2
+    INTERSECT
+    SELECT k1 FROM setOperationTable WHERE k2 > 0)
+    """
+
+    order_qt_select43 """
+        SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all 
+            select k1, k5 from setOperationTable) t;
+    """
+
+    order_qt_select44 """
+    select k1, k3 from setOperationTableNotNullable order by k3 union all 
+            select k1, k5 from setOperationTable
+    """
+
+    order_qt_select45 """
+    (select k1, k3 from setOperationTableNotNullable order by k3) union all 
+            (select k1, k5 from setOperationTable)
+    """
+
+    order_qt_select46 """
+    (with cte AS (select k1, k3 from setOperationTableNotNullable) select * from cte order by k3) union all 
+            (select k1, k5 from setOperationTable)
+    """
+
+
 }

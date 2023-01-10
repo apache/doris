@@ -22,7 +22,6 @@
 
 #include <vec/data_types/data_type_factory.hpp>
 
-#include "../format/table/iceberg_reader.h"
 #include "common/logging.h"
 #include "common/utils.h"
 #include "exec/arrow/orc_reader.h"
@@ -43,7 +42,8 @@ namespace doris::vectorized {
 using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           const TFileScanRange& scan_range, RuntimeProfile* profile)
+                           const TFileScanRange& scan_range, RuntimeProfile* profile,
+                           KVCache<std::string>& kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
@@ -52,6 +52,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _cur_reader_eof(false),
           _mem_pool(std::make_unique<MemPool>()),
           _profile(profile),
+          _kv_cache(kv_cache),
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
         _strict_mode = scan_range.params.strict_mode;
@@ -493,8 +494,9 @@ Status VFileScanner::_get_next_reader() {
                                                       _push_down_expr);
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
-                IcebergTableReader* iceberg_reader = new IcebergTableReader(
-                        (GenericReader*)parquet_reader, _profile, _state, _params, range);
+                IcebergTableReader* iceberg_reader =
+                        new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
+                                               _params, range, _kv_cache);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {

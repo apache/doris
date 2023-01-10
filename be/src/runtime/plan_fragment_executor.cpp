@@ -94,7 +94,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
-    _runtime_state->set_query_mem_tracker(fragments_ctx->query_mem_tracker);
+    _runtime_state->set_query_mem_tracker(fragments_ctx == nullptr
+                                                  ? _exec_env->orphan_mem_tracker()
+                                                  : fragments_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -144,11 +146,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
-        if (_runtime_state->enable_vectorized_exec()) {
-            static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
     }
 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
@@ -240,11 +238,7 @@ Status PlanFragmentExecutor::open() {
         _report_thread_started_cv.wait(l);
     }
     Status status = Status::OK();
-    if (_runtime_state->enable_vectorized_exec()) {
-        status = open_vectorized_internal();
-    } else {
-        RETURN_ERROR_IF_NON_VEC;
-    }
+    status = open_vectorized_internal();
 
     if (!status.ok() && !status.is<CANCELLED>() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not
@@ -509,7 +503,6 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();
     auto id = _runtime_state->fragment_instance_id();
-    DCHECK(_runtime_state->enable_vectorized_exec());
     env->vstream_mgr()->cancel(id);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));

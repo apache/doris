@@ -413,8 +413,7 @@ public:
               _filter_type(params->filter_type),
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id),
-              _use_batch(_state->enable_vectorized_exec() &&
-                         IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+              _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
                                                           _column_return_type)) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
@@ -427,8 +426,7 @@ public:
               _filter_type(type),
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id),
-              _use_batch(_state->enable_vectorized_exec() &&
-                         IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+              _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
                                                           _column_return_type)) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
@@ -436,8 +434,7 @@ public:
         _max_in_num = params->max_in_num;
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            _context.hybrid_set.reset(
-                    create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.hybrid_set.reset(create_set(_column_return_type));
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
@@ -451,8 +448,7 @@ public:
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-            _context.hybrid_set.reset(
-                    create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.hybrid_set.reset(create_set(_column_return_type));
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             return Status::OK();
@@ -475,8 +471,7 @@ public:
         _is_bloomfilter = true;
         insert_to_bloom_filter(_context.bloom_filter_func.get());
         // release in filter
-        _context.hybrid_set.reset(
-                create_set(_column_return_type, _state->enable_vectorized_exec()));
+        _context.hybrid_set.reset(create_set(_column_return_type));
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -647,8 +642,7 @@ public:
                 _is_ignored_in_filter = true;
                 _ignored_in_filter_msg = wrapper->_ignored_in_filter_msg;
                 // release in filter
-                _context.hybrid_set.reset(
-                        create_set(_column_return_type, _state->enable_vectorized_exec()));
+                _context.hybrid_set.reset(create_set(_column_return_type));
                 break;
             }
             // try insert set
@@ -667,8 +661,7 @@ public:
                 _is_ignored_in_filter = true;
 
                 // release in filter
-                _context.hybrid_set.reset(
-                        create_set(_column_return_type, _state->enable_vectorized_exec()));
+                _context.hybrid_set.reset(create_set(_column_return_type));
             }
             break;
         }
@@ -738,7 +731,7 @@ public:
             _ignored_in_filter_msg = _pool->add(new std::string(in_filter->ignored_msg()));
             return Status::OK();
         }
-        _context.hybrid_set.reset(create_set(type, _state->enable_vectorized_exec()));
+        _context.hybrid_set.reset(create_set(type));
         switch (type) {
         case TYPE_BOOLEAN: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
@@ -826,23 +819,13 @@ public:
         }
         case TYPE_DATETIME:
         case TYPE_DATE: {
-            if (_state->enable_vectorized_exec()) {
-                batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set,
-                                           PColumnValue& column, ObjectPool* pool) {
-                    auto& string_val_ref = column.stringval();
-                    vectorized::VecDateTimeValue datetime_val;
-                    datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
-                    set->insert(&datetime_val);
-                });
-            } else {
-                batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set,
-                                           PColumnValue& column, ObjectPool* pool) {
-                    auto& string_val_ref = column.stringval();
-                    DateTimeValue datetime_val;
-                    datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
-                    set->insert(&datetime_val);
-                });
-            }
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                auto& string_val_ref = column.stringval();
+                vectorized::VecDateTimeValue datetime_val;
+                datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+                set->insert(&datetime_val);
+            });
             break;
         }
         case TYPE_DECIMALV2: {
@@ -1392,12 +1375,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         doris::vectorized::VExprContext* bitmap_target_ctx = nullptr;
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
                                                                    &bitmap_target_ctx));
-        auto type = const_cast<vectorized::VExpr*>(
-                            vectorized::VExpr::expr_without_cast(bitmap_target_ctx->root()))
-                            ->type();
-        // The bitmap filter evaluates only integers.
-        params.column_return_type =
-                type.is_integer_type() ? type.type : bitmap_target_ctx->root()->type().type;
+        params.column_return_type = bitmap_target_ctx->root()->type().type;
 
         if (desc->__isset.bitmap_filter_not_in) {
             params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
@@ -1650,22 +1628,12 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        if (_state->enable_vectorized_exec()) {
-            batch_copy<vectorized::VecDateTimeValue>(
-                    filter, it,
-                    [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
-                        char convert_buffer[30];
-                        value->to_string(convert_buffer);
-                        column->set_stringval(convert_buffer);
-                    });
-        } else {
-            batch_copy<DateTimeValue>(filter, it,
-                                      [](PColumnValue* column, const DateTimeValue* value) {
-                                          char convert_buffer[30];
-                                          value->to_string(convert_buffer);
-                                          column->set_stringval(convert_buffer);
-                                      });
-        }
+        batch_copy<vectorized::VecDateTimeValue>(
+                filter, it, [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
+                    char convert_buffer[30];
+                    value->to_string(convert_buffer);
+                    column->set_stringval(convert_buffer);
+                });
         return;
     }
     case TYPE_DECIMALV2: {

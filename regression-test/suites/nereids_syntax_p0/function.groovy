@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("function") {
+suite("nereids_function") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -45,6 +45,10 @@ suite("function") {
 
     order_qt_avg """
         SELECT avg(lo_tax), avg(lo_extendedprice) AS avg_extendedprice FROM lineorder;
+    """
+
+    qt_string_arithmetic """
+        SELECT "1" + "2", "1" - "2";
     """
 
     // variable length function

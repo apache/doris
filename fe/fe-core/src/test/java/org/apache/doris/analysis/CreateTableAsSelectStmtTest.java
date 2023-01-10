@@ -103,12 +103,19 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromDecimal1);
         if (Config.enable_decimal_conversion) {
             Assertions.assertEquals(
-                    "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(38, 2) NULL\n" + ") ENGINE=OLAP\n"
-                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n"
-                            + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n" + "PROPERTIES (\n"
+                    "CREATE TABLE `select_decimal_table_1` (\n"
+                            + "  `_col0` decimal(38, 2) NULL\n"
+                            + ") ENGINE=OLAP\n"
+                            + "DUPLICATE KEY(`_col0`)\n"
+                            + "COMMENT 'OLAP'\n"
+                            + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
+                            + "PROPERTIES (\n"
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                            + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
-                            + "\n\"disable_auto_compaction\" = \"false\"\n" + ");",
+                            + "\"in_memory\" = \"false\",\n"
+                            + "\"storage_format\" = \"V2\",\n"
+                            + "\"light_schema_change\" = \"true\",\n"
+                            + "\"disable_auto_compaction\" = \"false\"\n"
+                            + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         } else {
             Assertions.assertEquals(

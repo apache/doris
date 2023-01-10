@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -40,8 +39,7 @@ import java.util.List;
 /**
  * VarianceSamp function
  */
-public class VarianceSamp extends AggregateFunction implements UnaryExpression, PropagateNullable,
-        ExplicitlyCastableSignature {
+public class VarianceSamp extends NullableAggregateFunction implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -55,11 +53,11 @@ public class VarianceSamp extends AggregateFunction implements UnaryExpression, 
     );
 
     public VarianceSamp(Expression child) {
-        super("variance_samp", child);
+        this(false, false, child);
     }
 
-    public VarianceSamp(boolean isDistinct, Expression child) {
-        super("variance_samp", isDistinct, child);
+    private VarianceSamp(boolean isDistinct, boolean isAlwaysNullable, Expression child) {
+        super("variance_samp", isAlwaysNullable, isDistinct, child);
     }
 
     @Override
@@ -70,13 +68,18 @@ public class VarianceSamp extends AggregateFunction implements UnaryExpression, 
     @Override
     public AggregateFunction withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new VarianceSamp(isDistinct, children.get(0));
+        return new VarianceSamp(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override
     public AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new VarianceSamp(isDistinct, children.get(0));
+        return new VarianceSamp(isDistinct, isAlwaysNullable, children.get(0));
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
+        return new VarianceSamp(isDistinct, isAlwaysNullable, children.get(0));
     }
 
     @Override

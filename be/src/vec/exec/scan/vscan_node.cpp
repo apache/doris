@@ -580,7 +580,7 @@ Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, S
 
 Status VScanNode::_normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx,
                                            SlotDescriptor* slot, PushDownType* pdt) {
-    if (TExprNodeType::BITMAP_PRED == expr->node_type() && expr->type().is_integer_type()) {
+    if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 1);
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
@@ -797,6 +797,9 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
+        if (!is_fixed_range && state->null_in_set) {
+            _eos = true;
+        }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
             if (nullptr == iter->get_value()) {

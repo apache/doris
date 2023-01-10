@@ -78,22 +78,30 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
-        Expression left = rewrite(binaryOperator.left(), context);
-        Expression right = rewrite(binaryOperator.right(), context);
+        if (binaryOperator instanceof ImplicitCastInputTypes) {
+            List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) binaryOperator).expectedInputTypes();
+            if (!expectedInputTypes.isEmpty()) {
+                binaryOperator = (BinaryOperator) visitImplicitCastInputTypes(binaryOperator, expectedInputTypes,
+                        context);
+            }
+        }
+        BinaryOperator op = binaryOperator;
+        Expression left = rewrite(op.left(), context);
+        Expression right = rewrite(op.right(), context);
 
         return Optional.of(TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
                 .filter(Boolean::booleanValue)
-                .map(b -> TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType()))
+                .map(b -> TypeCoercionUtils.findTightestCommonType(op, left.getDataType(), right.getDataType()))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
-                .filter(ct -> binaryOperator.inputType().acceptsType(ct))
+                .filter(ct -> op.inputType().acceptsType(ct))
                 .filter(ct -> !left.getDataType().equals(ct) || !right.getDataType().equals(ct))
                 .map(commonType -> {
                     Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
                     Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
-                    return binaryOperator.withChildren(newLeft, newRight);
+                    return op.withChildren(newLeft, newRight);
                 })
-                .orElse(binaryOperator.withChildren(left, right));
+                .orElse(op.withChildren(left, right));
     }
 
     @Override

@@ -1940,9 +1940,8 @@ public:
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
 
         auto result_column = assert_cast<ColumnString*>(res_column.get());
-        auto data_column = assert_cast<const typename Impl::ColumnType*>(argument_column.get());
 
-        Impl::execute(context, result_column, data_column, input_rows_count);
+        Impl::execute(context, result_column, argument_column, input_rows_count);
 
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();
@@ -1950,12 +1949,11 @@ public:
 };
 
 struct MoneyFormatDoubleImpl {
-    using ColumnType = ColumnVector<Float64>;
-
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnPtr col_ptr, size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Float64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
@@ -1966,12 +1964,11 @@ struct MoneyFormatDoubleImpl {
 };
 
 struct MoneyFormatInt64Impl {
-    using ColumnType = ColumnVector<Int64>;
-
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt64>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnPtr col_ptr, size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
             StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
@@ -1981,12 +1978,11 @@ struct MoneyFormatInt64Impl {
 };
 
 struct MoneyFormatInt128Impl {
-    using ColumnType = ColumnVector<Int128>;
-
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt128>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnPtr col_ptr, size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
             StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
@@ -1996,24 +1992,81 @@ struct MoneyFormatInt128Impl {
 };
 
 struct MoneyFormatDecimalImpl {
-    using ColumnType = ColumnDecimal<Decimal128>;
-
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)};
     }
 
-    static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
-        for (size_t i = 0; i < input_rows_count; i++) {
-            DecimalV2Val value = DecimalV2Val(data_column->get_element(i));
+    static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
+                        size_t input_rows_count) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
+            for (size_t i = 0; i < input_rows_count; i++) {
+                DecimalV2Val value = DecimalV2Val(decimalv2_column->get_element(i));
 
-            DecimalV2Value rounded(0);
-            DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
+                DecimalV2Value rounded(0);
+                DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
 
-            StringVal str = StringFunctions::do_money_format<int64_t, 26>(
-                    context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
+                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                        context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
+        } else if (auto* decimal32_column =
+                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+            const UInt32 scale = decimal32_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal32 frac_part = decimal32_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = frac_part / multiplier + delta;
+                } else if (scale < 2) {
+                    frac_part = frac_part * multiplier;
+                }
+
+                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                        context, decimal32_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
+        } else if (auto* decimal64_column =
+                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+            const UInt32 scale = decimal64_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal64 frac_part = decimal64_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = frac_part / multiplier + delta;
+                } else if (scale < 2) {
+                    frac_part = frac_part * multiplier;
+                }
+
+                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                        context, decimal64_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
+        } else if (auto* decimal128_column =
+                           check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
+            const UInt32 scale = decimal128_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal128I frac_part = decimal128_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = frac_part / multiplier + delta;
+                } else if (scale < 2) {
+                    frac_part = frac_part * multiplier;
+                }
+
+                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                        context, decimal128_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
         }
     }
 };

@@ -64,10 +64,6 @@ public class ExprTest {
         Deencapsulation.setField(tableBColumn1, "desc", slotDesc2);
         new Expectations() {
             {
-                slotDesc1.isMaterialized();
-                result = true;
-                slotDesc2.isMaterialized();
-                result = true;
                 slotDesc1.getColumn().getName();
                 result = "c1";
                 slotDesc2.getColumn().getName();

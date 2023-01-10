@@ -112,7 +112,7 @@ public class CreateMaterializedViewStmtTest {
                 result = selectList;
                 arithmeticExpr.toString();
                 result = "a+b";
-                slotRef.getColumnName();
+                slotRef.toSql();
                 result = "k1";
                 selectStmt.getWhereClause();
                 minTimes = 0;
@@ -195,7 +195,7 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(tableRef1, tableRef2);
                 selectStmt.getSelectList();
                 result = selectList;
-                slotRef.getColumnName();
+                slotRef.toSql();
                 result = "k1";
             }
         };
@@ -228,7 +228,7 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(tableRef);
                 selectStmt.getWhereClause();
                 result = whereClause;
-                slotRef.getColumnName();
+                slotRef.toSql();
                 result = "k1";
             }
         };
@@ -264,7 +264,7 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getHavingPred();
                 result = havingClause;
-                slotRef.getColumnName();
+                slotRef.toSql();
                 result = "k1";
             }
         };
@@ -306,17 +306,20 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getOrderByElements();
                 result = orderByElementList;
-                slotRef1.getColumnName();
+                slotRef1.toSql();
                 result = "k1";
-                slotRef2.getColumnName();
+                slotRef2.toSql();
                 result = "k2";
+                slotRef2.getColumnName();
+                result = "k1";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
-        } catch (UserException e) {
+        } catch (Exception e) {
+            e.printStackTrace();
             System.out.print(e.getMessage());
         }
     }
@@ -358,12 +361,12 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getOrderByElements();
                 result = orderByElementList;
-                slotRef1.getColumnName();
-                result = "k1";
                 slotDescriptor.getColumn();
                 result = column2;
                 column2.getOriginType();
                 result = Type.INT;
+                slotRef1.toSql();
+                result = "k1";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -401,7 +404,7 @@ public class CreateMaterializedViewStmtTest {
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
-        } catch (UserException e) {
+        } catch (Exception e) {
             System.out.print(e.getMessage());
         }
     }
@@ -435,12 +438,12 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                slotRef1.getColumnName();
-                result = "k1";
                 slotDescriptor.getColumn();
                 result = column2;
                 column2.getOriginType();
                 result = Type.INT;
+                slotRef1.toSql();
+                result = "k1";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -491,14 +494,14 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getOrderByElements();
                 result = orderByElementList;
-                slotRef1.getColumnName();
-                result = "k1";
-                slotRef2.getColumnName();
-                result = "non-k2";
                 slotDescriptor.getColumn();
                 result = column3;
                 column3.getOriginType();
                 result = Type.INT;
+                slotRef1.toSql();
+                result = "k1";
+                slotRef2.toSql();
+                result = "k2";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -563,13 +566,13 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                slotRef1.getColumnName();
+                slotRef1.toSql();
                 result = columnName1;
-                slotRef2.getColumnName();
+                slotRef2.toSql();
                 result = columnName2;
-                slotRef3.getColumnName();
+                slotRef3.toSql();
                 result = columnName3;
-                slotRef4.getColumnName();
+                slotRef4.toSql();
                 result = columnName4;
                 functionChild0.getColumn();
                 result = column5;
@@ -608,7 +611,7 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn4 = mvColumns.get(4);
             Assert.assertFalse(mvColumn4.isKey());
             Assert.assertFalse(mvColumn4.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName5, mvColumn4.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName5), mvColumn4.getName());
             Assert.assertEquals(AggregateType.SUM, mvColumn4.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -653,13 +656,13 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                slotRef1.getColumnName();
+                slotRef1.toSql();
                 result = columnName1;
-                slotRef2.getColumnName();
+                slotRef2.toSql();
                 result = columnName2;
-                slotRef3.getColumnName();
+                slotRef3.toSql();
                 result = columnName3;
-                slotRef4.getColumnName();
+                slotRef4.toSql();
                 result = columnName4;
                 slotRef1.getType().getIndexSize();
                 result = 34;
@@ -753,13 +756,13 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                slotRef1.getColumnName();
+                slotRef1.toSql();
                 result = columnName1;
-                slotRef2.getColumnName();
+                slotRef2.toSql();
                 result = columnName2;
-                slotRef3.getColumnName();
+                slotRef3.toSql();
                 result = columnName3;
-                slotRef4.getColumnName();
+                slotRef4.toSql();
                 result = columnName4;
                 slotRef1.getType().getIndexSize();
                 result = 1;
@@ -851,13 +854,13 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                slotRef1.getColumnName();
+                slotRef1.toSql();
                 result = columnName1;
-                slotRef2.getColumnName();
+                slotRef2.toSql();
                 result = columnName2;
-                slotRef3.getColumnName();
+                slotRef3.toSql();
                 result = columnName3;
-                slotRef4.getColumnName();
+                slotRef4.toSql();
                 result = columnName4;
                 slotRef1.getType().getIndexSize();
                 result = 1;
@@ -918,8 +921,6 @@ public class CreateMaterializedViewStmtTest {
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
 
-        final String columnName1 = "k1";
-
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -928,19 +929,7 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getSelectList();
                 result = selectList;
-                selectStmt.getTableRefs();
-                result = Lists.newArrayList(tableRef);
-                selectStmt.getWhereClause();
-                result = null;
-                selectStmt.getHavingPred();
-                result = null;
-                selectStmt.getOrderByElements();
-                result = null;
                 selectStmt.analyze(analyzer);
-                slotRef1.getColumnName();
-                result = columnName1;
-                slotRef1.getType().isFloatingPointType();
-                result = true;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
             }
@@ -987,7 +976,7 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                slotRef1.getColumnName();
+                slotRef1.toSql();
                 result = columnName1;
                 slotRef1.getType().getPrimitiveType();
                 result = PrimitiveType.VARCHAR;
@@ -1060,6 +1049,10 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
+                slotRef1.toSql();
+                result = columnName1;
+                slotRef2.toSql();
+                result = columnName2;
                 slotRef1.getColumnName();
                 result = columnName1;
                 slotRef2.getColumnName();
@@ -1090,7 +1083,7 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertFalse(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(AggregateType.SUM, mvColumn2.getAggregationType());
             Assert.assertEquals(KeysType.AGG_KEYS, createMaterializedViewStmt.getMVKeysType());
         } catch (UserException e) {
@@ -1107,7 +1100,6 @@ public class CreateMaterializedViewStmtTest {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
-        final String columnName1 = "k1";
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -1121,12 +1113,12 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(tableRef);
                 selectStmt.getWhereClause();
                 result = null;
-                slotRef1.getColumnName();
-                result = columnName1;
                 selectStmt.getHavingPred();
                 result = null;
                 selectStmt.getLimit();
                 result = -1;
+                slotRef1.toSql();
+                result = "k1";
             }
         };
 
@@ -1137,7 +1129,8 @@ public class CreateMaterializedViewStmtTest {
             List<MVColumnItem> mvSchema = createMaterializedViewStmt.getMVColumnItemList();
             Assert.assertEquals(1, mvSchema.size());
             Assert.assertTrue(mvSchema.get(0).isKey());
-        } catch (UserException e) {
+        } catch (Exception e) {
+            e.printStackTrace();
             Assert.fail(e.getMessage());
         }
 

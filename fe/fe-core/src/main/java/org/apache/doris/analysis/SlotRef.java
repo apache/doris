@@ -402,10 +402,10 @@ public class SlotRef extends Expr {
 
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(desc != null);
-        if (!desc.isMaterialized()) {
+        if (desc == null) {
             return;
         }
+
         if (col == null) {
             for (Expr expr : desc.getSourceExprs()) {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);

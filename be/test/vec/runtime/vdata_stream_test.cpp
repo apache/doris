@@ -130,12 +130,11 @@ TEST_F(VDataStreamTest, BasicTest) {
     TUniqueId uid;
     PlanNodeId nid = 1;
     int num_senders = 1;
-    int buffer_size = 1024 * 1024;
     RuntimeProfile profile("profile");
     bool is_merge = false;
     std::shared_ptr<QueryStatisticsRecvr> statistics = std::make_shared<QueryStatisticsRecvr>();
-    auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, buffer_size,
-                                       &profile, is_merge, statistics);
+    auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, &profile,
+                                       is_merge, statistics);
 
     // Test Sender
     int sender_id = 1;

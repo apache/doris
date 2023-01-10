@@ -197,7 +197,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
 
-    if (is_key && reader_params.record_rowids) {
+    if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
@@ -239,7 +239,7 @@ Status Merger::vertical_compact_one_group(
         stats_output->merged_rows = reader.merged_rows();
         stats_output->filtered_rows = reader.filtered_rows();
     }
-    RETURN_IF_ERROR(dst_rowset_writer->flush_columns());
+    RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));
 
     return Status::OK();
 }

@@ -294,6 +294,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     olap_scan_node.sort_info.is_asc_order.size();
         }
     }
+
+    _tablet_reader_params.use_topn_opt = ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+
     return Status::OK();
 }
 
@@ -306,6 +309,11 @@ Status NewOlapScanner::_init_return_columns() {
         int32_t index = slot->col_unique_id() >= 0
                                 ? _tablet_schema->field_index(slot->col_unique_id())
                                 : _tablet_schema->field_index(slot->col_name());
+
+        if (index < 0) {
+            const std::string MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
+            index = _tablet_schema->field_index(MATERIALIZED_VIEW_NAME_PREFIX + slot->col_name());
+        }
 
         if (index < 0) {
             std::stringstream ss;

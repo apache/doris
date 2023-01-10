@@ -325,6 +325,7 @@ SEMI: 'SEMI';
 SEPARATED: 'SEPARATED';
 SERDE: 'SERDE';
 SERDEPROPERTIES: 'SERDEPROPERTIES';
+SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
 SET: 'SET';
 SETMINUS: 'MINUS';
@@ -413,6 +414,7 @@ SLASH: '/';
 PERCENT: '%';
 TILDE: '~';
 AMPERSAND: '&';
+LOGICALAND: '&&';
 PIPE: '|';
 CONCAT_PIPE: '||';
 HAT: '^';
@@ -420,6 +422,8 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+ATSIGN: '@';
+DOUBLEATSIGN: '@@';
 
 STRING
     : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''

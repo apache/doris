@@ -55,6 +55,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -107,7 +108,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private void addCatalog(CatalogIf catalog) {
         nameToCatalog.put(catalog.getName(), catalog);
         idToCatalog.put(catalog.getId(), catalog);
-        if (catalog.getResource() != null) {
+        if (!Strings.isNullOrEmpty(catalog.getResource())) {
             Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource())
                     .addReference(catalog.getName(), ReferenceType.CATALOG);
         }
@@ -120,7 +121,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             nameToCatalog.remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
-            if (catalog.getResource() != null) {
+            if (!Strings.isNullOrEmpty(catalog.getResource())) {
                 Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
                 if (catalogResource != null) {
                     catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
@@ -313,14 +314,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
-            if (catalog instanceof ExternalCatalog) {
-                String resource = ((ExternalCatalog) catalog).getCatalogProperty().getResource();
-                if (resource != null) {
-                    throw new DdlException(String.format(
-                            "Catalog %s has %s resource, please change the resource properties directly.",
-                            stmt.getCatalogName(), resource));
-                }
-            }
             if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
                     .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
@@ -393,7 +386,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), catalog.getName());
                 }
-                if (catalog.getResource() != null) {
+                if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
                 for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
