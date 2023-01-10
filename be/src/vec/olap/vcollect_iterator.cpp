@@ -233,10 +233,11 @@ Status VCollectIterator::topn_next(Block* block) {
     auto cloneBlock = block->clone_without_columns();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
 
-    // TODO include all orderby_key_columns
-    size_t compare_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
+    size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
+    const std::vector<uint32_t>* sort_columns =
+        _reader->_reader_context.read_orderby_key_columns;
 
-    BlockRowposComparator row_pos_comparator(&mutable_block, compare_column_idx,
+    BlockRowposComparator row_pos_comparator(&mutable_block, sort_columns,
                                              _reader->_reader_context.read_orderby_key_reverse);
     std::multiset<size_t, BlockRowposComparator, std::allocator<size_t>> sorted_row_pos(
             row_pos_comparator);
@@ -266,7 +267,7 @@ Status VCollectIterator::topn_next(Block* block) {
                 }
             }
 
-            auto col_name = block->get_names()[compare_column_idx];
+            auto col_name = block->get_names()[first_sort_column_idx];
 
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
@@ -295,17 +296,21 @@ Status VCollectIterator::topn_next(Block* block) {
                         continue;
                     }
 
-                    DCHECK_GE(block->columns(), compare_column_idx + 1);
-                    DCHECK_GE(mutable_block.columns(), compare_column_idx + 1);
+                    DCHECK_GE(block->columns(), sort_columns->size());
+                    DCHECK_GE(mutable_block.columns(), sort_columns->size());
 
-                    DCHECK(block->get_by_position(compare_column_idx)
-                                   .type->equals(*mutable_block.get_datatype_by_position(
-                                           compare_column_idx)));
-                    int res = block->get_by_position(compare_column_idx)
-                                      .column->compare_at(i, last_row_pos,
-                                                          *(mutable_block.get_column_by_position(
-                                                                  compare_column_idx)),
-                                                          0);
+                    int res = 0;
+                    for (auto j : *sort_columns) {
+                        DCHECK(block->get_by_position(j)
+                                    .type->equals(*mutable_block.get_datatype_by_position(j)));
+                        res = block->get_by_position(j)
+                                    .column->compare_at(j, last_row_pos,
+                                                        *(mutable_block.get_column_by_position(j)),
+                                                        0);
+                        if (res) {
+                            break;
+                        }
+                    }
 
                     // only copy needed rows
                     // _is_reverse == true  > smallest is ok
@@ -348,7 +353,7 @@ Status VCollectIterator::topn_next(Block* block) {
             if (changed && sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
-                auto col_ptr = mutable_block.get_column_by_position(compare_column_idx).get();
+                auto col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
                 Field new_top;
                 col_ptr->get(last_sorted_row, new_top);
 
@@ -370,16 +375,7 @@ Status VCollectIterator::topn_next(Block* block) {
 
 bool VCollectIterator::BlockRowposComparator::operator()(const size_t& lpos,
                                                          const size_t& rpos) const {
-    DCHECK_GE(_mutable_block->columns(), _compare_column_idx + 1);
-    DCHECK_LE(lpos, _mutable_block->rows());
-    DCHECK_LE(rpos, _mutable_block->rows());
-
-    auto res =
-            _mutable_block->get_column_by_position(_compare_column_idx)
-                    ->compare_at(lpos, rpos,
-                                 *(_mutable_block->get_column_by_position(_compare_column_idx)), 0);
-
-    return _is_reverse ? res > 0 : res < 0;
+    return _mutable_block->compare_at(lpos, rpos, _compare_columns, *_mutable_block, 0);
 }
 
 VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
