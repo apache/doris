@@ -150,6 +150,11 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
+If you want to connect to Hadoop with KMS authentication, you should add the follow configuration into properties:
+```
+'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
+```
+
 Once created, you can view the catalog with the `SHOW CATALOGS` command:
 
 ```
