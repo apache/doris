@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -88,6 +89,15 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         if (binaryOperator instanceof ImplicitCastInputTypes) {
             List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) binaryOperator).expectedInputTypes();
             if (!expectedInputTypes.isEmpty()) {
+                binaryOperator.children().stream().filter(e -> e instanceof StringLikeLiteral)
+                        .forEach(expr -> {
+                            try {
+                                new BigDecimal(((StringLikeLiteral) expr).getStringValue());
+                            } catch (NumberFormatException e) {
+                                throw new IllegalStateException(String.format(
+                                        "string literal %s cannot be cast to double", expr.toSql()));
+                            }
+                        });
                 binaryOperator = (BinaryOperator) visitImplicitCastInputTypes(binaryOperator, expectedInputTypes,
                         context);
             }
@@ -109,20 +119,6 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     return op.withChildren(newLeft, newRight);
                 })
                 .orElse(op.withChildren(left, right));
-    }
-
-    @Override
-    public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
-        Expression left = binaryArithmetic.left();
-        Expression right = binaryArithmetic.right();
-        if (left.getDataType().isNumericType() && right.getDataType().isNumericType()) {
-            return visitBinaryOperator(binaryArithmetic, context);
-        }
-        left = rewrite(binaryArithmetic.left(), context);
-        right = rewrite(binaryArithmetic.right(), context);
-        Stream.of(left, right).filter(StringLikeLiteral.class::isInstance).map(StringLikeLiteral.class::cast)
-                .forEach(literal -> new BigDecimal(literal.getStringValue()));
-        return binaryArithmetic.withChildren(new Cast(left, DoubleType.INSTANCE), new Cast(right, DoubleType.INSTANCE));
     }
 
     @Override

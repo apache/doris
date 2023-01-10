@@ -188,4 +188,9 @@ suite("cast") {
     qt_orderBy_withNull_10 " select a.k1 ak1, b.k1 bk1 from test a right join baseall b on a.k1=b.k1 and b.k1 > 10 order by ak1 nulls last, bk1"
 
     qt_group31 "select count(*) from test where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00') and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by count(*)"
+
+    test {
+        sql "select true + 1 + 'x'"
+        exception "string literal 'x' cannot be cast to double"
+    }
 }

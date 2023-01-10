@@ -195,7 +195,7 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         assertRewrite(actual1, expected1);
 
         Expression actual2 = new Add(new IntegerLiteral(1), new Add(BooleanLiteral.TRUE, new StringLiteral("x")));
-        Assertions.assertThrows(NumberFormatException.class, () -> assertRewrite(actual2, null));
+        Assertions.assertThrows(IllegalStateException.class, () -> assertRewrite(actual2, null));
     }
 
     private DataType checkAndGetDataType(Expression expression) {
