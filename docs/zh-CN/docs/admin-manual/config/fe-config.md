@@ -2363,16 +2363,6 @@ hive metastore 的默认超时时间
 
 FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片信息
 
-#### `enable_new_es_dsl`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-使用新的 fe 生成的 es dsl
-
 ### 外部资源
 
 #### `dpp_hadoop_client_path`
