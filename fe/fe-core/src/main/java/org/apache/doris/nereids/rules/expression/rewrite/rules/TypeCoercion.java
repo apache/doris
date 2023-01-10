@@ -24,7 +24,6 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.jobs.batch.CheckLegalityBeforeTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -38,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -53,7 +51,6 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * a rule to add implicit cast for expressions.
