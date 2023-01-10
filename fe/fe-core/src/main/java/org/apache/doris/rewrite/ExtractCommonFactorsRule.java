@@ -116,7 +116,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
      * 4. Construct new expr:
      * @return: a and b' and (b or (e and f))
      */
-    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer, ExprRewriter.ClauseType clauseType) {
+    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer, ExprRewriter.ClauseType clauseType)
+            throws AnalysisException {
         if (exprs.size() < 2) {
             return null;
         }
@@ -192,10 +193,10 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         if (CollectionUtils.isNotEmpty(commonFactorList)) {
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
                     makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
-                    makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR));
+                    makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType));
             result.setPrintSqlInParens(true);
         } else {
-            result = makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR);
+            result = makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("equal ors: " + result.toSql());
@@ -433,7 +434,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         return result;
     }
 
-    private Expr makeCompoundRemaining(List<Expr> exprs, CompoundPredicate.Operator op) {
+    private Expr makeCompoundRemaining(List<Expr> exprs, CompoundPredicate.Operator op,
+            Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (CollectionUtils.isEmpty(exprs)) {
             return null;
         }
@@ -444,7 +446,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         Expr rewritePredicate = null;
         // only OR will be rewrite to IN
         if (op == CompoundPredicate.Operator.OR) {
-            rewritePredicate = rewriteOrToIn(exprs);
+            rewritePredicate = rewriteOrToIn(exprs, analyzer, clauseType);
             // IF rewrite finished, rewritePredicate will not be null
             // IF not rewrite, do compoundPredicate
             if (rewritePredicate != null) {
@@ -460,7 +462,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         return result;
     }
 
-    private Expr rewriteOrToIn(List<Expr> exprs) {
+    private Expr rewriteOrToIn(List<Expr> exprs, Analyzer analyzer, ExprRewriter.ClauseType clauseType)
+            throws AnalysisException {
         // remainingOR  expr = BP IP
         InPredicate inPredicate = null;
         int rewriteThreshold;
@@ -489,7 +492,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
         for (int i = 0; i < exprs.size(); i++) {
             Expr predicate = exprs.get(i);
-            if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
+            if (predicate instanceof CompoundPredicate
+                    && ((CompoundPredicate) predicate).getOp() == Operator.AND) {
+                CompoundPredicate and = (CompoundPredicate) predicate;
+                Expr left = apply(and.getChild(0), analyzer, clauseType);
+                Expr right = apply(and.getChild(1), analyzer, clauseType);
+                notMergedExprs.add(new CompoundPredicate(Operator.AND, left, right));
+            } else if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
                 notMergedExprs.add(predicate);
             } else if (!(predicate.getChild(0) instanceof SlotRef)) {
                 notMergedExprs.add(predicate);

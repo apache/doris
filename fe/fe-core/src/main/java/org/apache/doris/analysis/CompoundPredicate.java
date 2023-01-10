@@ -280,8 +280,6 @@ public class CompoundPredicate extends Predicate {
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append(getChild(0)).append(" ").append(op).append(" ").append(getChild(1));
-        return builder.toString();
+        return toSqlImpl();
     }
 }

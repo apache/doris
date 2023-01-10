@@ -2276,5 +2276,17 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "select * from test1 where (query_time = 1 or query_time = 2 or query_time = 3 or query_time = 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));
+
+        //rewrite recursively
+        sql = "select * from test1 "
+                + "where query_id=client_ip "
+                + "      and (stmt_id=1 or stmt_id=2 or stmt_id=3 "
+                + "           or (user='abc' and (state = 'a' or state='b' or state in ('c', 'd'))))"
+                + "      or (db not in ('x', 'y')) ";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains(
+                "PREDICATES: `query_id` = `client_ip` "
+                        + "AND `stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd') "
+                        + "OR (`db` NOT IN ('x', 'y'))\n"));
     }
 }
