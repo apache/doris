@@ -77,11 +77,18 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
     case TYPE_STRING:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
+        break;
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+        *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
         break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();

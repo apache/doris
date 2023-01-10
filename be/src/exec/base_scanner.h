@@ -58,9 +58,7 @@ public:
 
     virtual ~BaseScanner() {
         Expr::close(_dest_expr_ctx, _state);
-        if (_state->enable_vectorized_exec()) {
-            vectorized::VExpr::close(_dest_vexpr_ctx, _state);
-        }
+        vectorized::VExpr::close(_dest_vexpr_ctx, _state);
     }
 
     // Register conjuncts for push down
