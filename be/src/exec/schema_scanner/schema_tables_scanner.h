@@ -36,7 +36,7 @@ public:
 private:
     Status get_new_table();
     Status fill_one_row(Tuple* tuple, MemPool* pool);
-    Status fill_block_imp(vectorized::Block* block);
+    Status _fill_block_imp(vectorized::Block* block);
 
     int _db_index;
     TGetDbsResult _db_result;

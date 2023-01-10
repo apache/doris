@@ -21,6 +21,7 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService.h"
 #include "runtime/client_cache.h"
@@ -57,6 +58,58 @@ Status SchemaBackendsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eo
     }
     *eos = false;
     return _fill_one_row(tuple, pool);
+}
+
+Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("Used before initialized.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+    *eos = true;
+    return _fill_block_imp(block);
+}
+
+Status SchemaBackendsScanner::_fill_block_imp(vectorized::Block* block) {
+    auto row_num = _batch_data.size();
+    for (size_t col_idx = 0; col_idx < _column_num; ++col_idx) {
+        auto it = _col_name_to_type.find(_columns[col_idx].name);
+        if (it == _col_name_to_type.end()) {
+            if (_columns[col_idx].is_null) {
+                for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                    fill_dest_column(block, nullptr, _tuple_desc->slots()[col_idx]);
+                }
+            } else {
+                return Status::InternalError(
+                        "column {} is not found in BE, and {} is not nullable.",
+                        _columns[col_idx].name, _columns[col_idx].name);
+            }
+        } else if (it->second == TYPE_BIGINT) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].longVal,
+                                 _tuple_desc->slots()[col_idx]);
+            }
+        } else if (it->second == TYPE_INT) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].intVal,
+                                 _tuple_desc->slots()[col_idx]);
+            }
+        } else if (it->second == TYPE_VARCHAR) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].stringVal,
+                                 _tuple_desc->slots()[col_idx]);
+            }
+        } else if (it->second == TYPE_DOUBLE) {
+            for (int row_idx = 0; row_idx < row_num; ++row_idx) {
+                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].doubleVal,
+                                 _tuple_desc->slots()[col_idx]);
+            }
+        } else {
+            // other type
+        }
+    }
+    return Status::OK();
 }
 
 Status SchemaBackendsScanner::_fill_one_row(Tuple* tuple, MemPool* pool) {

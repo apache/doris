@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 namespace doris {
 
@@ -27,9 +28,11 @@ public:
 
     Status start(RuntimeState* state) override;
     Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
     Status _fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fill_block_imp(vectorized::Block* block);
     Status _fetch_backends_info();
     Status _fill_one_col(Tuple* tuple, MemPool* pool, size_t idx);
     Status _set_col_name_to_type();

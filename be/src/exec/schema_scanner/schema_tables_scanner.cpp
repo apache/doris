@@ -52,10 +52,9 @@ SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
 
 SchemaTablesScanner::SchemaTablesScanner()
         : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _db_index(0) {
-    _schema_table_type = TSchemaTableType::SCH_TABLES;
-}
+                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc),
+                        TSchemaTableType::SCH_TABLES),
+          _db_index(0) {}
 
 SchemaTablesScanner::~SchemaTablesScanner() {}
 
@@ -134,7 +133,7 @@ Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos)
     return fill_one_row(tuple, pool);
 }
 
-Status SchemaTablesScanner::fill_block_imp(vectorized::Block* block) {
+Status SchemaTablesScanner::_fill_block_imp(vectorized::Block* block) {
     auto table_num = _table_result.tables.size();
     // catalog
     {
@@ -314,7 +313,7 @@ Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) 
         return Status::OK();
     }
     *eos = false;
-    return fill_block_imp(block);
+    return _fill_block_imp(block);
 }
 
 } // namespace doris
