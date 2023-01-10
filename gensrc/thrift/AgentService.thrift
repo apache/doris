@@ -56,28 +56,38 @@ enum TTabletType {
 }
 
 struct TS3StorageParam {
-    1: optional string s3_endpoint
-    2: optional string s3_region
-    3: optional string s3_ak
-    4: optional string s3_sk
-    5: optional i32 s3_max_conn = 50
-    6: optional i32 s3_request_timeout_ms = 3000
-    7: optional i32 s3_conn_timeout_ms = 1000
+    1: optional string endpoint
+    2: optional string region
+    3: optional string ak
+    4: optional string sk
+    5: optional i32 max_conn = 50
+    6: optional i32 request_timeout_ms = 3000
+    7: optional i32 conn_timeout_ms = 1000
     8: optional string root_path
     9: optional string bucket
 }
 
-struct TGetStoragePolicy {
-    1: optional string policy_name
-    2: optional i64 cooldown_datetime
-    3: optional i64 cooldown_ttl
-    4: optional TS3StorageParam s3_storage_param
-    5: optional string md5_checksum
+struct TStoragePolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional i64 version // alter version
+    4: optional i64 cooldown_datetime
+    5: optional i64 cooldown_ttl
+    6: optional i64 resource_id
 }
 
-struct TGetStoragePolicyResult {
-    1: optional Status.TStatus status
-    2: optional list<TGetStoragePolicy> result_entrys
+struct TStorageResource {
+    1: optional i64 id
+    2: optional string name
+    3: optional i64 version // alter version
+    4: optional TS3StorageParam s3_storage_param
+    // more storage resource type
+}
+
+struct TPushStoragePolicyReq {
+    1: optional list<TStoragePolicy> storage_policy
+    2: optional list<TStorageResource> resource
+    3: optional list<i64> dropped_storage_policy
 }
 
 enum TCompressionType {
@@ -115,8 +125,9 @@ struct TCreateTabletReq {
     // 15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
-    18: optional string storage_policy
+    // 18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
+    20: optional i64 storage_policy_id
 }
 
 struct TDropTabletReq {
@@ -335,7 +346,8 @@ struct TTabletMetaInfo {
     3: optional Types.TPartitionId partition_id
     4: optional TTabletMetaType meta_type
     5: optional bool is_in_memory
-    6: optional string storage_policy;
+    // 6: optional string storage_policy;
+    7: optional i64 storage_policy_id
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -389,8 +401,9 @@ struct TAgentTaskRequest {
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
     27: optional TCompactionReq compaction_req
     28: optional TStorageMigrationReqV2 storage_migration_req_v2
-    29: optional TGetStoragePolicy update_policy
+    // DEPRECATED 29: optional TGetStoragePolicy update_policy
     30: optional TPushCooldownConfReq push_cooldown_conf
+    31: optional TPushStoragePolicyReq push_storage_policy_req
 }
 
 struct TAgentResult {
