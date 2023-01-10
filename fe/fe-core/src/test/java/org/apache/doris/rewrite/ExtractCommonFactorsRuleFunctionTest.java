@@ -87,7 +87,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     public void testWideCommonFactorsWithOrPredicate() throws Exception {
         String query = "select * from tb1 where tb1.k1 > 1000 or tb1.k1 < 200 or tb1.k1 = 300";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("PREDICATES: (`tb1`.`k1` > 1000 OR `tb1`.`k1` < 200 OR `tb1`.`k1` = 300)"));
+        Assert.assertTrue(planString.contains("PREDICATES: `tb1`.`k1` = 300 OR `tb1`.`k1` > 1000 OR `tb1`.`k1` < 200"));
     }
 
     @Test

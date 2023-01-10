@@ -2286,7 +2286,7 @@ public class QueryPlanTest extends TestWithFeService {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(
                 "PREDICATES: `query_id` = `client_ip` "
-                        + "AND `stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd') "
+                        + "AND (`stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd')) "
                         + "OR (`db` NOT IN ('x', 'y'))\n"));
     }
 }
