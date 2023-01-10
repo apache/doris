@@ -194,7 +194,7 @@ public class HiveMetaStoreCache {
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 
-    private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
+    public ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         String[] parts = partitionName.split("/");
@@ -285,6 +285,10 @@ public class HiveMetaStoreCache {
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {
         PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, types);
+        return getPartitionValues(key);
+    }
+
+    public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
         try {
             return partitionValuesCache.get(key);
         } catch (ExecutionException e) {
@@ -453,7 +457,7 @@ public class HiveMetaStoreCache {
     }
 
     public void dropPartitionsCache(String dbName, String tblName, List<String> partitionNames,
-            List<Type> partitionColumnTypes) {
+            List<Type> partitionColumnTypes, boolean invalidPartitionCache) {
         PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, partitionColumnTypes);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
@@ -488,12 +492,18 @@ public class HiveMetaStoreCache {
                     singleColumnRangeMapBefore.remove(range);
                 }
             }
-            invalidatePartitionCache(dbName, tblName, partitionName);
+            if (invalidPartitionCache) {
+                invalidatePartitionCache(dbName, tblName, partitionName);
+            }
         }
         HivePartitionValues partitionValuesCur = partitionValuesCache.getIfPresent(key);
         if (partitionValuesCur == partitionValues) {
             partitionValuesCache.put(key, copy);
         }
+    }
+
+    public void putPartitionValuesCacheForTest(PartitionValueCacheKey key, HivePartitionValues values) {
+        partitionValuesCache.put(key, values);
     }
 
     /**
