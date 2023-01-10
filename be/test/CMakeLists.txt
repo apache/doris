@@ -86,6 +86,7 @@ set(HTTP_TEST_FILES
 )
 set(IO_TEST_FILES
     io/cache/remote_file_cache_test.cpp
+    io/cache/file_block_cache_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp

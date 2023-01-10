@@ -26,6 +26,8 @@
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "io/file_factory.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
 #include "vec/core/block.h"
@@ -39,7 +41,7 @@ const static Slice _s_null_slice = Slice("\\N");
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _state(state),
           _profile(profile),
           _counter(counter),
@@ -52,7 +54,8 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _line_reader_eof(false),
           _text_converter(nullptr),
           _decompressor(nullptr),
-          _skip_lines(0) {
+          _skip_lines(0),
+          _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     _file_compress_type = _params.compress_type;
@@ -64,7 +67,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _state(nullptr),
           _profile(profile),
           _params(params),
@@ -73,7 +76,8 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _line_reader(nullptr),
           _line_reader_eof(false),
           _text_converter(nullptr),
-          _decompressor(nullptr) {
+          _decompressor(nullptr),
+          _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
     _file_compress_type = _params.compress_type;
     _size = _range.size;
@@ -122,8 +126,9 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &_file_reader, _io_ctx));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -564,7 +569,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
 
     RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties, file_description,
-                                                    &_file_system, &_file_reader));
+                                                    &_file_system, &_file_reader, _io_ctx));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("Empty File");

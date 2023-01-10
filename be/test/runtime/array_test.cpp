@@ -372,7 +372,7 @@ private:
 
     io::FileReaderSPtr create_readable_block(const std::string& path) {
         io::FileReaderSPtr reader;
-        auto st = io::global_local_filesystem()->open_file(path, &reader);
+        auto st = io::global_local_filesystem()->open_file(path, &reader, nullptr);
         return st.ok() ? std::move(reader) : nullptr;
     }
 

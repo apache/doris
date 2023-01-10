@@ -28,5 +28,11 @@ inline Path operator/(Path&& lhs, const Path& rhs) {
     return std::move(lhs /= rhs);
 }
 
+struct PathHasher {
+    std::size_t operator()(const doris::io::Path& k) const {
+        return std::hash<std::string>()(k.filename().native());
+    }
+};
+
 } // namespace io
 } // namespace doris

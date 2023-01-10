@@ -56,9 +56,11 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz);
+                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  IOContext* io_ctx);
 
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  IOContext* io_ctx);
 
     ~ParquetReader() override;
     // for test
@@ -154,7 +156,7 @@ private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    std::unique_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
@@ -187,5 +189,7 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
+
+    IOContext* _io_ctx;
 };
 } // namespace doris::vectorized
