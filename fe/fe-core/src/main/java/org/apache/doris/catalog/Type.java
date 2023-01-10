@@ -768,7 +768,7 @@ public abstract class Type {
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
                         || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetPrecision());
+                            && scalarType.isSetScale());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {

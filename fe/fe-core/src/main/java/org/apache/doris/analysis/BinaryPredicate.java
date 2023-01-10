@@ -357,9 +357,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
             return Type.VARCHAR;
         }
-        if (t1 == PrimitiveType.STRING && t2 == PrimitiveType.STRING
-                || t1 == PrimitiveType.STRING && t2 == PrimitiveType.VARCHAR
-                || t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.STRING) {
+        if ((t1 == PrimitiveType.STRING && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) || (
+                t2 == PrimitiveType.STRING && (t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING))) {
             return Type.STRING;
         }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
