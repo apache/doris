@@ -871,7 +871,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String functionName = ctx.identifier().getText();
+            String functionName = ctx.functionIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
 

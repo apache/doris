@@ -304,7 +304,7 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
+    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN      #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | ATSIGN identifier                                                                        #userVariable
