@@ -356,7 +356,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
@@ -662,7 +661,6 @@ Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }

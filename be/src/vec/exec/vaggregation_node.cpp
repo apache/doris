@@ -447,7 +447,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
 }
 
 Status AggregationNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
@@ -457,7 +456,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
 
 Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
@@ -535,7 +533,6 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                     _children[0]->get_next_span(), _child_eos);
         };
         {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
             if (_preagg_block.rows() != 0) {
                 RETURN_IF_ERROR(do_pre_agg(&_preagg_block, block));
             } else {
@@ -543,7 +540,6 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             }
         }
     } else {
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(pull(state, block, eos));
     }
     return Status::OK();

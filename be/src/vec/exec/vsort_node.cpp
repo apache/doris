@@ -87,7 +87,6 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSortNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
@@ -102,7 +101,6 @@ Status VSortNode::prepare(RuntimeState* state) {
 
 Status VSortNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
@@ -161,7 +159,6 @@ Status VSortNode::open(RuntimeState* state) {
                                   _children[0], std::placeholders::_1, std::placeholders::_2,
                                   std::placeholders::_3)),
                 child(0)->get_next_span(), eos);
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
     } while (!eos);
 
@@ -183,7 +180,6 @@ Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_blo
 }
 
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSortNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
