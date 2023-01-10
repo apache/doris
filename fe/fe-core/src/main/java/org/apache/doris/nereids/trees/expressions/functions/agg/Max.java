@@ -18,9 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -31,18 +32,24 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** max agg function. */
-public class Max extends NullableAggregateFunction implements UnaryExpression, CustomSignature,
-        ForbiddenMetricTypeArguments {
+public class Max extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
     public Max(Expression child) {
         this(false, false, child);
     }
 
-    public Max(boolean isDistinct, Expression arg) {
-        this(isDistinct, false, arg);
+    public Max(boolean distinct, Expression arg) {
+        this(distinct, false, arg);
     }
 
-    private Max(boolean isDistinct, boolean isAlwaysNullable, Expression arg) {
-        super("max", isAlwaysNullable, isDistinct, arg);
+    private Max(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("max", distinct, alwaysNullable, arg);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).isOnlyMetricType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
     }
 
     @Override
@@ -57,20 +64,14 @@ public class Max extends NullableAggregateFunction implements UnaryExpression, C
     }
 
     @Override
-    public Max withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public Max withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(isDistinct, isAlwaysNullable, children.get(0));
+        return new Max(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public Max withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Max(children.get(0));
-    }
-
-    @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean isAlwaysNullable) {
-        return new Max(isDistinct, isAlwaysNullable, children.get(0));
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new Max(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.jobs.batch.CheckLegalityBeforeTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -53,6 +55,7 @@ import java.util.stream.Collectors;
  * This class is inspired by spark's TypeCoercion.
  */
 @Developing
+@DependsRules(CheckLegalityBeforeTypeCoercion.class)
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     // TODO:
@@ -189,8 +192,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     private Expression visitImplicitCastInputTypes(Expression expr,
             List<AbstractDataType> expectedInputTypes, ExpressionRewriteContext ctx) {
         expr = expr.withChildren(child -> rewrite(child, ctx));
-        List<Optional<DataType>> inputImplicitCastTypes = getInputImplicitCastTypes(
-                expr.children(), expectedInputTypes);
+        List<Optional<DataType>> inputImplicitCastTypes
+                = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
         return castInputs(expr, inputImplicitCastTypes);
     }
 

@@ -52,9 +52,9 @@ public class Cast extends Expression implements UnaryExpression {
     @Override
     public boolean nullable() {
         DataType childDataType = child().getDataType();
-        if (childDataType.isStringType() && !targetType.isStringType()) {
+        if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if (!childDataType.isDateType() && targetType.isDateType()) {
+        } else if (!childDataType.isDateLikeType() && targetType.isDateLikeType()) {
             return true;
         } else {
             return child().nullable();

@@ -719,6 +719,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
 
         auto& iter = hash_table_ctx.iter;
         auto block_size = 0;
+        auto& visited_iter = _join_node->_outer_join_pull_visited_iter;
 
         auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
             block_size++;
@@ -727,6 +728,16 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                 mcol[j + right_col_idx]->insert_from(column, row_num);
             }
         };
+
+        if (visited_iter.ok()) {
+            DCHECK((std::is_same_v<Mapped, RowRefListWithFlag>));
+            for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+            }
+            if (!visited_iter.ok()) {
+                ++iter;
+            }
+        }
 
         for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
             auto& mapped = iter->get_second();
@@ -738,9 +749,15 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                         }
                     }
                 } else {
-                    for (auto it = mapped.begin(); it.ok(); ++it) {
-                        if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-                            insert_from_hash_table(it->block_offset, it->row_num);
+                    if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+                        visited_iter = mapped.begin();
+                        for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
+                            insert_from_hash_table(visited_iter->block_offset,
+                                                   visited_iter->row_num);
+                        }
+                        if (visited_iter.ok()) {
+                            // block_size >= _batch_size, quit for loop
+                            break;
                         }
                     }
                 }

@@ -32,7 +32,9 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Locale;
@@ -55,6 +57,29 @@ public abstract class DataType implements AbstractDataType {
             .put(SmallIntType.class, () -> IntegerType.INSTANCE)
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
             .put(FloatType.class, () -> DoubleType.INSTANCE)
+            .build();
+
+    @Developing("This map is just use to search which itemType of the ArrayType is implicit castable for temporary."
+            + "Maybe complete it after refactor TypeCoercion.")
+    private static final Map<Class<? extends DataType>, Promotion<DataType>> FULL_PRIMITIVE_TYPE_PROMOTION_MAP
+            = Promotion.builder()
+            .add(BooleanType.class, () -> ImmutableList.of(TinyIntType.INSTANCE))
+            .add(TinyIntType.class, () -> ImmutableList.of(SmallIntType.INSTANCE))
+            .add(SmallIntType.class, () -> ImmutableList.of(IntegerType.INSTANCE))
+            .add(IntegerType.class, () -> ImmutableList.of(BigIntType.INSTANCE))
+            .add(BigIntType.class, () -> ImmutableList.of(LargeIntType.INSTANCE))
+            .add(LargeIntType.class, () -> ImmutableList.of(FloatType.INSTANCE, StringType.INSTANCE))
+            .add(FloatType.class, () -> ImmutableList.of(
+                    DoubleType.INSTANCE, DecimalV3Type.DEFAULT_DECIMAL64, StringType.INSTANCE))
+            .add(DoubleType.class, () -> ImmutableList.of(DecimalV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
+            .add(DecimalV2Type.class, () -> ImmutableList.of(
+                    DecimalV3Type.DEFAULT_DECIMAL32,
+                    DecimalV3Type.DEFAULT_DECIMAL64,
+                    DecimalV3Type.DEFAULT_DECIMAL128,
+                    StringType.INSTANCE))
+            .add(DateType.class, () -> ImmutableList.of(
+                    DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
+            .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
             .build();
 
     /**
@@ -416,7 +441,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof SmallIntType;
     }
 
-    public boolean isIntType() {
+    public boolean isIntegerType() {
         return this instanceof IntegerType;
     }
 
@@ -436,20 +461,24 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DoubleType;
     }
 
-    public boolean isDecimalType() {
+    public boolean isDecimalV2Type() {
         return this instanceof DecimalV2Type;
     }
 
-    public boolean isDateTime() {
+    public boolean isDecimalV3Type() {
+        return this instanceof DecimalV3Type;
+    }
+
+    public boolean isDateTimeType() {
         return this instanceof DateTimeType;
     }
 
-    public boolean isDate() {
+    public boolean isDateType() {
         return this instanceof DateType;
     }
 
-    public boolean isDateType() {
-        return isDate() || isDateTime() || isDateV2() || isDateTimeV2();
+    public boolean isDateLikeType() {
+        return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2Type();
     }
 
     public boolean isNullType() {
@@ -468,7 +497,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof VarcharType;
     }
 
-    public boolean isStringType() {
+    public boolean isStringLikeType() {
         return this instanceof CharacterType;
     }
 
@@ -480,33 +509,32 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DateV2Type;
     }
 
-    public boolean isDateTimeV2() {
+    public boolean isDateTimeV2Type() {
         return this instanceof DateTimeV2Type;
     }
 
-    public boolean isBitmap() {
+    public boolean isBitmapType() {
         return this instanceof BitmapType;
     }
 
-    public boolean isHll() {
-        return this instanceof HllType;
-    }
-
-    public boolean isQuantileState() {
+    public boolean isQuantileStateType() {
         return this instanceof QuantileStateType;
     }
 
-    public boolean isArray() {
+    public boolean isHllType() {
+        return this instanceof HllType;
+    }
+
+    public boolean isArrayType() {
         return this instanceof ArrayType;
     }
 
-    // only metric types have the following constraint:
-    // 1. don't support as key column
-    // 2. don't support filter
-    // 3. don't support group by
-    // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isHll() || isBitmap() || isQuantileState() || isArray();
+        return isObjectType() || isArrayType();
+    }
+
+    public boolean isObjectType() {
+        return isHllType() || isBitmapType() || isQuantileStateType();
     }
 
     public DataType promotion() {
@@ -515,6 +543,21 @@ public abstract class DataType implements AbstractDataType {
         } else {
             return this;
         }
+    }
+
+    /** getAllPromotions */
+    public List<DataType> getAllPromotions() {
+        if (this instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) this;
+            return arrayType.getItemType()
+                    .getAllPromotions()
+                    .stream()
+                    .map(promotionType -> ArrayType.of(promotionType, arrayType.containsNull()))
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        Promotion<DataType> promotion = FULL_PRIMITIVE_TYPE_PROMOTION_MAP.get(this.getClass());
+        return promotion == null ? ImmutableList.of() : promotion.apply(this);
     }
 
     public abstract int width();
@@ -535,6 +578,46 @@ public abstract class DataType implements AbstractDataType {
             return ArrayType.SYSTEM_DEFAULT;
         } else {
             throw new AnalysisException("Illegal array type: " + type);
+        }
+    }
+
+    public static List<DataType> supportedTypes() {
+        return Type.getSupportedTypes()
+                .stream()
+                .map(DataType::fromCatalogType)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public static List<DataType> nonNullNonCharTypes() {
+        return supportedTypes()
+                .stream()
+                .filter(type -> !type.isNullType() && !type.isCharType())
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    interface Promotion<T extends DataType> {
+        List<DataType> apply(T dataType);
+
+        static PromotionBuilder builder() {
+            return new PromotionBuilder();
+        }
+    }
+
+    static class PromotionBuilder {
+        private Map<Class<? extends DataType>, Promotion<? extends DataType>> promotionMap = Maps.newLinkedHashMap();
+
+        public <T extends DataType> PromotionBuilder add(Class<T> dataTypeClass, Promotion<T> promotion) {
+            promotionMap.put(dataTypeClass, promotion);
+            return this;
+        }
+
+        public <T extends DataType> PromotionBuilder add(Class<T> dataTypeClass, Supplier<List<DataType>> promotion) {
+            promotionMap.put(dataTypeClass, type -> promotion.get());
+            return this;
+        }
+
+        public Map<Class<? extends DataType>, Promotion<DataType>> build() {
+            return (Map) ImmutableMap.copyOf(promotionMap);
         }
     }
 }
