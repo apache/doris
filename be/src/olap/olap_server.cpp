@@ -35,7 +35,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
-#include "service/tablet_lookup_metric.h"
+#include "service/point_query_executor.h"
 #include "util/file_utils.h"
 #include "util/time.h"
 

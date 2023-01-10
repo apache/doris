@@ -55,7 +55,6 @@ set(VEC_FILES
   columns/column_string.cpp
   columns/column_vector.cpp
   columns/columns_common.cpp
-  jsonb/serialize.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
@@ -235,6 +234,7 @@ set(VEC_FILES
   functions/function_width_bucket.cpp
   functions/match.cpp
   
+  jsonb/serialize.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

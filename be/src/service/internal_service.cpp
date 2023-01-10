@@ -43,7 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
-#include "service/tablet_lookup_metric.h"
+#include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
 #include "util/defer_op.h"
 #include "util/md5.h"
@@ -406,10 +406,10 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
 
 Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                                 PTabletKeyLookupResponse* response) {
-    TabletLookupMetric lookup_util;
+    PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
-    LOG(INFO) << lookup_util.print_profile();
+    LOG_EVERY_N(INFO, 500) << lookup_util.print_profile();
     return Status::OK();
 }
 

@@ -30,7 +30,6 @@
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "runtime/memory/mem_tracker.h"
-#include "service/tablet_lookup_metric.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"

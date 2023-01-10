@@ -442,7 +442,6 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
                                                     ptable_schema_param.indexes(i),
                                                     ori_tablet_schema);
     }
-
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         _tablet->update_max_version_schema(_tablet_schema);
     }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "service/tablet_lookup_metric.h"
+#include "service/point_query_executor.h"
 
 #include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
@@ -74,7 +74,7 @@ void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     _block_pool.push_back(std::move(block));
 }
 
-Status TabletLookupMetric::init(const PTabletKeyLookupRequest* request,
+Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                 PTabletKeyLookupResponse* response) {
     SCOPED_TIMER(&_profile_metrics.init_ns);
     _response = response;
@@ -120,14 +120,14 @@ Status TabletLookupMetric::init(const PTabletKeyLookupRequest* request,
     return Status::OK();
 }
 
-Status TabletLookupMetric::lookup_up() {
+Status PointQueryExecutor::lookup_up() {
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());
     return Status::OK();
 }
 
-std::string TabletLookupMetric::print_profile() {
+std::string PointQueryExecutor::print_profile() {
     auto init_us = _profile_metrics.init_ns.value() / 1000;
     auto init_key_us = _profile_metrics.init_key_ns.value() / 1000;
     auto lookup_key_us = _profile_metrics.lookup_key_ns.value() / 1000;
@@ -148,7 +148,7 @@ std::string TabletLookupMetric::print_profile() {
             _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size());
 }
 
-Status TabletLookupMetric::_init_keys(const PTabletKeyLookupRequest* request) {
+Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     SCOPED_TIMER(&_profile_metrics.init_key_ns);
     // 1. get primary key from conditions
     std::vector<OlapTuple> olap_tuples;
@@ -171,7 +171,7 @@ Status TabletLookupMetric::_init_keys(const PTabletKeyLookupRequest* request) {
     return Status::OK();
 }
 
-Status TabletLookupMetric::_lookup_row_key() {
+Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     _row_locations.reserve(_primary_keys.size());
     // 2. lookup row location
@@ -189,7 +189,7 @@ Status TabletLookupMetric::_lookup_row_key() {
     return Status::OK();
 }
 
-Status TabletLookupMetric::_lookup_row_data() {
+Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_locations.size(); ++i) {
@@ -212,7 +212,7 @@ static Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& blo
     return Status::OK();
 }
 
-Status TabletLookupMetric::_output_data() {
+Status PointQueryExecutor::_output_data() {
     // 4. exprs exec and serialize to mysql row batches
     SCOPED_TIMER(&_profile_metrics.output_data_ns);
     if (_result_block->rows()) {

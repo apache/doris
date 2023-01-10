@@ -1993,30 +1993,7 @@ Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescr
         vectorized::JsonbSerializeUtil::jsonb_to_block(*desc, *string_column, *block);
         return Status::OK();
     }
-    // read from segment column by column, row by row
-    for (int x = 0; x < desc->slots().size(); ++x) {
-        int index = tablet_schema->field_index(desc->slots()[x]->col_unique_id());
-        auto column = block->get_by_position(x).column->assume_mutable();
-        // TODO handle real default value
-        if (index < 0) {
-            column->insert_default();
-            continue;
-        }
-        segment_v2::ColumnIterator* column_iterator = nullptr;
-        RETURN_IF_ERROR(
-                segment->new_column_iterator(tablet_schema->column(index), &column_iterator));
-        std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
-        segment_v2::ColumnIteratorOptions opt;
-        OlapReaderStatistics stats;
-        opt.file_reader = segment->file_reader().get();
-        opt.stats = &stats;
-        opt.use_page_cache = !config::disable_storage_page_cache;
-        column_iterator->init(opt);
-        std::vector<segment_v2::rowid_t> rowids {
-                static_cast<segment_v2::rowid_t>(row_location.row_id)};
-        RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
-    }
-    return Status::OK();
+    __builtin_unreachable();
 }
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,

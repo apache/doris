@@ -235,7 +235,7 @@ public:
     }
 
     uint32_t writeInt128(__int128_t v) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
             os_->put((JsonbTypeUnder)JsonbType::T_Int128);
             os_->write((char*)&v, sizeof(__int128_t));
             kvState_ = WS_Value;
@@ -252,6 +252,18 @@ public:
             os_->write((char*)&v, sizeof(double));
             kvState_ = WS_Value;
             return sizeof(JsonbDoubleVal);
+        }
+
+        return 0;
+    }
+
+    uint32_t writeFloat(float v) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
+            os_->put((JsonbTypeUnder)JsonbType::T_Float);
+            os_->write((char*)&v, sizeof(float));
+            kvState_ = WS_Value;
+            return sizeof(JsonbFloatVal);
         }
 
         return 0;

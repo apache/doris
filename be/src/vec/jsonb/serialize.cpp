@@ -54,10 +54,17 @@ static void deserialize_column(PrimitiveType type, JsonbValue* slot_value, Mutab
         dst->deserialize_and_insert_from_arena(blob->getBlob());
     } else if (type == TYPE_OBJECT) {
         assert(slot_value->isBinary());
-        // TODO
+        auto blob = static_cast<JsonbBlobVal*>(slot_value);
+        BitmapValue bitmap_value;
+        bitmap_value.deserialize(blob->getBlob());
+        dst->insert_data(reinterpret_cast<const char*>(&bitmap_value), sizeof(BitmapValue));
     } else if (type == TYPE_HLL) {
         assert(slot_value->isBinary());
-        // TODO
+        auto blob = static_cast<JsonbBlobVal*>(slot_value);
+        HyperLogLog hyper_log_log;
+        Slice data {blob->getBlob(), blob->getBlobLen()};
+        hyper_log_log.deserialize(data);
+        dst->insert_data(reinterpret_cast<const char*>(&hyper_log_log), sizeof(HyperLogLog));
     } else if (is_string_type(type)) {
         assert(slot_value->isBinary());
         auto blob = static_cast<JsonbBlobVal*>(slot_value);
@@ -214,7 +221,7 @@ static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
         }
         case OLAP_FIELD_TYPE_FLOAT: {
             float val = *reinterpret_cast<const float*>(data_ref.data);
-            jsonb_writer.writeDouble(val);
+            jsonb_writer.writeFloat(val);
             break;
         }
         case OLAP_FIELD_TYPE_DOUBLE: {

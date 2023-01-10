@@ -318,7 +318,6 @@ private:
 
 class TupleDescriptor {
 public:
-    // virtual ~TupleDescriptor() {}
     ~TupleDescriptor() {
         if (_own_slots) {
             for (SlotDescriptor* slot : _slots) {
@@ -389,6 +388,8 @@ private:
 
     TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slot = false);
     TupleDescriptor(const PTupleDescriptor& tdesc, bool own_slot = false);
+    TupleDescriptor(TupleDescriptor&&) = delete;
+    void operator=(const TupleDescriptor&) = delete;
 
     void add_slot(SlotDescriptor* slot);
 

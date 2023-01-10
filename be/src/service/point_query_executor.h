@@ -152,7 +152,7 @@ struct Metrics {
 };
 
 // An util to do tablet lookup
-class TabletLookupMetric {
+class PointQueryExecutor {
 public:
     Status init(const PTabletKeyLookupRequest* request, PTabletKeyLookupResponse* response);
 
