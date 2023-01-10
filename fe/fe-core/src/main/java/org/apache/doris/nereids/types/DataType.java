@@ -51,8 +51,8 @@ public abstract class DataType implements AbstractDataType {
     protected static final NereidsParser PARSER = new NereidsParser();
 
     // use class and supplier here to avoid class load deadlock.
-    private static final Map<Class<? extends NumericType>, Supplier<NumericType>> PROMOTION_MAP
-            = ImmutableMap.<Class<? extends NumericType>, Supplier<NumericType>>builder()
+    private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
+            = ImmutableMap.<Class<? extends NumericType>, Supplier<DataType>>builder()
             .put(TinyIntType.class, () -> SmallIntType.INSTANCE)
             .put(SmallIntType.class, () -> IntegerType.INSTANCE)
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
