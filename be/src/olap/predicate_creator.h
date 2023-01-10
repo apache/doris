@@ -70,6 +70,9 @@ private:
 };
 
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
+using DoulbePredicatrCreator = IntegerPredicateCreator<Type, PT, ConditionType>;
+
+template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class DecimalPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
@@ -162,6 +165,9 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_DOUBLE: {
+        return std::make_unique<DoulbePredicatrCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
