@@ -407,11 +407,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::META_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VMetaScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VMetaScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::OLAP_SCAN_NODE:
