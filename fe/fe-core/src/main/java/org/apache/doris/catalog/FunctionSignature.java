@@ -24,7 +24,6 @@ import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
 import java.util.Arrays;
@@ -147,36 +146,6 @@ public class FunctionSignature {
 
         public FunctionSignature varArgs(AbstractDataType...argTypes) {
             return FunctionSignature.of(returnType, true, argTypes);
-        }
-    }
-
-    public static class MultiFuncSigBuilder {
-        public static MultiFuncSigBuilder INSTANCE = new MultiFuncSigBuilder();
-        private DataType returnType;
-        private Builder<FunctionSignature> builder = ImmutableList.builder();
-
-        private MultiFuncSigBuilder clear() {
-            builder = ImmutableList.builder();
-            return this;
-        }
-
-        public MultiFuncSigBuilder ret(DataType returnType) {
-            this.returnType = returnType;
-            return this;
-        }
-
-        public MultiFuncSigBuilder args(AbstractDataType...argTypes) {
-            builder.add(FunctionSignature.of(returnType, false, argTypes));
-            return this;
-        }
-
-        public MultiFuncSigBuilder varArgs(AbstractDataType...argTypes) {
-            builder.add(FunctionSignature.of(returnType, true, argTypes));
-            return this;
-        }
-
-        public List<FunctionSignature> build() {
-            return builder.build();
         }
     }
 
