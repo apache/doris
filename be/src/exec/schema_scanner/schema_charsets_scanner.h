@@ -29,6 +29,7 @@ public:
     virtual ~SchemaCharsetsScanner();
 
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
     struct CharsetStruct {
@@ -39,6 +40,7 @@ private:
     };
 
     Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fill_block_imp(vectorized::Block* block);
 
     int _index;
     static SchemaScanner::ColumnDesc _s_css_columns[];

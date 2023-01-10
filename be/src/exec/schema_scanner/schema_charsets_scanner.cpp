@@ -17,8 +17,8 @@
 
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 
+#include "common/status.h"
 #include "vec/common/string_ref.h"
-
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
@@ -35,7 +35,8 @@ SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
 };
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
-        : SchemaScanner(_s_css_columns, sizeof(_s_css_columns) / sizeof(SchemaScanner::ColumnDesc)),
+        : SchemaScanner(_s_css_columns, sizeof(_s_css_columns) / sizeof(SchemaScanner::ColumnDesc),
+                        TSchemaTableType::SCH_CHARSETS),
           _index(0) {}
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
@@ -99,6 +100,48 @@ Status SchemaCharsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eo
     }
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("call this before initial.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+    *eos = true;
+    return _fill_block_imp(block);
+}
+
+Status SchemaCharsetsScanner::_fill_block_imp(vectorized::Block* block) {
+    auto row_num = 0;
+    while (nullptr != _s_charsets[row_num].charset) {
+        ++row_num;
+    }
+
+    // variables names
+    for (int i = 0; i < row_num; ++i) {
+        StringRef str = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
+        fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+    }
+    // DEFAULT_COLLATE_NAME
+    for (int i = 0; i < row_num; ++i) {
+        StringRef str = StringRef(_s_charsets[i].default_collation,
+                                      strlen(_s_charsets[i].default_collation));
+        fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+    }
+    // DESCRIPTION
+    for (int i = 0; i < row_num; ++i) {
+        StringRef str =
+                StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
+        fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+    }
+    // maxlen
+    for (int i = 0; i < row_num; ++i) {
+        int64_t src = _s_charsets[i].maxlen;
+        fill_dest_column(block, &src, _tuple_desc->slots()[3]);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

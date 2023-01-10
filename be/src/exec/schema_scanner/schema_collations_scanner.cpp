@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner/schema_collations_scanner.h"
 
+#include "common/status.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/string_ref.h"
 
@@ -121,6 +122,58 @@ Status SchemaCollationsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* 
 
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("call this before initial.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+
+    *eos = true;
+    return _fill_block_imp(block);
+}
+
+Status SchemaCollationsScanner::_fill_block_imp(vectorized::Block* block) {
+    auto row_num = 0;
+    while (nullptr != _s_collations[row_num].name) {
+        ++row_num;
+    }
+    // COLLATION_NAME
+    for (int i = 0; i < row_num; ++i) {
+        StringValue str = StringValue(_s_collations[i].name, strlen(_s_collations[i].name));
+        fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+    }
+    // charset
+    for (int i = 0; i < row_num; ++i) {
+        StringValue str = StringValue(_s_collations[i].charset, strlen(_s_collations[i].charset));
+        fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+    }
+    // id
+    for (int i = 0; i < row_num; ++i) {
+        int64_t src = _s_collations[_index].id;
+        fill_dest_column(block, &src, _tuple_desc->slots()[2]);
+    }
+    // is_default
+    for (int i = 0; i < row_num; ++i) {
+        StringValue str =
+                StringValue(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
+        fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+    }
+    // IS_COMPILED
+    for (int i = 0; i < row_num; ++i) {
+        StringValue str =
+                StringValue(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
+        fill_dest_column(block, &str, _tuple_desc->slots()[4]);
+    }
+    // sortlen
+    for (int i = 0; i < row_num; ++i) {
+        int64_t src = _s_collations[_index].sortlen;
+        fill_dest_column(block, &src, _tuple_desc->slots()[5]);
+    }
+    return Status::OK();
 }
 
 } // namespace doris
