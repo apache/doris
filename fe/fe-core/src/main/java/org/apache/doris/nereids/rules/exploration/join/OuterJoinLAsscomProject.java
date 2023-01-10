@@ -199,8 +199,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
 
     private Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
-        // top: (A B)(error) (A C) (B C) (A B C)
-        // Split topJoin Condition to two part according to include B.
+        // if top join's conjuncts are all related to A, we can do reorder
         Map<Boolean, List<Expression>> splitOn = new HashMap<>();
         splitOn.put(true, new ArrayList<>());
         if (topConjuncts.stream().allMatch(topHashOn -> {
@@ -210,14 +209,13 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
 
             return ExpressionUtils.isIntersecting(bExprIdSet, usedSlotsId);
         })) {
+            // do reorder, create new bottom join conjuncts
             splitOn.put(false, new ArrayList<>(topConjuncts));
         } else {
+            // can't reorder, return empty list
             splitOn.put(false, new ArrayList<>());
         }
-        // * don't include B, just include (A C)
-        // we add it into newBottomJoin HashJoinConjuncts.
-        // * include B, include (A B C) or (A B)
-        // we add it into newTopJoin HashJoinConjuncts.
+
         List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
         newTopHashJoinConjuncts.addAll(bottomConjuncts);
 

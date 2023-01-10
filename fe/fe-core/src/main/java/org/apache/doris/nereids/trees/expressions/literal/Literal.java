@@ -160,13 +160,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return Float.compare((float) getValue(), (float) other.getValue());
         } else if (type.isDoubleType()) {
             return Double.compare((double) getValue(), (double) other.getValue());
-        } else if (type.isDecimalV2Type()) {
-            return Long.compare((Long) getValue(), (Long) other.getValue());
         } else if (type.isDateLikeType()) {
             return Long.compare((Long) getValue(), (Long) other.getValue());
-        } else if (type.isDecimalType()) {
+        } else if (type.isDecimalV2Type()) {
             return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
-        } else if (type.isStringType()) {
+        } else if (type.isStringLikeType()) {
             return StringUtils.compare((String) getValue(), (String) other.getValue());
         } else {
             throw new RuntimeException(String.format("Literal {} is not supported!", type.toString()));
