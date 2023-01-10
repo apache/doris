@@ -571,9 +571,7 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
         sb.append("\n)");
-        if (engineName != null) {
-            sb.append(" ENGINE = ").append(engineName);
-        }
+        sb.append(" ENGINE = ").append(engineName);
 
         if (keysDesc != null) {
             sb.append("\n").append(keysDesc.toSql());

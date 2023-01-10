@@ -1712,7 +1712,7 @@ public class SingleNodePlanner {
             return;
         }
         preds.removeAll(pushDownFailedPredicates);
-        unassignedConjuncts.remove(preds);
+        unassignedConjuncts.removeAll(preds);
         unassignedConjuncts.addAll(pushDownFailedPredicates);
 
         // Remove unregistered predicates that reference the same slot on
