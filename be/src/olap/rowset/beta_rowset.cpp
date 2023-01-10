@@ -72,6 +72,11 @@ std::string BetaRowset::remote_tablet_path(int64_t tablet_id) {
     return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
 }
 
+std::string BetaRowset::remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id) {
+    // data/{tablet_id}/{replica_id}.meta
+    return fmt::format("{}/{}.meta", remote_tablet_path(tablet_id), replica_id);
+}
+
 std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                             int segment_id) {
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat

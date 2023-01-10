@@ -376,9 +376,11 @@ public class MaterializedViewHandler extends AlterHandler {
             // index state is SHADOW
             MaterializedIndex mvIndex = new MaterializedIndex(mvIndexId, IndexState.SHADOW);
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
-            TabletMeta mvTabletMeta = new TabletMeta(dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium);
             short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
             for (Tablet baseTablet : baseIndex.getTablets()) {
+                TabletMeta mvTabletMeta = new TabletMeta(
+                        dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium, baseTablet.getCooldownReplicaId(),
+                        baseTablet.getCooldownTerm());
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = idGeneratorBuffer.getNextId();
 

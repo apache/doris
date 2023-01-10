@@ -349,6 +349,13 @@ struct TPluginMetaInfo {
     4: optional string source
 }
 
+struct TPushCooldownConfReq {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TReplicaId replica_id
+    3: optional Types.TReplicaId cooldown_replica_id
+    4: optional i64 cooldown_term
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -380,6 +387,7 @@ struct TAgentTaskRequest {
     27: optional TCompactionReq compaction_req
     28: optional TStorageMigrationReqV2 storage_migration_req_v2
     29: optional TGetStoragePolicy update_policy
+    30: optional TPushCooldownConfReq push_cooldown_conf
 }
 
 struct TAgentResult {

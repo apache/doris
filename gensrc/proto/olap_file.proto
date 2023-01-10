@@ -287,6 +287,9 @@ message TabletMetaPB {
     optional DeleteBitmapPB delete_bitmap = 23;
     // Use primary key index to speed up tabel unique key model
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
+    optional int64 cooldown_replica_id = 25 [default = -1];
+    optional int64 cooldown_term = 26 [default = -1];
+    optional int64 cooldown_meta_id = 27;
 }
 
 message OLAPRawDeltaHeaderMessage {

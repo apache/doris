@@ -113,7 +113,7 @@ public:
     // Init `RowsetMeta._fs` if rowset is local.
     void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
-    void to_meta_pb(TabletMetaPB* tablet_meta_pb);
+    void to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     uint32_t mem_size() const;
 
@@ -200,6 +200,26 @@ public:
         _storage_policy = policy;
     }
 
+    const int64_t cooldown_replica_id() const {
+        return _cooldown_replica_id;
+    }
+
+    void set_cooldown_replica_id(int64_t cooldown_replica_id) {
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_replica_id from "
+                    << _cooldown_replica_id << " to " << cooldown_replica_id;
+        _cooldown_replica_id = cooldown_replica_id;
+    }
+
+    const int64_t cooldown_term() const {
+        return _cooldown_term;
+    }
+
+    void set_cooldown_term(int64_t cooldown_term) {
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_term from " << _cooldown_term
+                    << " to " << cooldown_term;
+        _cooldown_term = cooldown_term;
+    }
+
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
@@ -243,6 +263,8 @@ private:
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
     std::string _storage_policy;
+    int64_t _cooldown_replica_id = -1;
+    int64_t _cooldown_term = -1;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,

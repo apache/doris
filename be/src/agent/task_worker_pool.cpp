@@ -204,6 +204,10 @@ void TaskWorkerPool::start() {
         cb = std::bind<void>(&TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback,
                              this);
         break;
+    case TaskWorkerType::PUSH_COOLDOWN_CONF:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
+        break;
     default:
         // pass
         break;
@@ -1689,6 +1693,45 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
         LOG(INFO) << "get storage update policy task. policy=" << *policy_ptr;
 
         spm->update(get_storage_policy_req.policy_name, policy_ptr);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TPushCooldownConfReq push_cooldown_conf_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
+            _tasks.pop_front();
+        }
+        int64_t tablet_id = push_cooldown_conf_req.tablet_id;
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        if (tablet.get() == nullptr) {
+            std::stringstream ss;
+            ss << "failed to get tablet. tablet_id=" << tablet_id;
+            LOG(WARNING) << ss.str();
+            return;
+        }
+        if (push_cooldown_conf_req.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
+            tablet->tablet_meta()->set_cooldown_replica_id(
+                    push_cooldown_conf_req.cooldown_replica_id);
+            tablet->tablet_meta()->set_cooldown_term(push_cooldown_conf_req.cooldown_term);
+            LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id;
+        } else {
+            LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
+                    << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term() << " -> "
+                    << push_cooldown_conf_req.cooldown_term;
+        }
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }

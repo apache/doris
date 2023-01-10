@@ -46,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,7 +66,7 @@ public class TabletInvertedIndex {
     public static final int NOT_EXIST_VALUE = -1;
 
     public static final TabletMeta NOT_EXIST_TABLET_META = new TabletMeta(NOT_EXIST_VALUE, NOT_EXIST_VALUE,
-            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD);
+            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD, -1, -1);
 
     private StampedLock lock = new StampedLock();
 
@@ -124,7 +125,8 @@ public class TabletInvertedIndex {
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
-                             List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
+                             List<Triple<Long, Integer, Boolean>> tabletToInMemory,
+                             Map<Long, TabletMeta> syncCooldownTabletMap) {
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
@@ -184,6 +186,11 @@ public class TabletInvertedIndex {
                                 synchronized (tabletRecoveryMap) {
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
+                            }
+
+                            if (Config.cooldown_single_remote_file
+                                    && needChangeCooldownConf(tabletMeta, backendTabletInfo)) {
+                                syncCooldownTabletMap.put(backendTabletInfo.getTabletId(), tabletMeta);
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -326,6 +333,50 @@ public class TabletInvertedIndex {
         }
 
         return false;
+    }
+
+    private boolean needChangeCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo) {
+        if (beTabletInfo.getStoragePolicy().isEmpty()) {
+            return false;
+        }
+        // check cooldown type in fe and be, they need to be the same.
+        if (tabletMeta.getCooldownReplicaId() != beTabletInfo.getCooldownReplicaId()) {
+            LOG.warn("cooldownReplicaId is wrong for tablet: {}, Fe: {}, Be: {}", beTabletInfo.getTabletId(),
+                    tabletMeta.getCooldownReplicaId(), beTabletInfo.getCooldownReplicaId());
+            return true;
+        }
+        // check cooldown type in one tablet, One UPLOAD_DATA is needed in the replicas.
+        long stamp = readLock();
+        try {
+            boolean replicaInvalid = true;
+            Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
+            for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
+                if (entry.getValue().getId() == beTabletInfo.getCooldownReplicaId()) {
+                    replicaInvalid = false;
+                    break;
+                }
+            }
+            if (replicaInvalid) {
+                return true;
+            }
+        } finally {
+            readUnlock(stamp);
+        }
+        return false;
+    }
+
+    public List<Replica> getReplicas(Long tabletId) {
+        List<Replica> replicas = new LinkedList<>();
+        long stamp = readLock();
+        try {
+            Map<Long, Replica> replicaMap = replicaMetaTable.row(tabletId);
+            for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
+                replicas.add(entry.getValue());
+            }
+        } finally {
+            readUnlock(stamp);
+        }
+        return replicas;
     }
 
     /**
