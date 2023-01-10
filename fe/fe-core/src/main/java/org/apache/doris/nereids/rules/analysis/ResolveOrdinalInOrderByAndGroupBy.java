@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
@@ -65,7 +64,7 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                         })
                 ))
                 .add(RuleType.RESOLVE_ORDINAL_IN_GROUP_BY.build(
-                        logicalAggregate().then(agg -> {
+                        logicalAggregate().whenNot(agg -> agg.isOrdinalIsResolved()).then(agg -> {
                             List<NamedExpression> aggOutput = agg.getOutputExpressions();
                             List<Expression> groupByWithoutOrd = new ArrayList<>();
                             boolean ordExists = false;
@@ -78,9 +77,6 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                     Expression aggExpr = aggOutput.get(ord - 1);
                                     if (aggExpr instanceof Alias) {
                                         aggExpr = ((Alias) aggExpr).child();
-                                        if (aggExpr instanceof Literal) {
-                                            aggExpr = groupByExpr;
-                                        }
                                     }
                                     groupByWithoutOrd.add(aggExpr);
                                     ordExists = true;
@@ -89,11 +85,11 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                 }
                             }
                             if (ordExists) {
-                                return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), agg.child());
+                                return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), true,
+                                        agg.child());
                             } else {
                                 return agg;
                             }
-
                         }))).build();
     }
 

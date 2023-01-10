@@ -91,10 +91,10 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             newLeftProjects);
 
                     /* ********** split Conjuncts ********** */
-                    Map<Boolean, List<Expression>> splitHashJoinConjuncts
-                            = splitConjunctsWithAlias(
+                    Map<Boolean, List<Expression>> newHashJoinConjuncts
+                            = createNewConjunctsWithAlias(
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), aExprIdSet);
-                    List<Expression> newTopHashJoinConjuncts = splitHashJoinConjuncts.get(true);
+                    List<Expression> newTopHashJoinConjuncts = newHashJoinConjuncts.get(true);
                     Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
                             "LAsscom newTopHashJoinConjuncts join can't empty");
                     // When newTopHashJoinConjuncts.size() != bottomJoin.getHashJoinConjuncts().size()
@@ -103,17 +103,17 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             && newTopHashJoinConjuncts.size() != bottomJoin.getHashJoinConjuncts().size()) {
                         return null;
                     }
-                    List<Expression> newBottomHashJoinConjuncts = splitHashJoinConjuncts.get(false);
+                    List<Expression> newBottomHashJoinConjuncts = newHashJoinConjuncts.get(false);
                     if (newBottomHashJoinConjuncts.size() == 0) {
                         return null;
                     }
 
-                    Map<Boolean, List<Expression>> splitOtherJoinConjuncts
-                            = splitConjunctsWithAlias(
+                    Map<Boolean, List<Expression>> newOtherJoinConjuncts
+                            = createNewConjunctsWithAlias(
                             topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                             aExprIdSet);
-                    List<Expression> newTopOtherJoinConjuncts = splitOtherJoinConjuncts.get(true);
-                    List<Expression> newBottomOtherJoinConjuncts = splitOtherJoinConjuncts.get(false);
+                    List<Expression> newTopOtherJoinConjuncts = newOtherJoinConjuncts.get(true);
+                    List<Expression> newBottomOtherJoinConjuncts = newOtherJoinConjuncts.get(false);
                     if (newBottomOtherJoinConjuncts.size() != topJoin.getOtherJoinConjuncts().size()
                             || newTopOtherJoinConjuncts.size() != bottomJoin.getOtherJoinConjuncts().size()) {
                         return null;
@@ -197,7 +197,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
     }
 
-    private Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
+    private Map<Boolean, List<Expression>> createNewConjunctsWithAlias(List<Expression> topConjuncts,
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // if top join's conjuncts are all related to A, we can do reorder
         Map<Boolean, List<Expression>> splitOn = new HashMap<>();
