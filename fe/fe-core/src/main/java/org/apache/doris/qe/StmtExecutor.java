@@ -424,6 +424,13 @@ public class StmtExecutor implements ProfileWriter {
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
+        QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
+                DebugUtil.printId(context.queryId()),
+                context.getStartTime(), -1, -1,
+                QueryDetail.QueryMemState.RUNNING,
+                context.getDatabase(),
+                originStmt.originStmt);
+        context.setQueryDetail(queryDetail);
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
             context.getState().setIsQuery(true);
@@ -1898,5 +1905,4 @@ public class StmtExecutor implements ProfileWriter {
     }
 
 }
-
 
