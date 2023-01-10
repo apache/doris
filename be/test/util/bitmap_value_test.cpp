@@ -392,6 +392,7 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
     BitmapValue single(1024);
     auto single_iter = single.begin();
     EXPECT_EQ(1024, *single_iter);
+    EXPECT_TRUE(single_iter == BitmapValue {1024}.begin());
     EXPECT_TRUE(single_iter != single.end());
 
     ++single_iter;
