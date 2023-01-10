@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -55,6 +56,9 @@ public class RunningDifference extends ScalarFunction implements UnaryExpression
             .ret(DoubleType.INSTANCE).args(FloatType.INSTANCE)
             .ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
             .ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT)
+            .ret(DecimalV3Type.DEFAULT_DECIMAL32).args(DecimalV3Type.DEFAULT_DECIMAL32)
+            .ret(DecimalV3Type.DEFAULT_DECIMAL64).args(DecimalV3Type.DEFAULT_DECIMAL64)
+            .ret(DecimalV3Type.DEFAULT_DECIMAL128).args(DecimalV3Type.DEFAULT_DECIMAL128)
             .ret(IntegerType.INSTANCE).args(DateType.INSTANCE)
             .ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE)
             .ret(DoubleType.INSTANCE).args(DateTimeType.INSTANCE)
