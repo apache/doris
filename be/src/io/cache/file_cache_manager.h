@@ -60,7 +60,7 @@ public:
 
     FileCachePtr new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
-                                io::FileCacheType cache_type);
+                                io::FileCachePolicy cache_type);
 
     bool exist(const std::string& cache_path);
 

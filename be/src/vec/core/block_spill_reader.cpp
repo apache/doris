@@ -24,15 +24,16 @@
 namespace doris {
 namespace vectorized {
 Status BlockSpillReader::open() {
-    std::unique_ptr<io::FileSystem> file_system;
+    std::shared_ptr<io::FileSystem> file_system;
     FileSystemProperties system_properties;
     system_properties.system_type = TFileType::FILE_LOCAL;
 
     FileDescription file_description;
     file_description.path = file_path_;
 
+    IOContext io_ctx;
     RETURN_IF_ERROR(FileFactory::create_file_reader(nullptr, system_properties, file_description,
-                                                    &file_system, &file_reader_));
+                                                    &file_system, &file_reader_, &io_ctx));
 
     size_t file_size = file_reader_->size();
 

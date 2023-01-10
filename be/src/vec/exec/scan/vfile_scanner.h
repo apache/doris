@@ -124,6 +124,9 @@ protected:
 
     VExprContext* _push_down_expr = nullptr;
 
+    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<IOContext> _io_ctx;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;

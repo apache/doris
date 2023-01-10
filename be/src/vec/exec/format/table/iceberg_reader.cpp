@@ -18,6 +18,7 @@
 #include "iceberg_reader.h"
 
 #include "common/status.h"
+#include "olap/iterators.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -37,13 +38,15 @@ const std::string ICEBERG_FILE_PATH = "file_path";
 
 IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
                                        RuntimeState* state, const TFileScanRangeParams& params,
-                                       const TFileRangeDesc& range, KVCache<std::string>& kv_cache)
+                                       const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
+                                       IOContext* io_ctx)
         : TableFormatReader(file_format_reader),
           _profile(profile),
           _state(state),
           _params(params),
           _range(range),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _io_ctx(io_ctx) {
     static const char* iceberg_profile = "IcebergProfile";
     ADD_TIMER(_profile, iceberg_profile);
     _iceberg_profile.num_delete_files =
@@ -129,7 +132,8 @@ Status IcebergTableReader::_position_delete(
             delete_range.size = -1;
             delete_range.file_size = -1;
             ParquetReader delete_reader(_profile, _params, delete_range, 102400,
-                                        const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+                                        const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                        _io_ctx);
             if (!init_schema) {
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;

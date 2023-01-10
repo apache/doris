@@ -34,6 +34,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/stringpiece.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
@@ -142,13 +143,14 @@ Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
     size_t fsize = 0;
     RETURN_IF_ERROR(file_size(path, &fsize));
     auto key = get_key(path);
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
-    *reader = std::make_shared<S3FileReader>(std::move(fs_path), fsize, std::move(key),
-                                             _s3_conf.bucket, this);
+    *reader = std::make_shared<S3FileReader>(
+            std::move(fs_path), fsize, std::move(key), _s3_conf.bucket,
+            std::static_pointer_cast<S3FileSystem>(shared_from_this()));
     return Status::OK();
 }
 

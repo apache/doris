@@ -876,6 +876,15 @@ CONF_Int32(pipeline_executor_size, "0");
 // Will remove after fully test.
 CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
 
+// block file cache
+CONF_Bool(enable_file_cache, "false");
+// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+CONF_String(file_cache_path, "");
+CONF_String(disposable_file_cache_path, "");
+CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Bool(clear_file_cache, "false");
+CONF_Bool(enable_file_cache_query_limit, "false");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

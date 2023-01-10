@@ -63,6 +63,38 @@ struct UInt128 {
     bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
     bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
 
+    UInt128 operator<<(const UInt128& rhs) const {
+        const uint64_t shift = rhs.low;
+        if (((bool)rhs.high) || (shift >= 128)) {
+            return UInt128(0);
+        } else if (shift == 64) {
+            return UInt128(0, low);
+        } else if (shift == 0) {
+            return *this;
+        } else if (shift < 64) {
+            return UInt128(low << shift, (high << shift) + (low >> (64 - shift)));
+        } else if ((128 > shift) && (shift > 64)) {
+            return UInt128(0, low << (shift - 64));
+        } else {
+            return UInt128(0);
+        }
+    }
+
+    UInt128& operator<<=(const UInt128& rhs) {
+        *this = *this << rhs;
+        return *this;
+    }
+
+    UInt128 operator+(const UInt128& rhs) const {
+        return UInt128(low + rhs.low, high + rhs.high + ((low + rhs.low) < low));
+    }
+
+    UInt128& operator+=(const UInt128& rhs) {
+        high += rhs.high + ((low + rhs.low) < low);
+        low += rhs.low;
+        return *this;
+    }
+
     template <typename T>
     bool operator==(const T rhs) const {
         return *this == UInt128(rhs);
