@@ -1661,6 +1661,22 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     return res;
 }
 
+Status Tablet::create_vertical_rowset_writer(
+        const Version& version, const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
+        TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
+        int64_t newest_write_timestamp, std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.version = version;
+    context.rowset_state = rowset_state;
+    context.segments_overlap = overlap;
+    context.oldest_write_timestamp = oldest_write_timestamp;
+    context.newest_write_timestamp = newest_write_timestamp;
+    context.tablet_schema = tablet_schema;
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    _init_context_common_fields(context);
+    return RowsetFactory::create_rowset_writer(context, true, rowset_writer);
+}
+
 Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                     const SegmentsOverlapPB& overlap,
                                     TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
@@ -1686,7 +1702,7 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.fs = fs;
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
 
 Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
@@ -1704,7 +1720,7 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
     context.tablet_schema = tablet_schema;
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
 
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
