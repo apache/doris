@@ -256,7 +256,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
@@ -298,9 +297,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
@@ -606,9 +603,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Unhex.class, "unhex"),
             scalar(UnixTimestamp.class, "unix_timestamp"),
             scalar(Upper.class, "ucase", "upper"),
-            scalar(User.class, "user"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
-            scalar(Uuid.class, "uuid"),
             scalar(Version.class, "version"),
             scalar(Week.class, "week"),
             scalar(WeekCeil.class, "week_ceil"),
@@ -626,5 +621,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinScalarFunctions() {}
+    private BuiltinScalarFunctions() {
+    }
 }
