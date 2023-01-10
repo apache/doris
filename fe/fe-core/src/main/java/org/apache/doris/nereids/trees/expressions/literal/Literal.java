@@ -139,7 +139,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
 
         DataType oType = other.getDataType();
         DataType type = getDataType();
-        if (!type.equals(oType)) {
+
+        if (type.isVarcharType() && oType.isVarcharType()) {
+            // VarChar type can be different, e.g., VarChar(1) = VarChar(2)
+            return StringUtils.compare((String) getValue(), (String) other.getValue());
+        } else if (!type.equals(oType)) {
             throw new RuntimeException("data type not equal!");
         } else if (type.isBooleanType()) {
             return Boolean.compare((boolean) getValue(), (boolean) other.getValue());
