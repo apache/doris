@@ -26,7 +26,7 @@ suite("array_function") {
     }
 
     test {
-        sql "select array(), array('a'), array(number, 'a') from numbers(number=3)"
+        sql "select array(), array('a'), array(number, 'a') from numbers('number'='3')"
         result([
             ["[]", "['a']", "['0', 'a']"],
             ["[]", "['a']", "['1', 'a']"],

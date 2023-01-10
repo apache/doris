@@ -29,6 +29,7 @@ import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -41,6 +42,7 @@ public class LogicalProperties {
     protected final Supplier<List<Slot>> nonUserVisibleOutputSupplier;
     protected final Supplier<List<Id>> outputExprIdsSupplier;
     protected final Supplier<Set<Slot>> outputSetSupplier;
+    protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
     private Integer hashCode = null;
 
@@ -68,6 +70,9 @@ public class LogicalProperties {
         this.outputSetSupplier = Suppliers.memoize(
                 () -> Sets.newHashSet(this.outputSupplier.get())
         );
+        this.outputMapSupplier = Suppliers.memoize(
+                () -> this.outputSetSupplier.get().stream().collect(Collectors.toMap(s -> s, s -> s))
+        );
         this.outputExprIdSetSupplier = Suppliers.memoize(
                 () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId)
                         .collect(Collectors.toCollection(HashSet::new))
@@ -84,6 +89,10 @@ public class LogicalProperties {
 
     public Set<Slot> getOutputSet() {
         return outputSetSupplier.get();
+    }
+
+    public Map<Slot, Slot> getOutputMap() {
+        return outputMapSupplier.get();
     }
 
     public Set<ExprId> getOutputExprIdSet() {
@@ -107,7 +116,18 @@ public class LogicalProperties {
             return false;
         }
         LogicalProperties that = (LogicalProperties) o;
-        return Objects.equals(outputExprIdSetSupplier.get(), that.outputExprIdSetSupplier.get());
+        Set<Slot> thisOutSet = this.outputSetSupplier.get();
+        Set<Slot> thatOutSet = that.outputSetSupplier.get();
+        if (!Objects.equals(thisOutSet, thatOutSet)) {
+            return false;
+        }
+        for (Slot thisOutSlot : thisOutSet) {
+            Slot thatOutSlot = that.getOutputMap().get(thisOutSlot);
+            if (thisOutSlot.nullable() != thatOutSlot.nullable()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

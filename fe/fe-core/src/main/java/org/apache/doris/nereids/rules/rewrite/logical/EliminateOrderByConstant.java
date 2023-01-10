@@ -41,7 +41,7 @@ public class EliminateOrderByConstant extends OneRewriteRuleFactory {
             if (orderKeysWithoutConst.isEmpty()) {
                 return sort.child();
             }
-            return sort.withOrderByKey(orderKeysWithoutConst);
+            return sort.withOrderKeys(orderKeysWithoutConst);
         }).toRule(RuleType.ELIMINATE_ORDER_BY_CONSTANT);
     }
 

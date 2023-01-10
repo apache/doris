@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotTriplet;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -44,6 +45,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,16 +88,17 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private void checkIfAggFuncSlotInGroupingSets(LogicalRepeat<Plan> repeat) {
-        Set<Slot> aggUsedSlot = repeat.getOutputExpressions().stream()
+        Set<Slot> aggUsedSlots = repeat.getOutputExpressions().stream()
                 .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
                 .collect(ImmutableSet.toImmutableSet());
-        Set<Slot> groupingSetsUsedSlot = repeat.getGroupingSets().stream()
-                .flatMap(e -> e.stream())
+        Set<ExprId> groupingSetsUsedSlotExprIds = repeat.getGroupingSets().stream()
+                .flatMap(Collection::stream)
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
+                .map(SlotReference::getExprId)
                 .collect(Collectors.toSet());
-        for (Slot slot : aggUsedSlot) {
-            if (groupingSetsUsedSlot.contains(slot)) {
+        for (Slot slot : aggUsedSlots) {
+            if (groupingSetsUsedSlotExprIds.contains(slot.getExprId())) {
                 throw new AnalysisException("column: " + slot.toSql() + " cannot both in select "
                         + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
                         + "please use union instead.");

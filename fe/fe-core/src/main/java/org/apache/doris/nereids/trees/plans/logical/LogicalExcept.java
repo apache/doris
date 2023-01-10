@@ -65,24 +65,24 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalExcept withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalExcept(qualifier, outputs, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalExcept withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalExcept(qualifier, outputs,
                 Optional.empty(), logicalProperties, children);
     }
 
     @Override
-    public Plan withNewOutputs(List<NamedExpression> newOutputs) {
+    public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalExcept(qualifier, newOutputs, Optional.empty(), Optional.empty(), children);
     }
 
     @Override
-    public Plan withNewChildren(List<Plan> children) {
+    public LogicalExcept withNewChildren(List<Plan> children) {
         return withChildren(children);
     }
 }

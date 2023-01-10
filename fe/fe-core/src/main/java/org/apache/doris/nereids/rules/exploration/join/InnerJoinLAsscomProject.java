@@ -73,14 +73,19 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
-                    Set<Slot> bOutputSet = b.getOutputSet();
                     Set<Slot> cOutputSet = c.getOutputSet();
+                    Set<ExprId> bOutputExprIdSet = b.getOutputExprIdSet();
+                    Set<ExprId> cOutputExprIdSet = c.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> projectExprsMap = projects.stream()
                             .collect(Collectors.partitioningBy(projectExpr -> {
-                                Set<Slot> usedSlots = projectExpr.collect(SlotReference.class::isInstance);
-                                return bOutputSet.containsAll(usedSlots);
+                                Set<ExprId> usedExprIds = projectExpr
+                                        .<Set<SlotReference>>collect(SlotReference.class::isInstance)
+                                        .stream()
+                                        .map(SlotReference::getExprId)
+                                        .collect(Collectors.toSet());
+                                return bOutputExprIdSet.containsAll(usedExprIds);
                             }));
                     List<NamedExpression> newLeftProjects = projectExprsMap.get(Boolean.FALSE);
                     List<NamedExpression> newRightProjects = projectExprsMap.get(Boolean.TRUE);
@@ -106,8 +111,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     List<Expression> newBottomOtherJoinConjuncts = splitOtherJoinConjuncts.get(false);
 
                     /* ********** replace Conjuncts by projects ********** */
-                    Map<Slot, Slot> inputToOutput = new HashMap<>();
-                    Map<Slot, Slot> outputToInput = new HashMap<>();
+                    Map<ExprId, Slot> inputToOutput = new HashMap<>();
+                    Map<ExprId, Slot> outputToInput = new HashMap<>();
                     for (NamedExpression expr : projects) {
                         if (expr instanceof Alias) {
                             Alias alias = (Alias) expr;
@@ -115,8 +120,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             Expression child = alias.child();
                             Preconditions.checkState(child instanceof Slot);
                             Slot inputSlot = (Slot) child;
-                            inputToOutput.put(inputSlot, outputSlot);
-                            outputToInput.put(outputSlot, inputSlot);
+                            inputToOutput.put(inputSlot.getExprId(), outputSlot);
+                            outputToInput.put(outputSlot.getExprId(), inputSlot);
                         }
                     }
                     // replace hashJoinConjuncts
@@ -139,9 +144,9 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                                 Set<Slot> usedSlotRefs = onExpr.collect(SlotReference.class::isInstance);
                                 return usedSlotRefs.stream();
                             })
-                            .filter(slot -> !cOutputSet.contains(slot))
-                            .collect(Collectors.partitioningBy(slot -> bExprIdSet.contains(slot.getExprId()),
-                                    Collectors.toSet()));
+                            .filter(slot -> !cOutputExprIdSet.contains(slot.getExprId()))
+                            .collect(Collectors.partitioningBy(
+                                    slot -> bExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
                     Set<Slot> aUsedSlots = abOnUsedSlots.get(Boolean.FALSE);
                     Set<Slot> bUsedSlots = abOnUsedSlots.get(Boolean.TRUE);
 
@@ -160,13 +165,15 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     Plan left = newBottomJoin;
-                    if (!newLeftProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
-                            .equals(newBottomJoin.getOutputSet())) {
+                    if (!newLeftProjects.stream().map(NamedExpression::toSlot)
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet())
+                            .equals(newBottomJoin.getOutputExprIdSet())) {
                         left = PlanUtils.projectOrSelf(newLeftProjects, newBottomJoin);
                     }
                     Plan right = b;
-                    if (!newRightProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
-                            .equals(b.getOutputSet())) {
+                    if (!newRightProjects.stream().map(NamedExpression::toSlot)
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet())
+                            .equals(b.getOutputExprIdSet())) {
                         right = PlanUtils.projectOrSelf(newRightProjects, b);
                     }
 
@@ -194,17 +201,14 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
      * True: contains B.
      * False: just contains A C.
      */
-    public static Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
+    private Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // top: (A B)(error) (A C) (B C) (A B C)
         // Split topJoin Condition to two part according to include B.
         Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
-                    Set<Slot> usedSlots = topHashOn.getInputSlots();
-                    Set<ExprId> usedSlotsId = usedSlots.stream().map(NamedExpression::getExprId)
-                            .collect(Collectors.toSet());
-
-                    return ExpressionUtils.isIntersecting(bExprIdSet, usedSlotsId);
+                    Set<ExprId> usedExprIds = topHashOn.getInputSlotExprIds();
+                    return ExpressionUtils.isIntersecting(bExprIdSet, usedExprIds);
                 }));
         // * don't include B, just include (A C)
         // we add it into newBottomJoin HashJoinConjuncts.
