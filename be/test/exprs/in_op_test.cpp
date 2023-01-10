@@ -23,7 +23,6 @@
 #include "exprs/in_predicate.h"
 #include "exprs/int_literal.h"
 #include "gen_cpp/Exprs_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 
