@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
@@ -48,16 +46,6 @@ import java.util.function.Function;
 public class NereidsParser {
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
-    private SessionVariable sessionVariable;
-
-    public NereidsParser() {
-        // Global variable
-        this.sessionVariable = VariableMgr.newSessionVariable();
-    }
-
-    public NereidsParser(SessionVariable sessionVariable) {
-        this.sessionVariable = sessionVariable;
-    }
 
     /**
      * In MySQL protocol, client could send multi-statement in a single packet.
@@ -109,7 +97,7 @@ public class NereidsParser {
 
     private <T> T parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         ParserRuleContext tree = toAst(sql, parseFunction);
-        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder(sessionVariable);
+        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
         return (T) logicalPlanBuilder.visit(tree);
     }
 

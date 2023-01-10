@@ -170,8 +170,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
-        LogicalPlan parsedViewPlan = new NereidsParser(
-                parentContext.getConnectContext().getSessionVariable()).parseSingle(viewSql);
+        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
         CascadesContext viewContext = new Memo(parsedViewPlan)
                 .newCascadesContext(parentContext.getStatementContext());
         viewContext.newAnalyzer().analyze();

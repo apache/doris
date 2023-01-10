@@ -74,14 +74,14 @@ public class SqlModeHelper {
     public static final long MODE_REAL_AS_FLOAT = 1L << 34;
 
 
-
     public static final long MODE_ALLOWED_MASK =
             (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_NOT_USED
                     | MODE_ONLY_FULL_GROUP_BY | MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE
                     | MODE_NO_AUTO_VALUE_ON_ZERO | MODE_NO_BACKSLASH_ESCAPES | MODE_STRICT_TRANS_TABLES
                     | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_INVALID_DATES
                     | MODE_ERROR_FOR_DIVISION_BY_ZERO | MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION
-                    | MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI | MODE_TIME_TRUNCATE_FRACTIONAL | MODE_DEFAULT);
+                    | MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI | MODE_TIME_TRUNCATE_FRACTIONAL
+                    | MODE_DEFAULT);
 
     public static final long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
 
@@ -123,6 +123,10 @@ public class SqlModeHelper {
 
     // convert long type SQL MODE to string type that user can read
     public static String decode(Long sqlMode) throws DdlException {
+        if (sqlMode == MODE_DEFAULT) {
+            //For compatibility with older versions， return empty string
+            return "";
+        }
         if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
         }

@@ -249,12 +249,6 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
-    // default variable
-    private SessionVariable sessionVariable;
-
-    public LogicalPlanBuilder(SessionVariable sessionVariable) {
-        this.sessionVariable = sessionVariable;
-    }
 
     @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
@@ -541,6 +535,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitSystemVariable(SystemVariableContext ctx) {
         String name = ctx.identifier().getText();
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
         Literal literal = null;
         if (ctx.kind == null) {
             literal = VariableMgr.getLiteral(sessionVariable, name, SetType.DEFAULT);
@@ -836,7 +831,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression left = getExpression(ctx.left);
             Expression right = getExpression(ctx.right);
-            if (sessionVariable.getSqlMode() == SqlModeHelper.MODE_PIPES_AS_CONCAT) {
+            if (ConnectContext.get().getSessionVariable().getSqlMode() == SqlModeHelper.MODE_PIPES_AS_CONCAT) {
                 return new UnboundFunction("concat", Lists.newArrayList(left, right));
             } else {
                 return new Or(left, right);
