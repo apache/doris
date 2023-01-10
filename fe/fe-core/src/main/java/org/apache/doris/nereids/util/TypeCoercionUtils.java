@@ -19,6 +19,8 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -257,8 +259,6 @@ public class TypeCoercionUtils {
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (type.isNullType()) {
             return NullType.INSTANCE;
-        } else if (type.isStringType()) {
-            return DoubleType.INSTANCE;
         }
         throw new AnalysisException("no found appropriate data type.");
     }
