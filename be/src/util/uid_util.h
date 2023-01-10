@@ -167,11 +167,7 @@ bool parse_id(const std::string& s, TUniqueId* id);
 
 } // namespace doris
 
-namespace std {
-
 template <>
-struct hash<doris::UniqueId> {
+struct std::hash<doris::UniqueId> {
     size_t operator()(const doris::UniqueId& uid) const { return uid.hash(); }
 };
-
-} // namespace std
