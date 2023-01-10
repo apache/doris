@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "io/fs/file_system.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
@@ -32,9 +33,7 @@ public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
                          uint32_t uuid, const std::string& segment_file_name,
                          const std::string& dir, const TabletIndex* inverted_index,
-                         io::FileSystem* fs) {
-        return Status::OK();
-    }
+                         const io::FileSystemSPtr& fs);
     virtual Status init() = 0;
 
     InvertedIndexColumnWriter() = default;

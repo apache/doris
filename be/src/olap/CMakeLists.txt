@@ -77,6 +77,10 @@ add_library(Olap STATIC
     rowset/segment_v2/bitmap_index_reader.cpp
     rowset/segment_v2/bitmap_index_writer.cpp
     rowset/segment_v2/inverted_index_reader.cpp
+    rowset/segment_v2/inverted_index_writer.cpp
+    rowset/segment_v2/inverted_index_desc.cpp
+    rowset/segment_v2/inverted_index_compound_directory.cpp
+    rowset/segment_v2/inverted_index_compound_reader.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp

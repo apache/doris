@@ -1541,12 +1541,43 @@ build_concurrentqueue() {
     cp ./*.h "${TP_INSTALL_DIR}/include/"
 }
 
+#clucene
+build_clucene() {
+    if [[ -z ${USE_AVX2} ]]; then
+        USE_AVX2=1
+    fi
+    if [[ -z ${BUILD_TYPE} ]]; then
+        BUILD_TYPE=Release
+    fi
+    check_if_source_exist "${CLUCENE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    rm -rf CMakeCache.txt CMakeFiles/
+
+    if [[ "${CC}" == *gcc ]]; then
+        CPPFLAGS="-fno-omit-frame-pointer -g -Wno-narrowing" \
+            CXXFLAGS="-fno-omit-frame-pointer -g -Wno-narrowing" \
+            ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
+            -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
+        ${BUILD_SYSTEM} -j "${PARALLEL}" && ${BUILD_SYSTEM} install
+    elif [[ "${CC}" == *clang ]]; then
+        CPPFLAGS="-fno-omit-frame-pointer -g -Wno-c++11-narrowing" \
+            CXXFLAGS="-fno-omit-frame-pointer -g -Wno-c++11-narrowing" \
+            ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
+            -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
+        ${BUILD_SYSTEM} -j "${PARALLEL}" && ${BUILD_SYSTEM} install
+    fi
+    cd ..
+    cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
     build_gettext
 fi
 
+build_clucene
 build_libunixodbc
 build_openssl
 build_libevent
