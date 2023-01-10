@@ -1125,25 +1125,36 @@ TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
-void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        std::vector<RowsetSharedPtr>* candidate_rowsets,
-        std::shared_lock<std::shared_mutex>& /* meta lock*/) {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
-        return;
+        return candidate_rowsets;
     }
-    _cumulative_compaction_policy->pick_candidate_rowsets(_rs_version_map, _cumulative_point,
-                                                          candidate_rowsets);
-}
-
-void Tablet::pick_candidate_rowsets_to_base_compaction(
-        vector<RowsetSharedPtr>* candidate_rowsets,
-        std::shared_lock<std::shared_mutex>& /* meta lock*/) {
-    for (auto& it : _rs_version_map) {
-        // Do compaction on local rowsets only.
-        if (it.first.first < _cumulative_point && it.second->is_local()) {
-            candidate_rowsets->push_back(it.second);
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            if (version.first >= _cumulative_point && rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
         }
     }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            // Do compaction on local rowsets only.
+            if (version.first < _cumulative_point && rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
 }
 
 // For http compaction action
@@ -1173,7 +1184,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
 
         delete_flags.reserve(rowsets.size());
         for (auto& rs : rowsets) {
-            delete_flags.push_back(version_for_delete_predicate(rs->version()));
+            delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
         }
         // get snapshot version path json_doc
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
