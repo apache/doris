@@ -562,7 +562,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         auto pred_type = pred->type();
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
-                          pred_type == PredicateType::GT || pred_type == PredicateType::GE;
+                          pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
+                          pred_type == PredicateType::MATCH;
         if (!is_support) {
             continue;
         }
@@ -580,6 +581,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         if (!res.ok()) {
+            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                        pred->type() != PredicateType::MATCH) {
+                continue;
+            }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
                          << ", error msg: " << res.code_as_string();
@@ -646,6 +651,12 @@ Status SegmentIterator::_apply_inverted_index() {
             Status res = pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(),
                                         &bitmap);
             if (!res.ok()) {
+                if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                            pred->type() != PredicateType::MATCH) {
+                    //downgrade without index query
+                    remaining_predicates.push_back(pred);
+                    continue;
+                }
                 LOG(WARNING) << "failed to evaluate index"
                              << ", column predicate type: " << pred->pred_type_string(pred->type())
                              << ", error msg: " << res.code_as_string();

@@ -50,6 +50,11 @@ public:
                         "please check whether turn on the configuration "
                         "'enable_storage_vectorization'");
             }
+            if (!config::enable_index_apply_preds_except_leafnode_of_andnode) {
+                return Status::Cancelled(
+                        "please check whether turn on the configuration "
+                        "'enable_index_apply_preds_except_leafnode_of_andnode'");
+            }
             LOG(WARNING) << "execute match query meet error, block no column: "
                          << match_pred_column_name;
             return Status::InternalError(
