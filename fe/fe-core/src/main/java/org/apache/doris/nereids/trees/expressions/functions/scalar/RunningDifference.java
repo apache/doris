@@ -66,7 +66,7 @@ public class RunningDifference extends ScalarFunction implements UnaryExpression
             .build();
 
     /**
-     * constructor with 1 arguments.
+     * constructor with 1 argument.
      */
     public RunningDifference(Expression arg) {
         super("running_difference", arg);
