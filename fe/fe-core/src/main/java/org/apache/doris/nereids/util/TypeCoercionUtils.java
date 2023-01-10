@@ -148,10 +148,8 @@ public class TypeCoercionUtils {
      * return ture if two type could do type coercion.
      */
     public static boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
-        if (leftType instanceof DecimalV2Type && rightType instanceof NullType) {
-            return true;
-        }
-        if (leftType instanceof NullType && rightType instanceof DecimalV2Type) {
+        if (leftType instanceof DecimalV2Type && rightType instanceof NullType
+                || leftType instanceof NullType && rightType instanceof DecimalV2Type) {
             return true;
         }
         if (leftType instanceof DecimalV2Type && rightType instanceof IntegralType
