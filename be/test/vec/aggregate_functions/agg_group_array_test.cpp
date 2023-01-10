@@ -109,9 +109,6 @@ public:
         EXPECT_EQ(column_result2->size(), 1);
         EXPECT_EQ(column_result->get_offsets()[0], input_nums);
 
-        LOG(INFO) << column_result->get_offsets()[0];
-        LOG(INFO) << column_result2->get_offsets()[0];
-
         agg_function->destroy(place);
         agg_function->destroy(place2);
     }

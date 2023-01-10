@@ -55,7 +55,6 @@ public class AggregateFunction extends Function {
             FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL, FunctionSet.RETENTION,
             FunctionSet.SEQUENCE_MATCH, FunctionSet.SEQUENCE_COUNT, FunctionSet.GROUP_UNIQ_ARRAY);
 
-
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
 
@@ -151,26 +150,26 @@ public class AggregateFunction extends Function {
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-            Type retType, Type intermediateType,
-            URI location, String updateFnSymbol, String initFnSymbol,
-            String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-            String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
+                             Type retType, Type intermediateType,
+                             URI location, String updateFnSymbol, String initFnSymbol,
+                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+                             String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         this(fnName, argTypes, retType, intermediateType, false, location,
                 updateFnSymbol, initFnSymbol, serializeFnSymbol,
                 mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, vectorized);
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-            Type retType, Type intermediateType, boolean hasVarArgs,
-            URI location, String updateFnSymbol, String initFnSymbol,
-            String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-            String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
+                             Type retType, Type intermediateType, boolean hasVarArgs,
+                             URI location, String updateFnSymbol, String initFnSymbol,
+                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+                             String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         // only `count` is always not nullable, other aggregate function is always nullable
         super(fnName, argTypes, retType, hasVarArgs, vectorized,
                 AggregateFunction.NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
                         ? NullableMode.ALWAYS_NOT_NULLABLE :
-                        AggregateFunction.ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
-                                ? NullableMode.ALWAYS_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+                AggregateFunction.ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET.contains(fnName.getFunction())
+                        ? NullableMode.ALWAYS_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
         setLocation(location);
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
         this.updateFnSymbol = updateFnSymbol;
@@ -325,10 +324,10 @@ public class AggregateFunction extends Function {
 
     // Used to create UDAF
     public AggregateFunction(FunctionName fnName, Type[] argTypes,
-            Type retType, boolean hasVarArgs, Type intermediateType, URI location,
-            String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
-            String serializeFnSymbol, String finalizeFnSymbol,
-            String getValueFnSymbol, String removeFnSymbol) {
+                             Type retType, boolean hasVarArgs, Type intermediateType, URI location,
+                             String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
+                             String serializeFnSymbol, String finalizeFnSymbol,
+                             String getValueFnSymbol, String removeFnSymbol) {
         super(fnName, Arrays.asList(argTypes), retType, hasVarArgs);
         this.setLocation(location);
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
@@ -605,13 +604,13 @@ public class AggregateFunction extends Function {
             aggFn.setSerializeFnSymbol(serializeFnSymbol);
         }
         aggFn.setMergeFnSymbol(mergeFnSymbol);
-        if (getValueFnSymbol != null) {
+        if (getValueFnSymbol  != null) {
             aggFn.setGetValueFnSymbol(getValueFnSymbol);
         }
-        if (removeFnSymbol != null) {
+        if (removeFnSymbol  != null) {
             aggFn.setRemoveFnSymbol(removeFnSymbol);
         }
-        if (finalizeFnSymbol != null) {
+        if (finalizeFnSymbol  != null) {
             aggFn.setFinalizeFnSymbol(finalizeFnSymbol);
         }
         if (symbolName != null) {

@@ -1180,12 +1180,12 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).type != Type.BOOLEAN) {
                     throw new AnalysisException("All params of "
-                            + fnName + " function must be boolean");
+                        + fnName + " function must be boolean");
                 }
                 childTypes[i] = children.get(i).type;
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH)
                 || fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
@@ -1211,12 +1211,12 @@ public class FunctionCallExpr extends Expr {
             for (int i = 2; i < children.size(); i++) {
                 if (children.get(i).type != Type.BOOLEAN) {
                     throw new AnalysisException("The 3th and subsequent params of "
-                            + fnName + " function must be boolean");
+                        + fnName + " function must be boolean");
                 }
                 childTypes[i] = children.get(i).type;
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);

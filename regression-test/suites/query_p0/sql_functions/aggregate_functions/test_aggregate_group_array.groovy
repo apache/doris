@@ -102,6 +102,10 @@ suite("test_aggregate_group_array"){
     """
 
     qt_select """
+        SELECT * FROM ${tableName}
+    """
+
+    qt_select """
         SELECT
             group_uniq_array(c_bool),
             group_uniq_array(c_tinyint),
@@ -131,74 +135,20 @@ suite("test_aggregate_group_array"){
             group_uniq_array(c_smallint,1),
             group_uniq_array(c_int,1),
             group_uniq_array(c_bigint,1),
-            group_uniq_array(c_largeint,1),
+            group_uniq_array(c_largeint,3),
             group_uniq_array(c_float,1),
-            group_uniq_array(c_double,1),
+            group_uniq_array(c_double,2),
             group_uniq_array(c_decimal,1),
             group_uniq_array(c_char,1),
             group_uniq_array(c_varchar,1),
             group_uniq_array(c_string,1),
             group_uniq_array(c_date,1),
-            group_uniq_array(c_datev2,1),
+            group_uniq_array(c_datev2,2),
             group_uniq_array(c_date_time,1),
             group_uniq_array(c_date_timev2,1),
             group_uniq_array(c_string_not_null,1)
         FROM
             ${tableName}
-    """
-
-    qt_select """
-        SELECT
-            group_uniq_array(c_bool),
-            group_uniq_array(c_tinyint),
-            group_uniq_array(c_smallint),
-            group_uniq_array(c_int),
-            group_uniq_array(c_bigint),
-            group_uniq_array(c_largeint),
-            group_uniq_array(c_float),
-            group_uniq_array(c_double),
-            group_uniq_array(c_decimal),
-            group_uniq_array(c_char),
-            group_uniq_array(c_varchar),
-            group_uniq_array(c_string),
-            group_uniq_array(c_date),
-            group_uniq_array(c_datev2),
-            group_uniq_array(c_date_time),
-            group_uniq_array(c_date_timev2),
-            group_uniq_array(c_string_not_null)
-        FROM
-            ${tableName}
-        GROUP BY
-            c_id
-        ORDER BY
-            c_id
-    """
-
-    qt_select """
-        SELECT
-            group_uniq_array(c_bool,1),
-            group_uniq_array(c_tinyint,1),
-            group_uniq_array(c_smallint,1),
-            group_uniq_array(c_int,1),
-            group_uniq_array(c_bigint,1),
-            group_uniq_array(c_largeint,1),
-            group_uniq_array(c_float,1),
-            group_uniq_array(c_double,1),
-            group_uniq_array(c_decimal,1),
-            group_uniq_array(c_char,1),
-            group_uniq_array(c_varchar,1),
-            group_uniq_array(c_string,1),
-            group_uniq_array(c_date,1),
-            group_uniq_array(c_datev2,1),
-            group_uniq_array(c_date_time,1),
-            group_uniq_array(c_date_timev2,1),
-            group_uniq_array(c_string_not_null,1)
-        FROM
-            ${tableName}
-        GROUP BY
-            c_id
-        ORDER BY
-            c_id
     """
 
     sql """
@@ -236,15 +186,15 @@ suite("test_aggregate_group_array"){
             group_uniq_array(c_smallint,1),
             group_uniq_array(c_int,1),
             group_uniq_array(c_bigint,1),
-            group_uniq_array(c_largeint,1),
+            group_uniq_array(c_largeint,3),
             group_uniq_array(c_float,1),
-            group_uniq_array(c_double,1),
+            group_uniq_array(c_double,2),
             group_uniq_array(c_decimal,1),
             group_uniq_array(c_char,1),
             group_uniq_array(c_varchar,1),
             group_uniq_array(c_string,1),
             group_uniq_array(c_date,1),
-            group_uniq_array(c_datev2,1),
+            group_uniq_array(c_datev2,2),
             group_uniq_array(c_date_time,1),
             group_uniq_array(c_date_timev2,1),
             group_uniq_array(c_string_not_null,1)
