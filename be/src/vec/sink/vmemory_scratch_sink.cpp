@@ -28,6 +28,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/arrow/block_convertor.h"
+#include "util/arrow/row_batch.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
