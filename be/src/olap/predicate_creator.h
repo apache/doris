@@ -166,6 +166,9 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
     case OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
     }
+    case OLAP_FIELD_TYPE_FLOAT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_FLOAT, PT, ConditionType>>();
+    }
     case OLAP_FIELD_TYPE_DOUBLE: {
         return std::make_unique<DoulbePredicatrCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
