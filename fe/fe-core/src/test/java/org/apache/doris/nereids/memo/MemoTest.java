@@ -21,11 +21,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -49,6 +53,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -1112,6 +1117,16 @@ class MemoTest implements PatternMatchSupported {
         GroupExpression groupExpression = new GroupExpression(rewriteProject, Lists.newArrayList(leafGroup));
         Assertions.assertEquals(2,
                 memo.getGroupExpressions().get(groupExpression).getOwnerGroup().getGroupId().asInt());
+    }
+
+    @Test
+    public void testTheSameTVFRelationAddToMemo() {
+        Map<String, String> map = Maps.newHashMap();
+        UnboundTVFRelation relation1 = new UnboundTVFRelation(RelationUtil.newRelationId(), "t1", new TVFProperties(map));
+        UnboundTVFRelation relation2 = new UnboundTVFRelation(RelationUtil.newRelationId(), "t1", new TVFProperties(map));
+        Memo memo = new Memo(relation1);
+        Group group = memo.getRoot();
+        Assertions.assertTrue(memo.copyIn(relation2, group, true).generateNewExpression);
     }
 
     private enum State {
