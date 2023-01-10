@@ -193,9 +193,10 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::DECIMAL64:
     case TPrimitiveType::DECIMAL128I: {
         fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "decimalv3({}, {})",
-                       desc.__isset.columnPrecision ? desc.columnPrecision : "UNKNOWN",
-                       desc.__isset.columnScale ? desc.columnScale : "UNKNOWN");
+        fmt::format_to(
+                debug_string_buffer, "decimalv3({}, {})",
+                desc.__isset.columnPrecision ? std::to_string(desc.columnPrecision) : "UNKNOWN",
+                desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
         return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::DATEV2:
@@ -203,7 +204,7 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::DATETIMEV2: {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer, "datetimev2({})",
-                       desc.__isset.columnScale ? desc.columnScale : "UNKNOWN");
+                       desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
         return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::HLL: {
