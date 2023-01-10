@@ -316,6 +316,11 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
+functionIdentifier
+    : identifier
+    | LEFT | RIGHT
+    ;
+
 qualifiedName
     : identifier (DOT identifier)*
     ;
@@ -374,7 +379,6 @@ errorCapturingIdentifierExtra
 
 identifier
     : strictIdentifier
-    | LEFT | RIGHT
     ;
 
 strictIdentifier
