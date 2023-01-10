@@ -45,6 +45,7 @@ import java.util.List;
 @Getter
 public class JdbcClient {
     private static final Logger LOG = LogManager.getLogger(JdbcClient.class);
+
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     private String dbType;
@@ -63,9 +64,9 @@ public class JdbcClient {
         this.jdbcUser = user;
         this.jdbcPasswd = password;
         this.jdbcUrl = jdbcUrl;
+        this.dbType = parseDbType(jdbcUrl);
         this.driverUrl = driverUrl;
         this.driverClass = driverClass;
-        this.dbType = JdbcResource.parseDbType(jdbcUrl);
 
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
@@ -495,5 +496,19 @@ public class JdbcClient {
                     true, null, -1));
         }
         return dorisTableSchema;
+    }
+
+    private String parseDbType(String url) {
+        if (url.startsWith(JdbcResource.JDBC_MYSQL) || url.startsWith(JdbcResource.JDBC_MARIADB)) {
+            return JdbcResource.MYSQL;
+        } else if (url.startsWith(JdbcResource.JDBC_POSTGRESQL)) {
+            return JdbcResource.POSTGRESQL;
+        } else if (url.startsWith(JdbcResource.JDBC_ORACLE)) {
+            return JdbcResource.ORACLE;
+        }
+        // else if (url.startsWith("jdbc:sqlserver")) {
+        //     return SQLSERVER;
+        // }
+        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
 }
