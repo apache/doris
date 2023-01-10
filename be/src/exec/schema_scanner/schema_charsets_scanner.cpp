@@ -110,10 +110,10 @@ Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos
         return Status::InternalError("invalid parameter.");
     }
     *eos = true;
-    return _fill_block_imp(block);
+    return _fill_block_impl(block);
 }
 
-Status SchemaCharsetsScanner::_fill_block_imp(vectorized::Block* block) {
+Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
     auto row_num = 0;
     while (nullptr != _s_charsets[row_num].charset) {
         ++row_num;

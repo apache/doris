@@ -32,7 +32,7 @@ public:
 
 private:
     Status _fill_one_row(Tuple* tuple, MemPool* pool);
-    Status _fill_block_imp(vectorized::Block* block);
+    Status _fill_block_impl(vectorized::Block* block);
     Status _fetch_backends_info();
     Status _fill_one_col(Tuple* tuple, MemPool* pool, size_t idx);
     Status _set_col_name_to_type();

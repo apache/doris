@@ -68,10 +68,10 @@ Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos
         return Status::InternalError("input pointer is nullptr.");
     }
     *eos = true;
-    return _fill_block_imp(block);
+    return _fill_block_impl(block);
 }
 
-Status SchemaBackendsScanner::_fill_block_imp(vectorized::Block* block) {
+Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     auto row_num = _batch_data.size();
     for (size_t col_idx = 0; col_idx < _column_num; ++col_idx) {
         auto it = _col_name_to_type.find(_columns[col_idx].name);

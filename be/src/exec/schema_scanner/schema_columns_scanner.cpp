@@ -54,7 +54,8 @@ SchemaScanner::ColumnDesc SchemaColumnsScanner::_s_col_columns[] = {
 };
 
 SchemaColumnsScanner::SchemaColumnsScanner()
-        : SchemaScanner(_s_col_columns, sizeof(_s_col_columns) / sizeof(SchemaScanner::ColumnDesc)),
+        : SchemaScanner(_s_col_columns, sizeof(_s_col_columns) / sizeof(SchemaScanner::ColumnDesc),
+                        TSchemaTableType::SCH_COLUMNS),
           _db_index(0),
           _table_index(0),
           _column_index(0) {}
@@ -532,6 +533,264 @@ Status SchemaColumnsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos
 
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaColumnsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("use this class before inited.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("input parameter is nullptr.");
+    }
+
+    while (_table_index >= _table_result.tables.size()) {
+        if (_db_index < _db_result.dbs.size()) {
+            RETURN_IF_ERROR(get_new_table());
+        } else {
+            *eos = true;
+            return Status::OK();
+        }
+    }
+    RETURN_IF_ERROR(get_new_desc());
+
+    *eos = false;
+    return _fill_block_impl(block);
+}
+
+Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
+    auto columns_num = _desc_result.columns.size();
+
+    // TABLE_CATALOG
+    {
+        if (!_db_result.__isset.catalogs) {
+            for (int i = 0; i < columns_num; ++i) {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[0]);
+            }
+        } else {
+            std::string catalog_name = _db_result.catalogs[_db_index - 1];
+            StringValue str = StringValue(catalog_name.c_str(), catalog_name.size());
+            for (int i = 0; i < columns_num; ++i) {
+                fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+            }
+        }
+    }
+    // TABLE_SCHEMA
+    {
+        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
+        StringValue str = StringValue(db_name.c_str(), db_name.size());
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+        }
+    }
+    // TABLE_NAME
+    {
+        StringValue str = StringValue(_table_result.tables[_table_index - 1].c_str(),
+                                      _table_result.tables[_table_index - 1].length());
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+        }
+    }
+    // COLUMN_NAME
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            StringValue str = StringValue(_desc_result.columns[i].columnDesc.columnName.c_str(),
+                                          _desc_result.columns[i].columnDesc.columnName.length());
+            fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+        }
+    }
+    // ORDINAL_POSITION
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            int64_t src = i + 1;
+            fill_dest_column(block, &src, _tuple_desc->slots()[4]);
+        }
+    }
+    // COLUMN_DEFAULT
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[5]);
+        }
+    }
+    // IS_NULLABLE
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.isAllowNull) {
+                if (_desc_result.columns[i].columnDesc.isAllowNull) {
+                    StringValue str = StringValue("YES", 3);
+                    fill_dest_column(block, &str, _tuple_desc->slots()[6]);
+                } else {
+                    StringValue str = StringValue("NO", 2);
+                    fill_dest_column(block, &str, _tuple_desc->slots()[6]);
+                }
+            } else {
+                StringValue str = StringValue("NO", 2);
+                fill_dest_column(block, &str, _tuple_desc->slots()[6]);
+            }
+        }
+    }
+    // DATA_TYPE
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            std::string buffer = to_mysql_data_type_string(_desc_result.columns[i].columnDesc);
+            StringValue str = StringValue(buffer.c_str(), buffer.length());
+            fill_dest_column(block, &str, _tuple_desc->slots()[7]);
+        }
+    }
+    // CHARACTER_MAXIMUM_LENGTH
+    // For string columns, the maximum length in characters.
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
+                data_type == TPrimitiveType::STRING) {
+                if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
+                    int64_t src = _desc_result.columns[i].columnDesc.columnLength;
+                    fill_dest_column(block, &src, _tuple_desc->slots()[8]);
+                } else {
+                    fill_dest_column(block, nullptr, _tuple_desc->slots()[8]);
+                }
+            } else {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[8]);
+            }
+        }
+    }
+    // CHARACTER_OCTET_LENGTH
+    // For string columns, the maximum length in bytes.
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
+                data_type == TPrimitiveType::STRING) {
+                if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
+                    int64_t src = _desc_result.columns[i].columnDesc.columnLength * 4;
+                    fill_dest_column(block, &src, _tuple_desc->slots()[9]);
+                } else {
+                    fill_dest_column(block, nullptr, _tuple_desc->slots()[9]);
+                }
+            } else {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[9]);
+            }
+        }
+    }
+    // NUMERIC_PRECISION
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.columnPrecision) {
+                int64_t src = _desc_result.columns[i].columnDesc.columnPrecision;
+                fill_dest_column(block, &src, _tuple_desc->slots()[10]);
+            } else {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[10]);
+            }
+        }
+    }
+    // NUMERIC_SCALE
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
+                int64_t src = _desc_result.columns[i].columnDesc.columnScale;
+                fill_dest_column(block, &src, _tuple_desc->slots()[11]);
+            } else {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[11]);
+            }
+        }
+    }
+    // DATETIME_PRECISION
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[12]);
+        }
+    }
+    // CHARACTER_SET_NAME
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[13]);
+        }
+    }
+    // COLLATION_NAME
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[14]);
+        }
+    }
+    // COLUMN_TYPE
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            std::string buffer = type_to_string(_desc_result.columns[i].columnDesc);
+            StringValue str = StringValue(buffer.c_str(), buffer.length());
+            fill_dest_column(block, &str, _tuple_desc->slots()[15]);
+        }
+    }
+    // COLUMN_KEY
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.columnKey) {
+                StringValue str =
+                        StringValue(_desc_result.columns[i].columnDesc.columnKey.c_str(),
+                                    _desc_result.columns[i].columnDesc.columnKey.length());
+                fill_dest_column(block, &str, _tuple_desc->slots()[16]);
+            } else {
+                StringValue str = StringValue("", 0);
+                fill_dest_column(block, &str, _tuple_desc->slots()[16]);
+            }
+        }
+    }
+    // EXTRA
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            StringValue str = StringValue("", 0);
+            fill_dest_column(block, &str, _tuple_desc->slots()[17]);
+        }
+    }
+    // PRIVILEGES
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            StringValue str = StringValue("", 0);
+            fill_dest_column(block, &str, _tuple_desc->slots()[18]);
+        }
+    }
+    // COLUMN_COMMENT
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            StringValue str = StringValue(_desc_result.columns[i].comment.c_str(),
+                                          _desc_result.columns[i].comment.length());
+            fill_dest_column(block, &str, _tuple_desc->slots()[19]);
+        }
+    }
+    // COLUMN_SIZE
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
+                int64_t src = _desc_result.columns[i].columnDesc.columnLength;
+                fill_dest_column(block, &src, _tuple_desc->slots()[20]);
+            } else {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[20]);
+            }
+        }
+    }
+    // DECIMAL_DIGITS
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
+                int64_t src = _desc_result.columns[i].columnDesc.columnScale;
+                fill_dest_column(block, &src, _tuple_desc->slots()[21]);
+            } else {
+                fill_dest_column(block, nullptr, _tuple_desc->slots()[21]);
+            }
+        }
+    }
+    // GENERATION_EXPRESSION
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[22]);
+        }
+    }
+    // SRS_ID
+    {
+        for (int i = 0; i < columns_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[23]);
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

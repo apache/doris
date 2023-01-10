@@ -261,7 +261,10 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     bool schema_eos = false;
 
     if (_schema_scanner->type() == TSchemaTableType::SCH_TABLES ||
-        _schema_scanner->type() == TSchemaTableType::SCH_BACKENDS) {
+        _schema_scanner->type() == TSchemaTableType::SCH_BACKENDS ||
+        _schema_scanner->type() == TSchemaTableType::SCH_CHARSETS ||
+        _schema_scanner->type() == TSchemaTableType::SCH_COLLATIONS ||
+        _schema_scanner->type() == TSchemaTableType::SCH_COLUMNS) {
         do {
             block->clear();
 

@@ -30,10 +30,12 @@ public:
     virtual ~SchemaColumnsScanner();
     virtual Status start(RuntimeState* state);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
     Status get_new_table();
     Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fill_block_impl(vectorized::Block* block);
     Status get_new_desc();
     Status get_create_table(std::string* result);
     std::string to_mysql_data_type_string(TColumnDesc& desc);

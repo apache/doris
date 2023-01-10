@@ -42,7 +42,7 @@ private:
     };
 
     Status fill_one_row(Tuple* tuple, MemPool* pool);
-    Status _fill_block_imp(vectorized::Block* block);
+    Status _fill_block_impl(vectorized::Block* block);
 
     int _index;
     static SchemaScanner::ColumnDesc _s_cols_columns[];

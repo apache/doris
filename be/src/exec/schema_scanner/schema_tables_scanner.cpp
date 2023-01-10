@@ -133,14 +133,18 @@ Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos)
     return fill_one_row(tuple, pool);
 }
 
-Status SchemaTablesScanner::_fill_block_imp(vectorized::Block* block) {
+Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     auto table_num = _table_result.tables.size();
     // catalog
-    {
+    if (_db_result.__isset.catalogs) {
         std::string catalog_name = _db_result.catalogs[_db_index - 1];
         StringRef str_slot = StringRef(catalog_name.c_str(), catalog_name.size());
         for (int i = 0; i < table_num; ++i) {
             fill_dest_column(block, &str_slot, _tuple_desc->slots()[0]);
+        }
+    } else {
+        for (int i = 0; i < table_num; ++i) {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[0]);
         }
     }
     // schema
@@ -313,7 +317,7 @@ Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) 
         return Status::OK();
     }
     *eos = false;
-    return _fill_block_imp(block);
+    return _fill_block_impl(block);
 }
 
 } // namespace doris

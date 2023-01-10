@@ -40,7 +40,8 @@ SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[
 
 SchemaCollationsScanner::SchemaCollationsScanner()
         : SchemaScanner(_s_cols_columns,
-                        sizeof(_s_cols_columns) / sizeof(SchemaScanner::ColumnDesc)),
+                        sizeof(_s_cols_columns) / sizeof(SchemaScanner::ColumnDesc),
+                        TSchemaTableType::SCH_COLLATIONS),
           _index(0) {}
 
 SchemaCollationsScanner::~SchemaCollationsScanner() {}
@@ -133,10 +134,10 @@ Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* e
     }
 
     *eos = true;
-    return _fill_block_imp(block);
+    return _fill_block_impl(block);
 }
 
-Status SchemaCollationsScanner::_fill_block_imp(vectorized::Block* block) {
+Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
     auto row_num = 0;
     while (nullptr != _s_collations[row_num].name) {
         ++row_num;
