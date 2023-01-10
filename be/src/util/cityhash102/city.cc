@@ -33,9 +33,6 @@
 #include <algorithm>
 #include <string.h>  // for memcpy and memset
 
-using namespace std;
-
-
 #if !defined(WORDS_BIGENDIAN)
 
 #define uint32_in_expected_order(x) (x)
@@ -156,26 +153,20 @@ static uint64 HashLen17to32(const char *s, size_t len) {
 
 // Return a 16-byte hash for 48 bytes.  Quick and dirty.
 // Callers do best to use "random-looking" values for a and b.
-static pair<uint64, uint64> WeakHashLen32WithSeeds(
-    uint64 w, uint64 x, uint64 y, uint64 z, uint64 a, uint64 b) {
+static std::pair<uint64, uint64> WeakHashLen32WithSeeds(uint64 w, uint64 x, uint64 y, uint64 z,
+                                                        uint64 a, uint64 b) {
   a += w;
   b = Rotate(b + a + z, 21);
   uint64 c = a;
   a += x;
   a += y;
   b += Rotate(a, 44);
-  return make_pair(a + z, b + c);
+  return std::make_pair(a + z, b + c);
 }
 
 // Return a 16-byte hash for s[0] ... s[31], a, and b.  Quick and dirty.
-static pair<uint64, uint64> WeakHashLen32WithSeeds(
-    const char* s, uint64 a, uint64 b) {
-  return WeakHashLen32WithSeeds(Fetch64(s),
-                                Fetch64(s + 8),
-                                Fetch64(s + 16),
-                                Fetch64(s + 24),
-                                a,
-                                b);
+static std::pair<uint64, uint64> WeakHashLen32WithSeeds(const char* s, uint64 a, uint64 b) {
+  return WeakHashLen32WithSeeds(Fetch64(s), Fetch64(s + 8), Fetch64(s + 16), Fetch64(s + 24), a, b);
 }
 
 // Return an 8-byte hash for 33 to 64 bytes.
@@ -218,8 +209,8 @@ uint64 CityHash64(const char *s, size_t len) {
   uint64 x = Fetch64(s);
   uint64 y = Fetch64(s + len - 16) ^ k1;
   uint64 z = Fetch64(s + len - 56) ^ k0;
-  pair<uint64, uint64> v = WeakHashLen32WithSeeds(s + len - 64, len, y);
-  pair<uint64, uint64> w = WeakHashLen32WithSeeds(s + len - 32, len * k1, k0);
+  std::pair<uint64, uint64> v = WeakHashLen32WithSeeds(s + len - 64, len, y);
+  std::pair<uint64, uint64> w = WeakHashLen32WithSeeds(s + len - 32, len * k1, k0);
   z += ShiftMix(v.second) * k1;
   x = Rotate(z + x, 39) * k1;
   y = Rotate(y, 33) * k1;
@@ -290,7 +281,7 @@ uint128 CityHash128WithSeed(const char *s, size_t len, uint128 seed) {
 
   // We expect len >= 128 to be the common case.  Keep 56 bytes of state:
   // v, w, x, y, and z.
-  pair<uint64, uint64> v, w;
+  std::pair<uint64, uint64> v, w;
   uint64 x = Uint128Low64(seed);
   uint64 y = Uint128High64(seed);
   uint64 z = len * k1;
@@ -412,7 +403,7 @@ static void CityHashCrc256Long(const char *s, size_t len,
   b = b * k0 + h;
   c = HashLen16(c, f) + i;
   d = HashLen16(d, e);
-  pair<uint64, uint64> v(j + e, HashLen16(h, t));
+  std::pair<uint64, uint64> v(j + e, HashLen16(h, t));
   h = v.second + f;
   // If 0 < len < 240, hash chunks of 32 bytes each from the end of s.
   for (size_t tail_done = 0; tail_done < len; ) {

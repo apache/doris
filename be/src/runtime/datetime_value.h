@@ -719,9 +719,7 @@ std::size_t hash_value(DateTimeValue const& value);
 
 } // namespace doris
 
-namespace std {
 template <>
-struct hash<doris::DateTimeValue> {
+struct std::hash<doris::DateTimeValue> {
     size_t operator()(const doris::DateTimeValue& v) const { return doris::hash_value(v); }
 };
-} // namespace std
