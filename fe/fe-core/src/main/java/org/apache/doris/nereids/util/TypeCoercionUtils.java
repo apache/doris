@@ -195,8 +195,6 @@ public class TypeCoercionUtils {
             tightestCommonType = right;
         } else if (right instanceof NullType) {
             tightestCommonType = left;
-        } else if (left instanceof BooleanType || right instanceof BooleanType) {
-            tightestCommonType = DoubleType.INSTANCE;
         } else if (left instanceof IntegralType && right instanceof DecimalV2Type
                 && ((DecimalV2Type) right).isWiderThan(left)) {
             tightestCommonType = right;
