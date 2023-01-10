@@ -106,4 +106,4 @@ protected:
     // set _is_outer to false for explode function, and should not return tuple while array is null or empty
     bool _is_outer = false;
 };
-} // namespace doris
+} // namespace doris::vectorized
