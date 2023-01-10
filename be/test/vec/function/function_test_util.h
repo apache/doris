@@ -22,7 +22,7 @@
 #include <iostream>
 #include <string>
 
-#include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"

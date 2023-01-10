@@ -32,6 +32,14 @@ Status VExplodeSplitTableFunction::open() {
     return Status::OK();
 }
 
+Status VExplodeSplitTableFunction::reset() {
+    _eos = false;
+    if (!_is_current_empty) {
+        _cur_offset = 0;
+    }
+    return Status::OK();
+}
+
 Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "

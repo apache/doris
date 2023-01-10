@@ -23,7 +23,7 @@
 #include <mutex>
 #include <string>
 
-#include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
