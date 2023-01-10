@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -186,6 +187,15 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         Expression expected = new Divide(new Cast(Literal.of((short) 1), DoubleType.INSTANCE),
                 new Cast(Literal.of(10L), DoubleType.INSTANCE));
         assertRewrite(actual, expected);
+
+        Expression actual1 = new Add(new IntegerLiteral(1), new Add(BooleanLiteral.TRUE, new StringLiteral("2")));
+        Expression expected1 = new Add(new Cast(new IntegerLiteral(1), DoubleType.INSTANCE), new Add(
+                new Cast(BooleanLiteral.TRUE, DoubleType.INSTANCE),
+                new Cast(new StringLiteral("2"), DoubleType.INSTANCE)));
+        assertRewrite(actual1, expected1);
+
+        Expression actual2 = new Add(new IntegerLiteral(1), new Add(BooleanLiteral.TRUE, new StringLiteral("x")));
+        Assertions.assertThrows(IllegalStateException.class, () -> assertRewrite(actual2, null));
     }
 
     private DataType checkAndGetDataType(Expression expression) {
