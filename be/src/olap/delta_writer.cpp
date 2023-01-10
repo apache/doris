@@ -24,7 +24,6 @@
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"

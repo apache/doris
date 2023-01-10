@@ -18,7 +18,6 @@
 #pragma once
 
 #include "exec/exec_node.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/materialize_block.h"
 #include "vec/exec/join/join_op.h"
