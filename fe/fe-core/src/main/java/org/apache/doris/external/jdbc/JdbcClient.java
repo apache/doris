@@ -163,6 +163,9 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
                             + "where schema_owner='" + jdbcUser + "';");
                     break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = stmt.executeQuery("SHOW DATABASES");
+                    break;
                 default:
                     throw  new JdbcClientException("Not supported jdbc type");
             }
@@ -186,6 +189,7 @@ public class JdbcClient {
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
         String[] types = { "TABLE", "VIEW" };
+        String[] cktypes = { "TABLE", "VIEW", "MEMORY TABLE" };
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -194,6 +198,9 @@ public class JdbcClient {
                     break;
                 case JdbcResource.POSTGRESQL:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getTables(null, dbName, null, cktypes);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -213,6 +220,7 @@ public class JdbcClient {
         Connection conn =  getConnection();
         ResultSet rs = null;
         String[] types = { "TABLE", "VIEW" };
+        String[] cktypes = { "TABLE", "VIEW", "MEMORY TABLE" };
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -221,6 +229,9 @@ public class JdbcClient {
                     break;
                 case JdbcResource.POSTGRESQL:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getTables(null, dbName, null, cktypes);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type: " + dbType);
@@ -290,6 +301,9 @@ public class JdbcClient {
                 case JdbcResource.POSTGRESQL:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
                 default:
                     throw new JdbcClientException("Unknown database type");
             }
@@ -320,6 +334,8 @@ public class JdbcClient {
                 return mysqlTypeToDoris(fieldSchema);
             case JdbcResource.POSTGRESQL:
                 return postgresqlTypeToDoris(fieldSchema);
+            case JdbcResource.CLICKHOUSE:
+                return clickhouseTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -481,6 +497,64 @@ public class JdbcClient {
             case "jsonb":
             case "uuid":
                 return ScalarType.createStringType();
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public Type clickhouseTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String ckType = fieldSchema.getDataTypeName();
+        if (ckType.startsWith("Decimal")) {
+            String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
+            int precision = Integer.parseInt(accuracy[0]);
+            int scale = Integer.parseInt(accuracy[1]);
+            if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createDecimalType(precision, scale);
+            } else {
+                return ScalarType.createStringType();
+            }
+        }
+        if (ckType.contains("String") || ckType.startsWith("Enum")
+                || ckType.startsWith("IPv") || "UUID".contains(ckType)) {
+            return ScalarType.createStringType();
+        }
+        if (ckType.startsWith("Array")) {
+            return ScalarType.createStringType();
+        }
+        if (ckType.startsWith("DateTime")) {
+            return ScalarType.getDefaultDateType(Type.DATETIME);
+        }
+        switch (ckType) {
+            case "Bool":
+                return Type.BOOLEAN;
+            case "Int8":
+                return Type.TINYINT;
+            case "Int16":
+            case "UInt8":
+                return Type.SMALLINT;
+            case "Int32":
+            case "UInt16":
+                return Type.INT;
+            case "Int64":
+            case "UInt32":
+                return Type.BIGINT;
+            case "Int128":
+            case "UInt64":
+                return Type.LARGEINT;
+            case "Int256":
+            case "UInt128":
+            case "UInt256":
+                return ScalarType.createStringType();
+            case "Float32":
+                return Type.FLOAT;
+            case "Float64":
+                return Type.DOUBLE;
+            case "Date":
+            case "Date32":
+                return ScalarType.getDefaultDateType(Type.DATE);
             default:
                 return Type.UNSUPPORTED;
         }
