@@ -2085,8 +2085,8 @@ public class SingleNodePlanner {
 
         HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
                 innerRef, eqJoinConjuncts, ojConjuncts);
-        result.init(analyzer);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
+        result.init(analyzer);
         return result;
     }
 
