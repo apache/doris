@@ -120,5 +120,10 @@ suite("nereids_function") {
     qt_ceil """
         SELECT ceil(2.1);
     """
+
+    test {
+        sql "select left('abcd', 3), right('abcd', 3)"
+        result([['abc', 'bcd']])
+    }
 }
 
