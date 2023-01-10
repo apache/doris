@@ -18,7 +18,7 @@
 // https://github.com/apache/impala/blob/branch-4.0.0/fe/src/main/java/org/apache/impala/util/JvmPauseMonitor.java
 // and modified by Doris
 
-package org.apache.doris.monitor.jvm;
+package org.apache.doris.udf;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Stopwatch;

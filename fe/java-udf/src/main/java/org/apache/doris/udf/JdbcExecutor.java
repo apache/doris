@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
