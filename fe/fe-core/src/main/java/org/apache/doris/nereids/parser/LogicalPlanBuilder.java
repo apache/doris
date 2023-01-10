@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
@@ -143,7 +144,6 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -171,12 +171,14 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -215,7 +217,11 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.VariableVarConverters;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -534,17 +540,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitSystemVariable(SystemVariableContext ctx) {
+        String name = ctx.identifier().getText();
+        Literal literal = null;
         if (ctx.kind == null) {
-            return new VariableDesc(SetType.SESSION, ctx.identifier().getText());
+            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.DEFAULT);
+        } else if (ctx.kind.getType() == DorisParser.SESSION) {
+            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.SESSION);
+        } else if (ctx.kind.getType() == DorisParser.GLOBAL) {
+            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.GLOBAL);
         }
-        switch (ctx.kind.getType()) {
-            case DorisParser.GLOBAL:
-                return new VariableDesc(SetType.GLOBAL, ctx.identifier().getText());
-            case DorisParser.SESSION:
-                return new VariableDesc(SetType.SESSION, ctx.identifier().getText());
-            default:
-                throw new ParseException("Unsupported system variable: " + ctx.getText(), ctx);
+        if (literal == null) {
+            throw new ParseException("Unsupported system variable: " + ctx.getText(), ctx);
         }
+        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
+            try {
+                Preconditions.checkArgument(literal instanceof IntegerLikeLiteral);
+                IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) literal;
+                literal = new StringLiteral(VariableVarConverters.decode(name, integerLikeLiteral.getLongValue()));
+            } catch (DdlException e) {
+                throw new ParseException(e.getMessage(), ctx);
+            }
+        }
+        return literal;
     }
 
     @Override
