@@ -149,7 +149,7 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::BIGINT:
         return "bigint(20)";
     case TPrimitiveType::LARGEINT:
-        return "bigint(20) unsigned";
+        return "largeint";
     case TPrimitiveType::FLOAT:
         return "float";
     case TPrimitiveType::DOUBLE:
@@ -185,6 +185,38 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
             stream << desc.columnScale;
         } else {
             stream << 9;
+        }
+        stream << ")";
+        return stream.str();
+    }
+    case TPrimitiveType::DECIMAL32:
+    case TPrimitiveType::DECIMAL64:
+    case TPrimitiveType::DECIMAL128I: {
+        std::stringstream stream;
+        stream << "decimalv3(";
+        if (desc.__isset.columnPrecision) {
+            stream << desc.columnPrecision;
+        } else {
+            stream << "UNKNOWN";
+        }
+        stream << ",";
+        if (desc.__isset.columnScale) {
+            stream << desc.columnScale;
+        } else {
+            stream << "UNKNOWN";
+        }
+        stream << ")";
+        return stream.str();
+    }
+    case TPrimitiveType::DATEV2:
+        return "datev2";
+    case TPrimitiveType::DATETIMEV2: {
+        std::stringstream stream;
+        stream << "datetimev2(";
+        if (desc.__isset.columnScale) {
+            stream << desc.columnScale;
+        } else {
+            stream << "UNKNOWN";
         }
         stream << ")";
         return stream.str();
