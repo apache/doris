@@ -416,7 +416,7 @@ TILDE: '~';
 AMPERSAND: '&';
 LOGICALAND: '&&';
 PIPE: '|';
-CONCAT_PIPE: '||';
+DOUBLEPIPES: '||';
 HAT: '^';
 COLON: ':';
 ARROW: '->';

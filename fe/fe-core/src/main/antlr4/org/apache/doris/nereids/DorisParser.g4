@@ -245,13 +245,14 @@ expression
     ;
 
 booleanExpression
-    : NOT booleanExpression                                         #logicalNot
-    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
-    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN        #is_not_null_pred
-    | valueExpression predicate?                                    #predicated
+    : NOT booleanExpression                                                         #logicalNot
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
+    | valueExpression predicate?                                                    #predicated
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
-    | left=booleanExpression operator=(OR | CONCAT_PIPE) right=booleanExpression    #logicalBinary
+    | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
+    | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
 predicate

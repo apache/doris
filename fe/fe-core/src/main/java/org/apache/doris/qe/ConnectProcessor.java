@@ -266,7 +266,7 @@ public class ConnectProcessor {
 
         if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
-                stmts = new NereidsParser().parseSQL(originStmt);
+                stmts = new NereidsParser(ctx.getSessionVariable()).parseSQL(originStmt);
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 nereidsParseException = e;

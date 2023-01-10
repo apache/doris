@@ -213,6 +213,8 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -241,6 +243,12 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
+    // default variable
+    private SessionVariable sessionVariable;
+
+    public LogicalPlanBuilder(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
+    }
 
     @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
@@ -606,7 +614,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.AND:
                     return new And(left, right);
                 case DorisParser.OR:
-                case DorisParser.CONCAT_PIPE:
                     return new Or(left, right);
                 default:
                     throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
@@ -805,6 +812,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         throw new ParseException("Unsupported time unit: " + ctx.unit
                 + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
+    }
+
+    @Override
+    public Expression visitDoublePipes(DorisParser.DoublePipesContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            Expression left = getExpression(ctx.left);
+            Expression right = getExpression(ctx.right);
+            if (sessionVariable.getSqlMode() == SqlModeHelper.MODE_PIPES_AS_CONCAT) {
+                return new UnboundFunction("concat", Lists.newArrayList(left, right));
+            } else {
+                return new Or(left, right);
+            }
+        });
     }
 
     /**
