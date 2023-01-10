@@ -28,6 +28,7 @@ public class PushCooldownConfTask extends AgentTask {
 
     private long cooldownReplicaId;
     private long cooldownTerm;
+
     public PushCooldownConfTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                                 long cooldownReplicaId, long cooldownTerm) {
         super(null, backendId, TTaskType.PUSH_COOLDOWN_CONF, dbId, tableId, partitionId, indexId, tabletId);

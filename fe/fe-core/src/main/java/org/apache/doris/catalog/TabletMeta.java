@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

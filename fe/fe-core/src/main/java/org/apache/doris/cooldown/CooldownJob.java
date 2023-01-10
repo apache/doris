@@ -17,7 +17,6 @@
 
 package org.apache.doris.cooldown;
 
-import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -39,7 +38,6 @@ import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

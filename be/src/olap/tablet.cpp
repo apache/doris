@@ -1729,7 +1729,7 @@ Status Tablet::_cooldown_upload_data() {
         _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
         new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
         // upload rowset_meta to remote fs.
-        RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, tablet_id(), remote_tablet_meta_pb));
+        RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, remote_tablet_meta_pb));
     }
 
     RowsetSharedPtr new_rowset;
@@ -1765,7 +1765,7 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
         io::FileReaderSPtr tablet_meta_reader;
-        RETURN_IF_ERROR(fs->open_file(meta_path, &tablet_meta_reader));
+        RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader));
         if (tablet_meta_reader == nullptr) {
             return Status::InternalError("tablet_meta_reader is null");
         }
@@ -1782,7 +1782,7 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
         tablet_meta_reader->close();
         if (!tablet_meta_pb->ParseFromString(slice.to_string())) {
             LOG(WARNING) << "parse tablet meta failed";
-            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+            return Status::InternalError("parse tablet meta failed");
         }
     }
     LOG(INFO) << "No tablet meta file founded, init needed. tablet_id: " << tablet_id();
@@ -1792,9 +1792,8 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
 Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb) {
     std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id(),
                                                                        _tablet_meta->replica_id());
-    bool exist = false;
     io::FileWriterPtr tablet_meta_writer;
-    RETURN_IF_ERROR(fs->create_file(meta_path, &tablet_meta_writer));
+    RETURN_IF_ERROR(fs->create_file(remote_tablet_meta_path, &tablet_meta_writer));
     if (tablet_meta_writer == nullptr) {
         return Status::InternalError("tablet_meta_writer is null");
     }
