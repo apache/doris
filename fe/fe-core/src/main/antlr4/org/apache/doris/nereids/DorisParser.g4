@@ -661,6 +661,7 @@ nonReserved
     | VERSION
     | VIEW
     | VIEWS
+    | WEEK
     | WHEN
     | WHERE
     | WINDOW
