@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
@@ -55,12 +56,17 @@ public class PrepareStmt extends StatementBase {
     private boolean binaryRowFormat;
     int schemaVersion = -1;
     OlapTable tbl;
+    ConnectContext context;
 
     public PrepareStmt(StatementBase stmt, String name, boolean binaryRowFormat) {
         this.inner = stmt;
         this.stmtName = name;
         this.id = UUID.randomUUID();
         this.binaryRowFormat = binaryRowFormat;
+    }
+
+    public void setContext(ConnectContext ctx) {
+        this.context = ctx;
     }
 
     public boolean reAnalyze() {
@@ -166,19 +172,24 @@ public class PrepareStmt extends StatementBase {
         if (!(inner instanceof SelectStmt)) {
             throw new UserException("Only support prepare SelectStmt now");
         }
+        // Use tmpAnalyzer since selectStmt will be reAnalyzed
+        Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
         // collect placeholders from stmt exprs tree
         SelectStmt selectStmt = (SelectStmt) inner;
         // TODO(lhy) support more clauses
         if (selectStmt.getWhereClause() != null) {
             selectStmt.getWhereClause().collect(PlaceHolderExpr.class, placeholders);
         }
-        inner.analyze(analyzer);
+        inner.analyze(tmpAnalyzer);
         if (!selectStmt.checkAndSetPointQuery()) {
             throw new UserException("Only support prepare SelectStmt point query now");
         }
         tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
         schemaVersion = tbl.getBaseSchemaVersion();
+        // reset will be reAnalyzed
+        selectStmt.reset();
         analyzer.setPrepareStmt(this);
+        // tmpAnalyzer.setPrepareStmt(this);
     }
 
     public String getName() {

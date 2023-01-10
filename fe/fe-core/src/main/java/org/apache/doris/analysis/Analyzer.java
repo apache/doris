@@ -315,9 +315,6 @@ public class Analyzer {
         // True if at least one of the analyzers belongs to a subquery.
         public boolean containsSubquery = false;
 
-        // True if statement is a prepare stmt
-        public PrepareStmt prepareStmt;
-
         // all registered conjuncts (map from id to Predicate)
         private final Map<ExprId, Expr> conjuncts = Maps.newHashMap();
 
@@ -459,6 +456,9 @@ public class Analyzer {
 
     private final GlobalState globalState;
 
+    // Attached PrepareStmt
+    public PrepareStmt prepareStmt;
+
     private final InferPredicateState inferPredicateState;
 
     // An analyzer stores analysis state for a single select block. A select block can be
@@ -530,16 +530,6 @@ public class Analyzer {
         return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
     }
 
-    public void setPrepareStmt(PrepareStmt stmt) {
-        LOG.debug("setPrepareStmt {}", stmt);
-        globalState.prepareStmt = stmt;
-    }
-
-    public PrepareStmt getPrepareStmt() {
-        LOG.debug("getPrepareStmt {}", globalState.prepareStmt);
-        return globalState.prepareStmt;
-    }
-
     public void setIsExplain() {
         globalState.isExplain = true;
     }
@@ -570,6 +560,14 @@ public class Analyzer {
 
     public void setExplicitViewAlias(String alias) {
         explicitViewAlias = alias;
+    }
+
+    public void setPrepareStmt(PrepareStmt stmt) {
+        prepareStmt = stmt;
+    }
+
+    public PrepareStmt getPrepareStmt() {
+        return prepareStmt;
     }
 
     public String getExplicitViewAlias() {

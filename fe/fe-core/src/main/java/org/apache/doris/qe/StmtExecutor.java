@@ -718,6 +718,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             // continue analyze
             preparedStmtReanalyzed = true;
+            preparedStmtCtx.stmt.analyze(analyzer);
         }
 
         parse();
@@ -738,6 +739,7 @@ public class StmtExecutor implements ProfileWriter {
             } else {
                 prepareStmt = (PrepareStmt) parsedStmt;
             }
+            prepareStmt.setContext(context);
             prepareStmt.analyze(analyzer);
             // Need analyze inner statement
             parsedStmt = prepareStmt.getInnerStmt();
@@ -813,9 +815,10 @@ public class StmtExecutor implements ProfileWriter {
         }
         if (preparedStmtReanalyzed) {
             LOG.debug("update planner and analyzer after prepared statement reanalyzed");
-            preparedStmtCtx.stmt.analyze(analyzer);
             preparedStmtCtx.planner = planner;
             preparedStmtCtx.analyzer = analyzer;
+            Preconditions.checkNotNull(preparedStmtCtx.stmt);
+            preparedStmtCtx.analyzer.setPrepareStmt(preparedStmtCtx.stmt);
         }
     }
 
@@ -919,13 +922,13 @@ public class StmtExecutor implements ProfileWriter {
                 // Re-analyze the stmt with a new analyzer.
                 analyzer = new Analyzer(context.getEnv(), context);
 
-                // query re-analyze
-                parsedStmt.reset();
-                parsedStmt.analyze(analyzer);
                 if (prepareStmt != null) {
                     prepareStmt.reset();
                     prepareStmt.analyze(analyzer);
                 }
+                // query re-analyze
+                parsedStmt.reset();
+                parsedStmt.analyze(analyzer);
 
                 // Restore the original result types and column labels.
                 parsedStmt.castResultExprs(origResultTypes);
