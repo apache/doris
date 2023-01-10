@@ -1059,7 +1059,7 @@ build_bitshuffle() {
             if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
             if [[ ! -f "${objcopy}" ]]; then
                 if ! objcopy="$(command -v objcopy)"; then
-                    objcopy="${TP_INSTALL_DIR}/bin/objcopy"
+                    objcopy="${TP_INSTALL_DIR}/binutils/bin/objcopy"
                 fi
             fi
 
@@ -1507,9 +1507,10 @@ build_binutils() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}" --enable-install-libiberty
+    ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
+        --enable-install-libiberty --without-msgpack
     make -j "${PARALLEL}"
-    make install
+    make install-bfd install-libiberty install-binutils
 }
 
 build_gettext() {
@@ -1520,7 +1521,8 @@ build_gettext() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    ../gettext-runtime/configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    cd intl
     make -j "${PARALLEL}"
     make install
 
