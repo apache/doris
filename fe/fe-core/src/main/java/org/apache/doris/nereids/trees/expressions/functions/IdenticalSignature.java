@@ -29,9 +29,15 @@ import java.util.List;
  * exactly and signature isn't varargs.
  */
 public interface IdenticalSignature extends ComputeSignature {
+    /** isIdentical */
     static boolean isIdentical(AbstractDataType signatureType, AbstractDataType realType) {
-        // TODO: copy matchesType to DataType
-        return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+        try {
+            // TODO: copy matchesType to DataType
+            return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+        } catch (Throwable t) {
+            // the signatureType maybe AbstractDataType and can not cast to catalog data type.
+            return false;
+        }
     }
 
     @Override

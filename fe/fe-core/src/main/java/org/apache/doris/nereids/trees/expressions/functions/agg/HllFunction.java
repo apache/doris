@@ -15,12 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-/**
- * means the function doesn't accept MetricType Arguments
- *
- * e.g. Count, Min, Max, Ndv etc
- */
-public interface ForbiddenMetricTypeArguments {
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
+
+/** HllFunction */
+public interface HllFunction extends FunctionTrait {
+    @Override
+    default void checkLegalityBeforeTypeCoercion() {
+        if (!getArgumentType(0).isHllType()) {
+            throw new AnalysisException(
+                    "HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
+        }
+    }
 }

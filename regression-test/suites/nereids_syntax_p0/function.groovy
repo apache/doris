@@ -93,5 +93,15 @@ suite("nereids_function") {
         sql """select b.number from (select * from numbers(number = 3) a)b"""
         result([[0L], [1L], [2L]])
     }
+
+    test {
+        sql "select from_unixtime(1249488000, 'yyyyMMdd')"
+        result([["20090806"]])
+    }
+
+    test {
+        sql "select convert_to('abc', cast(number as varchar)) from numbers('number'='1')"
+        exception "must be a constant"
+    }
 }
 

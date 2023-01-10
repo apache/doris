@@ -357,20 +357,26 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
                 }
                 children.set(i, new StringLiteral("NULL"));
-                sb.append("0");
-            } else if (type.isBoolean()) {
-                sb.append("1");
-            } else if (type.isFixedPointType()) {
-                sb.append("2");
-            } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
-                sb.append("3");
-            } else if (type.isTime()) {
-                sb.append("4");
-            } else {
-                sb.append("5");
             }
+            sb.append(computeJsonDataType(type));
         }
         return sb.toString();
+    }
+
+    public static int computeJsonDataType(Type type) {
+        if (type.isNull()) {
+            return 0;
+        } else if (type.isBoolean()) {
+            return 1;
+        } else if (type.isFixedPointType()) {
+            return 2;
+        } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
+            return 3;
+        } else if (type.isTime()) {
+            return 4;
+        } else {
+            return 5;
+        }
     }
 
     public boolean isMergeAggFn() {
@@ -1479,7 +1485,7 @@ public class FunctionCallExpr extends Expr {
         return num;
     }
 
-    private static boolean parsePattern(String pattern) {
+    public static boolean parsePattern(String pattern) {
         int pos = 0;
         int len = pattern.length();
         while (pos < len) {

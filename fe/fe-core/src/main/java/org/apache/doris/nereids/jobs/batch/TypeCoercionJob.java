@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 
@@ -34,6 +35,10 @@ public class TypeCoercionJob extends BatchRulesJob {
     public TypeCoercionJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
+                // NOTE:
+                // CheckFunctionLegality should invoke before TypeCoercion.
+                // We should move all rules into the AnalyzeRulesJob later.
+                bottomUpBatch(new ExpressionRewrite(CheckLegalityBeforeTypeCoercion.INSTANCE)),
                 topDownBatch(ImmutableList.of(
                         new ExpressionNormalization(cascadesContext.getConnectContext(),
                                 ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE)))

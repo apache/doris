@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeti
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.qe.ConnectContext;
 
@@ -50,7 +51,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
             FoldConstantRule.INSTANCE,
             SimplifyCastRule.INSTANCE,
             DigitalMaskingConvert.INSTANCE,
-            SimplifyArithmeticComparisonRule.INSTANCE
+            SimplifyArithmeticComparisonRule.INSTANCE,
+            SupportJavaDateFormatter.INSTANCE
     );
 
     public ExpressionNormalization(ConnectContext context) {
