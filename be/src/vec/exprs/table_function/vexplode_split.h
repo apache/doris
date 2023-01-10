@@ -27,7 +27,7 @@ namespace doris::vectorized {
 class VExplodeSplitTableFunction final : public TableFunction {
 public:
     VExplodeSplitTableFunction();
-    ~VExplodeSplitTableFunction() = default;
+    ~VExplodeSplitTableFunction() override = default;
 
     Status open() override;
     Status process_init(vectorized::Block* block) override;
