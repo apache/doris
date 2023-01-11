@@ -86,6 +86,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
                 .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
+                .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
@@ -107,7 +108,6 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new CountDistinctRewrite())))
                 // we need to execute this rule at the end of rewrite
                 // to avoid two consecutive same project appear when we do optimization.
-                .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new EliminateOrderByConstant())))
                 .add(topDownBatch(ImmutableList.of(new EliminateUnnecessaryProject())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithAggregate())))
