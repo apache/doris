@@ -130,9 +130,6 @@ public:
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
-    PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
-    PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
-    ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     void set_serial_download_cache_thread_token() {
@@ -225,20 +222,6 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
-
-    // The following two thread pools are used in different scenarios.
-    // _scan_thread_pool is a priority thread pool.
-    // Scanner threads for common queries will use this thread pool,
-    // and the priority of each scan task is set according to the size of the query.
-
-    // _limited_scan_thread_pool is also the thread pool used for scanner.
-    // The difference is that it is no longer a priority queue, but according to the concurrency
-    // set by the user to control the number of threads that can be used by a query.
-
-    // TODO(cmy): find a better way to unify these 2 pools.
-    PriorityThreadPool* _scan_thread_pool = nullptr;
-    PriorityThreadPool* _remote_scan_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
