@@ -55,7 +55,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
-#include "olap/storage_policy_mgr.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/tablet_schema.h"
@@ -1700,12 +1700,19 @@ Status Tablet::cooldown() {
 }
 
 Status Tablet::_cooldown_data() {
-    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
-    if (!dest_fs) {
-        return Status::Error<UNINITIALIZED>();
+    auto storage_policy = get_storage_policy(storage_policy_id());
+    if (storage_policy == nullptr) {
+        return Status::InternalError("could not find storage_policy, storage_policy_id={}",
+                                     storage_policy_id());
     }
-    DCHECK(dest_fs->type() == io::FileSystemType::S3);
-
+    auto resource = get_storage_resource(storage_policy->resource_id);
+    auto& dest_fs = resource.fs;
+    if (dest_fs == nullptr) {
+        return Status::InternalError("could not find resource, resouce_id={}",
+                                     storage_policy->resource_id);
+    }
+    DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
+    DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
         LOG(WARNING) << "Cannot pick cooldown rowset in tablet " << tablet_id();
@@ -1715,11 +1722,10 @@ Status Tablet::_cooldown_data() {
 
     auto start = std::chrono::steady_clock::now();
 
-    auto st = old_rowset->upload_to(reinterpret_cast<io::RemoteFileSystem*>(dest_fs.get()),
-                                    new_rowset_id);
+    auto st =
+            old_rowset->upload_to(static_cast<io::RemoteFileSystem*>(dest_fs.get()), new_rowset_id);
     if (!st.ok()) {
-        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
-                                    old_rowset->num_segments());
+        record_unused_remote_rowset(new_rowset_id, dest_fs->id(), old_rowset->num_segments());
         return st;
     }
 
@@ -1732,7 +1738,7 @@ Status Tablet::_cooldown_data() {
     // gen a new rowset
     auto new_rowset_meta = std::make_shared<RowsetMeta>(*old_rowset->rowset_meta());
     new_rowset_meta->set_rowset_id(new_rowset_id);
-    new_rowset_meta->set_resource_id(dest_fs->resource_id());
+    new_rowset_meta->set_resource_id(dest_fs->id());
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
 
@@ -1876,14 +1882,13 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
 }
 
 bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
-    // std::shared_lock meta_rlock(_meta_lock);
-    if (storage_policy().empty()) {
+    if (storage_policy_id() == 0) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
         return false;
     }
-    auto policy = ExecEnv::GetInstance()->storage_policy_mgr()->get(storage_policy());
+    auto policy = get_storage_policy(storage_policy_id());
     if (!policy) {
-        LOG(WARNING) << "Cannot get storage policy: " << storage_policy();
+        LOG(WARNING) << "Cannot get storage policy: " << storage_policy_id();
         return false;
     }
     auto cooldown_ttl_sec = policy->cooldown_ttl;
@@ -1931,7 +1936,7 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
     return false;
 }
 
-void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                          int64_t num_segments) {
     auto gc_key = REMOTE_ROWSET_GC_PREFIX + rowset_id.to_string();
     RemoteRowsetGcPB gc_pb;
@@ -1946,11 +1951,13 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const io::Re
 
 Status Tablet::remove_all_remote_rowsets() {
     DCHECK(_state == TABLET_SHUTDOWN);
-    if (storage_policy().empty()) {
+    if (storage_policy_id() == 0) {
         return Status::OK();
     }
     auto tablet_gc_key = REMOTE_TABLET_GC_PREFIX + std::to_string(tablet_id());
-    return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key, storage_policy());
+    auto policy = get_storage_policy(storage_policy_id());
+    return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key,
+                                      std::to_string(policy->resource_id));
 }
 
 TabletSchemaSPtr Tablet::tablet_schema() const {

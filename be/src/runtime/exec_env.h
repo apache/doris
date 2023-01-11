@@ -161,7 +161,6 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
@@ -245,7 +244,6 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    StoragePolicyMgr* _storage_policy_mgr = nullptr;
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;

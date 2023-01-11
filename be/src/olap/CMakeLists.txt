@@ -111,7 +111,7 @@ add_library(Olap STATIC
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
     segment_loader.cpp
-    storage_policy_mgr.cpp
+    storage_policy.cpp
 )
 
 if (NOT USE_MEM_TRACKER)

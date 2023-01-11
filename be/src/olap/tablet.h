@@ -332,7 +332,7 @@ public:
     // REQUIRES: held _meta_lock
     void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
 
-    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
 
     bool check_all_rowset_segment();
