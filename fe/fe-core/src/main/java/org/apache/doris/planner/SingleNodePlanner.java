@@ -2669,8 +2669,16 @@ public class SingleNodePlanner {
                     //eg: select distinct c from ( select distinct c from table) t where c > 1;
                     continue;
                 }
-                if (stmt.getGroupByClause().isGroupByExtension()
-                        && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
+
+                boolean isFromSourceExpr = false;
+                for (Expr expr : stmt.getGroupByClause().getGroupingExprs()) {
+                    if (expr.isFromSrcExpr(sourceExpr)) {
+                        isFromSourceExpr = true;
+                        break;
+                    }
+                }
+
+                if (stmt.getGroupByClause().isGroupByExtension() && isFromSourceExpr) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
                     if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
                             || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
