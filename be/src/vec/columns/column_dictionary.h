@@ -240,6 +240,12 @@ public:
     }
 
     void convert_dict_codes_if_necessary() override {
+        // Avoid setting `_dict_sorted` to true when `_dict` is empty.
+        // Because `_dict` maybe keep empty after inserting some null rows.
+        if (_dict.empty()) {
+            return;
+        }
+
         if (!is_dict_sorted()) {
             _dict.sort();
             _dict_sorted = true;
