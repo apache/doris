@@ -972,16 +972,18 @@ Status VScanNode::_normalize_compound_predicate(
             } else if (TExprNodeType::MATCH_PRED == child_expr->node_type()) {
                 SlotDescriptor* slot = nullptr;
                 ColumnValueRangeType* range_on_slot = nullptr;
-                if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot, &range_on_slot) ||
-                        _is_predicate_acting_on_slot(child_expr, eq_predicate_checker, &slot, &range_on_slot)) {
+                if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot,
+                                                 &range_on_slot) ||
+                    _is_predicate_acting_on_slot(child_expr, eq_predicate_checker, &slot,
+                                                 &range_on_slot)) {
                     ColumnValueRangeType active_range =
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
                     std::visit(
-                        [&](auto& value_range) {
-                            _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                   value_range, pdt);
-                        },
-                        active_range);
+                            [&](auto& value_range) {
+                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
+                                                                       value_range, pdt);
+                            },
+                            active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
@@ -1054,12 +1056,14 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
 }
 
 template <PrimitiveType T>
-Status VScanNode::_normalize_match_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
-                                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
+Status VScanNode::_normalize_match_in_compound_predicate(vectorized::VExpr* expr,
+                                                         VExprContext* expr_ctx,
+                                                         SlotDescriptor* slot,
+                                                         ColumnValueRange<T>& range,
                                                          PushDownType* pdt) {
     DCHECK(expr->children().size() == 2);
     if (TExprNodeType::MATCH_PRED == expr->node_type()) {
-       RETURN_IF_ERROR(_normalize_match_predicate(expr, expr_ctx, slot, range, pdt));
+        RETURN_IF_ERROR(_normalize_match_predicate(expr, expr_ctx, slot, range, pdt));
     }
 
     return Status::OK();
@@ -1077,9 +1081,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                 slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
-        auto match_checker = [](const std::string& fn_name) {
-	        return is_match_condition(fn_name);
-        };
+        auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
         StringRef value;
         int slot_ref_child = -1;
         PushDownType temp_pdt;

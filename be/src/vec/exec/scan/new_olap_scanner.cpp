@@ -188,7 +188,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     for (auto& filter : _compound_filters) {
         if (is_match_condition(filter.condition_op) &&
             !_tablet_schema->has_inverted_index(
-                _tablet_schema->column(filter.column_name).unique_id())) {
+                    _tablet_schema->column(filter.column_name).unique_id())) {
             return Status::NotSupported("Match query must with inverted index, column `" +
                                         filter.column_name + "` is not inverted index column");
         }

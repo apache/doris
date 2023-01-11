@@ -93,7 +93,8 @@ Status FullTextIndexReader::new_iterator(const TabletIndex* index_meta,
 
 Status FullTextIndexReader::query(const std::string& column_name, const void* query_value,
                                   InvertedIndexQueryType query_type,
-                                  InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) {
+                                  InvertedIndexParserType analyser_type,
+                                  roaring::Roaring* bit_map) {
     std::string search_str = reinterpret_cast<const StringValue*>(query_value)->to_string();
     LOG(INFO) << column_name
               << " begin to load the fulltext index from clucene, query_str=" << search_str;
@@ -142,7 +143,8 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
         }
         default:
-            LOG(ERROR) << "fulltext query do not support query type other than match, column: " << column_name;
+            LOG(ERROR) << "fulltext query do not support query type other than match, column: "
+                       << column_name;
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
         }
 
@@ -165,7 +167,8 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
     std::shared_ptr<lucene::search::IndexSearcher> index_searcher = nullptr;
     {
         DorisCompoundReader* directory = new DorisCompoundReader(
-                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()), index_file_name.c_str());
+                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                index_file_name.c_str());
         index_searcher = std::make_shared<lucene::search::IndexSearcher>(directory, true);
         _CLDECDELETE(directory)
     }
@@ -246,7 +249,7 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
         LOG(ERROR) << "invalid query type when query untokenized inverted index";
         if (_is_match_query(query_type)) {
             LOG(WARNING) << column_name << " is untokenized inverted index"
-                    << ", please use equal query instead of match query";
+                         << ", please use equal query instead of match query";
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
         }
         LOG(WARNING) << "invalid query type when query untokenized inverted index";
@@ -256,7 +259,8 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
     std::shared_ptr<lucene::search::IndexSearcher> index_searcher = nullptr;
     {
         DorisCompoundReader* directory = new DorisCompoundReader(
-                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()), index_file_name.c_str());
+                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                index_file_name.c_str());
         index_searcher = std::make_shared<lucene::search::IndexSearcher>(directory, true);
         _CLDECDELETE(directory)
     }
@@ -281,9 +285,11 @@ InvertedIndexReaderType StringTypeInvertedIndexReader::type() {
     return InvertedIndexReaderType::STRING_TYPE;
 }
 
-Status InvertedIndexIterator::read_from_inverted_index(
-        const std::string& column_name, const void* query_value, InvertedIndexQueryType query_type,
-        uint32_t segment_num_rows, roaring::Roaring* bit_map) {
+Status InvertedIndexIterator::read_from_inverted_index(const std::string& column_name,
+                                                       const void* query_value,
+                                                       InvertedIndexQueryType query_type,
+                                                       uint32_t segment_num_rows,
+                                                       roaring::Roaring* bit_map) {
     RETURN_IF_ERROR(_reader->query(column_name, query_value, query_type, _analyser_type, bit_map));
     return Status::OK();
 }
