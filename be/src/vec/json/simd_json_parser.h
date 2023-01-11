@@ -30,7 +30,8 @@ namespace doris::vectorized {
 
 /// This class can be used as an argument for the template class FunctionJSON.
 /// It provides ability to parse JSONs using simdjson library.
-struct SimdJSONParser {
+class SimdJSONParser {
+public:
     class Array;
     class Object;
     /// References an element in a JSON document, representing a JSON null, boolean, string, number,
