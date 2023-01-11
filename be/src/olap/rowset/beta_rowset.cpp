@@ -49,13 +49,7 @@ std::string BetaRowset::segment_file_path(int segment_id) {
 
 std::string BetaRowset::segment_cache_path(int segment_id) {
     // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
-    return segment_cache_path(_tablet_path, rowset_id().to_string(), segment_id);
-}
-
-std::string BetaRowset::segment_cache_path(const std::string& path, const RowsetId& rowset_id,
-                                           int segment_id) {
-    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
-    return fmt::format("{}/{}_{}", path, rowset_id.to_string(), segment_id);
+    return fmt::format("{}/{}_{}", _tablet_path, rowset_id().to_string(), segment_id);
 }
 
 // just check that the format is xxx_segmentid and segmentid is numeric
