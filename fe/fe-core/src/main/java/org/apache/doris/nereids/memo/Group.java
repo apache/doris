@@ -34,8 +34,10 @@ import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -208,7 +210,7 @@ public class Group {
     /**
      * replace best plan with new properties
      */
-    public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
+    public void replaceBestPlanProperty(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
         Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;
         lowestGroupExpr.updateLowestCostTable(newProperty,
@@ -261,16 +263,11 @@ public class Group {
     }
 
     /**
-     * move the ownerGroup to target group
-     * if this.equals(target), do nothing.
+     * move the ownerGroup to target group.
      *
      * @param target the new owner group of expressions
      */
     public void moveOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-
         // move parentExpressions  Ownership
         parentExpressions.keySet().forEach(kv -> target.addParentExpression(kv));
         parentExpressions.clear();
@@ -298,6 +295,11 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+
+        // If statistics is null, use other statistics
+        if (target.statistics == null) {
+            target.statistics = this.statistics;
+        }
     }
 
     public boolean isJoinGroup() {

@@ -442,6 +442,8 @@ public class Memo {
             }
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
+
+        Map<Group, Group> needMergeGroup = Maps.newHashMap();
         for (GroupExpression groupExpression : needReplaceChild) {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.
@@ -453,9 +455,8 @@ public class Memo {
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
                 // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
                 // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
                 groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                mergeGroup(ownerGroup, that.getOwnerGroup());
+                needMergeGroup.put(groupExpression.getOwnerGroup(), that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
@@ -465,6 +466,8 @@ public class Memo {
             source.moveOwnership(destination);
             groups.remove(source.getGroupId());
         }
+
+        needMergeGroup.forEach(this::mergeGroup);
         return destination;
     }
 
