@@ -146,6 +146,7 @@ if [[ "${CC}" == *gcc ]]; then
     warning_stringop_truncation='-Wno-stringop-truncation'
     warning_class_memaccess='-Wno-class-memaccess'
     warning_array_parameter='-Wno-array-parameter'
+    warning_narrowing='-Wno-narrowing'
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -156,6 +157,7 @@ elif [[ "${CC}" == *clang ]]; then
     warning_reserved_identifier='-Wno-reserved-identifier'
     warning_suggest_override='-Wno-suggest-override -Wno-suggest-destructor-override'
     warning_option_ignored='-Wno-option-ignored'
+    warning_narrowing='-Wno-c++11-narrowing'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
 
@@ -1558,20 +1560,16 @@ build_clucene() {
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
     rm -rf CMakeCache.txt CMakeFiles/
 
-    if [[ "${CC}" == *gcc ]]; then
-        CPPFLAGS="-fno-omit-frame-pointer -g -Wno-narrowing" \
-            CXXFLAGS="-fno-omit-frame-pointer -g -Wno-narrowing" \
-            ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
-            -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
-        ${BUILD_SYSTEM} -j "${PARALLEL}" && ${BUILD_SYSTEM} install
-    elif [[ "${CC}" == *clang ]]; then
-        CPPFLAGS="-fno-omit-frame-pointer -g -Wno-c++11-narrowing" \
-            CXXFLAGS="-fno-omit-frame-pointer -g -Wno-c++11-narrowing" \
-            ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
-            -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
-        ${BUILD_SYSTEM} -j "${PARALLEL}" && ${BUILD_SYSTEM} install
+    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
+        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
+        -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
+    ${BUILD_SYSTEM} -j "${PARALLEL}"
+    ${BUILD_SYSTEM} install
+
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+    if [[ ! -d "${TP_INSTALL_DIR}"/share ]]; then
+        mkdir -p "${TP_INSTALL_DIR}"/share
     fi
-    cd ..
     cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
 }
 
