@@ -199,6 +199,9 @@ public class SelectStmt extends QueryStmt {
 
     public List<Expr> getAllExprs() {
         List<Expr> exprs = new ArrayList<Expr>();
+        if (getAggInfo() != null && getAggInfo().getGroupingExprs() != null) {
+            exprs.addAll(getAggInfo().getGroupingExprs());
+        }
         if (originSelectList != null) {
             exprs.addAll(originSelectList.getExprs());
         }
