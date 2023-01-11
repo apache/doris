@@ -26,7 +26,7 @@ namespace doris::vectorized {
 class VMetaScanner : public VScanner {
 public:
     VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                 const TScanRangeParams& scan_range, int64_t limit);
+                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
