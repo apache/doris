@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -42,11 +41,11 @@ public class GroupConcat extends AggregateFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
-                    .varArgs(CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
-            FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
-                    .varArgs(CharType.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+            // FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT),
+            // FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
+            //         .varArgs(CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+            // FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
+            //         .varArgs(CharType.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
