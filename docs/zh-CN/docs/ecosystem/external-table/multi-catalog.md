@@ -733,22 +733,22 @@ select k1, k4 from table;           // Query OK.
 
 #### CLICKHOUSE
 
-| ClickHouse Type        | Doris Type | Comment                                       |
-|------------------------|------------|-----------------------------------------------|
-| Bool                   | BOOLEAN    |                                               |
-| String                 | STRING     |                                               |
-| Date/Date32            | DATE       |                                               |
-| DateTime/DateTime64    | DATETIME   | 对于超过了Doris最大的DateTime精度的数据，将截断处理   |
-| Float32                | FLOAT      |                                               |
-| Float64                | DOUBLE     |                                               |
-| Int8                   | TINYINT    |                                               |
-| Int16/UInt8            | SMALLINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
-| Int32/UInt16           | INT        | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
-| Int64/Uint32           | BIGINT     | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
-| Int128/UInt64          | LARGEINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
-| Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理 |
-| DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING |
-| Enum/IPv4/IPv6/UUID    | STRING     |                                               |
+| ClickHouse Type        | Doris Type | Comment                                             |
+|------------------------|------------|-----------------------------------------------------|
+| Bool                   | BOOLEAN    |                                                     |
+| String                 | STRING     |                                                     |
+| Date/Date32            | DATE       |                                                     |
+| DateTime/DateTime64    | DATETIME   | 对于超过了Doris最大的DateTime精度的数据，将截断处理                    |
+| Float32                | FLOAT      |                                                     |
+| Float64                | DOUBLE     |                                                     |
+| Int8                   | TINYINT    |                                                     |
+| Int16/UInt8            | SMALLINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int32/UInt16           | INT        | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int64/Uint32           | BIGINT     | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int128/UInt64          | LARGEINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理                        |
+| DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING                |
+| Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
 
 ## 权限管理
 

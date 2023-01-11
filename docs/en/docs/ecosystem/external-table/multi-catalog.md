@@ -735,22 +735,22 @@ For Hive/Iceberge/Hudi
 
 #### CLICKHOUSE
 
-| ClickHouse Type        | Doris Type | Comment                                       |
-|------------------------|------------|-----------------------------------------------|
-| Bool                   | BOOLEAN    |                                               |
-| String                 | STRING     |                                               |
-| Date/Date32            | DATE       |                                               |
-| DateTime/DateTime64    | DATETIME   | Data that exceeds Doris's maximum DateTime accuracy is truncated   |
-| Float32                | FLOAT      |                                               |
-| Float64                | DOUBLE     |                                               |
-| Int8                   | TINYINT    |                                               |
-| Int16/UInt8            | SMALLINT   | DORIS does not have the UNSIGNED data type, so expand the type|
-| Int32/UInt16           | INT        | DORIS does not have the UNSIGNED data type, so expand the type|
-| Int64/Uint32           | BIGINT     | DORIS does not have the UNSIGNED data type, so expand the type|
-| Int128/UInt64          | LARGEINT   | DORIS does not have the UNSIGNED data type, so expand the type|
-| Int256/UInt128/UInt256 | STRING     | Doris does not have a data type of this magnitude and is processed with STRING |
-| DECIMAL                | DECIMAL    | Data that exceeds Doris's maximum Decimal precision is mapped to a STRING |
-| Enum/IPv4/IPv6/UUID    | STRING     |                                               |
+| ClickHouse Type        | Doris Type | Comment                                                                                                                              |
+|------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Bool                   | BOOLEAN    |                                                                                                                                      |
+| String                 | STRING     |                                                                                                                                      |
+| Date/Date32            | DATE       |                                                                                                                                      |
+| DateTime/DateTime64    | DATETIME   | Data that exceeds Doris's maximum DateTime accuracy is truncated                                                                     |
+| Float32                | FLOAT      |                                                                                                                                      |
+| Float64                | DOUBLE     |                                                                                                                                      |
+| Int8                   | TINYINT    |                                                                                                                                      |
+| Int16/UInt8            | SMALLINT   | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int32/UInt16           | INT        | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int64/Uint32           | BIGINT     | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int128/UInt64          | LARGEINT   | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int256/UInt128/UInt256 | STRING     | Doris does not have a data type of this magnitude and is processed with STRING                                                       |
+| DECIMAL                | DECIMAL    | Data that exceeds Doris's maximum Decimal precision is mapped to a STRING                                                            |
+| Enum/IPv4/IPv6/UUID    | STRING     | In the display of IPv4 and IPv6, an extra `/` is displayed before the data, which needs to be processed by the `split_part` function |
 
 ## Privilege Management
 
