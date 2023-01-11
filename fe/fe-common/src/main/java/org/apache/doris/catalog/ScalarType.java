@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -106,9 +107,6 @@ public class ScalarType extends Type {
     // Only used for alias function char/varchar
     @SerializedName(value = "lenStr")
     private String lenStr;
-
-    public static boolean enable_decimal_conversion = true;
-    public static boolean enable_date_conversion = true;
 
     public ScalarType(PrimitiveType type) {
         this.type = type;
@@ -277,7 +275,7 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createDecimalType() {
-        if (enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             return DEFAULT_DECIMALV3;
         } else {
             return DEFAULT_DECIMALV2;
@@ -348,7 +346,7 @@ public class ScalarType extends Type {
     }
 
     public static PrimitiveType getSuitableDecimalType(int precision, boolean decimalV2) {
-        if (decimalV2 && !enable_decimal_conversion) {
+        if (decimalV2 && !Config.enable_decimal_conversion) {
             return PrimitiveType.DECIMALV2;
         }
         if (precision <= MAX_DECIMAL32_PRECISION) {
@@ -385,7 +383,7 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDatetimeType() {
-        if (!enable_date_conversion) {
+        if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.DATETIME);
         }
         ScalarType type = new ScalarType(PrimitiveType.DATETIMEV2);
@@ -396,7 +394,7 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDateType() {
-        if (enable_date_conversion) {
+        if (Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.DATEV2);
         } else {
             return new ScalarType(PrimitiveType.DATE);
@@ -405,7 +403,7 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
-        if (!enable_date_conversion) {
+        if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.TIME);
         }
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
@@ -421,13 +419,13 @@ public class ScalarType extends Type {
     public static Type getDefaultDateType(Type type) {
         switch (type.getPrimitiveType()) {
             case DATE:
-                if (enable_date_conversion) {
+                if (Config.enable_date_conversion) {
                     return Type.DATEV2;
                 } else {
                     return Type.DATE;
                 }
             case DATETIME:
-                if (enable_date_conversion) {
+                if (Config.enable_date_conversion) {
                     return Type.DATETIMEV2;
                 } else {
                     return Type.DATETIME;
@@ -566,7 +564,7 @@ public class ScalarType extends Type {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                String typeName = enable_decimal_conversion ? "decimal" : "decimalv3";
+                String typeName = Config.enable_decimal_conversion ? "decimal" : "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
                         .append(", ").append(scale).append(")");
