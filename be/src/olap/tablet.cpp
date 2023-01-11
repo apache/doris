@@ -1691,8 +1691,8 @@ Status Tablet::cooldown() {
         return Status::Error<TRY_LOCK_FAILED>();
     }
 
-    if (!config::cooldown_single_remote_file
-            || _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
+    if (!config::cooldown_single_remote_file ||
+        _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
         RETURN_IF_ERROR(_cooldown_upload_data());
     } else {
         RETURN_IF_ERROR(_cooldown_use_remote_data());
@@ -1772,8 +1772,8 @@ Status Tablet::_cooldown_upload_data() {
 }
 
 Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb) {
-    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(
-            tablet_id(), _tablet_meta->cooldown_replica_id());
+    std::string remote_meta_path =
+            BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->cooldown_replica_id());
     bool exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
@@ -1799,12 +1799,12 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
         }
     }
     LOG(INFO) << "No tablet meta file founded, init needed. tablet_id: " << tablet_id();
-    return Status::OK();
+    return Status::InternalError("No tablet meta file founded, init needed.");
 }
 
 Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb) {
-    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id(),
-                                                                       _tablet_meta->replica_id());
+    std::string remote_meta_path =
+            BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->replica_id());
     io::FileWriterPtr tablet_meta_writer;
     RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
     if (tablet_meta_writer == nullptr) {

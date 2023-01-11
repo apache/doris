@@ -1729,8 +1729,8 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id;
         } else {
             LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
-                    << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term() << " -> "
-                    << push_cooldown_conf_req.cooldown_term;
+                         << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term() << " -> "
+                         << push_cooldown_conf_req.cooldown_term;
         }
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }

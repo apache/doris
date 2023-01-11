@@ -200,9 +200,7 @@ public:
         _storage_policy = policy;
     }
 
-    const int64_t cooldown_replica_id() const {
-        return _cooldown_replica_id;
-    }
+    const int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
 
     void set_cooldown_replica_id(int64_t cooldown_replica_id) {
         VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_replica_id from "
@@ -210,9 +208,7 @@ public:
         _cooldown_replica_id = cooldown_replica_id;
     }
 
-    const int64_t cooldown_term() const {
-        return _cooldown_term;
-    }
+    const int64_t cooldown_term() const { return _cooldown_term; }
 
     void set_cooldown_term(int64_t cooldown_term) {
         VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_term from " << _cooldown_term

@@ -141,7 +141,6 @@ protected:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
-
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              io::SegmentCachePathPolicy());
         reader_options.path_policy.cache_path = segment_cache_path(seg_id);
