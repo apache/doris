@@ -748,3 +748,14 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
   
 配置完成后需要重启Hive Metastore。
 
+### Kerberos
+
+1.2.0 版本连接 `Kerberos` 认证的 `Hive Metastore` 出现 `GSS initiate failed` 异常信息。
+   
+   - 请更新到 1.2.2 版本，或使用最新的 docker 开发镜像重新编译 1.2.1 版本的 FE。
+
+### HDFS
+
+读取 HDFS 3.x 时出现 `java.lang.VerifyError: xxx` 错误。
+
+   - 更新 `fe/pom.xml` 中的 hadoop 相关依赖到 2.10.2 版本，并重新编译 FE。
