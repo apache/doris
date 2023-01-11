@@ -49,8 +49,8 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * This rule extracts common predicate from multiple disjunctions when it is applied
@@ -191,6 +191,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
         Expr result = null;
         if (CollectionUtils.isNotEmpty(commonFactorList)) {
+            commonFactorList = commonFactorList.stream().map(expr -> {
+                try {
+                    return apply(expr, analyzer, clauseType);
+                } catch (AnalysisException e) {
+                    throw new RuntimeException(e);
+                }
+            }).collect(Collectors.toList());
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
                     makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
                     makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType));
@@ -495,13 +502,19 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             if (predicate instanceof CompoundPredicate
                     && ((CompoundPredicate) predicate).getOp() == Operator.AND) {
                 CompoundPredicate and = (CompoundPredicate) predicate;
-                Expr left = apply(and.getChild(0), analyzer, clauseType);
-                if (CompoundPredicate.isOr(left)) {
-                    left.setPrintSqlInParens(true);
+                Expr left = and.getChild(0);
+                if (left instanceof CompoundPredicate) {
+                    left = apply(and.getChild(0), analyzer, clauseType);
+                    if (CompoundPredicate.isOr(left)) {
+                        left.setPrintSqlInParens(true);
+                    }
                 }
-                Expr right = apply(and.getChild(1), analyzer, clauseType);
-                if (CompoundPredicate.isOr(right)) {
-                    right.setPrintSqlInParens(true);
+                Expr right = and.getChild(1);
+                if (right instanceof CompoundPredicate) {
+                    right = apply(and.getChild(1), analyzer, clauseType);
+                    if (CompoundPredicate.isOr(right)) {
+                        right.setPrintSqlInParens(true);
+                    }
                 }
                 notMergedExprs.add(new CompoundPredicate(Operator.AND, left, right));
             } else if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {

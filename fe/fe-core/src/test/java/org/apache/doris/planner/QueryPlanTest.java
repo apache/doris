@@ -2288,5 +2288,13 @@ public class QueryPlanTest extends TestWithFeService {
                 "PREDICATES: `query_id` = `client_ip` "
                         + "AND (`stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd')) "
                         + "OR (`db` NOT IN ('x', 'y'))\n"));
+
+        //ExtractCommonFactorsRule may generate more expr, test the rewriteOrToIn applied on generated exprs
+        sql = "select * from test1 where (stmt_id=1 and state='a') or (stmt_id=2 and state='b')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains(
+                "PREDICATES: `state` IN ('a', 'b'), `stmt_id` IN (1, 2),"
+                        + " `stmt_id` = 1 AND `state` = 'a' OR `stmt_id` = 2 AND `state` = 'b'\n"
+        ));
     }
 }
