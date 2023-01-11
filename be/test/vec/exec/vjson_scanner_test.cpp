@@ -32,7 +32,6 @@
 #include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
