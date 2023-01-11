@@ -741,7 +741,11 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 #### Hive MetaStore(HMS)数据目录
 
+<version since="dev">
+
 通过让FE节点定时读取HMS的notification event来感知Hive表元数据的变更情况，目前支持处理如下event：
+
+</version>
 
 1. CREATE DATABASE event:在对应数据目录下创建数据库。
 2. DROP DATABASE event:在对应数据目录下删除数据库。

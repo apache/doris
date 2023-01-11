@@ -742,7 +742,11 @@ Users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manu
 
 #### Hive MetaStore(HMS) catalog
 
+<version since="dev">
+
 The FE node can sense the change of the Hive table metadata by reading the HMS notification event regularly. Currently, the following events are supported:
+
+</version>
 
 1. CREATE DATABASE event:Create database under the corresponding catalog.                       
 2. DROP DATABASE event:Drop database under the corresponding catalog.
