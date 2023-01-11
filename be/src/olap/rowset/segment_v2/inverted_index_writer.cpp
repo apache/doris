@@ -94,7 +94,6 @@ public:
             _index_writer->close();
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
-                InvertedIndexSearcherCache::instance()->prune();
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id());
                 InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);

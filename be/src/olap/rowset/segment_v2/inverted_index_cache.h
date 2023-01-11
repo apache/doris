@@ -51,27 +51,27 @@ public:
         // Save the last visit time of this cache entry.
         // Use atomic because it may be modified by multi threads.
         std::atomic<int64_t> last_visit_time = 0;
-        std::atomic<int64_t> first_start_time = 0;
         IndexSearcherPtr index_searcher;
         size_t size = 0;
     };
 
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
-    static void create_global_instance(size_t capacity);
+    static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
 
     // Return global instance.
     // Client should call create_global_cache before.
     static InvertedIndexSearcherCache* instance() { return _s_instance; }
 
-    InvertedIndexSearcherCache(size_t capacity);
+    static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
+                                                 const std::string& index_dir,
+                                                 const std::string& file_name);
+
+    InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards);
 
     Status get_index_searcher(const io::FileSystemSPtr& fs, const std::string& index_dir,
                               const std::string& file_name, InvertedIndexCacheHandle* cache_handle,
                               bool use_cache = true);
-
-    // Try to prune the segment cache if expired.
-    Status prune();
 
     // function `insert` called after inverted index writer close
     Status insert(const io::FileSystemSPtr& fs, const std::string& index_dir,
@@ -91,8 +91,7 @@ private:
     // Insert a cache entry by key.
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
-    void _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue& value,
-                 InvertedIndexCacheHandle* handle);
+    Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
 private:
     static InvertedIndexSearcherCache* _s_instance;
@@ -100,6 +99,8 @@ private:
     std::unique_ptr<Cache> _cache = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker = nullptr;
 };
+
+using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;
 
 // A handle for a index_searcher from index_searcher lru cache.
 // The handle can ensure that the index_searcher is valid
@@ -116,10 +117,11 @@ public:
         if (_handle != nullptr) {
             CHECK(_cache != nullptr);
             CHECK(!owned);
-            // last_visit_time is set when release.
-            // because it only be needed when pruning.
+            // only after get_index_searcher call this destructor will
+            // add `config::index_cache_entry_stay_time_after_lookup_s` on last_visit_time,
+            // this is to extend the retention time of the entries hit by lookup.
             ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->last_visit_time =
-                    UnixMillis();
+                    UnixMillis() + config::index_cache_entry_stay_time_after_lookup_s * 1000;
             _cache->release(_handle);
         }
     }

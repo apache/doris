@@ -616,7 +616,6 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_cache() {
     SegmentLoader::instance()->prune();
-    segment_v2::InvertedIndexSearcherCache::instance()->prune();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {

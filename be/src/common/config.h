@@ -876,12 +876,14 @@ CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
 
-// inverted index searcher sweep time interval, default 30min
-CONF_mInt32(index_searcher_cache_stale_sweep_time_sec, "1800");
-// Cache for inverted index cache capacity size
+// inverted index searcher cache
+// cache entry stay time after lookup, default 1h
+CONF_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
+// inverted index searcher cache size
 CONF_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 CONF_Bool(enable_write_index_searcher_cache, "true");
+CONF_Bool(enable_index_cache_check_timestamp, "true");
 
 // inverted index
 CONF_mDouble(inverted_index_ram_buffer_size, "512");

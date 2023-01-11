@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include <functional>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -146,6 +147,7 @@ private:
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
 using CacheValuePredicate = std::function<bool(const void*)>;
+using CacheValueExtractor = std::function<int64_t(const void*)>;
 
 class Cache {
 public:
@@ -300,6 +302,11 @@ private:
     void _resize();
 };
 
+typedef std::priority_queue<std::pair<int64_t, LRUHandle*>,
+                            std::vector<std::pair<int64_t, LRUHandle*>>,
+                            std::greater<std::pair<int64_t, LRUHandle*>>>
+        LRUHandleHeap;
+
 // A single shard of sharded cache.
 class LRUCache {
 public:
@@ -320,6 +327,9 @@ public:
     int64_t prune();
     int64_t prune_if(CacheValuePredicate pred);
 
+    void set_cache_value_extractor(CacheValueExtractor cache_value_extractor);
+    void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
+
     uint64_t get_lookup_count() const { return _lookup_count; }
     uint64_t get_hit_count() const { return _hit_count; }
     size_t get_usage() const { return _usage; }
@@ -330,6 +340,7 @@ private:
     void _lru_append(LRUHandle* list, LRUHandle* e);
     bool _unref(LRUHandle* e);
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
+    void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
 
 private:
@@ -353,12 +364,20 @@ private:
 
     uint64_t _lookup_count = 0; // cache查找总次数
     uint64_t _hit_count = 0;    // 命中cache的总次数
+
+    CacheValueExtractor _cache_value_extractor;
+    bool _cache_value_check_timestamp = false;
+    LRUHandleHeap _sort_normal_entries_with_timestamp;
+    LRUHandleHeap _sort_durable_entries_with_timestamp;
 };
 
 class ShardedLRUCache : public Cache {
 public:
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards, CacheValueExtractor cache_value_extractor,
+                             bool cache_value_check_timestamp);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
