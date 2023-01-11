@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.Collections;
@@ -107,13 +108,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     && ((LogicalSubQueryAlias<?>) ctePlan).getAlias().equals(tableName)) {
                 return ctePlan;
             }
-            return new LogicalSubQueryAlias<>(tableName, ctePlan);
+            return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), ctePlan);
         }
         String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
         String dbName = cascadesContext.getConnectContext().getDatabase();
         TableIf table = getTable(catalogName, dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
-        return getLogicalPlan(table, unboundRelation, dbName, cascadesContext);
+        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
+        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
@@ -127,7 +129,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         String tableName = nameParts.get(1);
         TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
-        return getLogicalPlan(table, unboundRelation, dbName, cascadesContext);
+        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
+        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan bindWithCatalogNameFromNamePart(CascadesContext cascadesContext,
@@ -141,11 +144,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         String tableName = nameParts.get(2);
         TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
-        return getLogicalPlan(table, unboundRelation, dbName, cascadesContext);
+        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
+        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
-    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, String dbName,
+    private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
                                        CascadesContext cascadesContext) {
+        String dbName = tableQualifier.get(1); //[catalogName, dbName, tableName]
         switch (table.getType()) {
             case OLAP:
                 List<Long> partIds = getPartitionIds(table, unboundRelation);
@@ -158,7 +163,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
             case VIEW:
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
-                return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+                return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
                 return new LogicalFileScan(cascadesContext.getStatementContext().getNextRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));

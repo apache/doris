@@ -152,7 +152,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             try {
                 icebergTables = icebergCatalog.listTables(icebergProperty.getDatabase());
 
-            } catch (DorisIcebergException e) {
+            } catch (Exception e) {
                 addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
                 LOG.warn("Failed list remote Iceberg database, hive.metastore.uris[{}], database[{}], error: {}",

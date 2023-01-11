@@ -98,5 +98,6 @@ public class MaterializedView extends OlapTable {
         MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
         refreshInfo = materializedView.refreshInfo;
         query = materializedView.query;
+        buildMode = materializedView.buildMode;
     }
 }

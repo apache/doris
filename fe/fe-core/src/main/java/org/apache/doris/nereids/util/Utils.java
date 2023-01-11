@@ -27,9 +27,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -213,13 +210,9 @@ public class Utils {
                 expr -> expr.anyMatch(slots::contains)));
     }
 
-    public static LocalDateTime getLocalDatetimeFromLong(long dateTime) {
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
-    }
-
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
         for (int i = 0; i < list.size(); i++) {
-            if (list.get(i) == oldItem) {
+            if (list.get(i).equals(oldItem)) {
                 list.set(i, newItem);
             }
         }

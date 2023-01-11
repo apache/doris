@@ -21,6 +21,7 @@
 #include <deque>
 
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "runtime/message_body_sink.h"
 
 namespace doris {
@@ -64,6 +65,8 @@ public:
     void cancel(const std::string& reason) override;
 
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
+
+    FileSystemSPtr fs() const override { return nullptr; }
 
 private:
     // read the next buffer from _buf_queue

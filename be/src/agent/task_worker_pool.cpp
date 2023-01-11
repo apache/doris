@@ -269,16 +269,16 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-    set<int64_t>& signature_set = _s_task_signatures[task_type];
+    std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+    std::set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
 }
 
 void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t signature) {
     size_t queue_size;
     {
-        lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-        set<int64_t>& signature_set = _s_task_signatures[task_type];
+        std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+        std::set<int64_t>& signature_set = _s_task_signatures[task_type];
         signature_set.erase(signature);
         queue_size = signature_set.size();
     }
@@ -318,7 +318,7 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
                                               std::deque<TAgentTaskRequest>& tasks,
                                               TPriority::type priority) {
     int32_t index = -1;
-    deque<TAgentTaskRequest>::size_type task_count = tasks.size();
+    std::deque<TAgentTaskRequest>::size_type task_count = tasks.size();
     for (uint32_t i = 0; i < task_count; ++i) {
         TAgentTaskRequest task = tasks[i];
         if (priority == TPriority::HIGH) {
@@ -1120,7 +1120,7 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
         {
-            lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+            std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
         _handle_report(request, ReportType::TASK);
@@ -1164,7 +1164,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
-        map<string, TDisk> disks;
+        std::map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
@@ -1634,7 +1634,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
             // update storage policy mgr.
             StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
             for (const auto& iter : result.result_entrys) {
-                shared_ptr<StoragePolicy> policy_ptr = make_shared<StoragePolicy>();
+                auto policy_ptr = std::make_shared<StoragePolicy>();
                 policy_ptr->storage_policy_name = iter.policy_name;
                 policy_ptr->cooldown_datetime = iter.cooldown_datetime;
                 policy_ptr->cooldown_ttl = iter.cooldown_ttl;
@@ -1674,7 +1674,7 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
         }
 
         StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
-        shared_ptr<StoragePolicy> policy_ptr = make_shared<StoragePolicy>();
+        auto policy_ptr = std::make_shared<StoragePolicy>();
         policy_ptr->storage_policy_name = get_storage_policy_req.policy_name;
         policy_ptr->cooldown_datetime = get_storage_policy_req.cooldown_datetime;
         policy_ptr->cooldown_ttl = get_storage_policy_req.cooldown_ttl;

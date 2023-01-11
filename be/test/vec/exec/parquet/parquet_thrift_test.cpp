@@ -50,7 +50,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
     io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
-                                  &reader);
+                                  &reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> meta_data;
@@ -82,7 +82,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
-                                  &reader);
+                                  &reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> metadata;
@@ -285,7 +285,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
     io::FileReaderSPtr reader;
-    auto st = local_fs->open_file(parquet_file, &reader);
+    auto st = local_fs->open_file(parquet_file, &reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     std::unique_ptr<vectorized::Block> block;
@@ -325,7 +325,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     }
 
     io::FileReaderSPtr result;
-    auto rst = local_fs->open_file(result_file, &result);
+    auto rst = local_fs->open_file(result_file, &result, nullptr);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';
@@ -408,7 +408,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
     io::FileReaderSPtr file_reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
-                                  &file_reader);
+                                  &file_reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     // prepare metadata
@@ -445,7 +445,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     io::FileReaderSPtr result;
     auto rst = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/group-reader.txt",
-                                   &result);
+                                   &result, nullptr);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';

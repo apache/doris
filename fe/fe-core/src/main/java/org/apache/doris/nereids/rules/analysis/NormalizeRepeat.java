@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeT
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -184,7 +185,13 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(function -> function.getArguments().stream())
+                .flatMap(function -> function.getArguments().stream().map(arg -> {
+                    if (arg instanceof OrderExpression) {
+                        return arg.child(0);
+                    } else {
+                        return arg;
+                    }
+                }))
                 .collect(ImmutableSet.toImmutableSet());
 
         ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()
@@ -206,7 +213,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return originBottomPlan;
     }
 
-    /** toPushDownContext */
+    /** buildContext */
     public NormalizeToSlotContext buildContext(Repeat<? extends Plan> repeat,
             Set<? extends Expression> sourceExpressions) {
         Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);

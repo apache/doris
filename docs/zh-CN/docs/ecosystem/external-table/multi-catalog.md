@@ -151,6 +151,11 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
+如果需要 hadoop KMS 认证，可以在properties中添加:
+```
+'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
+```
+
 创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
 
 ```

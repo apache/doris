@@ -22,7 +22,6 @@
 #include "olap/memtable.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel.h"
-#include "runtime/row_batch.h"
 #include "util/doris_metrics.h"
 
 namespace doris {

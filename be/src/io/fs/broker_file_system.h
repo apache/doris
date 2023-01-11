@@ -33,7 +33,7 @@ public:
         return Status::NotSupported("Currently not support to create file through broker.");
     }
 
-    Status open_file(const Path& path, FileReaderSPtr* reader) override;
+    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
 
     Status delete_file(const Path& path) override;
 

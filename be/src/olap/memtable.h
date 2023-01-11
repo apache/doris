@@ -58,9 +58,9 @@ public:
 
     void shrink_memtable_by_agg();
 
-    bool is_flush() const;
+    bool need_flush() const;
 
-    bool need_to_agg();
+    bool need_agg() const;
 
     /// Flush
     Status flush();

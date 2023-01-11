@@ -16,8 +16,6 @@
 // under the License.
 
 suite("bind_priority") {
-    sql "SET enable_nereids_planner=true"
-
     sql """
         DROP TABLE IF EXISTS bind_priority_tbl
        """
@@ -33,7 +31,8 @@ suite("bind_priority") {
     sql """
     insert into bind_priority_tbl values(1, 2),(3, 4)
     """
-
+    
+    sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     sql """sync"""
@@ -56,4 +55,30 @@ suite("bind_priority") {
             """
         exception "Unexpected exception: cannot bind GROUP BY KEY: v"
     }
+
+    sql "drop table if exists t"
+    sql """
+        CREATE TABLE `t` (
+            `a` int(11) NOT NULL,
+            `b` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql"insert into t values(1,5),(2, 6),(3,4);"
+
+    qt_bind_sort_scan "select a as b from t order by t.b;"
+
+    qt_bind_sort_alias "select a as b from t order by b;"
+
+    qt_bind_sort_aliasAndScan "select a as b from t order by t.b + b;"
 }

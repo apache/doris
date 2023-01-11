@@ -21,7 +21,6 @@
 
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"

@@ -104,5 +104,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             throw new AnalysisException(
                     "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
+        Optional<Expression> expr = aggregate.getGroupByExpressions().stream()
+                .filter(expression -> expression.containsType(AggregateFunction.class)).findFirst();
+        if (expr.isPresent()) {
+            throw new AnalysisException(
+                    "GROUP BY expression must not contain aggregate functions: "
+                            + expr.get().toSql());
+        }
     }
 }

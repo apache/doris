@@ -490,13 +490,12 @@ CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
 // Alignment
 CONF_Int32(memory_max_alignment, "16");
 
-// write buffer size before flush
+// max write buffer size before flush, default 200MB
 CONF_mInt64(write_buffer_size, "209715200");
-
-// max buffer size used in memtable for the aggregated table
-CONF_mInt64(memtable_max_buffer_size, "419430400");
+// max buffer size used in memtable for the aggregated table, default 400MB
+CONF_mInt64(write_buffer_size_for_agg, "419430400");
 // write buffer size in push task for sparkload, default 1GB
-CONF_mInt64(flush_size_for_sparkload, "1073741824");
+CONF_mInt64(write_buffer_size_for_sparkload, "1073741824");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -876,6 +875,15 @@ CONF_Int32(pipeline_executor_size, "0");
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
 CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
+
+// block file cache
+CONF_Bool(enable_file_cache, "false");
+// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+CONF_String(file_cache_path, "");
+CONF_String(disposable_file_cache_path, "");
+CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Bool(clear_file_cache, "false");
+CONF_Bool(enable_file_cache_query_limit, "false");
 
 #ifdef BE_TEST
 // test s3

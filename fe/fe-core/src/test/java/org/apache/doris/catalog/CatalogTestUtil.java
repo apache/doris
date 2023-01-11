@@ -163,7 +163,7 @@ public class CatalogTestUtil {
                             if (slaveReplica.getBackendId() != masterReplica.getBackendId()
                                     || slaveReplica.getVersion() != masterReplica.getVersion()
                                     || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
-                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()) {
+                                    || slaveReplica.getLastSuccessVersion() != masterReplica.getLastSuccessVersion()) {
                                 return false;
                             }
                         }

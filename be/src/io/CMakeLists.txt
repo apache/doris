@@ -52,6 +52,12 @@ set(IO_FILES
     cache/file_cache_manager.cpp
     cache/sub_file_cache.cpp
     cache/whole_file_cache.cpp
+    cache/block/block_file_segment.cpp
+    cache/block/block_file_cache.cpp
+    cache/block/block_file_cache_profile.cpp
+    cache/block/block_file_cache_factory.cpp
+    cache/block/block_lru_file_cache.cpp
+    cache/block/cached_remote_file_reader.cpp
 )
 
 add_library(IO STATIC

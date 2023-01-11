@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -46,6 +47,10 @@ public abstract class BatchRulesJob {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not null");
     }
 
+    protected Job bottomUpBatch(RuleFactory... ruleFactories) {
+        return bottomUpBatch(Arrays.asList(ruleFactories));
+    }
+
     protected Job bottomUpBatch(List<RuleFactory> ruleFactories) {
         List<Rule> rules = new ArrayList<>();
         for (RuleFactory ruleFactory : ruleFactories) {
@@ -55,6 +60,10 @@ public abstract class BatchRulesJob {
                 cascadesContext.getMemo().getRoot(),
                 rules,
                 cascadesContext.getCurrentJobContext());
+    }
+
+    protected Job topDownBatch(RuleFactory... ruleFactories) {
+        return topDownBatch(Arrays.asList(ruleFactories));
     }
 
     protected Job topDownBatch(List<RuleFactory> ruleFactories) {

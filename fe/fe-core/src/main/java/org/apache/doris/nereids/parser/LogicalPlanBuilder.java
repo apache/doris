@@ -137,6 +137,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Subtract;
@@ -146,6 +147,7 @@ import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -477,7 +479,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 String value = parseTVFPropertyItem(argument.value);
                 map.put(key, value);
             }
-            LogicalPlan relation = new UnboundTVFRelation(functionName, new TVFProperties(map.build()));
+            LogicalPlan relation = new UnboundTVFRelation(RelationUtil.newRelationId(),
+                    functionName, new TVFProperties(map.build()));
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -871,6 +874,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
+
+            List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
+            if (!orderKeys.isEmpty()) {
+                return parseFunctionWithOrderKeys(functionName, isDistinct, params, orderKeys, ctx);
+            }
+
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
             if (unboundStars.size() > 0) {
                 if (functionName.equalsIgnoreCase("count")) {
@@ -1099,7 +1108,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public OrderKey visitSortItem(SortItemContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             boolean isAsc = ctx.DESC() == null;
-            boolean isNullFirst = ctx.LAST() == null;
+            boolean isNullFirst = ctx.FIRST() != null || (ctx.LAST() == null && isAsc);
             Expression expression = typedVisit(ctx.expression());
             return new OrderKey(expression, isAsc, isNullFirst);
         });
@@ -1554,5 +1563,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> l = Lists.newArrayList(dataType);
         ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
         return DataType.convertPrimitiveFromStrings(l);
+    }
+
+    private Expression parseFunctionWithOrderKeys(String functionName, boolean isDistinct,
+            List<Expression> params, List<OrderKey> orderKeys, ParserRuleContext ctx) {
+        if (functionName.equalsIgnoreCase("group_concat")) {
+            OrderExpression[] orderExpressions = orderKeys.stream()
+                    .map(OrderExpression::new)
+                    .toArray(OrderExpression[]::new);
+            if (params.size() == 1) {
+                return new GroupConcat(isDistinct, params.get(0), orderExpressions);
+            } else if (params.size() == 2) {
+                return new GroupConcat(isDistinct, params.get(0), params.get(1), orderExpressions);
+            } else {
+                throw new ParseException("group_concat requires one or two parameters: " + params, ctx);
+            }
+        }
+        throw new ParseException("Unsupported function with order expressions" + ctx.getText(), ctx);
     }
 }

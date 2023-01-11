@@ -27,7 +27,7 @@ class NewJdbcScanner : public VScanner {
 public:
     NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
                    const TupleId& tuple_id, const std::string& query_string,
-                   TOdbcTableType::type table_type);
+                   TOdbcTableType::type table_type, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
