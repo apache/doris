@@ -57,6 +57,9 @@ enum class ExtractType {
 template <typename ParserImpl>
 class JSONDataParser {
 public:
+    using Element = typename ParserImpl::Element;
+    using JSONObject = typename ParserImpl::Object;
+    using JSONArray = typename ParserImpl::Array;
     std::optional<ParseResult> parse(const char* begin, size_t length);
 
     // extract keys's element into columns
@@ -64,9 +67,6 @@ public:
                      const std::vector<ExtractType>& types);
 
 private:
-    using Element = typename ParserImpl::Element;
-    using JSONObject = typename ParserImpl::Object;
-    using JSONArray = typename ParserImpl::Array;
     struct ParseContext {
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;

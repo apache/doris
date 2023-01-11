@@ -26,11 +26,6 @@
 #include "olap/iterators.h"
 #include "vec/exec/format/generic_reader.h"
 
-// dynamic table
-#include "vec/common/object_util.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/parse2column.h"
-
 namespace doris {
 
 class FileReader;
@@ -167,7 +162,7 @@ private:
     RuntimeProfile::Counter* _file_read_timer;
 
     bool _is_dynamic_schema = false;
-    std::unique_ptr<vectorized::JSONDataParser<vectorized::SimdJSONParser>> _json_parser;
+    std::unique_ptr<JSONDataParser<SimdJSONParser>> _json_parser;
 };
 } // namespace vectorized
 } // namespace doris
