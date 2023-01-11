@@ -64,7 +64,14 @@ public:
 private:
     static CppType convert(const std::string& condition) {
         CppType value = 0;
-        std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        // because std::from_chars can't compile on macOS
+        if constexpr (std::is_same_v<CppType, double>) {
+            value = std::stod(condition, nullptr);
+        } else if constexpr (std::is_same_v<CppType, float>) {
+            value = std::stof(condition, nullptr);
+        } else {
+            std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        }
         return value;
     }
 };
