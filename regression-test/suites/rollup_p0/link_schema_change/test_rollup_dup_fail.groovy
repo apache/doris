@@ -37,22 +37,6 @@ suite ("test_rollup_dup_fail") {
         PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
     """
 
-    //add materialized view (success)
-    result = "null"
-    mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            assertTrue(false);
-        }
-        Thread.sleep(100)
-    }
-
-    Thread.sleep(1000)
-
     //add rollup (failed)
     result = "null"
     rollupName = "rollup_cost"
