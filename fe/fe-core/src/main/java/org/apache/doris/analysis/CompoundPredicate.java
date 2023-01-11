@@ -85,19 +85,48 @@ public class CompoundPredicate extends Predicate {
     @Override
     public String toSqlImpl() {
         if (children.size() == 1) {
-            Preconditions.checkState(op == Operator.NOT);
-            return "NOT " + getChild(0).toSql();
+            if (getChild(0) instanceof CompoundPredicate) {
+                return "NOT (" + getChild(0).toSql() + ")";
+            } else {
+                return getChild(0).toSql();
+            }
+
         } else {
-            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            String left = getChild(0).toSql();
+            String right = getChild(1).toSql();
+            if (op == Operator.AND) {
+                if (CompoundPredicate.isOr(getChild(0))) {
+                    left = "(" + left + ")";
+                }
+                if (CompoundPredicate.isOr(getChild(1))) {
+                    right = "(" + right + ")";
+                }
+            }
+            return left + " " + op.toString() + " " + right;
         }
     }
 
     @Override
     public String toDigestImpl() {
         if (children.size() == 1) {
-            return "NOT " + getChild(0).toDigest();
+            if (getChild(0) instanceof CompoundPredicate) {
+                return "NOT (" + getChild(0).toDigest() + ")";
+            } else {
+                return getChild(0).toDigest();
+            }
+
         } else {
-            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+            String left = getChild(0).toDigest();
+            String right = getChild(1).toDigest();
+            if (op == Operator.AND) {
+                if (CompoundPredicate.isOr(getChild(0))) {
+                    left = "(" + left + ")";
+                }
+                if (CompoundPredicate.isOr(getChild(1))) {
+                    right = "(" + right + ")";
+                }
+            }
+            return left + " " + op.toString() + " " + right;
         }
     }
 

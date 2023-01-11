@@ -279,10 +279,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
     private boolean isConstant;
 
-    // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
-    // Needed for properly capturing expr precedences in the SQL string.
-    protected boolean printSqlInParens = false;
-
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -304,7 +300,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         outputScale = other.outputScale;
         isConstant = other.isConstant;
         fn = other.fn;
-        printSqlInParens = other.printSqlInParens;
         children = Expr.cloneList(other.children);
     }
 
@@ -384,14 +379,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public Function getFn() {
         return fn;
-    }
-
-    public boolean getPrintSqlInParens() {
-        return printSqlInParens;
-    }
-
-    public void setPrintSqlInParens(boolean b) {
-        printSqlInParens = b;
     }
 
     /**
@@ -909,7 +896,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toSql() {
-        return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
+        return toSqlImpl();
     }
 
     public void setDisableTableName(boolean value) {
@@ -927,7 +914,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toDigest() {
-        return (printSqlInParens) ? "(" + toDigestImpl() + ")" : toDigestImpl();
+        return toDigestImpl();
     }
 
     /**
@@ -1755,7 +1742,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             Expr right = pushNegationToOperands(root.getChild(1));
             CompoundPredicate compoundPredicate =
                     new CompoundPredicate(((CompoundPredicate) root).getOp(), left, right);
-            compoundPredicate.setPrintSqlInParens(root.getPrintSqlInParens());
             return compoundPredicate;
         }
 

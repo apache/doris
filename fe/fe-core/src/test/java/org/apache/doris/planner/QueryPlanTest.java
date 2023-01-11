@@ -1031,17 +1031,17 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testOrCompoundPredicateFold() throws Exception {
-        String queryStr = "explain select * from baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
+        String queryStr = "explain select * from baseall where k1 > 1 or k1 > 1 and k2 < 1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
 
-        queryStr = "explain select * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
+        queryStr = "explain select * from  baseall where (k1 > 1 and k2 < 1) or (k1 > 1)";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
 
         queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
     }
 
     @Test
@@ -2263,7 +2263,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains(
                 "PREDICATES: `query_id` = `client_ip` "
                         + "AND (`stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd')) "
-                        + "OR (`db` NOT IN ('x', 'y'))\n"));
+                        + "OR `db` NOT IN ('x', 'y')\n"));
 
         //ExtractCommonFactorsRule may generate more expr, test the rewriteOrToIn applied on generated exprs
         sql = "select * from test1 where (stmt_id=1 and state='a') or (stmt_id=2 and state='b')";

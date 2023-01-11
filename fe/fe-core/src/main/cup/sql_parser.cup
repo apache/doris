@@ -6098,7 +6098,6 @@ non_pred_expr ::=
   {: RESULT = e; :}
   | LPAREN non_pred_expr:e RPAREN
   {:
-    e.setPrintSqlInParens(true);
     RESULT = e;
   :}
   /* TODO(zc): add other trim function */
@@ -6367,7 +6366,6 @@ predicate ::=
   {: RESULT = p; :}
   | LPAREN predicate:p RPAREN
   {:
-    p.setPrintSqlInParens(true);
     RESULT = p;
   :}
   ;

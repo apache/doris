@@ -200,7 +200,6 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
                     makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
                     makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType));
-            result.setPrintSqlInParens(true);
         } else {
             result = makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType);
         }
@@ -436,7 +435,6 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         for (int i = 2; i < exprs.size(); ++i) {
             result = new CompoundPredicate(op, result.clone(), exprs.get(i));
         }
-        result.setPrintSqlInParens(true);
         return result;
     }
 
@@ -464,7 +462,6 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         for (int i = 2; i < exprs.size(); i++) {
             result = new CompoundPredicate(op, result.clone(), exprs.get(i));
         }
-        result.setPrintSqlInParens(true);
         return result;
     }
 
@@ -504,16 +501,10 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 Expr left = and.getChild(0);
                 if (left instanceof CompoundPredicate) {
                     left = apply(and.getChild(0), analyzer, clauseType);
-                    if (CompoundPredicate.isOr(left)) {
-                        left.setPrintSqlInParens(true);
-                    }
                 }
                 Expr right = and.getChild(1);
                 if (right instanceof CompoundPredicate) {
                     right = apply(and.getChild(1), analyzer, clauseType);
-                    if (CompoundPredicate.isOr(right)) {
-                        right.setPrintSqlInParens(true);
-                    }
                 }
                 notMergedExprs.add(new CompoundPredicate(Operator.AND, left, right));
             } else if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
