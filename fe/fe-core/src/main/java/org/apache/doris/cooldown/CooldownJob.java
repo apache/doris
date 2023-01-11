@@ -314,8 +314,10 @@ public class CooldownJob implements Writable {
      */
     private void replayPengingJob() throws CooldownException {
         setCooldownReplica(cooldownReplicaId, cooldownTerm);
-        Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownReplicaId(cooldownReplicaId);
-        Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownTerm(cooldownTerm);
+        if (Env.getCurrentInvertedIndex().getTabletMeta(tabletId) != null) {
+            Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownReplicaId(cooldownReplicaId);
+            Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownTerm(cooldownTerm);
+        }
         jobState = JobState.SEND_CONF;
         LOG.info("replay send cooldown conf, job: {}", jobId);
     }

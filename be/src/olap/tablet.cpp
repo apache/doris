@@ -1592,6 +1592,8 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.rowset_state = VISIBLE;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
+        context.oldest_write_timestamp = UnixSeconds();
+        context.newest_write_timestamp = UnixSeconds();
         res = create_rowset_writer(context, &rs_writer);
 
         if (!res.ok()) {
@@ -1680,7 +1682,7 @@ Status Tablet::cooldown() {
 
     if (!config::cooldown_single_remote_file
             || _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
-        return _cooldown_upload_data();
+        RETURN_IF_ERROR(_cooldown_upload_data());
     } else {
         RETURN_IF_ERROR(_cooldown_use_remote_data());
     }
@@ -1793,7 +1795,7 @@ Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, const TabletMetaPB& 
     std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id(),
                                                                        _tablet_meta->replica_id());
     io::FileWriterPtr tablet_meta_writer;
-    RETURN_IF_ERROR(fs->create_file(remote_tablet_meta_path, &tablet_meta_writer));
+    RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
     if (tablet_meta_writer == nullptr) {
         return Status::InternalError("tablet_meta_writer is null");
     }
