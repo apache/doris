@@ -32,6 +32,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
@@ -239,7 +240,8 @@ public class LoadManager implements Writable {
             throws AnalysisException {
         String label = stmt.getLabel();
         String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
         matchLoadJobs.addAll(loadJobs.stream().filter(job -> {
             if (stmt.getOperator() != null) {
                 // compound
@@ -482,7 +484,8 @@ public class LoadManager implements Writable {
                 } else {
                     // non-accurate match
                     PatternMatcher matcher =
-                            PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                            PatternMatcherWrapper.createMysqlPattern(labelValue,
+                                    CaseSensibility.LABEL.getCaseSensibility());
                     for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                         if (matcher.match(entry.getKey())) {
                             loadJobList.addAll(entry.getValue());
