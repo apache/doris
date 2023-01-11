@@ -26,8 +26,8 @@
 #include "olap/tablet.h"
 #include "util/trace.h"
 #include "vec/olap/block_reader.h"
-#include "vec/olap/vertical_block_reader.h"
-#include "vec/olap/vertical_merge_iterator.h"
+
+
 
 namespace doris {
 
@@ -237,6 +237,51 @@ Status Merger::vertical_compact_one_group(
         stats_output->filtered_rows = reader.filtered_rows();
     }
     RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));
+
+    return Status::OK();
+}
+
+// for segcompaction
+Status Merger::vertical_compact_one_group(
+        TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema, bool is_key,
+        const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
+        vectorized::VerticalBlockReader& src_block_reader,
+        segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment, Statistics* stats_output) {
+    // build tablet reader
+    VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
+    // TODO: record_rowids
+    vectorized::Block block = tablet_schema->create_block(column_group);
+    size_t output_rows = 0;
+    bool eof = false;
+    while (!eof && !StorageEngine::instance()->stopped()) {
+        // Read one block from block reader
+        RETURN_NOT_OK_LOG(
+                src_block_reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
+                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        LOG(WARNING) << "block row num:" << block.rows();
+        if (!block.rows()) {
+            break;
+        }
+        RETURN_NOT_OK_LOG(
+                dst_segment_writer.append_block(&block, 0, block.rows()),
+                "failed to write block when merging rowsets of tablet " + tablet->full_name()); // TODO: change log
+
+        output_rows += block.rows();
+        block.clear_column_data();
+    }
+    if (StorageEngine::instance()->stopped()) {
+        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
+        return Status::Error<INTERNAL_ERROR>();
+    }
+
+    if (is_key && stats_output != nullptr) {
+        stats_output->output_rows = output_rows;
+        stats_output->merged_rows = src_block_reader.merged_rows();
+        stats_output->filtered_rows = src_block_reader.filtered_rows();
+    }
+
+    uint64_t index_size = 0;
+    RETURN_IF_ERROR(dst_segment_writer.finalize_columns(&index_size));
 
     return Status::OK();
 }

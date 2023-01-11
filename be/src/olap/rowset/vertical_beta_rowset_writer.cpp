@@ -51,7 +51,7 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
         return Status::OK();
     }
     if (UNLIKELY(max_rows_per_segment > _context.max_rows_per_segment)) {
-        max_rows_per_segment = _context.max_rows_per_segment;
+        max_rows_per_segment = _context.max_rows_per_segment; // TODO: make _context infinit
     }
 
     if (_segment_writers.empty()) {

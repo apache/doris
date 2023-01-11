@@ -36,6 +36,7 @@ class DataDir;
 class BaseTablet {
 public:
     BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
+    BaseTablet() {};
     virtual ~BaseTablet();
 
     DataDir* data_dir() const;

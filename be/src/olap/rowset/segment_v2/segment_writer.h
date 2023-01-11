@@ -95,6 +95,8 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
+    void reset();
+
     uint32_t get_segment_id() { return _segment_id; }
 
     Status finalize_columns_data();

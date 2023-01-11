@@ -21,6 +21,10 @@
 #include "segment_v2/segment.h"
 #include "vec/olap/vgeneric_iterators.h"
 
+#include "vec/olap/vertical_block_reader.h"
+
+#include "vec/columns/column.h"
+
 namespace doris {
 namespace segment_v2 {
 class SegmentWriter;
@@ -109,10 +113,12 @@ private:
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
-    RowwiseIteratorUPtr _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
-                                                  std::shared_ptr<Schema> schema,
-                                                  OlapReaderStatistics* stat,
-                                                  uint64_t* merged_row_stat);
+    std::unique_ptr<vectorized::VerticalBlockReader> _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
+                                                          TabletSharedPtr tablet,
+                                                          std::shared_ptr<Schema> schema,
+                                                          OlapReaderStatistics* stat,
+                                                          uint64_t* merged_row_stat,
+                                                                               vectorized::RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
                                                                             uint64_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);

@@ -37,6 +37,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/jsonb/serialize.h"
+#include "olap/merger.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -116,9 +117,9 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _add_block(block, &_segment_writer);
 }
 
-RowwiseIteratorUPtr BetaRowsetWriter::_get_segcompaction_reader(
-        SegCompactionCandidatesSharedPtr segments, std::shared_ptr<Schema> schema,
-        OlapReaderStatistics* stat, uint64_t* merged_row_stat) {
+std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompaction_reader(
+        SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
+        std::shared_ptr<Schema> schema, OlapReaderStatistics* stat, uint64_t* merged_row_stat, vectorized::RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns) {
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
@@ -126,29 +127,38 @@ RowwiseIteratorUPtr BetaRowsetWriter::_get_segcompaction_reader(
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : *segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(*schema, read_options, &iter); // TODO: the schama here must be a mistake
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return nullptr;
         }
         seg_iterators.push_back(std::move(iter));
     }
-    bool is_unique = (_context.tablet_schema->keys_type() == UNIQUE_KEYS);
-    bool is_reverse = false;
-    auto merge_itr = vectorized::new_merge_iterator(std::move(seg_iterators), -1, is_unique,
-                                                    is_reverse, merged_row_stat);
-    DCHECK(merge_itr);
-    auto s = merge_itr->init(read_options);
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to init iterator: " << s.to_string();
-        return nullptr;
+    std::vector<RowwiseIterator*> iterators;
+    for (auto& owned_it : seg_iterators) {
+        // transfer ownership
+        iterators.push_back(owned_it.release());
     }
 
-    return merge_itr;
+    //vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
+    //                                             READER_CUMULATIVE_COMPACTION/*TODO:make our own type*/);
+    auto reader = std::unique_ptr<vectorized::VerticalBlockReader>{new vectorized::VerticalBlockReader(&row_sources_buf)};
+
+    TabletReader::ReaderParams reader_params;
+    reader_params.segment_iters_ptr = &iterators;
+    reader_params.version = Version(100, 100); //TODO
+    reader_params.tablet_schema = _context.tablet_schema;
+    reader_params.tablet = tablet;
+    reader_params.return_columns = return_columns;
+    reader_params.is_key_column_group = is_key;
+    reader->init(reader_params);
+
+    return reader;
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> BetaRowsetWriter::_create_segcompaction_writer(
         uint64_t begin, uint64_t end) {
+    //TODO: ref to VerticalBetaRowsetWriter to create segment writer and init it every time changing group
     Status status;
     std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
@@ -267,43 +277,57 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         LOG(WARNING) << "skip segcompaction due to memory shortage";
         return Status::Error<FETCH_MEMORY_EXCEEDED>();
     }
+
     uint64_t begin = (*(segments->begin()))->id();
     uint64_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
 
-    auto schema = std::make_shared<Schema>(_context.tablet_schema);
     std::unique_ptr<OlapReaderStatistics> stat(new OlapReaderStatistics());
     uint64_t merged_row_stat = 0;
-    auto reader_ptr = _get_segcompaction_reader(segments, schema, stat.get(), &merged_row_stat);
-    if (UNLIKELY(reader_ptr == nullptr)) {
-        LOG(WARNING) << "failed to get segcompaction reader";
-        return Status::Error<SEGCOMPACTION_INIT_READER>();
-    }
+
+    // ================ begin vcompaction ==================
     auto writer = _create_segcompaction_writer(begin, end);
     if (UNLIKELY(writer == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction writer";
         return Status::Error<SEGCOMPACTION_INIT_WRITER>();
     }
-    uint64_t row_count = 0;
-    vectorized::Block block = _context.tablet_schema->create_block();
-    while (true) {
-        auto status = reader_ptr->next_batch(&block);
-        row_count += block.rows();
-        if (status != Status::OK()) {
-            if (LIKELY(status.is<END_OF_FILE>())) {
-                RETURN_NOT_OK_LOG(_add_block_for_segcompaction(&block, &writer),
-                                  "write block failed");
-                break;
-            } else {
-                LOG(WARNING) << "read block failed: " << status.to_string();
-                return status;
-            }
+
+    DCHECK(_context.tablet);
+    auto tablet = _context.tablet;
+
+    std::vector<std::vector<uint32_t>> column_groups;
+    Merger::vertical_split_columns(_context.tablet_schema, &column_groups);
+    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(), READER_CUMULATIVE_COMPACTION/*TODO:make our own type*/);
+
+    // compact group one by one
+    for (auto i = 0; i < column_groups.size(); ++i) {
+        VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
+        bool is_key = (i == 0);
+        std::vector<uint32_t> column_ids = column_groups[i];
+
+        writer->reset();
+        writer->init(column_ids, is_key);
+        auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(), column_ids);
+        auto reader = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat, row_sources_buf, is_key, column_ids);
+        if (UNLIKELY(reader == nullptr)) {
+            LOG(WARNING) << "failed to get segcompaction reader";
+            return Status::Error<SEGCOMPACTION_INIT_READER>();
         }
-        RETURN_NOT_OK_LOG(_add_block_for_segcompaction(&block, &writer), "write block failed");
-        block.clear_column_data();
+
+        // ========= Merger Compaction
+        Merger::Statistics stats;
+        RETURN_IF_ERROR(Merger::vertical_compact_one_group(tablet, READER_CUMULATIVE_COMPACTION /*TODO: make our own type*/,
+                                                     _context.tablet_schema, is_key,
+                                                     column_ids, &row_sources_buf,
+                                                     *reader, *writer, INT_MAX, &stats));
+        if (is_key) {
+            row_sources_buf.flush();
+        }
+        row_sources_buf.seek_to_begin();
     }
-    RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
-                      "check correctness failed");
+
+    // TODO  RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
+    //                  "check correctness failed");
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         _clear_statistics_for_deleting_segments_unsafe(begin, end);

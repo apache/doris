@@ -41,6 +41,9 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
+#include "gen_cpp/AgentService_types.h"
+#include "olap/tablet_meta.h"
+#include "olap/data_dir.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -184,6 +187,27 @@ protected:
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
         rowset_writer_context->version.second = 10;
+
+#if 0
+        TCreateTabletReq req;
+        req.table_id =
+        req.tablet_id =
+        req.tablet_scheme =
+        req.partition_id =
+        l_engine->create_tablet(req);
+        rowset_writer_context->tablet = l_engine->tablet_manager()->get_tablet(TTabletId tablet_id);
+#endif
+        std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
+        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->_tablet_id = 1;
+        tablet_meta->_schema = tablet_schema;
+        auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
+        char *tmp_str = (char*)malloc(20);
+        strncpy(tmp_str, "test_tablet_name", 20);
+
+        tablet->_full_name = tmp_str;
+        // tablet->key
+        rowset_writer_context->tablet = tablet;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
@@ -243,6 +267,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
+            sleep(3);
         }
 
         rowset = rowset_writer->build();
@@ -438,6 +463,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
+            sleep(3);
         }
 
         rowset = rowset_writer->build();
@@ -564,6 +590,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
+            sleep(3);
         }
 
         rowset = rowset_writer->build();

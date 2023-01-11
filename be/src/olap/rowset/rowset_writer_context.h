@@ -20,6 +20,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "io/fs/file_system.h"
 #include "olap/tablet_schema.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -41,7 +42,8 @@ struct RowsetWriterContext {
               version(Version(0, 0)),
               txn_id(0),
               tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN) {
+              segments_overlap(OVERLAP_UNKNOWN),
+              tablet(nullptr) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
