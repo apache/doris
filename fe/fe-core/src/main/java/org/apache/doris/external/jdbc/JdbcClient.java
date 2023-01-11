@@ -189,7 +189,6 @@ public class JdbcClient {
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
         String[] types = { "TABLE", "VIEW" };
-        String[] cktypes = { "TABLE", "VIEW", "MEMORY TABLE" };
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -200,7 +199,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.CLICKHOUSE:
-                    rs = databaseMetaData.getTables(null, dbName, null, cktypes);
+                    rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
@@ -220,7 +219,6 @@ public class JdbcClient {
         Connection conn =  getConnection();
         ResultSet rs = null;
         String[] types = { "TABLE", "VIEW" };
-        String[] cktypes = { "TABLE", "VIEW", "MEMORY TABLE" };
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -231,7 +229,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 case JdbcResource.CLICKHOUSE:
-                    rs = databaseMetaData.getTables(null, dbName, null, cktypes);
+                    rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type: " + dbType);
@@ -577,6 +575,8 @@ public class JdbcClient {
             return JdbcResource.POSTGRESQL;
         } else if (url.startsWith(JdbcResource.JDBC_ORACLE)) {
             return JdbcResource.ORACLE;
+        } else if (url.startsWith(JdbcResource.JDBC_CLICKHOUSE)) {
+            return JdbcResource.CLICKHOUSE;
         }
         // else if (url.startsWith("jdbc:sqlserver")) {
         //     return SQLSERVER;
