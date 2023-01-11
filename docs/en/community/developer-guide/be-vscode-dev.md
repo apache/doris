@@ -114,8 +114,8 @@ webserver_port = 8040
 heartbeat_service_port = 9050
 brpc_port = 8060
 
-# Note that there should at most one ip match this list.
-# If no ip match this rule, will choose one randomly.
+# Note that there should be at most one ip that matches this list.
+# If no ip matches this rule, it will choose one randomly.
 # use CIDR format, e.g. 10.10.10.0/
 # Default value is empty.
 priority_networks = 192.168.59.0/24 # data root path, separate by ';'
@@ -134,7 +134,7 @@ Need to create this folder, this is where the be data is stored
 mkdir -p /soft/be/storage
 ```
 
-3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/doris/**，For details on how to vscode, refer to the online tutorial
+3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/doris/**，For details on how to operate vscode, refer to the online tutorial
 
 4. Install the vscode ms c++ debugging plug-in, the plug-in identified by the red box in the figure below
 
@@ -282,7 +282,7 @@ An example of a complete launch.json is as follows:
 
 ## Debugging(LLDB)
 
-lldb's attach mode is fast than gdb，and the usage is similar to gdb. we should install plugin `CodeLLDB`, then add config to launch:
+lldb's attach mode is faster than gdb，and the usage is similar to gdb. we should install plugin `CodeLLDB`, then add config to launch:
 ```json
 {
     "name": "CodeLLDB attach",
