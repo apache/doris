@@ -502,6 +502,9 @@ public class JdbcClient {
 
     public Type clickhouseTypeToDoris(JdbcFieldSchema fieldSchema) {
         String ckType = fieldSchema.getDataTypeName();
+        if (ckType.startsWith("Nullable")) {
+            ckType = ckType.substring(9, ckType.length() - 1);
+        }
         if (ckType.startsWith("Decimal")) {
             String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
             int precision = Integer.parseInt(accuracy[0]);
