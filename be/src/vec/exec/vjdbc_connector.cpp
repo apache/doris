@@ -375,8 +375,8 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         const std::string& column_name = slot_desc->col_name();
         jobject column_data =
                 env->CallObjectMethod(block_obj, _executor_get_list_id, materialized_column_index);
-        jint num_rows = env->CallIntMethod(column_data, _executor_get_list_size_id);
-
+        jint num_rows = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
+                                                     _executor_block_rows_id);
         for (int row = 0; row < num_rows; ++row) {
             jobject cur_data = env->CallObjectMethod(column_data, _executor_get_list_id, row);
             RETURN_IF_ERROR(_convert_column_data(env, cur_data, slot_desc,
@@ -417,6 +417,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_close_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "hasNext", JDBC_EXECUTOR_HAS_NEXT_SIGNATURE,
                                 _executor_has_next_id));
+    RETURN_IF_ERROR(
+            register_id(_executor_clazz, "getCurBlockRows", "()I", _executor_block_rows_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_SIGNATURE,
                                 _executor_get_blocks_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "convertDateToLong",

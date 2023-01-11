@@ -106,6 +106,7 @@ private:
     jmethodID _executor_write_id;
     jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
+    jmethodID _executor_block_rows_id;
     jmethodID _executor_get_blocks_id;
     jmethodID _executor_get_types_id;
     jmethodID _executor_get_arr_list_id;
