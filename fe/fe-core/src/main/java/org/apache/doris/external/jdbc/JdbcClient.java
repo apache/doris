@@ -521,9 +521,7 @@ public class JdbcClient {
                 || ckType.startsWith("IPv") || "UUID".contains(ckType)) {
             return ScalarType.createStringType();
         }
-        if (ckType.startsWith("Array")) {
-            return ScalarType.createStringType();
-        }
+        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
         if (ckType.startsWith("DateTime")) {
             return ScalarType.getDefaultDateType(Type.DATETIME);
         }
