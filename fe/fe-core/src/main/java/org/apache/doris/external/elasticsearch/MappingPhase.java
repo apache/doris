@@ -62,7 +62,8 @@ public class MappingPhase implements SearchPhase {
             if (!"_id".equals(colName)) {
                 if (!properties.containsKey(colName)) {
                     throw new DorisEsException(
-                            "index[" + searchContext.sourceIndex() + "] mapping[" + indexMapping + "] not found " + "column " + colName + " for the ES Cluster");
+                            "index[" + searchContext.sourceIndex() + "] mapping[" + indexMapping + "] not found "
+                                    + "column " + colName + " for the ES Cluster");
                 }
                 JSONObject fieldObject = (JSONObject) properties.get(colName);
                 resolveKeywordFields(searchContext, fieldObject, colName);
