@@ -28,8 +28,8 @@
 namespace doris::vectorized {
 
 VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                           const TScanRangeParams& scan_range, int64_t limit)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                           const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _parent(parent),
           _meta_eos(false),
           _tuple_id(tuple_id),

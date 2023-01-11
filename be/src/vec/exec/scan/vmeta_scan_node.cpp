@@ -53,7 +53,7 @@ Status VMetaScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     }
     for (auto& scan_range : _scan_ranges) {
         VMetaScanner* scanner =
-                new VMetaScanner(_state, this, _tuple_id, scan_range, _limit_per_scanner);
+                new VMetaScanner(_state, this, _tuple_id, scan_range, _limit_per_scanner, _state->runtime_profile());
         RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
         _scanner_pool.add(scanner);
         scanners->push_back(static_cast<VScanner*>(scanner));
