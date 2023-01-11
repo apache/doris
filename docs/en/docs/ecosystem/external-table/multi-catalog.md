@@ -382,7 +382,7 @@ Parameter | Description
 ### Connect JDBC
 
 
-The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
+The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, supports MYSQL, POSTGRESQL, CLICKHOUSE database types.
 
 **mysql catalog example**
 

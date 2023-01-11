@@ -455,7 +455,7 @@ mysql> select * from test;
 ### 连接JDBC
 
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
-jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL数据库类型。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL、CLICKHOUSE数据库类型。
 
 **MYSQL catalog示例**
 
