@@ -139,7 +139,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Specify how many of the latest partitions are hot partitions. For hot partition, the system will automatically set its `storage_medium` parameter to SSD, and set `storage_cooldown_time`.
     
-    **Caution: If there is no SSD disk path under the storage path, configuring this parameter will cause dynamic partition creation to fail.**
+    **Note: If there is no SSD disk path under the storage path, configuring this parameter will cause dynamic partition creation to fail.**
 
     `hot_partition_num` is all partitions in the previous n days and in the future.
 
