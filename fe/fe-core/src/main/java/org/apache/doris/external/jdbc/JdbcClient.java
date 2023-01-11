@@ -504,8 +504,10 @@ public class JdbcClient {
         String ckType = fieldSchema.getDataTypeName();
         if (ckType.startsWith("LowCardinality")) {
             ckType = ckType.substring(15, ckType.length() - 1);
-        }
-        if (ckType.startsWith("Nullable")) {
+            if (ckType.startsWith("Nullable")) {
+                ckType = ckType.substring(9, ckType.length() - 1);
+            }
+        } else if (ckType.startsWith("Nullable")) {
             ckType = ckType.substring(9, ckType.length() - 1);
         }
         if (ckType.startsWith("Decimal")) {
@@ -520,13 +522,11 @@ public class JdbcClient {
             } else {
                 return ScalarType.createStringType();
             }
-        }
-        if (ckType.contains("String") || ckType.startsWith("Enum")
-                || ckType.startsWith("IPv") || "UUID".contains(ckType)) {
+        } else if ("String".contains(ckType) || ckType.startsWith("Enum")
+                || ckType.startsWith("IPv") || "UUID".contains(ckType)
+                || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
-        }
-        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
-        if (ckType.startsWith("DateTime")) {
+        } else if (ckType.startsWith("DateTime")) {
             return ScalarType.getDefaultDateType(Type.DATETIME);
         }
         switch (ckType) {
@@ -560,6 +560,7 @@ public class JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
+        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
     }
 
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
