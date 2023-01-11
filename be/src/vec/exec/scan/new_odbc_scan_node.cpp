@@ -51,7 +51,8 @@ Status NewOdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    NewOdbcScanner* scanner = new NewOdbcScanner(_state, this, _limit_per_scanner, _odbc_scan_node);
+    NewOdbcScanner* scanner = new NewOdbcScanner(_state, this, _limit_per_scanner, _odbc_scan_node,
+                                                 _state->runtime_profile());
     _scanner_pool.add(scanner);
     RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
     scanners->push_back(static_cast<VScanner*>(scanner));

@@ -45,14 +45,13 @@ using namespace ErrorCode;
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                            const TFileScanRange& scan_range, RuntimeProfile* profile,
                            KVCache<std::string>& kv_cache)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
           _mem_pool(std::make_unique<MemPool>()),
-          _profile(profile),
           _kv_cache(kv_cache),
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
