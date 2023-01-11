@@ -165,6 +165,9 @@ struct MergeSortCursorImpl {
         reset(block);
     }
 
+    MergeSortCursorImpl(const SortDescription& desc_)
+            : desc(desc_), sort_columns_size(desc.size()) {}
+
     MergeSortCursorImpl(const Columns& columns, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         for (auto& column_desc : desc) {
@@ -215,11 +218,11 @@ struct MergeSortCursorImpl {
 
 using BlockSupplier = std::function<Status(Block**)>;
 
-struct ReceiveQueueSortCursorImpl : public MergeSortCursorImpl {
-    ReceiveQueueSortCursorImpl(const BlockSupplier& block_supplier,
-                               const std::vector<VExprContext*>& ordering_expr,
-                               const std::vector<bool>& is_asc_order,
-                               const std::vector<bool>& nulls_first)
+struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
+    BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,
+                                const std::vector<VExprContext*>& ordering_expr,
+                                const std::vector<bool>& is_asc_order,
+                                const std::vector<bool>& nulls_first)
             : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
         sort_columns_size = ordering_expr.size();
 
@@ -231,11 +234,18 @@ struct ReceiveQueueSortCursorImpl : public MergeSortCursorImpl {
         _is_eof = !has_next_block();
     }
 
+    BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier, const SortDescription& desc_)
+            : MergeSortCursorImpl(desc_), _block_supplier(block_supplier) {
+        _is_eof = !has_next_block();
+    }
+
     bool has_next_block() override {
         auto status = _block_supplier(&_block_ptr);
         if (status.ok() && _block_ptr != nullptr) {
-            for (int i = 0; i < desc.size(); ++i) {
-                _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
+            if (_ordering_expr.size() > 0) {
+                for (int i = 0; i < desc.size(); ++i) {
+                    _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
+                }
             }
             MergeSortCursorImpl::reset(*_block_ptr);
             return true;
@@ -257,7 +267,7 @@ struct ReceiveQueueSortCursorImpl : public MergeSortCursorImpl {
         return _block_ptr->clone_with_columns(std::move(columns));
     }
 
-    const std::vector<VExprContext*>& _ordering_expr;
+    std::vector<VExprContext*> _ordering_expr;
     Block* _block_ptr = nullptr;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;

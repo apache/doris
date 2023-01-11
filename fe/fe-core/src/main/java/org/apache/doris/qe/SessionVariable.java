@@ -254,6 +254,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
+    public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -653,6 +655,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
+    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
+    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD, checker = "checkExternalSortBytesThreshold")
+    public long externalSortBytesThreshold = 0;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -665,6 +673,21 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
+        int randomInt = random.nextInt(4);
+        switch (randomInt) {
+            case 0:
+                this.externalSortBytesThreshold = 0;
+                break;
+            case 1:
+                this.externalSortBytesThreshold = 1;
+                break;
+            case 2:
+                this.externalSortBytesThreshold = 1024 * 1024;
+                break;
+            default:
+                this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
+                break;
+        }
     }
 
     /**
@@ -1319,6 +1342,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
+    public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
+        long value = Long.valueOf(externalSortBytesThreshold);
+        if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
+            LOG.warn("external sort bytes threshold: {}, min: {}", value, MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+        }
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -1378,6 +1409,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
         tResult.setRepeatMaxNum(repeatMaxNum);
+
+        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         return tResult;
     }
