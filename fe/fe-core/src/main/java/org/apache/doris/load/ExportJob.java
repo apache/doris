@@ -669,7 +669,7 @@ public class ExportJob implements Writable {
             if (!releaseSnapshotStatus.ok()) {
                 // snapshot will be removed by GC thread on BE, finally.
                 LOG.warn("failed to release snapshot for export job: {}. err: {}", id,
-                    releaseSnapshotStatus.getErrorMsg());
+                        releaseSnapshotStatus.getErrorMsg());
             }
         }
     }
