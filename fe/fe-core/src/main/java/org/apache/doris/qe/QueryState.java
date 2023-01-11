@@ -48,6 +48,7 @@ public class QueryState {
     private int warningRows = 0;
     // make it public for easy to use
     public int serverStatus = 0;
+    public boolean isNereids = false;
 
     public QueryState() {
     }
@@ -61,6 +62,7 @@ public class QueryState {
         isQuery = false;
         affectedRows = 0;
         warningRows = 0;
+        isNereids = false;
     }
 
     public MysqlStateType getStateType() {
@@ -134,6 +136,14 @@ public class QueryState {
 
     public int getWarningRows() {
         return warningRows;
+    }
+
+    public void setNereids(boolean nereids) {
+        isNereids = nereids;
+    }
+
+    public boolean isNereids() {
+        return isNereids;
     }
 
     public MysqlPacket toResponsePacket() {
