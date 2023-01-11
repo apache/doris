@@ -208,7 +208,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    assert(block->columns() == _column_writers.size());
+    CHECK(block->columns() == _column_writers.size())
+            << ", block->columns()=" << block->columns()
+            << ", _column_writers.size()=" << _column_writers.size();
+
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes

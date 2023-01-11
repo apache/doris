@@ -208,7 +208,7 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String getNameWithoutMvPrefix() {
-        return this.getNameWithoutPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+        return CreateMaterializedViewStmt.mvColumnBreaker(name);
     }
 
     public String getDisplayName() {
