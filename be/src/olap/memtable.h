@@ -119,10 +119,7 @@ private:
     Schema* _schema;
     const TabletSchema* _tablet_schema;
 
-    // TODO: change to unique_ptr of comparator
-    std::shared_ptr<RowComparator> _row_comparator;
-
-    std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
+    std::unique_ptr<RowInBlockComparator> _vec_row_comparator;
 
     // `_insert_manual_mem_tracker` manually records the memory value of memtable insert()
     // `_flush_hook_mem_tracker` automatically records the memory value of memtable flush() through mem hook.

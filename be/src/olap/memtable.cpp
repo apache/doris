@@ -67,7 +67,7 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
 #endif
     _buffer_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
-    _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
+    _vec_row_comparator = std::make_unique<RowInBlockComparator>(_schema);
     // TODO: Support ZOrderComparator in the future
     _vec_skip_list = std::make_unique<VecTable>(_vec_row_comparator.get(), _table_mem_pool.get(),
                                                 _keys_type == KeysType::DUP_KEYS);
