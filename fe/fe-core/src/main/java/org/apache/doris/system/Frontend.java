@@ -19,20 +19,32 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class Frontend implements Writable {
+    @SerializedName("role")
     private FrontendNodeType role;
+    // nodeName = ip:port_timestamp
+    @SerializedName("nodeName")
     private String nodeName;
-    private String host;
+    @SerializedName("ip")
+    private volatile String ip;
+    // used for getIpByHostname
+    @SerializedName("hostName")
+    private String hostName;
+    @SerializedName("editLogPort")
     private int editLogPort;
     private String version;
 
@@ -47,10 +59,15 @@ public class Frontend implements Writable {
 
     public Frontend() {}
 
-    public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
+    public Frontend(FrontendNodeType role, String nodeName, String ip, int editLogPort) {
+        this(role, nodeName, ip, null, editLogPort);
+    }
+
+    public Frontend(FrontendNodeType role, String nodeName, String ip, String hostName, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
-        this.host = host;
+        this.ip = ip;
+        this.hostName = hostName;
         this.editLogPort = editLogPort;
     }
 
@@ -58,12 +75,20 @@ public class Frontend implements Writable {
         return this.role;
     }
 
-    public String getHost() {
-        return this.host;
+    public String getIp() {
+        return this.ip;
     }
 
     public String getVersion() {
         return version;
+    }
+
+    public String getHostName() {
+        return hostName;
+    }
+
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
     }
 
     public String getNodeName() {
@@ -131,10 +156,8 @@ public class Frontend implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, role.name());
-        Text.writeString(out, host);
-        out.writeInt(editLogPort);
-        Text.writeString(out, nodeName);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -144,22 +167,31 @@ public class Frontend implements Writable {
             // we changed REPLICA to FOLLOWER
             role = FrontendNodeType.FOLLOWER;
         }
-        host = Text.readString(in);
+        ip = Text.readString(in);
         editLogPort = in.readInt();
         nodeName = Text.readString(in);
     }
 
     public static Frontend read(DataInput in) throws IOException {
-        Frontend frontend = new Frontend();
-        frontend.readFields(in);
-        return frontend;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
+            Frontend frontend = new Frontend();
+            frontend.readFields(in);
+            return frontend;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Frontend.class);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
-        sb.append(", ").append(host).append(":").append(editLogPort);
+        sb.append(", hostname: ").append(hostName);
+        sb.append(", ").append(ip).append(":").append(editLogPort);
         return sb.toString();
+    }
+
+    public void setIp(String ip) {
+        this.ip = ip;
     }
 }

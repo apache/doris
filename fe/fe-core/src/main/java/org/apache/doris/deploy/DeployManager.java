@@ -19,6 +19,7 @@ package org.apache.doris.deploy;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -28,6 +29,7 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -134,7 +136,8 @@ public class DeployManager extends MasterDaemon {
     // So we use this map to count the continuous detected down times, if the continuous down time is more
     // then MAX_MISSING_TIME, we considered this node as down permanently.
     protected Map<String, Integer> counterMap = Maps.newHashMap();
-    protected static final Integer MAX_MISSING_TIME = 5;
+    // k8s pod delete and will recreate, so we need to wait for a while，otherwise we will drop node by mistake
+    protected static final Integer MAX_MISSING_TIME = 60;
 
     public DeployManager(Env env, long intervalMs) {
         super("deployManager", intervalMs);
@@ -236,28 +239,20 @@ public class DeployManager extends MasterDaemon {
         throw new NotImplementedException();
     }
 
-    public List<Pair<String, Integer>> getHelperNodes() {
+    public List<HostInfo> getHelperNodes() {
         String existFeHosts = System.getenv(ENV_FE_EXIST_ENDPOINT);
         if (!Strings.isNullOrEmpty(existFeHosts)) {
             // Some Frontends already exist in service group.
             // We consider them as helper node
-            List<Pair<String, Integer>> helperNodes = Lists.newArrayList();
+            List<HostInfo> helperNodes = Lists.newArrayList();
             String[] splittedHosts = existFeHosts.split(",");
             for (String host : splittedHosts) {
-                String[] splittedHostPort = host.split(":");
-                if (splittedHostPort.length != 2) {
-                    LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
-                    System.exit(-1);
-                }
-                Integer port = -1;
                 try {
-                    port = Integer.valueOf(splittedHostPort[1]);
-                } catch (NumberFormatException e) {
+                    helperNodes.add(SystemInfoService.getIpHostAndPort(host, true));
+                } catch (AnalysisException e) {
                     LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
                     System.exit(-1);
                 }
-
-                helperNodes.add(Pair.of(splittedHostPort[0], port));
             }
 
             return helperNodes;
@@ -327,8 +322,8 @@ public class DeployManager extends MasterDaemon {
         LOG.info("sorted fe host list: {}", feHostInfos);
 
         // 4. return the first one as helper
-        return Lists.newArrayList(Pair.of(feHostInfos.get(0).getIp(), feHostInfos.get(0).getPort()));
-
+        return Lists.newArrayList(new HostInfo(feHostInfos.get(0).getIp(), feHostInfos.get(0).getHostName(),
+                feHostInfos.get(0).getPort()));
     }
 
     @Override
@@ -358,9 +353,8 @@ public class DeployManager extends MasterDaemon {
             }
 
             // 1.1 Check if self is in electable fe service group
-            // TODO(zd): 2023/2/17 Need to modify here when fe support FQDN (hostname will set to real hostname)
             SystemInfoService.HostInfo selfHostInfo = getFromHostInfos(remoteElectableFeHosts,
-                    new SystemInfoService.HostInfo(env.getMasterIp(), null, Config.edit_log_port));
+                    new SystemInfoService.HostInfo(env.getMasterIp(), env.getMasterHostName(), Config.edit_log_port));
             if (selfHostInfo == null) {
                 // The running of this deploy manager means this node is considered self as Master.
                 // If it self does not exist in electable fe service group, it should shut it self down.
@@ -586,10 +580,10 @@ public class DeployManager extends MasterDaemon {
                 try {
                     switch (nodeType) {
                         case ELECTABLE:
-                            env.dropFrontend(FrontendNodeType.FOLLOWER, localIp, localPort);
+                            env.dropFrontend(FrontendNodeType.FOLLOWER, localIp, localHostName, localPort);
                             break;
                         case OBSERVER:
-                            env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localPort);
+                            env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localHostName, localPort);
                             break;
                         case BACKEND:
                         case BACKEND_CN:
@@ -621,10 +615,10 @@ public class DeployManager extends MasterDaemon {
                 try {
                     switch (nodeType) {
                         case ELECTABLE:
-                            env.addFrontend(FrontendNodeType.FOLLOWER, remoteIp, remotePort);
+                            env.addFrontend(FrontendNodeType.FOLLOWER, remoteIp, remoteHostName, remotePort);
                             break;
                         case OBSERVER:
-                            env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remotePort);
+                            env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remoteHostName, remotePort);
                             break;
                         case BACKEND:
                         case BACKEND_CN:
@@ -691,19 +685,23 @@ public class DeployManager extends MasterDaemon {
         return hostPortPair;
     }
 
-    // TODO: Need to modify here when fe support FQDN (hostname will set to real hostname)
     private SystemInfoService.HostInfo convertToHostInfo(Frontend frontend) {
-        return new SystemInfoService.HostInfo(frontend.getHost(), null, frontend.getEditLogPort());
+        return new SystemInfoService.HostInfo(frontend.getIp(), frontend.getHostName(), frontend.getEditLogPort());
     }
 
     private SystemInfoService.HostInfo convertToHostInfo(Backend backend) {
         return new SystemInfoService.HostInfo(backend.getIp(), backend.getHostName(), backend.getHeartbeatPort());
     }
 
-    // TODO: Need to modify here when fe support FQDN(will check hostname?)
     private boolean isSelf(SystemInfoService.HostInfo hostInfo) {
-        if (env.getMasterIp().equals(hostInfo.getIp()) && Config.edit_log_port == hostInfo.getPort()) {
-            return true;
+        if (Config.edit_log_port == hostInfo.getPort()) {
+            // master host name may not same as local host name, so we should compare ip here
+            if (env.getMasterHostName() != null && env.getMasterHostName().equals(hostInfo.getHostName())) {
+                return true;
+            }
+            if (env.getMasterIp().equals(hostInfo.getIp())) {
+                return true;
+            }
         }
         return false;
     }
