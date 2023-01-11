@@ -490,13 +490,12 @@ CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
 // Alignment
 CONF_Int32(memory_max_alignment, "16");
 
-// write buffer size before flush
+// max write buffer size before flush, default 200MB
 CONF_mInt64(write_buffer_size, "209715200");
-
-// max buffer size used in memtable for the aggregated table
-CONF_mInt64(memtable_max_buffer_size, "419430400");
+// max buffer size used in memtable for the aggregated table, default 400MB
+CONF_mInt64(write_buffer_size_for_agg, "419430400");
 // write buffer size in push task for sparkload, default 1GB
-CONF_mInt64(flush_size_for_sparkload, "1073741824");
+CONF_mInt64(write_buffer_size_for_sparkload, "1073741824");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)

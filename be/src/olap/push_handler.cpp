@@ -250,7 +250,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
                 if (reader->mem_pool()->mem_tracker()->consumption() >
-                    config::flush_size_for_sparkload) {
+                    config::write_buffer_size_for_sparkload) {
                     RETURN_NOT_OK(rowset_writer->flush());
                     reader->mem_pool()->free_all();
                 }
