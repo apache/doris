@@ -42,11 +42,6 @@ public class GroupConcat extends AggregateFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            // FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT),
-            // FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
-            //         .varArgs(CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
-            // FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
-            //         .varArgs(CharType.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
