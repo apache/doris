@@ -1604,11 +1604,14 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "select day from tbl_int_date where day in ('2020-10-30')";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` IN ('2020-10-30')"
+                : "PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
         //valid date
         sql = "select day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion
+                ? "PREDICATES: `day` IN ('2020-10-30', '2020-10-29')"
+                : "PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
 
         //valid datetime
         sql = "select day from tbl_int_date where date in ('2020-10-30 12:12:30')";
@@ -1678,7 +1681,7 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "select day from tbl_int_date where day = '2020-10-30'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
         sql = "select day from tbl_int_date where day = from_unixtime(1196440219)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2007-12-01 00:30:19'"));
@@ -1688,11 +1691,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         sql = "select day from tbl_int_date where day = 20201030";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
         //valid date
         sql = "select day from tbl_int_date where day = '20201030'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
@@ -1755,7 +1758,7 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         if (Config.enable_date_conversion) {
-            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01.111111'"));
+            Assert.assertTrue(explainString.contains("VEMPTYSET"));
         } else {
             Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
         }
@@ -1890,8 +1893,13 @@ public class QueryPlanTest extends TestWithFeService {
                 + "     \"line_delimiter\" = \"\\n\","
                 + "     \"max_file_size\" = \"500MB\" );";
         String explainStr = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00',"
-                + " `date` <= '2021-10-11 00:00:00'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07',"
+                    + " `date` <= '2021-10-11'"));
+        } else {
+            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00',"
+                    + " `date` <= '2021-10-11 00:00:00'"));
+        }
     }
 
     // Fix: issue-#7929
