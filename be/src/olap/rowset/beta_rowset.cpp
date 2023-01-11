@@ -29,6 +29,7 @@
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
@@ -218,7 +219,6 @@ Status BetaRowset::remove() {
             success = false;
         }
         for (auto& column : _schema->columns()) {
-            // if (column.has_inverted_index()) {
             const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
             if (index_meta) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
@@ -227,6 +227,8 @@ Status BetaRowset::remove() {
                 if (!st.ok()) {
                     LOG(WARNING) << st.to_string();
                     success = false;
+                } else {
+                    segment_v2::InvertedIndexSearcherCache::instance()->erase(inverted_index_file);
                 }
             }
         }

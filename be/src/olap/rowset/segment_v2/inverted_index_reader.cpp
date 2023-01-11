@@ -25,6 +25,7 @@
 #include "gutil/strings/strip.h"
 #include "io/fs/file_system.h"
 #include "olap/key_coder.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -174,16 +175,12 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
-    std::shared_ptr<lucene::search::IndexSearcher> index_searcher = nullptr;
-    {
-        DorisCompoundReader* directory = new DorisCompoundReader(
-                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
-                index_file_name.c_str());
-        index_searcher = std::make_shared<lucene::search::IndexSearcher>(directory, true);
-        _CLDECDELETE(directory)
-    }
-
     roaring::Roaring result;
+    InvertedIndexCacheHandle inverted_index_cache_handle;
+    InvertedIndexSearcherCache::instance()->get_index_searcher(
+            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle);
+    auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+
     try {
         index_searcher->_search(query.get(),
                                 [&result](const int32_t docid, const float_t /*score*/) {
@@ -271,16 +268,12 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
 
-    std::shared_ptr<lucene::search::IndexSearcher> index_searcher = nullptr;
-    {
-        DorisCompoundReader* directory = new DorisCompoundReader(
-                DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
-                index_file_name.c_str());
-        index_searcher = std::make_shared<lucene::search::IndexSearcher>(directory, true);
-        _CLDECDELETE(directory)
-    }
-
     roaring::Roaring result;
+    InvertedIndexCacheHandle inverted_index_cache_handle;
+    InvertedIndexSearcherCache::instance()->get_index_searcher(
+            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle);
+    auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+
     try {
         index_searcher->_search(query.get(),
                                 [&result](const int32_t docid, const float_t /*score*/) {

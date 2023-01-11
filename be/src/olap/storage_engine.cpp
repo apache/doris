@@ -46,6 +46,7 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
 #include "olap/segment_loader.h"
@@ -615,6 +616,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_cache() {
     SegmentLoader::instance()->prune();
+    segment_v2::InvertedIndexSearcherCache::instance()->prune();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
