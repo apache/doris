@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.mysql.MysqlColType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;
@@ -1201,9 +1199,9 @@ public enum PrimitiveType {
     public static PrimitiveType getDatePrimitiveType(PrimitiveType type) {
         switch (type) {
             case DATE:
-                return Config.enable_date_conversion ? DATEV2 : DATE;
+                return ScalarType.enable_date_conversion ? DATEV2 : DATE;
             case DATETIME:
-                return Config.enable_date_conversion ? DATETIMEV2 : DATETIME;
+                return ScalarType.enable_date_conversion ? DATETIMEV2 : DATETIME;
             default:
                 return type;
         }
