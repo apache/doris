@@ -695,6 +695,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         if (_cooldown_thread_pool->get_queue_size() > 0) {
             continue;
         }
+        // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
         _tablet_manager->get_cooldown_tablets(&tablets);
@@ -703,18 +704,8 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         for (const auto& tablet : tablets) {
             PriorityThreadPool::Task task;
             task.work_function = [tablet, tablets, this]() {
-                {
-                    // Cooldown tasks on the same tablet cannot be executed concurrently
-                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-                    auto it = _running_cooldown_tablets.find(tablet->tablet_id());
-                    if (it != _running_cooldown_tablets.end()) {
-                        return;
-                    }
-
-                    _running_cooldown_tablets.insert(tablet->tablet_id());
-                }
-
                 Status st = tablet->cooldown();
+                tablet->set_is_cooldown(false);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to cooldown, tablet: " << tablet->tablet_id()
                                  << " err: " << st.to_string();
@@ -724,14 +715,9 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                               << tablets.size() - _cooldown_thread_pool->get_queue_size() << "/"
                               << tablets.size() << ")";
                 }
-
-                {
-                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-                    _running_cooldown_tablets.erase(tablet->tablet_id());
-                }
             };
             task.priority = max_priority--;
-            bool submited = _cooldown_thread_pool->offer(task);
+            bool submited = _cooldown_thread_pool->offer(std::move(task));
 
             if (submited) {
                 LOG(INFO) << "failed to submit cooldown task";

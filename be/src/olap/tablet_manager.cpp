@@ -1281,9 +1281,10 @@ struct SortCtx {
     SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
     TabletSharedPtr tablet;
+    // to ensure the tablet with -1 would always be greater than other
     uint64_t cooldown_timestamp;
     int64_t file_size;
-    bool operator<(const SortCtx other) const {
+    bool operator<(const SortCtx& other) const {
         if (this->cooldown_timestamp == other.cooldown_timestamp) {
             return this->file_size > other.file_size;
         }
@@ -1293,17 +1294,26 @@ struct SortCtx {
 
 void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) {
     std::vector<SortCtx> sort_ctx_vec;
+    std::vector<std::weak_ptr<Tablet>> candidates;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& item : tablets_shard.tablet_map) {
-            const TabletSharedPtr& tablet = item.second;
-            int64_t cooldown_timestamp = -1;
-            size_t file_size = -1;
-            if (tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-                sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
-            }
-        }
+        std::for_each(tablets_shard.tablet_map.begin(), tablets_shard.tablet_map.end(), [&candidates](auto& tablet_pair){
+            candidates.emplace_back(tablet_pair.second.tablet->weak_from_this());
+        });
     }
+    std::for_each(candidates.begin(), candidates.end(), [&sort_ctx_vec](std::weak_ptr<Tablet>& t) {
+        if (UNLIKELY(t.expired())) {
+            return;
+        }
+        const TabletSharedPtr& tablet = t.lock();
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        // skip pending tablet
+        if (!tablet->get_is_cooldown() || tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
+            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+            tablet->set_is_cooldown(true);
+        }
+    });
 
     std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end());
 

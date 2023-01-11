@@ -1856,6 +1856,7 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
+    // the oldest one would be more prior
     if (oldest_cooldown_time < UnixSeconds()) {
         *cooldown_timestamp = oldest_cooldown_time;
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
