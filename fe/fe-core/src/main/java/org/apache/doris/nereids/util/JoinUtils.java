@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -151,11 +152,15 @@ public class JoinUtils {
 
         for (Expression expr : join.getHashJoinConjuncts()) {
             EqualTo equalTo = (EqualTo) expr;
-            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
+            // TODO: we could meet a = cast(b as xxx) here, need fix normalize join hash equals future
+            Optional<Slot> leftSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.left());
+            Optional<Slot> rightSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.right());
+            if (!leftSlot.isPresent() || !rightSlot.isPresent()) {
                 continue;
             }
-            ExprId leftExprId = ((Slot) equalTo.left()).getExprId();
-            ExprId rightExprId = ((Slot) equalTo.right()).getExprId();
+
+            ExprId leftExprId = leftSlot.get().getExprId();
+            ExprId rightExprId = rightSlot.get().getExprId();
 
             if (checker.isCoveredByLeftSlots(leftExprId)
                     && checker.isCoveredByRightSlots(rightExprId)) {

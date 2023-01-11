@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.StringType;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -161,16 +160,15 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return Float.compare((float) getValue(), (float) other.getValue());
         } else if (type.isDoubleType()) {
             return Double.compare((double) getValue(), (double) other.getValue());
-        } else if (type.isDecimalV2Type()) {
-            return Long.compare((Long) getValue(), (Long) other.getValue());
         } else if (type.isDateLikeType()) {
-            // todo process date
+            return Long.compare((Long) getValue(), (Long) other.getValue());
         } else if (type.isDecimalV2Type()) {
             return ((BigDecimal) getValue()).compareTo((BigDecimal) other.getValue());
-        } else if (type instanceof StringType) {
+        } else if (type.isStringLikeType()) {
             return StringUtils.compare((String) getValue(), (String) other.getValue());
+        } else {
+            throw new RuntimeException(String.format("Literal {} is not supported!", type.toString()));
         }
-        return -1;
     }
 
     @Override

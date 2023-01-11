@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.base.Preconditions;
@@ -39,7 +38,7 @@ public class Ceil extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, ComputePrecisionForRound {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
     );
 
     /**

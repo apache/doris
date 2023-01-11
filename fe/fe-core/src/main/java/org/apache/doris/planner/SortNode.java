@@ -320,7 +320,13 @@ public class SortNode extends PlanNode {
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        resolvedTupleExprs = Lists.newArrayList(orderingExpr);
+        resolvedTupleExprs = Lists.newArrayList();
+        // TODO: should fix the duplicate order by exprs in nereids code later
+        for (Expr order : orderingExpr) {
+            if (!resolvedTupleExprs.contains(order)) {
+                resolvedTupleExprs.add(order);
+            }
+        }
         for (Expr output : outputList) {
             if (!resolvedTupleExprs.contains(output)) {
                 resolvedTupleExprs.add(output);

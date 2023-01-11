@@ -501,6 +501,9 @@ public abstract class SetOperationNode extends PlanNode {
             for (int j = 0; j < exprList.size(); ++j) {
                 if (resultExprSlots.get(j).isMaterialized()) {
                     newExprList.add(exprList.get(j));
+                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                    resultExprSlots.get(j)
+                            .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
                 }
             }
             materializedResultExprLists.add(newExprList);
