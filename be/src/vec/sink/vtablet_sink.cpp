@@ -27,7 +27,6 @@
 #include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
