@@ -66,6 +66,8 @@ public class GroupExpression {
     // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
+    private boolean isUnused = false;
+
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
     }
@@ -162,6 +164,16 @@ public class GroupExpression {
         this.statDerived = statDerived;
     }
 
+    public boolean isUnused() {
+        return ownerGroup.isEmpty()
+                || children.stream().anyMatch(Group::isEmpty)
+                || isUnused;
+    }
+
+    public void setUnused(boolean isUnused) {
+        this.isUnused = isUnused;
+    }
+
     public Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> getLowestCostTable() {
         return lowestCostTable;
     }
@@ -174,6 +186,7 @@ public class GroupExpression {
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      * if the outputProperties exists, will be covered.
+     *
      * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
@@ -194,6 +207,7 @@ public class GroupExpression {
 
     /**
      * get the lowest cost when satisfy property
+     *
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */

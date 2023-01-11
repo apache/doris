@@ -43,6 +43,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -442,6 +443,7 @@ public class Memo {
             }
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
+        HashMap<Group, Group> needMergeGroups = new HashMap<>();
         for (GroupExpression groupExpression : needReplaceChild) {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.
@@ -453,9 +455,10 @@ public class Memo {
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
                 // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
                 // that.getOwnerGroup() already has this groupExpression.
+                groupExpression.setUnused(true);
                 Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                mergeGroup(ownerGroup, that.getOwnerGroup());
+                ownerGroup.removeGroupExpression(groupExpression);
+                needMergeGroups.put(ownerGroup, that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
@@ -465,6 +468,8 @@ public class Memo {
             source.moveOwnership(destination);
             groups.remove(source.getGroupId());
         }
+
+        needMergeGroups.forEach(this::mergeGroup);
         return destination;
     }
 
