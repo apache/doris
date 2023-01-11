@@ -165,16 +165,15 @@ public class EsUtil {
         if (mappingType == null) {
             // remove dynamic templates, for ES 7.x and 8.x
             checkDynamicTemplates(mappings);
-            String firstType = (String) mappings.keySet().iterator().next();
-            if (!"properties".equals(firstType)) {
-                // If type is not passed in takes the first type.
-                JSONObject firstData = (JSONObject) mappings.get(firstType);
-                // check for ES 6.x and before
-                checkDynamicTemplates(firstData);
-                return firstData;
-            }
+
             // Equal 7.x and after
-            return mappings;
+            if (mappings.containsKey("properties")) {
+                return mappings;
+            }
+            String firstType = (String) mappings.keySet().iterator().next();
+            // If type is not passed in takes the first type.
+            return getRootSchema(mappings, firstType);
+
         } else {
             if (mappings.containsKey(mappingType)) {
                 JSONObject jsonData = (JSONObject) mappings.get(mappingType);
