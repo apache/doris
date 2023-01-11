@@ -32,9 +32,6 @@ VExplodeBitmapTableFunction::~VExplodeBitmapTableFunction() {
         delete _cur_iter;
         _cur_iter = nullptr;
     }
-    if (_cur_bitmap != nullptr) {
-        delete _cur_bitmap;
-    }
 }
 
 Status VExplodeBitmapTableFunction::process_init(vectorized::Block* block) {
