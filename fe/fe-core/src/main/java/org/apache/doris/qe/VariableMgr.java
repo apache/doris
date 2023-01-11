@@ -417,7 +417,7 @@ public class VariableMgr {
         }
     }
 
-    private static String  getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
+    private static String getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
         VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, name);
