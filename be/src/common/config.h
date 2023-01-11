@@ -200,7 +200,7 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 // return_row / total_row
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
-CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
+CONF_mInt32(exchg_node_buffer_size_bytes, "20485760");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -448,6 +448,8 @@ CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
+// for jeprofile in jemalloc
+CONF_mString(jeprofile_dir, "${DORIS_HOME}/log");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
@@ -488,11 +490,12 @@ CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
 // Alignment
 CONF_Int32(memory_max_alignment, "16");
 
-// write buffer size before flush
+// max write buffer size before flush, default 200MB
 CONF_mInt64(write_buffer_size, "209715200");
-
-// max buffer size used in memtable for the aggregated table
-CONF_mInt64(memtable_max_buffer_size, "419430400");
+// max buffer size used in memtable for the aggregated table, default 400MB
+CONF_mInt64(write_buffer_size_for_agg, "419430400");
+// write buffer size in push task for sparkload, default 1GB
+CONF_mInt64(write_buffer_size_for_sparkload, "1073741824");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -826,6 +829,7 @@ CONF_Int32(s3_transfer_executor_pool_size, "2");
 CONF_Bool(enable_time_lut, "true");
 CONF_Bool(enable_simdjson_reader, "false");
 
+CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
@@ -866,6 +870,19 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 CONF_Int32(pipeline_executor_size, "0");
+
+// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
+// Will remove after fully test.
+CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
+
+// block file cache
+CONF_Bool(enable_file_cache, "false");
+// format: [{"path":"/path/to/file_cache","normal":21474836480,"persistent":10737418240,"query_limit":10737418240}]
+CONF_String(file_cache_path, "");
+CONF_String(disposable_file_cache_path, "");
+CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Bool(clear_file_cache, "false");
+CONF_Bool(enable_file_cache_query_limit, "false");
 
 #ifdef BE_TEST
 // test s3

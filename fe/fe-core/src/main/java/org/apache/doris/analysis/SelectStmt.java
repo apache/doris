@@ -197,6 +197,35 @@ public class SelectStmt extends QueryStmt {
         groupingInfo = null;
     }
 
+    public List<Expr> getAllExprs() {
+        List<Expr> exprs = new ArrayList<Expr>();
+        if (getAggInfo() != null && getAggInfo().getGroupingExprs() != null) {
+            exprs.addAll(getAggInfo().getGroupingExprs());
+        }
+        if (originSelectList != null) {
+            exprs.addAll(originSelectList.getExprs());
+        }
+        if (havingClause != null) {
+            exprs.add(havingClause);
+        }
+        if (havingPred != null) {
+            exprs.add(havingPred);
+        }
+        if (havingClauseAfterAnaylzed != null) {
+            exprs.add(havingClauseAfterAnaylzed);
+        }
+        return exprs;
+    }
+
+    public boolean haveStar() {
+        for (SelectListItem item : selectList.getItems()) {
+            if (item.isStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void resetSelectList() {
         if (originSelectList != null) {
@@ -304,7 +333,6 @@ public class SelectStmt extends QueryStmt {
                 inlineStmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
             } else if (tblRef instanceof TableValuedFunctionRef) {
                 TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
-                tblFuncRef.analyze(analyzer);
                 tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
                         tblFuncRef.getTableFunction().getTable());
             } else {
@@ -958,6 +986,13 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
+    private boolean isContainInBitmap(Expr expr) {
+        List<Expr> inPredicates = Lists.newArrayList();
+        expr.collect(InPredicate.class, inPredicates);
+        return inPredicates.stream().anyMatch(e -> e.getChild(1) instanceof Subquery
+                && ((Subquery) e.getChild(1)).getStatement().getResultExprs().get(0).getType().isBitmapType());
+    }
+
     /**
      * Analyze aggregation-relevant components of the select block (Group By clause,
      * select list, Order By clause),
@@ -989,18 +1024,38 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
+
+            /* according to mysql (https://dev.mysql.com/doc/refman/8.0/en/select.html)
+             * "For GROUP BY or HAVING clauses, it searches the FROM clause before searching in the
+             * select_expr values. (For GROUP BY and HAVING, this differs from the pre-MySQL 5.0 behavior
+             * that used the same rules as for ORDER BY.)"
+             * case1: having clause use column name table.v1, because it searches the FROM clause firstly
+             *     select id, sum(v1) v1 from table group by id,v1 having(v1>1);
+             * case2: having clause used in aggregate functions, such as sum(v2) here
+             *     select id, sum(v1) v1, sum(v2) v2 from table group by id,v1 having(v1>1 AND sum(v2)>1);
+             * case3: having clause use alias name v, because table do not have column name v
+             *     select id, floor(v1) v, sum(v2) v2 from table group by id,v having(v>1 AND v2>1);
+             * case4: having clause use alias name vsum, because table do not have column name vsum
+             *     select id, floor(v1) v, sum(v2) vsum from table group by id,v having(v>1 AND vsum>1);
+             */
             if (groupByClause != null) {
-                // according to mysql
-                // if there is a group by clause, the having clause should use column name not alias
-                // this is the same as group by clause
-                try {
-                    // use col name from tableRefs first
-                    havingClauseAfterAnaylzed = havingClause.clone();
-                    havingClauseAfterAnaylzed.analyze(analyzer);
-                } catch (AnalysisException ex) {
-                    // then consider alias name
-                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
+                List<Expr> havingSlots = Lists.newArrayList();
+                havingClause.collect(SlotRef.class, havingSlots);
+                for (Expr expr : havingSlots) {
+                    if (excludeAliasSMap.get(expr) == null) {
+                        continue;
+                    }
+                    try {
+                        // try to use column name firstly
+                        expr.clone().analyze(analyzer);
+                        // analyze success means column name exist, do not use alias name
+                        excludeAliasSMap.removeByLhsExpr(expr);
+                    } catch (AnalysisException ex) {
+                        // according to case3, column name do not exist, keep alias name inside alias map
+                    }
                 }
+                havingClauseAfterAnaylzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
@@ -1017,6 +1072,10 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                         "HAVING clause must not contain analytic expressions: "
                                 + analyticExpr.toSql());
+            }
+            if (isContainInBitmap(havingClauseAfterAnaylzed)) {
+                throw new AnalysisException(
+                        "HAVING clause dose not support in bitmap syntax: " + havingClauseAfterAnaylzed.toSql());
             }
         }
 
@@ -1122,6 +1181,10 @@ public class SelectStmt extends QueryStmt {
                     // should keep at least one expr to make the result correct
                     groupingExprs.add(tempExprs.get(0));
                 }
+            }
+
+            for (int i = 0; i < groupingExprs.size(); i++) {
+                groupingExprs.set(i, rewriteQueryExprByMvColumnExpr(groupingExprs.get(i), analyzer));
             }
 
             if (groupingInfo != null) {
@@ -1337,6 +1400,9 @@ public class SelectStmt extends QueryStmt {
             ArrayList<FunctionCallExpr> aggExprs,
             Analyzer analyzer)
             throws AnalysisException {
+        for (int i = 0; i < aggExprs.size(); i++) {
+            aggExprs.set(i, (FunctionCallExpr) rewriteQueryExprByMvColumnExpr(aggExprs.get(i), analyzer));
+        }
         if (selectList.isDistinct()) {
             // Create aggInfo for SELECT DISTINCT ... stmt:
             // - all select list items turn into grouping exprs

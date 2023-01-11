@@ -37,10 +37,10 @@ set(RUNTIME_FILES
     primitive_type.cpp
     raw_value.cpp
     result_buffer_mgr.cpp
-    result_writer.cpp
-    row_batch.cpp
+    result_writer.cpp    
     runtime_state.cpp
     runtime_filter_mgr.cpp
+    runtime_predicate.cpp
     string_value.cpp
     jsonb_value.cpp
     thread_context.cpp
@@ -90,6 +90,7 @@ set(RUNTIME_FILES
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
+    block_spill_manager.cpp
 )
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)

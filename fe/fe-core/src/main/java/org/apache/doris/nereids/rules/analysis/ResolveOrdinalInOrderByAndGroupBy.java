@@ -66,6 +66,7 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                         logicalAggregate().then(agg -> {
                             List<NamedExpression> aggOutput = agg.getOutputExpressions();
                             List<Expression> groupByWithoutOrd = new ArrayList<>();
+                            boolean ordExists = false;
                             for (Expression groupByExpr : agg.getGroupByExpressions()) {
                                 groupByExpr = FoldConstantRule.INSTANCE.rewrite(groupByExpr);
                                 if (groupByExpr instanceof IntegerLikeLiteral) {
@@ -74,11 +75,17 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                     checkOrd(ord, aggOutput.size());
                                     Expression aggExpr = aggOutput.get(ord - 1);
                                     groupByWithoutOrd.add(aggExpr);
+                                    ordExists = true;
                                 } else {
                                     groupByWithoutOrd.add(groupByExpr);
                                 }
                             }
-                            return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), agg.child());
+                            if (ordExists) {
+                                return new LogicalAggregate(groupByWithoutOrd, agg.getOutputExpressions(), agg.child());
+                            } else {
+                                return agg;
+                            }
+
                         }))).build();
     }
 

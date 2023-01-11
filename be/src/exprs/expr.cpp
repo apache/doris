@@ -39,6 +39,7 @@
 #include "exprs/in_predicate.h"
 #include "exprs/info_func.h"
 #include "exprs/literal.h"
+#include "exprs/match_predicate.h"
 #include "exprs/null_literal.h"
 #include "exprs/rpc_fn_call.h"
 #include "exprs/scalar_fn_call.h"
@@ -383,6 +384,14 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
         }
 
         *expr = pool->add(new CaseExpr(texpr_node));
+        return Status::OK();
+    }
+
+    case TExprNodeType::MATCH_PRED: {
+        DCHECK(texpr_node.__isset.fn);
+        if (MatchPredicateExpr::is_valid(texpr_node.fn.name.function_name)) {
+            *expr = pool->add(new MatchPredicateExpr(texpr_node));
+        }
         return Status::OK();
     }
 

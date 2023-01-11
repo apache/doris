@@ -69,7 +69,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
 
     @Override
     public Table getTable() {
-        return relation.getTable();
+        return (Table) relation.getTable();
     }
 
     @Override

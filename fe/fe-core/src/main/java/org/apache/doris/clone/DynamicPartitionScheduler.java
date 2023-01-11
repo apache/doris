@@ -347,6 +347,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
                     return dropPartitionClauses;
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage());
                 }
             }
         }
@@ -390,7 +392,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
-            ArrayList<DropPartitionClause> dropPartitionClauses = null;
+            ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
             String tableName = null;
             boolean skipAddPartition = false;
             OlapTable olapTable;

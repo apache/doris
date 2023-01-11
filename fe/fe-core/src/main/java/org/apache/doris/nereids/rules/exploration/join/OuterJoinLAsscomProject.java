@@ -66,6 +66,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(join -> JoinReorderCommon.checkProject(join.left()))
                 .then(topJoin -> {
 
                     /* ********** init ********** */
@@ -130,6 +131,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             Alias alias = (Alias) expr;
                             Slot outputSlot = alias.toSlot();
                             Expression child = alias.child();
+                            // checkProject already confirmed.
                             Preconditions.checkState(child instanceof Slot);
                             Slot inputSlot = (Slot) child;
                             inputToOutput.put(inputSlot, outputSlot);

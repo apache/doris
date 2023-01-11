@@ -949,6 +949,11 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalTable(log);
                     break;
                 }
+                case OperationType.OP_DROP_EXTERNAL_TABLE: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayDropExternalTable(log);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1039,6 +1044,7 @@ public class EditLog {
         totalTimeTransactions += (end - start);
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+            MetricRepo.COUNTER_EDIT_LOG_CURRENT.increase(1L);
         }
 
         if (LOG.isDebugEnabled()) {
@@ -1061,8 +1067,15 @@ public class EditLog {
     /**
      * Return the size of the current EditLog
      */
-    synchronized long getEditLogSize() throws IOException {
+    public synchronized long getEditLogSize() throws IOException {
         return editStream.length();
+    }
+
+    /**
+     * Return the number of the current EditLog
+     */
+    public synchronized long getEditLogNum() throws IOException {
+        return journal.getJournalNum();
     }
 
     public synchronized long getTxId() {
@@ -1622,6 +1635,10 @@ public class EditLog {
 
     public void logRefreshExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
+    }
+
+    public void logDropExternalTable(ExternalObjectLog log) {
+        logEdit(OperationType.OP_DROP_EXTERNAL_TABLE, log);
     }
 
     public Journal getJournal() {

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
@@ -31,6 +32,9 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -50,10 +54,10 @@ public class AnalyzeRulesJob extends BatchRulesJob {
     public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(
+                bottomUpBatch(
                     new RegisterCTE()
-                )),
-                bottomUpBatch(ImmutableList.of(
+                ),
+                bottomUpBatch(
                     new BindRelation(),
                     new CheckPolicy(),
                     new UserAuthentication(),
@@ -66,17 +70,20 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     // should make sure isDisinct property is correctly passed around.
                     // please see rule BindSlotReference or BindFunction for example
                     new ProjectWithDistinctToAggregate(),
+                    new AvgDistinctToSumDivCount(),
                     new ResolveOrdinalInOrderByAndGroupBy(),
                     new ReplaceExpressionByChildOutput(),
-                    new HideOneRowRelationUnderUnion()
-                )),
-                topDownBatch(ImmutableList.of(
+                    new HideOneRowRelationUnderUnion(),
+                    new ExpressionNormalization(cascadesContext.getConnectContext(),
+                                ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE))
+                ),
+                topDownBatch(
                     new FillUpMissingSlots(),
                     // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
                     // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
                     // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                     new NormalizeRepeat()
-                ))
+                )
         ));
     }
 }

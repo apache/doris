@@ -112,6 +112,14 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         // and not support zone map for array type and jsonb type.
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
+        auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
+        if (tablet_index) {
+            opts.need_bloom_filter = true;
+            opts.is_ngram_bf_index = true;
+            opts.gram_size = tablet_index->get_gram_size();
+            opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        }
+
         opts.need_bitmap_index = column.has_bitmap_index();
         bool skip_inverted_index = false;
         if (_opts.rowset_ctx != nullptr) {

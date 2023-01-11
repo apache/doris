@@ -264,6 +264,17 @@ using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
 static const int GENERAL_DEBUG_COUNT = 0;
 
+struct FileCacheStatistics {
+    int64_t num_io_total = 0;
+    int64_t num_io_hit_cache = 0;
+    int64_t num_io_bytes_read_total = 0;
+    int64_t num_io_bytes_read_from_file_cache = 0;
+    int64_t num_io_bytes_read_from_write_cache = 0;
+    int64_t num_io_written_in_file_cache = 0;
+    int64_t num_io_bytes_written_in_file_cache = 0;
+    int64_t num_io_bytes_skip_cache = 0;
+};
+
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -332,6 +343,11 @@ struct OlapReaderStatistics {
 
     int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
+
+    int64_t rows_inverted_index_filtered = 0;
+    int64_t inverted_index_filter_timer = 0;
+
+    int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
     // total number of segment
@@ -347,6 +363,9 @@ struct OlapReaderStatistics {
     // usage example:
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
+
+    FileCacheStatistics file_cache_stats;
+    int64_t load_segments_timer = 0;
 };
 
 using ColumnId = uint32_t;

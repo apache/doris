@@ -142,7 +142,7 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const = 0;
+    virtual std::string get_name() const { return _operator_builder->get_name(); };
 
     bool is_sink() const;
 
@@ -168,7 +168,7 @@ public:
     /**
      * Release all resources once this operator done its work.
      */
-    virtual Status close(RuntimeState* state) = 0;
+    virtual Status close(RuntimeState* state);
 
     Status set_child(OperatorPtr child) {
         if (is_source()) {
@@ -257,8 +257,6 @@ public:
 
     ~DataSinkOperator() override = default;
 
-    std::string get_name() const override { return "DataSinkOperator"; }
-
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
         _runtime_profile.reset(new RuntimeProfile(
@@ -317,8 +315,6 @@ public:
 
     ~StreamingOperator() override = default;
 
-    std::string get_name() const override { return "StreamingOperator"; }
-
     Status prepare(RuntimeState* state) override {
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
@@ -359,7 +355,10 @@ public:
         DCHECK(_child);
         RETURN_IF_ERROR(_child->get_block(state, block, source_state));
         bool eos = false;
-        RETURN_IF_ERROR(_node->pull(state, block, &eos));
+        RETURN_IF_ERROR(_node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         return Status::OK();
     }
 
@@ -387,10 +386,9 @@ public:
 
     ~SourceOperator() override = default;
 
-    std::string get_name() const override { return "SourceOperator"; }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
+        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
         RETURN_IF_ERROR(node->get_next_after_projects(
@@ -423,10 +421,9 @@ public:
 
     virtual ~StatefulOperator() = default;
 
-    std::string get_name() const override { return "DataStateOperator"; }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
+        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         auto& child = StreamingOperator<OperatorBuilderType>::_child;
 
@@ -443,7 +440,10 @@ public:
 
         if (!node->need_more_input_data()) {
             bool eos = false;
-            RETURN_IF_ERROR(node->pull(state, block, &eos));
+            RETURN_IF_ERROR(node->get_next_after_projects(
+                    state, block, &eos,
+                    std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
             if (eos) {
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {

@@ -460,14 +460,20 @@ public class MaterializedViewHandler extends AlterHandler {
                         + " or unique table must has grouping columns");
             }
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                String mvColumnName = mvColumnItem.getName();
+                if (mvColumnItem.getBaseColumnNames().size() != 1) {
+                    throw new DdlException(
+                            "mvColumnItem.getBaseColumnNames().size() != 1, mvColumnItem.getBaseColumnNames().size() = "
+                                    + mvColumnItem.getBaseColumnNames().size());
+                }
+
+                String mvColumnName = mvColumnItem.getBaseColumnNames().iterator().next();
                 Column baseColumn = olapTable.getColumn(mvColumnName);
                 if (mvColumnItem.isKey()) {
                     ++numOfKeys;
                 }
                 if (baseColumn == null) {
                     throw new DdlException("The mv column of agg or uniq table cannot be transformed "
-                            + "from original column[" + mvColumnItem.getBaseColumnName() + "]");
+                            + "from original column[" + String.join(",", mvColumnItem.getBaseColumnNames()) + "]");
                 }
                 Preconditions.checkNotNull(baseColumn, "Column[" + mvColumnName + "] does not exist");
                 AggregateType baseAggregationType = baseColumn.getAggregationType();
@@ -491,12 +497,20 @@ public class MaterializedViewHandler extends AlterHandler {
         } else {
             Set<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
             partitionOrDistributedColumnName.addAll(olapTable.getDistributionColumnNames());
+
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (partitionOrDistributedColumnName.contains(mvColumnItem.getBaseColumnName().toLowerCase())
-                        && mvColumnItem.getAggregationType() != null) {
-                    throw new DdlException("The partition and distributed columns " + mvColumnItem.getBaseColumnName()
-                            + " must be key column in mv");
+                Set<String> names = mvColumnItem.getBaseColumnNames();
+                if (names == null) {
+                    throw new DdlException("Base columns is null");
                 }
+                for (String str : names) {
+                    if (partitionOrDistributedColumnName.contains(str)
+                            && mvColumnItem.getAggregationType() != null) {
+                        throw new DdlException("The partition and distributed columns " + str
+                                + " must be key column in mv");
+                    }
+                }
+
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         }
@@ -510,6 +524,10 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : newMVColumns) {
             if (column.getDataType() == PrimitiveType.ARRAY) {
                 throw new DdlException("The array column[" + column + "] not support to create materialized view");
+            }
+            if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
+                    && (column.getType().isBitmapType() || column.getType().isHllType())) {
+                throw new DdlException("Bitmap/HLL type only support aggregate table");
             }
         }
 

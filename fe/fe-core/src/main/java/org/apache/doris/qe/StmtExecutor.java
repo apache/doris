@@ -314,6 +314,8 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
                 String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
         infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
+        infos.put(ProfileManager.PARALLEL_FRAGMENT_EXEC_INSTANCE,
+                String.valueOf(context.sessionVariable.parallelExecInstanceNum));
         return infos;
     }
 
@@ -1237,7 +1239,8 @@ public class StmtExecutor implements ProfileWriter {
                 return;
             }
             TTxnParams txnParams = new TTxnParams();
-            txnParams.setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
+            txnParams.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 txnParams.setMaxFilterRatio(0);
             } else {

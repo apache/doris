@@ -33,7 +33,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
-//#include "olap/storage_engine.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
@@ -81,14 +81,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta.reset(new RowsetMeta);
-    if (_context.fs == nullptr && _context.data_dir) {
-        _rowset_meta->set_fs(_context.data_dir->fs());
-    } else {
-        _rowset_meta->set_fs(_context.fs);
-    }
-    if (_context.fs != nullptr && _context.fs->resource_id().size() > 0) {
-        _rowset_meta->set_resource_id(_context.fs->resource_id());
-    }
+    _rowset_meta->set_fs(_context.fs);
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
@@ -391,10 +384,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
     for (int seg_id = _segcompacted_point; seg_id < num; ++seg_id) {
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
-        auto cache_path =
-                BetaRowset::segment_cache_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(),
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
                                            _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
@@ -646,51 +637,7 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
-    int64_t size = 0;
-    int64_t sum_size = 0;
-    // Create segment writer for each memtable, so that
-    // all memtables can be flushed in parallel.
-    std::unique_ptr<segment_v2::SegmentWriter> writer;
-
-    MemTable::Iterator it(memtable);
-    for (it.seek_to_first(); it.valid(); it.next()) {
-        if (PREDICT_FALSE(writer == nullptr)) {
-            RETURN_NOT_OK(_segcompaction_if_necessary());
-            RETURN_NOT_OK(_create_segment_writer(&writer));
-        }
-        ContiguousRow dst_row = it.get_current_row();
-        auto s = writer->append_row(dst_row);
-        _raw_num_rows_written++;
-        if (PREDICT_FALSE(!s.ok())) {
-            LOG(WARNING) << "failed to append row: " << s.to_string();
-            return Status::Error<WRITER_DATA_WRITE_ERROR>();
-        }
-
-        if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                          writer->num_rows_written() >= _context.max_rows_per_segment)) {
-            auto s = _flush_segment_writer(&writer, &size);
-            sum_size += size;
-            if (OLAP_UNLIKELY(!s.ok())) {
-                *flush_size = sum_size;
-                return s;
-            }
-        }
-    }
-
-    if (writer != nullptr) {
-        auto s = _flush_segment_writer(&writer, &size);
-        sum_size += size;
-        *flush_size = sum_size;
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
-
-    return Status::OK();
-}
-
-Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
+Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, int64* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -698,7 +645,7 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     RETURN_NOT_OK(_create_segment_writer(&writer));
     RETURN_NOT_OK(_add_block(block, &writer));
-    RETURN_NOT_OK(_flush_segment_writer(&writer));
+    RETURN_NOT_OK(_flush_segment_writer(&writer, flush_size));
     return Status::OK();
 }
 
@@ -944,12 +891,12 @@ Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
-        LOG(ERROR) << "too many segments in rowset."
-                   << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
-                   << " max:" << config::max_segment_num_per_rowset
-                   << " _num_segment:" << _num_segment
-                   << " _segcompacted_point:" << _segcompacted_point
-                   << " _num_segcompacted:" << _num_segcompacted;
+        LOG(WARNING) << "too many segments in rowset."
+                     << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
+                     << " max:" << config::max_segment_num_per_rowset
+                     << " _num_segment:" << _num_segment
+                     << " _segcompacted_point:" << _segcompacted_point
+                     << " _num_segcompacted:" << _num_segcompacted;
         return Status::Error<TOO_MANY_SEGMENTS>();
     } else {
         return _do_create_segment_writer(writer, false, -1, -1);

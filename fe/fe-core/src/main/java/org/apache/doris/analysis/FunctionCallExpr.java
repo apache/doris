@@ -125,7 +125,7 @@ public class FunctionCallExpr extends Expr {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) children.get(0).getType()).getScalarScale());
+                        Math.max(((ScalarType) children.get(0).getType()).getScalarScale(), 4));
             } else {
                 return returnType;
             }
@@ -357,20 +357,26 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
                 }
                 children.set(i, new StringLiteral("NULL"));
-                sb.append("0");
-            } else if (type.isBoolean()) {
-                sb.append("1");
-            } else if (type.isFixedPointType()) {
-                sb.append("2");
-            } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
-                sb.append("3");
-            } else if (type.isTime()) {
-                sb.append("4");
-            } else {
-                sb.append("5");
             }
+            sb.append(computeJsonDataType(type));
         }
         return sb.toString();
+    }
+
+    public static int computeJsonDataType(Type type) {
+        if (type.isNull()) {
+            return 0;
+        } else if (type.isBoolean()) {
+            return 1;
+        } else if (type.isFixedPointType()) {
+            return 2;
+        } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
+            return 3;
+        } else if (type.isTime()) {
+            return 4;
+        } else {
+            return 5;
+        }
     }
 
     public boolean isMergeAggFn() {
@@ -738,6 +744,14 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("avg"))
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
+        }
+        // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
+        if (fnName.getFunction().equalsIgnoreCase("avg") && arg.type.isDecimalV3()
+                && arg.type.getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
+            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), arg.type.getPrecision(),
+                    ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+            Expr e = getChild(0).castTo(t);
+            setChild(0, e);
         }
         if (fnName.getFunction().equalsIgnoreCase("sum_distinct")
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
@@ -1320,6 +1334,9 @@ public class FunctionCallExpr extends Expr {
                             && argTypes[i].isDecimalV3() && args[ix].isDecimalV2()) {
                         uncheckedCastChild(ScalarType.createDecimalV3Type(argTypes[i].getPrecision(),
                                 ((ScalarType) argTypes[i]).getScalarScale()), i);
+                    } else if (fnName.getFunction().equalsIgnoreCase("money_format")
+                            && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
+                        continue;
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())
                             && (!fn.getReturnType().isDecimalV3()
@@ -1468,7 +1485,7 @@ public class FunctionCallExpr extends Expr {
         return num;
     }
 
-    private static boolean parsePattern(String pattern) {
+    public static boolean parsePattern(String pattern) {
         int pos = 0;
         int len = pattern.length();
         while (pos < len) {

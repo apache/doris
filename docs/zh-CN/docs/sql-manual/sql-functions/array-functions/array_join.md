@@ -56,7 +56,7 @@ VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])
 
 mysql> set enable_vectorized_engine=true;
 
-mysql> select k1, k2, array_join(k1, '_', 'null') from array_test order by k1;
+mysql> select k1, k2, array_join(k2, '_', 'null') from array_test order by k1;
 +------+-----------------------------+------------------------------------+
 | k1   | k2                          | array_join(`k2`, '_', 'null')      |
 +------+-----------------------------+------------------------------------+

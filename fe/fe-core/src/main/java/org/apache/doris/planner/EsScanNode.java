@@ -29,7 +29,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
@@ -180,9 +179,7 @@ public class EsScanNode extends ScanNode {
             esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsResource.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
-        if (Config.enable_new_es_dsl) {
-            properties.put(EsResource.QUERY_DSL, queryBuilder.toJson());
-        }
+        properties.put(EsResource.QUERY_DSL, queryBuilder.toJson());
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
@@ -316,8 +313,8 @@ public class EsScanNode extends ScanNode {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 Map<Long, PartitionItem> keyRangeById = rangePartitionInfo.getIdToItem(false);
-                partitionPruner = new RangePartitionPruner(keyRangeById, rangePartitionInfo.getPartitionColumns(),
-                        columnFilters);
+                partitionPruner = new RangePartitionPrunerV2(keyRangeById, rangePartitionInfo.getPartitionColumns(),
+                        columnNameToRange);
                 return partitionPruner.prune();
             }
             case UNPARTITIONED: {
@@ -376,9 +373,7 @@ public class EsScanNode extends ScanNode {
             } else {
                 queryBuilder = boolQueryBuilder;
             }
-            if (Config.enable_new_es_dsl) {
-                conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
-            }
+            conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
         }
     }
 }

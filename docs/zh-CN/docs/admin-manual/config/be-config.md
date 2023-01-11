@@ -55,13 +55,13 @@ BE 的配置项有两种方式进行配置：
 BE 启动后，可以通过以下命令动态设置配置项。
 
   ```
-  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}
   ```
 
 在 0.13 版本及之前，通过该方式修改的配置项将在 BE 进程重启后失效。在 0.14 及之后版本中，可以通过以下命令持久化修改后的配置。修改后的配置项存储在 `be_custom.conf` 文件中。
 
   ```
-  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true
+  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}\&persist=true
   ```
 
 ## 应用举例
@@ -1261,6 +1261,16 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
 
+<version since="1.2">
+
+#### `jvm_max_heap_size`
+
+* 类型：string
+* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数 
+* 默认值：1024M
+
+</version>
+
 ### 日志
 
 #### `sys_log_dir`
@@ -1381,7 +1391,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: BlockingPriorityQueue中剩余任务的优先级频率增加
 * 默认值:512
 
-#### `jdbc_drivers_dir
+<version since="1.2">
+
+#### `jdbc_drivers_dir`
 
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
+
+</version>

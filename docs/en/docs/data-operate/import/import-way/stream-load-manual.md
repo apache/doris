@@ -65,8 +65,7 @@ The final result of the import is returned to the user by Coordinator BE.
 
 ## Support data format
 
-Currently Stream Load supports two data formats: CSV (text) and JSON
-
+Stream Load currently supports data formats: CSV (text), JSON, <version since="1.2" type="inline"> PARQUET and ORC</version>.
 ## Basic operations
 ### Create Load
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("function") {
+suite("nereids_function") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -47,6 +47,10 @@ suite("function") {
         SELECT avg(lo_tax), avg(lo_extendedprice) AS avg_extendedprice FROM lineorder;
     """
 
+    qt_string_arithmetic """
+        SELECT "1" + "2", "1" - "2";
+    """
+
     // variable length function
     test {
         sql "select coalesce(1), coalesce(null, 2), coalesce(null, 3), coalesce(4, null, 2)"
@@ -70,6 +74,10 @@ suite("function") {
         result([[0L], [1L], [2L], [3L], [4L], [5L], [6L], [7L], [8L], [9L]])
     }
 
+    qt_subquery1 """ select * from numbers("number" = "10") where number = (select number from numbers("number" = "10") where number=1); """
+    qt_subquery2 """ select * from numbers("number" = "10") where number in (select number from numbers("number" = "10") where number>5); """
+    qt_subquery3 """ select a.number from numbers("number" = "10") a where number in (select number from numbers("number" = "10") b where a.number=b.number); """
+
     test {
         sql """select `number` from numbers("number" = -1, 'backend_num' = `1`)"""
         result([])
@@ -88,6 +96,21 @@ suite("function") {
     test {
         sql """select b.number from (select * from numbers(number = 3) a)b"""
         result([[0L], [1L], [2L]])
+    }
+
+    test {
+        sql "select from_unixtime(1249488000, 'yyyyMMdd')"
+        result([["20090806"]])
+    }
+
+    test {
+        sql "select convert_to('abc', cast(number as varchar)) from numbers('number'='1')"
+        exception "must be a constant"
+    }
+
+    test {
+        sql """select "1" == "123", "%%" == "%%" """
+        result([[false, true]])
     }
 }
 

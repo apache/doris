@@ -1712,7 +1712,7 @@ public class SingleNodePlanner {
             return;
         }
         preds.removeAll(pushDownFailedPredicates);
-        unassignedConjuncts.remove(preds);
+        unassignedConjuncts.removeAll(preds);
         unassignedConjuncts.addAll(pushDownFailedPredicates);
 
         // Remove unregistered predicates that reference the same slot on
@@ -2072,7 +2072,7 @@ public class SingleNodePlanner {
             ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
-        if (eqJoinConjuncts.isEmpty() || innerRef.isMark()) {
+        if (eqJoinConjuncts.isEmpty()) {
             NestedLoopJoinNode result =
                     new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
             List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
@@ -2085,8 +2085,8 @@ public class SingleNodePlanner {
 
         HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
                 innerRef, eqJoinConjuncts, ojConjuncts);
-        result.init(analyzer);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
+        result.init(analyzer);
         return result;
     }
 

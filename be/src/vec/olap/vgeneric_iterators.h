@@ -17,7 +17,6 @@
 
 #include "olap/iterators.h"
 #include "olap/row.h"
-#include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris {
@@ -120,6 +119,21 @@ public:
 
     void set_skip(bool skip) const { _skip = skip; }
 
+    bool is_same() const { return _same; }
+
+    void set_same(bool same) const { _same = same; }
+
+    const std::vector<bool>& get_pre_ctx_same() const { return _pre_ctx_same_bit; }
+
+    void set_pre_ctx_same(VMergeIteratorContext* ctx) const {
+        int64_t index = ctx->get_cur_batch() - 1;
+        DCHECK(index >= 0);
+        DCHECK_LT(index, _pre_ctx_same_bit.size());
+        _pre_ctx_same_bit[index] = ctx->is_same();
+    }
+
+    size_t get_cur_batch() const { return _cur_batch_num; }
+
     void add_cur_batch() { _cur_batch_num++; }
 
     void reset_cur_batch() { _cur_batch_num = 0; }
@@ -137,6 +151,7 @@ private:
     bool _is_reverse = false;
     bool _valid = false;
     mutable bool _skip = false;
+    mutable bool _same = false;
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
@@ -151,6 +166,7 @@ private:
     std::shared_ptr<Block> _block;
     // used to store data still on block view
     std::list<std::shared_ptr<Block>> _block_list;
+    mutable std::vector<bool> _pre_ctx_same_bit;
 };
 
 class VMergeIterator : public RowwiseIterator {
@@ -221,6 +237,7 @@ private:
                     }
                     pre_ctx = ctx;
                 }
+                pre_ctx->set_pre_ctx_same(ctx);
                 if (UNLIKELY(_record_rowids)) {
                     _block_row_locations[row_idx] = ctx->current_row_location();
                 }

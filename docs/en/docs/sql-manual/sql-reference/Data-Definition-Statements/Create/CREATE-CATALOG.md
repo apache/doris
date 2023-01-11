@@ -39,14 +39,14 @@ Syntax:
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
 	[WITH RESOURCE resource_name]
-	| [PROPERTIES ("key"="value", ...)];
+	[PROPERTIES ("key"="value", ...)];
 ```
 
 `RESOURCE` can be created from [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md), current supports：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
-* jdbc：数据库访问的标准接口(JDBC), 当前只支持`jdbc:mysql`
+* jdbc: Standard interface for database access (JDBC), currently supports MySQL and PostgreSQL
 
 ### Create catalog
 
@@ -58,12 +58,14 @@ CREATE RESOURCE catalog_resource PROPERTIES (
     'type'='hms|es|jdbc',
     ...
 );
-CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource PROPERTIES (
+    'key' = 'value'
+);
 ```
 
 **Create catalog through properties**
 
-Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+Version `1.2.0` creates a catalog through properties.
 ```sql
 CREATE CATALOG catalog_name PROPERTIES (
     'type'='hms|es|jdbc',
@@ -118,6 +120,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	```
 
 3. Create catalog jdbc
+	**mysql**
 
 	```sql
 	-- 1.2.0+ Version
@@ -134,13 +137,38 @@ CREATE CATALOG catalog_name PROPERTIES (
 	-- 1.2.0 Version
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"user"="root",
-		"password"="123456",
-		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-		"driver_class" = "com.mysql.cj.jdbc.Driver"
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
 	```
+
+	**postgresql**
+
+	```sql
+	-- 1.2.0+ Version
+	CREATE RESOURCE pg_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="postgres",
+		"password"="123456",
+		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"driver_class" = "org.postgresql.Driver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+	-- 1.2.0 Version
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="postgres",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_class" = "org.postgresql.Driver"
+	);
+	```	
 
 ### Keywords
 

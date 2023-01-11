@@ -60,8 +60,9 @@ public class BatchModifyPartitionsInfoTest {
 
         List<Long> partitionIds = Lists.newArrayList(PARTITION_ID_1, PARTITION_ID_2, PARTITION_ID_3);
         for (long partitionId : partitionIds) {
-            modifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId, DataProperty.DEFAULT_DATA_PROPERTY,
-                    ReplicaAllocation.DEFAULT_ALLOCATION, true, "", Maps.newHashMap()));
+            modifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM), ReplicaAllocation.DEFAULT_ALLOCATION,
+                    true, "", Maps.newHashMap()));
         }
 
         BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(modifyInfos);

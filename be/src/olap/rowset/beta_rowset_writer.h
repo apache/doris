@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
+#include "segment_v2/segment.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -55,8 +56,7 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
-    Status flush_single_memtable(const vectorized::Block* block) override;
+    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) override;
 
     RowsetSharedPtr build() override;
 

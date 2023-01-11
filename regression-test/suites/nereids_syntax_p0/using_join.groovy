@@ -66,11 +66,11 @@ suite("nereids_using_join") {
     sql """INSERT INTO t2 VALUES('6', 3, 1)"""
     sql """INSERT INTO t2 VALUES('7', 4, 1)"""
 
-    qt_sql """
+    order_qt_sql """
         SELECT t1.col1 FROM t1 JOIN t2 USING (col1)
     """
 
-    qt_sql """
+    order_qt_sql """
         SELECT t1.col1 FROM t1 JOIN t2 USING (col1, col2)
     """
 

@@ -59,8 +59,7 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
-            config::exchg_node_buffer_size_bytes, _runtime_profile.get(), _is_merging,
-            _sub_plan_query_statistics_recvr);
+            _runtime_profile.get(), _is_merging, _sub_plan_query_statistics_recvr);
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
@@ -119,6 +118,7 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             *eos = true;
             auto limit = _limit - _num_rows_returned;
             block->set_num_rows(limit);
+            _num_rows_returned = _limit;
         }
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
@@ -132,6 +132,7 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     if (_is_merging) {
         _vsort_exec_exprs.close(state);
     }
+    ExecNode::release_resource(state);
 }
 
 Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {

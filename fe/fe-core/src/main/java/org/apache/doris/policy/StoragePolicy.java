@@ -300,7 +300,7 @@ public class StoragePolicy extends Policy {
      * @param cooldownTtl cooldown ttl
      * @return millisecond for cooldownTtl
      */
-    private static long getMsByCooldownTtl(String cooldownTtl) throws AnalysisException {
+    public static long getMsByCooldownTtl(String cooldownTtl) throws AnalysisException {
         cooldownTtl = cooldownTtl.replace(TTL_DAY, TTL_DAY_SIMPLE).replace(TTL_HOUR, TTL_HOUR_SIMPLE);
         long cooldownTtlMs = 0;
         try {

@@ -54,6 +54,16 @@ public class EtlJobInfo implements Writable {
 
     @Override
     public boolean equals(Object obj) {
-        return true;
+        if (obj == null) {
+            return false;
+        }
+        if (this == obj) {
+            return true;
+        }
+        if (obj instanceof EtlJobInfo) {
+            EtlJobInfo other = (EtlJobInfo) obj;
+            return jobStatus.equals(other.jobStatus);
+        }
+        return false;
     }
 }

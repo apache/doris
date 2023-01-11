@@ -299,6 +299,7 @@ Status ScalarColumnWriter::init() {
         RETURN_IF_ERROR(
                 BitmapIndexWriter::create(get_field()->type_info(), &_bitmap_index_builder));
     }
+
     if (_opts.inverted_index) {
         RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
                 get_field(), &_inverted_index_builder, _opts.meta->unique_id(),
@@ -307,8 +308,14 @@ Status ScalarColumnWriter::init() {
                 _file_writer->fs()));
     }
     if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(BloomFilterIndexWriter::create(
-                BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
+        if (_opts.is_ngram_bf_index) {
+            RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
+                    BloomFilterOptions(), get_field()->type_info(), _opts.gram_size,
+                    _opts.gram_bf_size, &_bloom_filter_index_builder));
+        } else {
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
+                    BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
+        }
     }
     return Status::OK();
 }

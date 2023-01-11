@@ -27,7 +27,6 @@
 #include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
@@ -772,8 +771,6 @@ Status VOlapTableSink::init(const TDataSink& t_sink) {
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
-    _partition = _pool->add(new OlapTablePartitionParam(_schema, table_sink.partition));
-    RETURN_IF_ERROR(_partition->init());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
     if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {
@@ -802,8 +799,7 @@ Status VOlapTableSink::init(const TDataSink& t_sink) {
             findTabletMode = FindTabletMode::FIND_TABLET_EVERY_BATCH;
         }
     }
-    _vpartition = _pool->add(
-            new doris::VOlapTablePartitionParam(_schema, t_sink.olap_table_sink.partition));
+    _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
     return _vpartition->init();
 }
 
@@ -882,7 +878,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     _load_mem_limit = state->get_load_mem_limit();
 
     // open all channels
-    const auto& partitions = _partition->get_partitions();
+    const auto& partitions = _vpartition->get_partitions();
     for (int i = 0; i < _schema->indexes().size(); ++i) {
         // collect all tablets belong to this rollup
         std::vector<TTabletWithPartition> tablets;

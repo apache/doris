@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_options.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 
@@ -41,7 +42,7 @@ enum class FileSystemType : uint8_t {
     BROKER,
 };
 
-class FileSystem {
+class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
     FileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
             : _root_path(std::move(root_path)), _resource_id(std::move(resource_id)), _type(type) {}
@@ -52,7 +53,10 @@ public:
 
     virtual Status create_file(const Path& path, FileWriterPtr* writer) = 0;
 
-    virtual Status open_file(const Path& path, FileReaderSPtr* reader) = 0;
+    virtual Status open_file(const Path& path, const FileReaderOptions& reader_options,
+                             FileReaderSPtr* reader, IOContext* io_ctx) = 0;
+
+    virtual Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) = 0;
 
     virtual Status delete_file(const Path& path) = 0;
 

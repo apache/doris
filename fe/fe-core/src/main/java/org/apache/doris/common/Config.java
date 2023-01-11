@@ -1733,12 +1733,6 @@ public class Config extends ConfigBase {
     public static boolean enable_array_type = false;
 
     /**
-     * Use new fe generate es dsl.
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_new_es_dsl = true;
-
-    /**
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
@@ -1935,5 +1929,23 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_func_pushdown = true;
+
+    /**
+     * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
+     */
+    @ConfField(masterOnly = true)
+    public static boolean enable_hms_events_incremental_sync = false;
+
+    /**
+     * Maximum number of events to poll in each RPC.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int hms_events_batch_size_per_rpc = 500;
+
+    /**
+     * HMS polling interval in milliseconds.
+     */
+    @ConfField(masterOnly = true)
+    public static int hms_events_polling_interval_ms = 20000;
 }
 

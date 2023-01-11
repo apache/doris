@@ -30,7 +30,12 @@ public:
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
 
-    Status open_file(const Path& path, FileReaderSPtr* reader) override;
+    Status open_file(const Path& path, const FileReaderOptions& reader_options,
+                     FileReaderSPtr* reader, IOContext* io_ctx) override {
+        return open_file(path, reader, io_ctx);
+    }
+
+    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
 
     Status delete_file(const Path& path) override;
 
@@ -50,7 +55,7 @@ private:
     Path absolute_path(const Path& path) const;
 };
 
-FileSystemSPtr global_local_filesystem();
+const FileSystemSPtr& global_local_filesystem();
 
 } // namespace io
 } // namespace doris

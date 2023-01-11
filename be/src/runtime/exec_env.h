@@ -68,6 +68,7 @@ class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class StoragePolicyMgr;
+class BlockSpillManager;
 
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -129,9 +130,6 @@ public:
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
-    PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
-    PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
-    ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     void set_serial_download_cache_thread_token() {
@@ -171,6 +169,7 @@ public:
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
+    BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -224,20 +223,6 @@ private:
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
 
-    // The following two thread pools are used in different scenarios.
-    // _scan_thread_pool is a priority thread pool.
-    // Scanner threads for common queries will use this thread pool,
-    // and the priority of each scan task is set according to the size of the query.
-
-    // _limited_scan_thread_pool is also the thread pool used for scanner.
-    // The difference is that it is no longer a priority queue, but according to the concurrency
-    // set by the user to control the number of threads that can be used by a query.
-
-    // TODO(cmy): find a better way to unify these 2 pools.
-    PriorityThreadPool* _scan_thread_pool = nullptr;
-    PriorityThreadPool* _remote_scan_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
-
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
     // Threadpool used to download cache from remote storage
@@ -273,6 +258,8 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
     StoragePolicyMgr* _storage_policy_mgr = nullptr;
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
+
+    BlockSpillManager* _block_spill_mgr = nullptr;
 };
 
 template <>

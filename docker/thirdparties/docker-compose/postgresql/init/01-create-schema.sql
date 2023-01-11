@@ -16,3 +16,4 @@
 -- under the License.
 
 create schema doris_test;
+create schema catalog_pg_test;

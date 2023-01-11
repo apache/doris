@@ -139,6 +139,8 @@ Add flink-doris-connector Maven dependencies
 
 1. Please replace the corresponding Connector and Flink dependency versions according to different Flink and Scala versions. Version 1.1.0 only supports Flink1.14
 
+2. You can also download the relevant version jar package from [here](https://repo.maven.apache.org/maven2/org/apache/doris/).
+
 ## How to use
 
 There are three ways to use Flink Doris Connector. 
@@ -419,9 +421,17 @@ The most suitable scenario for using Flink Doris Connector is to synchronize sou
 1. The Flink Doris Connector mainly relies on Checkpoint for streaming writing, so the interval between Checkpoints is the visible delay time of the data.
 2. To ensure the Exactly Once semantics of Flink, the Flink Doris Connector enables two-phase commit by default, and Doris enables two-phase commit by default after version 1.1. 1.0 can be enabled by modifying the BE parameters, please refer to [two_phase_commit](../data-operate/import/import-way/stream-load-manual.md).
 
-### common problem
+## FAQ
 
-1. **Bitmap type write**
+1. **After Doris Source finishes reading data, why does the stream end?**
+
+Currently Doris Source is a bounded stream and does not support CDC reading.
+
+2. **Can Flink read Doris and perform conditional pushdown?**
+
+By configuring the doris.filter.query parameter, refer to the configuration section for details.
+
+3. **How to write Bitmap type?**
 
 ```sql
 CREATE TABLE bitmap_sink (
@@ -439,12 +449,28 @@ WITH (
    'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
 )
 ````
-2. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
+4. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
 
 In the Exactly-Once scenario, the Flink Job must be restarted from the latest Checkpoint/Savepoint, otherwise the above error will be reported.
 When Exactly-Once is not required, it can also be solved by turning off 2PC commits (sink.enable-2pc=false) or changing to a different sink.label-prefix.
 
-3. **errCode = 2, detailMessage = transaction [19650] not found**
+5. **errCode = 2, detailMessage = transaction [19650] not found**
 
 Occurred in the Commit phase, the transaction ID recorded in the checkpoint has expired on the FE side, and the above error will occur when committing again at this time.
 At this time, it cannot be started from the checkpoint, and the expiration time can be extended by modifying the streaming_label_keep_max_second configuration in fe.conf, which defaults to 12 hours.
+
+6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
+
+This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+
+7. **How to ensure the order of a batch of data when Flink writes to the Uniq model?**
+
+You can add sequence column configuration to ensure that, for details, please refer to [sequence](https://doris.apache.org/zh-CN/docs/dev/data-operate/update-delete/sequence-column-manual)
+
+8. **The Flink task does not report an error, but the data cannot be synchronized? **
+
+Before Connector1.1.0, it was written in batches, and the writing was driven by data. It was necessary to determine whether there was data written upstream. After 1.1.0, it depends on Checkpoint, and Checkpoint must be enabled to write.
+
+9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
+
+It usually occurs before Connector1.1.0, because the writing frequency is too fast, resulting in too many versions. The frequency of Streamload can be reduced by setting the sink.batch.size and sink.batch.interval parameters.

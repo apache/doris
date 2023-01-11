@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.jobs.batch.CheckLegalityBeforeTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -29,6 +31,8 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -43,6 +47,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -52,6 +57,7 @@ import java.util.stream.Collectors;
  * This class is inspired by spark's TypeCoercion.
  */
 @Developing
+@DependsRules(CheckLegalityBeforeTypeCoercion.class)
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     // TODO:
@@ -77,35 +83,53 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
-        Expression left = rewrite(binaryOperator.left(), context);
-        Expression right = rewrite(binaryOperator.right(), context);
+        if (binaryOperator instanceof ImplicitCastInputTypes) {
+            List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) binaryOperator).expectedInputTypes();
+            if (!expectedInputTypes.isEmpty()) {
+                binaryOperator.children().stream().filter(e -> e instanceof StringLikeLiteral)
+                        .forEach(expr -> {
+                            try {
+                                new BigDecimal(((StringLikeLiteral) expr).getStringValue());
+                            } catch (NumberFormatException e) {
+                                throw new IllegalStateException(String.format(
+                                        "string literal %s cannot be cast to double", expr.toSql()));
+                            }
+                        });
+                binaryOperator = (BinaryOperator) visitImplicitCastInputTypes(binaryOperator, expectedInputTypes,
+                        context);
+            }
+        }
+        BinaryOperator op = binaryOperator;
+        Expression left = rewrite(op.left(), context);
+        Expression right = rewrite(op.right(), context);
 
         return Optional.of(TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
                 .filter(Boolean::booleanValue)
-                .map(b -> TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType()))
+                .map(b -> TypeCoercionUtils.findTightestCommonType(op, left.getDataType(), right.getDataType()))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
-                .filter(ct -> binaryOperator.inputType().acceptsType(ct))
+                .filter(ct -> op.inputType().acceptsType(ct))
                 .filter(ct -> !left.getDataType().equals(ct) || !right.getDataType().equals(ct))
                 .map(commonType -> {
                     Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
                     Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
-                    return binaryOperator.withChildren(newLeft, newRight);
+                    return op.withChildren(newLeft, newRight);
                 })
-                .orElse(binaryOperator.withChildren(left, right));
+                .orElse(op.withChildren(left, right));
     }
 
     @Override
     public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
         Expression left = rewrite(divide.left(), context);
         Expression right = rewrite(divide.right(), context);
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
         DataType commonType = TypeCoercionUtils.findCommonNumericsType(t1, t2);
-        if (divide.getLegacyOperator() == Operator.DIVIDE) {
-            if (commonType.isBigIntType() || commonType.isLargeIntType()) {
-                commonType = DoubleType.INSTANCE;
-            }
+
+        if (divide.getLegacyOperator() == Operator.DIVIDE
+                && (commonType.isBigIntType() || commonType.isLargeIntType())) {
+            commonType = DoubleType.INSTANCE;
         }
         Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
         Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
@@ -180,8 +204,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     private Expression visitImplicitCastInputTypes(Expression expr,
             List<AbstractDataType> expectedInputTypes, ExpressionRewriteContext ctx) {
         expr = expr.withChildren(child -> rewrite(child, ctx));
-        List<Optional<DataType>> inputImplicitCastTypes = getInputImplicitCastTypes(
-                expr.children(), expectedInputTypes);
+        List<Optional<DataType>> inputImplicitCastTypes
+                = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
         return castInputs(expr, inputImplicitCastTypes);
     }
 
@@ -217,5 +241,13 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 return child;
             }
         });
+    }
+
+    @Override
+    public Expression visitIntegralDivide(IntegralDivide integralDivide, ExpressionRewriteContext context) {
+        DataType commonType = BigIntType.INSTANCE;
+        Expression newLeft = TypeCoercionUtils.castIfNotSameType(integralDivide.left(), commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameType(integralDivide.right(), commonType);
+        return integralDivide.withChildren(newLeft, newRight);
     }
 }

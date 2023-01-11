@@ -73,6 +73,8 @@ struct TypeDescriptor {
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
+        } else if (type == TYPE_DATETIMEV2) {
+            scale = 6;
         }
     }
 

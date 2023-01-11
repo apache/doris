@@ -84,6 +84,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
+    public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
 
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
@@ -582,7 +583,7 @@ public class ScalarType extends Type {
                 }
                 break;
             case DATETIMEV2:
-                stringBuilder.append("datetime").append("(").append(scale).append(")");
+                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
             case TIME:
                 stringBuilder.append("time");
@@ -707,6 +708,18 @@ public class ScalarType extends Type {
         this.len = len;
     }
 
+    public void setMaxLength() {
+        if (type == PrimitiveType.CHAR) {
+            this.len = MAX_CHAR_LENGTH;
+        }
+        if (type == PrimitiveType.VARCHAR) {
+            this.len = MAX_VARCHAR_LENGTH;
+        }
+        if (type == PrimitiveType.STRING) {
+            this.len = MAX_STRING_LENGTH;
+        }
+    }
+
     public boolean isLengthSet() {
         return getPrimitiveType() == PrimitiveType.HLL || len > 0 || !Strings.isNullOrEmpty(lenStr);
     }
@@ -763,6 +776,7 @@ public class ScalarType extends Type {
     public boolean isSupported() {
         switch (type) {
             case BINARY:
+            case UNSUPPORTED:
                 return false;
             default:
                 return true;
@@ -1025,7 +1039,10 @@ public class ScalarType extends Type {
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
-            return MAX_DECIMALV2_TYPE;
+            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                return MAX_DECIMALV2_TYPE;
+            }
+            return t1.isDecimalV2() ? t1 : t2;
         }
 
         if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
@@ -1050,7 +1067,7 @@ public class ScalarType extends Type {
         if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
             return t1.scale > t2.scale ? t1 : t2;
         }
-        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t1.isDatetimeV2() || t1.isDateV2())) {
+        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t2.isDatetimeV2() || t2.isDateV2())) {
             return t1.isDatetimeV2() ? t1 : t2;
         }
         if (strict) {
@@ -1071,6 +1088,12 @@ public class ScalarType extends Type {
         int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
         return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
                 targetPrecision, targetScale);
+    }
+
+    public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
+        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
+        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
     }
 
     /**

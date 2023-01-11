@@ -57,6 +57,9 @@ enum TExprNodeType {
 
   // only used in runtime filter
   BITMAP_PRED,
+
+  // for fulltext search
+  MATCH_PRED,
 }
 
 //enum TAggregationOp {

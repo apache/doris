@@ -162,8 +162,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
 
-    public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
-
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
@@ -177,8 +175,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
-    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
-
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
@@ -188,6 +184,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
+
+    public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
 
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
@@ -204,6 +202,9 @@ public class SessionVariable implements Serializable, Writable {
 
     // percentage of EXEC_MEM_LIMIT
     public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
+
+    public static final String REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = "rewrite_or_to_in_predicate_threshold";
+
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
@@ -253,6 +254,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REPEAT_MAX_NUM = "repeat_max_num";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
+
+    public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -467,9 +470,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = PARTITION_PRUNE_ALGORITHM_VERSION, needForward = true)
-    public int partitionPruneAlgorithmVersion = 2;
-
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
     public boolean enableVectorizedEngine = true;
 
@@ -542,6 +542,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
+    private boolean checkOverflowForDecimal = false;
+
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -556,6 +559,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
+
+    @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD)
+    private int rewriteOrToInPredicateThreshold = 2;
 
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
     private double nereidsCboPenaltyFactor = 0.7;
@@ -651,7 +657,13 @@ public class SessionVariable implements Serializable, Writable {
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
-    public int groupConcatMaxLen = 2147483646;
+    public long groupConcatMaxLen = 2147483646;
+
+    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
+    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD, checker = "checkExternalSortBytesThreshold")
+    public long externalSortBytesThreshold = 0;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -664,6 +676,22 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
+        int randomInt = random.nextInt(4);
+        switch (randomInt) {
+            case 0:
+                this.externalSortBytesThreshold = 0;
+                break;
+            case 1:
+                this.externalSortBytesThreshold = 1;
+                break;
+            case 2:
+                this.externalSortBytesThreshold = 1024 * 1024;
+                break;
+            default:
+                this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
+                break;
+        }
     }
 
     /**
@@ -706,6 +734,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
+    }
+
+    public void setRewriteOrToInPredicateThreshold(int threshold) {
+        this.rewriteOrToInPredicateThreshold = threshold;
+    }
+
+    public int getRewriteOrToInPredicateThreshold() {
+        return rewriteOrToInPredicateThreshold;
     }
 
     public long getMaxExecMemByte() {
@@ -1187,10 +1223,6 @@ public class SessionVariable implements Serializable, Writable {
         return extractWideRangeExpr;
     }
 
-    public int getPartitionPruneAlgorithmVersion() {
-        return partitionPruneAlgorithmVersion;
-    }
-
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
     }
@@ -1225,6 +1257,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableProjection() {
         return enableProjection;
+    }
+
+    public boolean checkOverflowForDecimal() {
+        return checkOverflowForDecimal;
     }
 
     public boolean isTrimTailingSpacesForExternalTableQuery() {
@@ -1317,6 +1353,14 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
         this.enableUnicodeNameSupport = enableUnicodeNameSupport;
     }
+    
+    public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
+        long value = Long.valueOf(externalSortBytesThreshold);
+        if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
+            LOG.warn("external sort bytes threshold: {}, min: {}", value, MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+        }
+    }
 
     /**
      * Serialize to thrift object.
@@ -1365,6 +1409,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
         tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);
@@ -1376,6 +1421,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
         tResult.setRepeatMaxNum(repeatMaxNum);
+
+        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         return tResult;
     }

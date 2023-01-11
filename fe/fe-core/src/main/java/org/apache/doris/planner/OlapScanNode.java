@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -156,6 +157,8 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    private boolean useTopnOpt = false;
+
     private TPushAggOp pushDownAggNoGroupingOp = null;
 
     // List of tablets will be scanned by current olap_scan_node
@@ -248,6 +251,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
+    }
+
+    public boolean getUseTopnOpt() {
+        return useTopnOpt;
+    }
+
+    public void setUseTopnOpt(boolean useTopnOpt) {
+        this.useTopnOpt = useTopnOpt;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -382,7 +393,7 @@ public class OlapScanNode extends ScanNode {
      * changed to bigint in here.
      * Currently, only `SUM` aggregate type could match this changed.
      */
-    private void updateColumnType() {
+    private void updateColumnType() throws UserException {
         if (selectedIndexId == olapTable.getBaseIndexId()) {
             return;
         }
@@ -394,7 +405,13 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Preconditions.checkNotNull(baseColumn);
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
-            Preconditions.checkNotNull(mvColumn);
+            if (mvColumn == null) {
+                mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
+            }
+            if (mvColumn == null) {
+                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+            }
+
             if (mvColumn.getType() != baseColumn.getType()) {
                 slotDescriptor.setColumn(mvColumn);
             }
@@ -565,21 +582,11 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            if (analyzer.partitionPruneV2Enabled()) {
-                partitionPruner = new RangePartitionPrunerV2(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnNameToRange);
-            } else {
-                partitionPruner = new RangePartitionPruner(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnFilters);
-            }
+            partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnNameToRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            if (analyzer.partitionPruneV2Enabled()) {
-                partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
-                        columnNameToRange);
-            } else {
-                partitionPruner = new ListPartitionPruner(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnFilters);
-            }
+            partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                    columnNameToRange);
         }
         return partitionPruner.prune();
     }
@@ -963,6 +970,9 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
+        if (useTopnOpt) {
+            output.append(prefix).append("TOPN OPT\n");
+        }
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
         }
@@ -1034,6 +1044,7 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
+        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());

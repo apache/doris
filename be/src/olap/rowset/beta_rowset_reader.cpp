@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "olap/delete_handler.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
@@ -57,6 +56,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
+    _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
@@ -104,6 +104,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     single_column_block_predicate);
         }
     }
+
+    if (read_context->predicates_except_leafnode_of_andnode != nullptr) {
+        _read_options.column_predicates_except_leafnode_of_andnode.insert(
+                _read_options.column_predicates_except_leafnode_of_andnode.end(),
+                read_context->predicates_except_leafnode_of_andnode->begin(),
+                read_context->predicates_except_leafnode_of_andnode->end());
+    }
+
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (read_context->delete_bitmap != nullptr) {
@@ -139,9 +147,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.use_page_cache = read_context->use_page_cache;
     _read_options.tablet_schema = read_context->tablet_schema;
     _read_options.record_rowids = read_context->record_rowids;
+    _read_options.use_topn_opt = read_context->use_topn_opt;
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.runtime_state = read_context->runtime_state;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(

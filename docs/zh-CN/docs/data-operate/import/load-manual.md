@@ -58,11 +58,11 @@ Doris 提供多种数据导入方案，可以针对不同的数据源进行选�
 
 不同的导入方式支持的数据格式略有不同。
 
-| 导入方式     | 支持的格式              |
+| 导入方式     | 支持的格式                |
 | ------------ | ----------------------- |
-| Broker Load  | Parquet，ORC，csv，gzip |
-| Stream Load  | csv, gzip, json         |
-| Routine Load | csv, json               |
+| Broker Load  | parquet、orc、csv、gzip |
+| Stream Load  | csv、json、parquet、orc |
+| Routine Load | csv、json               |
 
 ## 导入说明
 

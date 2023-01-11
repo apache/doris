@@ -37,6 +37,7 @@
 #include "exprs/is_null_predicate.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
+#include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
 #include "exprs/new_in_predicate.h"
 #include "exprs/operators.h"
@@ -49,6 +50,7 @@
 #include "exprs/utility_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
+#include "runtime/block_spill_manager.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -312,6 +314,15 @@ void Daemon::calculate_metrics_thread() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
 
+// clean up stale spilled files
+void Daemon::block_spill_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
+        }
+    }
+}
+
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
@@ -404,6 +415,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     HashFunctions::init();
     TopNFunctions::init();
     DummyTableFunctions::init();
+    MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -445,6 +457,10 @@ void Daemon::start() {
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);
         CHECK(st.ok()) << st;
     }
+    st = Thread::create(
+            "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
+            &_block_spill_gc_thread);
+    CHECK(st.ok()) << st;
 }
 
 void Daemon::stop() {
@@ -464,6 +480,9 @@ void Daemon::stop() {
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();
+    }
+    if (_block_spill_gc_thread) {
+        _block_spill_gc_thread->join();
     }
 }
 

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -168,6 +170,10 @@ public abstract class PlanVisitor<R, C> {
         return visitLogicalRelation(schemaScan, context);
     }
 
+    public R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
+        return visitLogicalRelation(fileScan, context);
+    }
+
     public R visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, C context) {
         return visitLogicalRelation(tvfRelation, context);
     }
@@ -259,6 +265,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, C context) {
         return visitPhysicalScan(schemaScan, context);
+    }
+
+    public R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
+        return visitPhysicalScan(fileScan, context);
     }
 
     public R visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {

@@ -81,7 +81,6 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
         arguments[i] = column_id;
 
         block->replace_by_position_if_const(column_id);
-        auto child_column = block->get_by_position(column_id).column;
     }
 
     size_t num_columns_without_result = block->columns();

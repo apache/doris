@@ -133,7 +133,7 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
         _state->exec_env()->scanner_scheduler()->submit(this);
     }
     // Wait for block from queue
-    {
+    if (wait) {
         SCOPED_TIMER(_parent->_scanner_wait_batch_timer);
         _blocks_queue_added_cv.wait(l, [this]() {
             return !_blocks_queue.empty() || _is_finished || !_process_status.ok() ||
@@ -240,7 +240,7 @@ void ScannerContext::clear_and_join() {
     return;
 }
 
-bool ScannerContext::can_finish() {
+bool ScannerContext::no_schedule() {
     std::unique_lock<std::mutex> l(_transfer_lock);
     return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
 }
@@ -263,9 +263,11 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     }
 
     std::lock_guard<std::mutex> l(_transfer_lock);
-    _num_running_scanners--;
     _num_scheduling_ctx++;
-    _state->exec_env()->scanner_scheduler()->submit(this);
+    auto submit_st = _state->exec_env()->scanner_scheduler()->submit(this);
+    if (!submit_st.ok()) {
+        _num_scheduling_ctx--;
+    }
 
     // Notice that after calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
     // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
@@ -274,14 +276,16 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     // same scanner.
     if (scanner->need_to_close() && scanner->set_counted_down() &&
         (--_num_unfinished_scanners) == 0) {
-        _is_finished = true;
         // ATTN: this 2 counters will be set at close() again, which is the final values.
         // But we set them here because the counter set at close() can not send to FE's profile.
         // So we set them here, and the counter value may be little less than final values.
         COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
         COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
+        _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }
+    // In pipeline engine, doris will close scanners when `no_schedule`.
+    _num_running_scanners--;
     _ctx_finish_cv.notify_one();
 }
 

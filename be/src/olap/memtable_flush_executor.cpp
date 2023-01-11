@@ -88,11 +88,12 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
 
     MonotonicStopWatch timer;
     timer.start();
+    size_t memory_usage = memtable->memory_usage();
     Status s = memtable->flush();
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
         // If s is not ok, ignore the code, just use other code is ok
-        _flush_status.store(ErrorCode::INTERNAL_ERROR);
+        _flush_status.store(s.code());
     }
     if (_flush_status.load() != OK) {
         return;
@@ -101,8 +102,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     VLOG_CRITICAL << "flush memtable cost: " << timer.elapsed_time()
                   << ", running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
-                  << ", mem size: " << memtable->memory_usage()
-                  << ", disk size: " << memtable->flush_size();
+                  << ", mem size: " << memory_usage << ", disk size: " << memtable->flush_size();
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_running_count--;

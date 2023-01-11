@@ -85,11 +85,16 @@ public class UdfUtils {
         LARGEINT("LARGEINT", TPrimitiveType.LARGEINT, 16),
         DECIMALV2("DECIMALV2", TPrimitiveType.DECIMALV2, 16),
         DATEV2("DATEV2", TPrimitiveType.DATEV2, 4),
-        DATETIMEV2("DATETIMEV2", TPrimitiveType.DATETIMEV2, 8);
+        DATETIMEV2("DATETIMEV2", TPrimitiveType.DATETIMEV2, 8),
+        DECIMAL32("DECIMAL32", TPrimitiveType.DECIMAL32, 4),
+        DECIMAL64("DECIMAL64", TPrimitiveType.DECIMAL64, 8),
+        DECIMAL128("DECIMAL128", TPrimitiveType.DECIMAL128I, 16);
 
         private final String description;
         private final TPrimitiveType thriftType;
         private final int len;
+        private int precision;
+        private int scale;
 
         JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
             this.description = description;
@@ -136,7 +141,8 @@ public class UdfUtils {
             } else if (c == BigInteger.class) {
                 return Sets.newHashSet(JavaUdfDataType.LARGEINT);
             } else if (c == BigDecimal.class) {
-                return Sets.newHashSet(JavaUdfDataType.DECIMALV2);
+                return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
+                        JavaUdfDataType.DECIMAL128);
             }
             return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
         }
@@ -151,6 +157,22 @@ public class UdfUtils {
                 }
             }
             return false;
+        }
+
+        public int getPrecision() {
+            return precision;
+        }
+
+        public void setPrecision(int precision) {
+            this.precision = precision;
+        }
+
+        public int getScale() {
+            return this.thriftType == TPrimitiveType.DECIMALV2 ? 9 : scale;
+        }
+
+        public void setScale(int scale) {
+            this.scale = scale;
         }
     }
 
@@ -240,10 +262,13 @@ public class UdfUtils {
         // type.
         Object[] res = javaTypes.stream().filter(
                 t -> t.getPrimitiveType() == retType.getPrimitiveType().toThrift()).toArray();
-        if (res.length == 0) {
-            return Pair.of(false, (JavaUdfDataType) javaTypes.toArray()[0]);
+
+        JavaUdfDataType result = res.length == 0 ? (JavaUdfDataType) javaTypes.toArray()[0] : (JavaUdfDataType) res[0];
+        if (retType.isDecimalV3() || retType.isDatetimeV2()) {
+            result.setPrecision(retType.getPrecision());
+            result.setScale(((ScalarType) retType).getScalarScale());
         }
-        return Pair.of(true, (JavaUdfDataType) res[0]);
+        return Pair.of(res.length != 0, result);
     }
 
     /**
@@ -260,11 +285,13 @@ public class UdfUtils {
             int finalI = i;
             Object[] res = javaTypes.stream().filter(
                     t -> t.getPrimitiveType() == parameterTypes[finalI].getPrimitiveType().toThrift()).toArray();
+            inputArgTypes[i] = res.length == 0 ? (JavaUdfDataType) javaTypes.toArray()[0] : (JavaUdfDataType) res[0];
+            if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()) {
+                inputArgTypes[i].setPrecision(parameterTypes[finalI].getPrecision());
+                inputArgTypes[i].setScale(((ScalarType) parameterTypes[finalI]).getScalarScale());
+            }
             if (res.length == 0) {
-                inputArgTypes[i] = (JavaUdfDataType) javaTypes.toArray()[0];
                 return Pair.of(false, inputArgTypes);
-            } else {
-                inputArgTypes[i] = (JavaUdfDataType) res[0];
             }
         }
         return Pair.of(true, inputArgTypes);

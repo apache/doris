@@ -61,6 +61,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                         || topJoin.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(join -> JoinReorderCommon.checkProject(join.left()))
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topSemiJoin.left();

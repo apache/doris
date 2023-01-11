@@ -559,23 +559,32 @@ public class AggregateFunction extends Function {
             sb.append(" INTERMEDIATE " + getIntermediateType());
         }
 
-        sb.append(" PROPERTIES (")
-                .append("\n  \"INIT_FN\"=\"" + getInitFnSymbol() + "\"")
-                .append(",\n  \"UPDATE_FN\"=\"" + getUpdateFnSymbol() + "\"")
-                .append(",\n  \"MERGE_FN\"=\"" + getMergeFnSymbol() + "\"");
-        if (getSerializeFnSymbol() != null) {
-            sb.append(",\n  \"SERIALIZE_FN\"=\"" + getSerializeFnSymbol() + "\"");
-        }
-        if (getFinalizeFnSymbol() != null) {
-            sb.append(",\n  \"FINALIZE_FN\"=\"" + getFinalizeFnSymbol() + "\"");
+        sb.append(" PROPERTIES (");
+        if (getBinaryType() != TFunctionBinaryType.JAVA_UDF) {
+            sb.append("\n  \"INIT_FN\"=\"" + getInitFnSymbol() + "\",")
+                    .append("\n  \"UPDATE_FN\"=\"" + getUpdateFnSymbol() + "\",")
+                    .append("\n  \"MERGE_FN\"=\"" + getMergeFnSymbol() + "\",");
+            if (getSerializeFnSymbol() != null) {
+                sb.append("\n  \"SERIALIZE_FN\"=\"" + getSerializeFnSymbol() + "\",");
+            }
+            if (getFinalizeFnSymbol() != null) {
+                sb.append("\n  \"FINALIZE_FN\"=\"" + getFinalizeFnSymbol() + "\",");
+            }
         }
         if (getSymbolName() != null) {
-            sb.append(",\n  \"SYMBOL\"=\"" + getSymbolName() + "\"");
+            sb.append("\n  \"SYMBOL\"=\"" + getSymbolName() + "\",");
         }
 
-        sb.append(",\n  \"OBJECT_FILE\"=")
-                .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
-        sb.append(",\n  \"MD5\"=").append("\"" + getChecksum() + "\"");
+        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            sb.append("\n  \"FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\",");
+            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
+        } else {
+            sb.append("\n  \"OBJECT_FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\",");
+        }
+        sb.append("\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
         sb.append("\n);");
         return sb.toString();
     }

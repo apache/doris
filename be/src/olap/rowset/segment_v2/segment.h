@@ -61,9 +61,9 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(io::FileSystemSPtr fs, const std::string& path,
-                       const std::string& cache_path, uint32_t segment_id, RowsetId rowset_id,
-                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
+    static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                       std::shared_ptr<Segment>* output);
 
     ~Segment();
 
@@ -79,6 +79,9 @@ public:
     Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
+
+    Status new_inverted_index_iterator(const TabletColumn& tablet_column,
+                                       const TabletIndex* index_meta, InvertedIndexIterator** iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());

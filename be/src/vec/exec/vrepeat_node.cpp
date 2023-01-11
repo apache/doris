@@ -171,8 +171,6 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 }
 
 Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
@@ -228,13 +226,13 @@ bool VRepeatNode::need_more_input_data() const {
 }
 
 Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    if (state == nullptr || block == nullptr || eos == nullptr) {
+        return Status::InternalError("input is nullptr");
+    }
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VRepeatNode::get_next");
     VLOG_CRITICAL << "VRepeatNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (state == nullptr || block == nullptr || eos == nullptr) {
-        return Status::InternalError("input is NULL pointer");
-    }
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {

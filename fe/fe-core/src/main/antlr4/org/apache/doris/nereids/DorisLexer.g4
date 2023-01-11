@@ -325,6 +325,7 @@ SEMI: 'SEMI';
 SEPARATED: 'SEPARATED';
 SERDE: 'SERDE';
 SERDEPROPERTIES: 'SERDEPROPERTIES';
+SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
 SET: 'SET';
 SETMINUS: 'MINUS';
@@ -413,6 +414,7 @@ SLASH: '/';
 PERCENT: '%';
 TILDE: '~';
 AMPERSAND: '&';
+LOGICALAND: '&&';
 PIPE: '|';
 CONCAT_PIPE: '||';
 HAT: '^';
@@ -420,6 +422,8 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+ATSIGN: '@';
+DOUBLEATSIGN: '@@';
 
 STRING
     : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
@@ -480,7 +484,10 @@ fragment DIGIT
     ;
 
 fragment LETTER
-    : [A-Z]
+    : [a-zA-Z$_] // these are the "java letters" below 0x7F
+    |   // covers all characters above 0x7F which are not a surrogate
+    ~[\u0000-\u007F\uD800-\uDBFF]
+     {Character.isJavaIdentifierStart(_input.LA(-1))}?
     ;
 
 SIMPLE_COMMENT

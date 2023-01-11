@@ -27,6 +27,7 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -36,36 +37,35 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/core/types.h"
 
-namespace std {
 // for string value
 template <>
-struct hash<doris::StringValue> {
+struct std::hash<doris::StringValue> {
     uint64_t operator()(const doris::StringValue& rhs) const { return hash_value(rhs); }
 };
 
 template <>
-struct equal_to<doris::StringValue> {
+struct std::equal_to<doris::StringValue> {
     bool operator()(const doris::StringValue& lhs, const doris::StringValue& rhs) const {
         return lhs == rhs;
     }
 };
 // for decimal12_t
 template <>
-struct hash<doris::decimal12_t> {
+struct std::hash<doris::decimal12_t> {
     int64_t operator()(const doris::decimal12_t& rhs) const {
         return hash<int64_t>()(rhs.integer) ^ hash<int32_t>()(rhs.fraction);
     }
 };
 
 template <>
-struct equal_to<doris::decimal12_t> {
+struct std::equal_to<doris::decimal12_t> {
     bool operator()(const doris::decimal12_t& lhs, const doris::decimal12_t& rhs) const {
         return lhs == rhs;
     }
 };
 // for uint24_t
 template <>
-struct hash<doris::uint24_t> {
+struct std::hash<doris::uint24_t> {
     size_t operator()(const doris::uint24_t& rhs) const {
         uint32_t val(rhs);
         return hash<int>()(val);
@@ -73,12 +73,11 @@ struct hash<doris::uint24_t> {
 };
 
 template <>
-struct equal_to<doris::uint24_t> {
+struct std::equal_to<doris::uint24_t> {
     bool operator()(const doris::uint24_t& lhs, const doris::uint24_t& rhs) const {
         return lhs == rhs;
     }
 };
-} // namespace std
 
 namespace doris {
 
@@ -114,8 +113,7 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType =
-                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
+        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
 
         CHECK(hybrid_set != nullptr);
 
@@ -214,6 +212,29 @@ public:
             *result -= indices;
         }
 
+        return Status::OK();
+    }
+
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* result) const override {
+        if (iterator == nullptr) {
+            return Status::OK();
+        }
+        auto column_desc = schema.column(_column_id);
+        std::string column_name = column_desc->name();
+        roaring::Roaring indices;
+        for (auto value : *_values) {
+            InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            roaring::Roaring index;
+            RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
+                                                               num_rows, &index));
+            indices |= index;
+        }
+        if constexpr (PT == PredicateType::IN_LIST) {
+            *result &= indices;
+        } else {
+            *result -= indices;
+        }
         return Status::OK();
     }
 

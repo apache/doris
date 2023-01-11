@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -168,7 +170,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitLogicalSchemaScan(LogicalSchemaScan schemaScan, Void context) {
-        return new StatsDeriveResult(1);
+        return computeScan(schemaScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
+        fileScan.getExpressions();
+        return computeScan(fileScan);
     }
 
     @Override
@@ -212,7 +220,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitLogicalExcept(
             LogicalExcept except, Void context) {
-        return computeExcept();
+        return computeExcept(except);
     }
 
     @Override
@@ -253,7 +261,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
-        return new StatsDeriveResult(1);
+        return computeScan(schemaScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
+        return computeScan(fileScan);
     }
 
     @Override
@@ -277,6 +290,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         return computeTopN(topN);
     }
 
+    @Override
     public StatsDeriveResult visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, Void context) {
         return groupExpression.childStatistics(0);
     }
@@ -326,7 +340,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalExcept(PhysicalExcept except, Void context) {
-        return computeExcept();
+        return computeExcept(except);
     }
 
     @Override
@@ -359,7 +373,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
-        Table table = scan.getTable();
+        TableIf table = scan.getTable();
         double rowCount = scan.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
@@ -370,7 +384,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
             if (!colStats.isUnKnown) {
                 rowCount = colStats.count;
-
             }
             columnStatisticMap.put(slotReference.getExprId(), colStats);
         }
@@ -435,7 +448,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                             stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum,
                             stats.minValue,
                             stats.maxValue,
-                            stats.histogram,
                             stats.selectivity,
                             stats.minExpr,
                             stats.maxExpr,
@@ -526,7 +538,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                         leftStats.dataSize + rightStats.dataSize,
                         Math.min(leftStats.minValue, rightStats.minValue),
                         Math.max(leftStats.maxValue, rightStats.maxValue),
-                        null,
                         1.0 / (leftStats.ndv + rightStats.ndv),
                         leftStats.minExpr,
                         leftStats.maxExpr,
@@ -552,8 +563,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 : newColumnStatsMap.get(leftSlot.getExprId());
     }
 
-    private StatsDeriveResult computeExcept() {
-        return groupExpression.childStatistics(0);
+    private StatsDeriveResult computeExcept(SetOperation setOperation) {
+        StatsDeriveResult leftStatsResult = groupExpression.childStatistics(0);
+        return new StatsDeriveResult(leftStatsResult.getRowCount(),
+                replaceExprIdWithCurrentOutput(setOperation, leftStatsResult));
     }
 
     private StatsDeriveResult computeIntersect(SetOperation setOperation) {
@@ -562,8 +575,19 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         for (int i = 1; i < setOperation.getArity(); ++i) {
             rowCount = Math.min(rowCount, groupExpression.childStatistics(i).getRowCount());
         }
-        return new StatsDeriveResult(
-                rowCount, leftStatsResult.getSlotIdToColumnStats());
+        return new StatsDeriveResult(rowCount, replaceExprIdWithCurrentOutput(setOperation, leftStatsResult));
+    }
+
+    private Map<Id, ColumnStatistic> replaceExprIdWithCurrentOutput(
+            SetOperation setOperation, StatsDeriveResult leftStatsResult) {
+        Map<Id, ColumnStatistic> newColumnStatsMap = new HashMap<>();
+        for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+            NamedExpression namedExpression = setOperation.getOutputs().get(i);
+            Slot childSlot = setOperation.getChildOutput(0).get(i);
+            newColumnStatsMap.put(namedExpression.getExprId(),
+                    leftStatsResult.getSlotIdToColumnStats().get(childSlot.getExprId()));
+        }
+        return newColumnStatsMap;
     }
 
     private StatsDeriveResult computeGenerate(Generate generate) {

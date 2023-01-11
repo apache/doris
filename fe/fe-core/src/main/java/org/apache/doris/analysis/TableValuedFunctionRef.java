@@ -32,10 +32,12 @@ public class TableValuedFunctionRef extends TableRef {
     private String funcName;
     private Map<String, String> params;
 
-    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) {
+    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws AnalysisException {
         super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
         this.funcName = funcName;
         this.params = params;
+        this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
+        this.table = tableFunction.getTable();
         if (hasExplicitAlias()) {
             return;
         }
@@ -70,10 +72,6 @@ public class TableValuedFunctionRef extends TableRef {
         if (isAnalyzed) {
             return;
         }
-        // Table function could generate a table which will has columns
-        // Maybe will call be during this process
-        this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
-        this.table = tableFunction.getTable();
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);

@@ -190,11 +190,7 @@ public class QueryStmtTest {
         Assert.assertEquals(2, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        if (Config.enable_decimal_conversion) {
-            Assert.assertEquals(6, constMap.size());
-        } else {
-            Assert.assertEquals(0, constMap.size());
-        }
+        Assert.assertEquals(0, constMap.size());
 
         sql = "SELECT k1 FROM db1.baseall GROUP BY k1 HAVING EXISTS(SELECT k4 FROM db1.tbl1 GROUP BY k4 "
                 + "HAVING SUM(k4) = k4);";

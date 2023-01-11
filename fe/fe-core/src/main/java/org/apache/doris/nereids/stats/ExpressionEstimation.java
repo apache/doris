@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
@@ -41,12 +42,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+
+import java.time.LocalDateTime;
 
 /**
  * Used to estimate for expressions that not producing boolean value.
@@ -150,7 +152,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max).setSelectivity(1.0)
                     .setMaxExpr(null).setMinExpr(null).build();
         }
-        if (binaryArithmetic instanceof Divide) {
+        if (binaryArithmetic instanceof Divide || binaryArithmetic instanceof IntegralDivide) {
             double min = Math.min(
                     Math.min(
                             Math.min(leftMin / noneZeroDivisor(rightMin), leftMin / noneZeroDivisor(rightMax)),
@@ -239,10 +241,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitYear(Year year, StatsDeriveResult context) {
         ColumnStatistic childStat = year.child().accept(this, context);
-        double maxVal = childStat.maxValue;
-        double minVal = childStat.minValue;
-        long minYear = Utils.getLocalDatetimeFromLong((long) minVal).getYear();
-        long maxYear = Utils.getLocalDatetimeFromLong((long) maxVal).getYear();
+        long minYear = LocalDateTime.MIN.getYear();
+        long maxYear = LocalDateTime.MAX.getYear();
         return new ColumnStatisticBuilder().setCount(childStat.count).setNdv(childStat.ndv).setAvgSizeByte(4)
                 .setNumNulls(childStat.numNulls).setDataSize(maxYear - minYear + 1).setMinValue(minYear)
                 .setMaxValue(maxYear).setSelectivity(1.0).setMinExpr(null).build();

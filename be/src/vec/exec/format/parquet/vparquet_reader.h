@@ -56,9 +56,11 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz);
+                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  IOContext* io_ctx);
 
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  IOContext* io_ctx);
 
     ~ParquetReader() override;
     // for test
@@ -93,6 +95,8 @@ public:
                              std::vector<TypeDescriptor>* col_types) override;
 
     Statistics& statistics() { return _statistics; }
+
+    const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -152,11 +156,13 @@ private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    std::unique_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
-    std::unique_ptr<RowGroupReader> _current_group_reader;
+    std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
+    // read to the end of current reader
+    bool _row_group_eof = true;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
@@ -183,5 +189,7 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
+
+    IOContext* _io_ctx;
 };
 } // namespace doris::vectorized

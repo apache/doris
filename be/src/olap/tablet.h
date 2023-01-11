@@ -225,12 +225,8 @@ public:
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candidate_rowsets_to_cumulative_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets,
-            std::shared_lock<std::shared_mutex>& /* meta lock*/);
-    void pick_candidate_rowsets_to_base_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets,
-            std::shared_lock<std::shared_mutex>& /* meta lock*/);
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -291,27 +287,10 @@ public:
         return _tablet_meta->tablet_schema(version);
     }
 
-    Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
-                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
+    Status create_rowset_writer(RowsetWriterContext& context,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
-    Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
-                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
-                                io::FileSystemSPtr fs,
-                                std::unique_ptr<RowsetWriter>* rowset_writer);
-
-    Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
-                                const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
-                                TabletSchemaSPtr tablet_schema,
-                                std::unique_ptr<RowsetWriter>* rowset_writer);
-
-    Status create_vertical_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                         const SegmentsOverlapPB& overlap,
-                                         TabletSchemaSPtr tablet_schema,
-                                         int64_t oldest_write_timestamp,
-                                         int64_t newest_write_timestamp,
+    Status create_vertical_rowset_writer(RowsetWriterContext& context,
                                          std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);

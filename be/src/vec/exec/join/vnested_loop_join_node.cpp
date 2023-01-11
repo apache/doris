@@ -25,7 +25,6 @@
 #include "exprs/expr.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
@@ -514,7 +513,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
 }
 
-template <bool SetBuildSideFlag, bool SetProbeSideFlag>
+template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize) {
     auto column_to_keep = block->columns();
     // If we need to set visited flags for build side,
@@ -543,8 +542,14 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
             auto* __restrict filter_data = filter.data();
 
             const size_t size = filter.size();
-            for (size_t i = 0; i < size; ++i) {
-                filter_data[i] &= !null_map[i];
+            if constexpr (IgnoreNull) {
+                for (size_t i = 0; i < size; ++i) {
+                    filter_data[i] |= null_map[i];
+                }
+            } else {
+                for (size_t i = 0; i < size; ++i) {
+                    filter_data[i] &= !null_map[i];
+                }
             }
             _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                         SetProbeSideFlag>(
