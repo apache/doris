@@ -34,7 +34,7 @@
 namespace doris {
 
 SchemaBackendsScanner::SchemaBackendsScanner()
-        : SchemaScanner(nullptr, 0, TSchemaTableType::SCH_BACKENDS), _row_idx(0) {}
+        : SchemaScanner(nullptr, 0, TSchemaTableType::SCH_BACKENDS) {}
 
 Status SchemaBackendsScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -43,21 +43,6 @@ Status SchemaBackendsScanner::start(RuntimeState* state) {
     RETURN_IF_ERROR(_fetch_backends_info());
     RETURN_IF_ERROR(_set_col_name_to_type());
     return Status::OK();
-}
-
-Status SchemaBackendsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("Used before initialized.");
-    }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-    if (_row_idx >= _batch_data.size()) {
-        *eos = true;
-        return Status::OK();
-    }
-    *eos = false;
-    return _fill_one_row(tuple, pool);
 }
 
 Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos) {
@@ -108,50 +93,6 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
         } else {
             // other type
         }
-    }
-    return Status::OK();
-}
-
-Status SchemaBackendsScanner::_fill_one_row(Tuple* tuple, MemPool* pool) {
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    for (size_t col_idx = 0; col_idx < _column_num; ++col_idx) {
-        RETURN_IF_ERROR(_fill_one_col(tuple, pool, col_idx));
-    }
-    ++_row_idx;
-    return Status::OK();
-}
-
-Status SchemaBackendsScanner::_fill_one_col(Tuple* tuple, MemPool* pool, size_t col_idx) {
-    auto it = _col_name_to_type.find(_columns[col_idx].name);
-
-    // if this column is not exist in BE, we fill it with `NULL`.
-    if (it == _col_name_to_type.end()) {
-        if (_columns[col_idx].is_null) {
-            tuple->set_null(_tuple_desc->slots()[col_idx]->null_indicator_offset());
-        } else {
-            return Status::InternalError("column {} is not found in BE, and {} is not nullable.",
-                                         _columns[col_idx].name, _columns[col_idx].name);
-        }
-    } else if (it->second == TYPE_BIGINT) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = _batch_data[_row_idx].column_value[col_idx].longVal;
-    } else if (it->second == TYPE_INT) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<int32_t*>(slot)) = _batch_data[_row_idx].column_value[col_idx].intVal;
-    } else if (it->second == TYPE_VARCHAR) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        str_slot->data =
-                (char*)pool->allocate(_batch_data[_row_idx].column_value[col_idx].stringVal.size());
-        str_slot->size = _batch_data[_row_idx].column_value[col_idx].stringVal.size();
-        memcpy(const_cast<char*>(str_slot->data),
-               _batch_data[_row_idx].column_value[col_idx].stringVal.c_str(), str_slot->size);
-    } else if (it->second == TYPE_DOUBLE) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<double_t*>(slot)) =
-                _batch_data[_row_idx].column_value[col_idx].doubleVal;
-    } else {
-        // other type
     }
     return Status::OK();
 }

@@ -89,11 +89,7 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    return Status::OK();
-}
-
-Status SchemaTablesScanner::get_new_table() {
+Status SchemaTablesScanner::_get_new_table() {
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -121,16 +117,6 @@ Status SchemaTablesScanner::get_new_table() {
         return Status::InternalError("IP or port doesn't exists");
     }
     return Status::OK();
-}
-
-Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("Used before initialized.");
-    }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-    return fill_one_row(tuple, pool);
 }
 
 Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
@@ -311,7 +297,7 @@ Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) 
         return Status::InternalError("input pointer is nullptr.");
     }
     if (_db_index < _db_result.dbs.size()) {
-        RETURN_IF_ERROR(get_new_table());
+        RETURN_IF_ERROR(_get_new_table());
     } else {
         *eos = true;
         return Status::OK();

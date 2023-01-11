@@ -28,7 +28,6 @@ public:
     SchemaCharsetsScanner();
     virtual ~SchemaCharsetsScanner();
 
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
     Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
@@ -39,10 +38,8 @@ private:
         int64_t maxlen;
     };
 
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
     Status _fill_block_impl(vectorized::Block* block);
 
-    int _index;
     static SchemaScanner::ColumnDesc _s_css_columns[];
     static CharsetStruct _s_charsets[];
 };

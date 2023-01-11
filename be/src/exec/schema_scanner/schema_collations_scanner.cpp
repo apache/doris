@@ -41,89 +41,9 @@ SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[
 SchemaCollationsScanner::SchemaCollationsScanner()
         : SchemaScanner(_s_cols_columns,
                         sizeof(_s_cols_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_COLLATIONS),
-          _index(0) {}
+                        TSchemaTableType::SCH_COLLATIONS) {}
 
 SchemaCollationsScanner::~SchemaCollationsScanner() {}
-
-Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // COLLATION_NAME
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_collations[_index].name);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].name, len + 1);
-        str_slot->size = len;
-    }
-    // charset
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_collations[_index].charset);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].charset, len + 1);
-        str_slot->size = len;
-    }
-    // id
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        *(int64_t*)slot = _s_collations[_index].id;
-    }
-    // is_default
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_collations[_index].is_default);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].is_default, len + 1);
-        str_slot->size = len;
-    }
-    // IS_COMPILED
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_collations[_index].is_compile);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].is_compile, len + 1);
-        str_slot->size = len;
-    }
-    // sortlen
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
-        *(int64_t*)slot = _s_collations[_index].sortlen;
-    }
-    _index++;
-    return Status::OK();
-}
-
-Status SchemaCollationsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("call this before initial.");
-    }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("invalid parameter.");
-    }
-    if (nullptr == _s_collations[_index].name) {
-        *eos = true;
-        return Status::OK();
-    }
-
-    *eos = false;
-    return fill_one_row(tuple, pool);
-}
 
 Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
@@ -144,34 +64,34 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // COLLATION_NAME
     for (int i = 0; i < row_num; ++i) {
-        StringValue str = StringValue(_s_collations[i].name, strlen(_s_collations[i].name));
+        StringRef str = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
         fill_dest_column(block, &str, _tuple_desc->slots()[0]);
     }
     // charset
     for (int i = 0; i < row_num; ++i) {
-        StringValue str = StringValue(_s_collations[i].charset, strlen(_s_collations[i].charset));
+        StringRef str = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
         fill_dest_column(block, &str, _tuple_desc->slots()[1]);
     }
     // id
     for (int i = 0; i < row_num; ++i) {
-        int64_t src = _s_collations[_index].id;
+        int64_t src = _s_collations[i].id;
         fill_dest_column(block, &src, _tuple_desc->slots()[2]);
     }
     // is_default
     for (int i = 0; i < row_num; ++i) {
-        StringValue str =
-                StringValue(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
+        StringRef str =
+                StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
         fill_dest_column(block, &str, _tuple_desc->slots()[3]);
     }
     // IS_COMPILED
     for (int i = 0; i < row_num; ++i) {
-        StringValue str =
-                StringValue(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
+        StringRef str =
+                StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
         fill_dest_column(block, &str, _tuple_desc->slots()[4]);
     }
     // sortlen
     for (int i = 0; i < row_num; ++i) {
-        int64_t src = _s_collations[_index].sortlen;
+        int64_t src = _s_collations[i].sortlen;
         fill_dest_column(block, &src, _tuple_desc->slots()[5]);
     }
     return Status::OK();

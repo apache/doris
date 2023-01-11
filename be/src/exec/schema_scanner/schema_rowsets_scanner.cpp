@@ -51,35 +51,20 @@ SchemaScanner::ColumnDesc SchemaRowsetsScanner::_s_tbls_columns[] = {
 
 SchemaRowsetsScanner::SchemaRowsetsScanner()
         : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          backend_id_(0),
-          rowsets_idx_(0) {};
+                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc),
+                        TSchemaTableType::SCH_ROWSETS),
+          backend_id_(0) {};
 
 Status SchemaRowsetsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
     backend_id_ = state->backend_id();
-    RETURN_IF_ERROR(get_all_rowsets());
+    RETURN_IF_ERROR(_get_all_rowsets());
     return Status::OK();
 }
 
-Status SchemaRowsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("Used before initialized.");
-    }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-    if (rowsets_idx_ >= rowsets_.size()) {
-        *eos = true;
-        return Status::OK();
-    }
-    *eos = false;
-    return fill_one_row(tuple, pool);
-}
-
-Status SchemaRowsetsScanner::get_all_rowsets() {
+Status SchemaRowsetsScanner::_get_all_rowsets() {
     std::vector<TabletSharedPtr> tablets =
             StorageEngine::instance()->tablet_manager()->get_all_tablet();
     for (const auto& tablet : tablets) {
@@ -97,80 +82,127 @@ Status SchemaRowsetsScanner::get_all_rowsets() {
     return Status::OK();
 }
 
-Status SchemaRowsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // set all bit to not null
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    RowsetSharedPtr rowset = rowsets_[rowsets_idx_];
+Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("Used before initialized.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    *eos = true;
+    if (!rowsets_.size()) {
+        return Status::OK();
+    }
+    return _fill_block_impl(block);
+}
+
+Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
+    auto rowsets_num = rowsets_.size();
     // BACKEND_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = backend_id_;
+        int64_t src = backend_id_;
+        for (int i = 0; i < rowsets_num; ++i) {
+            fill_dest_column(block, &src, _tuple_desc->slots()[0]);
+        }
     }
     // ROWSET_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        std::string rowset_id = rowset->rowset_id().to_string();
-        str_slot->data = (char*)pool->allocate(rowset_id.size());
-        str_slot->size = rowset_id.size();
-        memcpy(const_cast<char*>(str_slot->data), rowset_id.c_str(), str_slot->size);
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            std::string rowset_id = rowset->rowset_id().to_string();
+            StringRef str = StringRef(rowset_id.c_str(), rowset_id.size());
+            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+        }
     }
     // TABLET_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->rowset_meta()->tablet_id();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            int64_t src = rowset->rowset_meta()->tablet_id();
+            fill_dest_column(block, &src, _tuple_desc->slots()[2]);
+        }
     }
     // ROWSET_NUM_ROWS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->num_rows();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            int64_t src = rowset->num_rows();
+            fill_dest_column(block, &src, _tuple_desc->slots()[3]);
+        }
     }
     // TXN_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->txn_id();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            int64_t src = rowset->txn_id();
+            fill_dest_column(block, &src, _tuple_desc->slots()[4]);
+        }
     }
     // NUM_SEGMENTS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->num_segments();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            int64_t src = rowset->num_segments();
+            fill_dest_column(block, &src, _tuple_desc->slots()[5]);
+        }
     }
     // START_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->start_version();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            int64_t src = rowset->start_version();
+            fill_dest_column(block, &src, _tuple_desc->slots()[6]);
+        }
     }
     // END_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->end_version();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            int64_t src = rowset->end_version();
+            fill_dest_column(block, &src, _tuple_desc->slots()[7]);
+        }
     }
     // INDEX_DISK_SIZE
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
-        *(reinterpret_cast<size_t*>(slot)) = rowset->index_disk_size();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            size_t src = rowset->index_disk_size();
+            fill_dest_column(block, &src, _tuple_desc->slots()[8]);
+        }
     }
     // DATA_DISK_SIZE
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
-        *(reinterpret_cast<size_t*>(slot)) = rowset->data_disk_size();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            size_t src = rowset->data_disk_size();
+            fill_dest_column(block, &src, _tuple_desc->slots()[9]);
+        }
     }
     // CREATION_TIME
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
-        *(reinterpret_cast<size_t*>(slot)) = rowset->creation_time();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            size_t src = rowset->creation_time();
+            fill_dest_column(block, &src, _tuple_desc->slots()[10]);
+        }
     }
     // OLDEST_WRITE_TIMESTAMP
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
-        *(reinterpret_cast<size_t*>(slot)) = rowset->oldest_write_timestamp();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            size_t src = rowset->oldest_write_timestamp();
+            fill_dest_column(block, &src, _tuple_desc->slots()[11]);
+        }
     }
     // NEWEST_WRITE_TIMESTAMP
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[12]->tuple_offset());
-        *(reinterpret_cast<size_t*>(slot)) = rowset->newest_write_timestamp();
+        for (int i = 0; i < rowsets_num; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            size_t src = rowset->newest_write_timestamp();
+            fill_dest_column(block, &src, _tuple_desc->slots()[12]);
+        }
     }
-    ++rowsets_idx_;
     return Status::OK();
 }
 } // namespace doris

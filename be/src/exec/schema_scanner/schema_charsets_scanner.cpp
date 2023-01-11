@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "vec/common/string_ref.h"
+
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
@@ -36,71 +37,9 @@ SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
         : SchemaScanner(_s_css_columns, sizeof(_s_css_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_CHARSETS),
-          _index(0) {}
+                        TSchemaTableType::SCH_CHARSETS) {}
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
-
-Status SchemaCharsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // variables names
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_charsets[_index].charset);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_charsets[_index].charset, len + 1);
-        str_slot->size = len;
-    }
-    // DEFAULT_COLLATE_NAME
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_charsets[_index].default_collation);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_charsets[_index].default_collation, len + 1);
-        str_slot->size = len;
-    }
-    // DESCRIPTION
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        int len = strlen(_s_charsets[_index].description);
-        str_slot->data = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->data) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(const_cast<char*>(str_slot->data), _s_charsets[_index].description, len + 1);
-        str_slot->size = len;
-    }
-    // maxlen
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        *(int64_t*)slot = _s_charsets[_index].maxlen;
-    }
-    _index++;
-    return Status::OK();
-}
-
-Status SchemaCharsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("call this before initial.");
-    }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("invalid parameter.");
-    }
-    if (nullptr == _s_charsets[_index].charset) {
-        *eos = true;
-        return Status::OK();
-    }
-    *eos = false;
-    return fill_one_row(tuple, pool);
-}
 
 Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
@@ -127,13 +66,12 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // DEFAULT_COLLATE_NAME
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_charsets[i].default_collation,
-                                      strlen(_s_charsets[i].default_collation));
+                                  strlen(_s_charsets[i].default_collation));
         fill_dest_column(block, &str, _tuple_desc->slots()[1]);
     }
     // DESCRIPTION
     for (int i = 0; i < row_num; ++i) {
-        StringRef str =
-                StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
+        StringRef str = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
         fill_dest_column(block, &str, _tuple_desc->slots()[2]);
     }
     // maxlen

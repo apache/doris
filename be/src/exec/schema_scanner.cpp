@@ -71,19 +71,6 @@ Status SchemaScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("used before initialized.");
-    }
-
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-
-    *eos = true;
-    return Status::OK();
-}
-
 Status SchemaScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
@@ -254,8 +241,11 @@ Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
             block->get_by_name(slot_desc->col_name()).column.get());
 
     if (data == nullptr) {
+        if (!slot_desc->is_nullable()) {
+            return Status::InternalError("nonnull column contains NULL. column={}",
+                                         slot_desc->col_name());
+        }
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-        nullable_column->get_null_map_data().push_back(1);
         nullable_column->insert_data(nullptr, 0);
         return Status::OK();
     }

@@ -28,7 +28,7 @@ public:
     virtual ~SchemaFilesScanner();
 
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
     int _db_index;
     int _table_index;

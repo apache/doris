@@ -83,7 +83,6 @@ public:
     virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
     virtual Status get_next_block(vectorized::Block* block, bool* eos);
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);

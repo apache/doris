@@ -26,7 +26,7 @@ public:
     SchemaDummyScanner();
     virtual ~SchemaDummyScanner();
     virtual Status start(RuntimeState* state = nullptr);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 };
 
 } // namespace doris

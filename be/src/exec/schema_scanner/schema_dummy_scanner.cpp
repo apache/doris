@@ -31,7 +31,7 @@ Status SchemaDummyScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaDummyScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaDummyScanner::get_next_block(vectorized::Block* block, bool* eos) {
     *eos = true;
     return Status::OK();
 }

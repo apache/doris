@@ -28,14 +28,13 @@ public:
     virtual ~SchemaViewsScanner();
 
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_new_table();
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _get_new_table();
+    Status _fill_block_impl(vectorized::Block* block);
 
     int _db_index;
-    int _table_index;
     TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
