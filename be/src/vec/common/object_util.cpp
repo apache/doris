@@ -521,7 +521,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     tmp_block.insert({nullptr, type, arg.name});
     RETURN_IF_ERROR(
             function->execute(nullptr, tmp_block, argnum, result_column, arg.column->size()));
-    *result = tmp_block.get_by_position(result_column).column;
+    *result = std::move(tmp_block.get_by_position(result_column).column);
     return Status::OK();
 }
 

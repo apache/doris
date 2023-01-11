@@ -22,7 +22,9 @@
 
 #include <rapidjson/document.h>
 #include <simdjson.h>
+
 #include <vec/core/types.h>
+#include <vec/json/path_in_data.h>
 
 namespace doris::vectorized {
 
@@ -57,7 +59,7 @@ struct SimdJSONParser {
             return element.type() == simdjson::dom::element_type::OBJECT;
         }
         ALWAYS_INLINE bool isBool() const {
-            return element.type() == simdjson::dom::element_type::BOOL;
+            return element.type() == simdjson::dom::element_type::BOOLEAN;
         }
         ALWAYS_INLINE bool isNull() const {
             return element.type() == simdjson::dom::element_type::NULL_VALUE;
