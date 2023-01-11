@@ -502,6 +502,9 @@ public class JdbcClient {
 
     public Type clickhouseTypeToDoris(JdbcFieldSchema fieldSchema) {
         String ckType = fieldSchema.getDataTypeName();
+        if (ckType.startsWith("LowCardinality")) {
+            ckType = ckType.substring(15, ckType.length() - 1);
+        }
         if (ckType.startsWith("Nullable")) {
             ckType = ckType.substring(9, ckType.length() - 1);
         }
