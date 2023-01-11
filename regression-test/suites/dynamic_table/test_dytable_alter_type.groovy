@@ -127,7 +127,7 @@ suite("test_dynamic_table", "dynamic_table"){
     def check_time = 30
     def test_alter_colume_type_from_srcType_to_dstType = { table_name, colume_name, src_json, src_type, dst_type, dst_json, expect_alter_success ->
         //create table
-        sql "DROP TABLE IF EXISTS ${table_name}"
+        sql "DROP TABLE IF EXISTS ${table_name} FORCE"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 name char(50),

@@ -190,8 +190,8 @@ suite("test_dynamic_table", "dynamic_table"){
     String[] data_models = ["DUPLICATE"]
     int[] replica_num = [3]
     def expect_success = "true"
-    def feishu_fix_columes = ["content.post.zh_cn.title", "msg_type"]
-    def feishu_fix_columes_type = ["VARCHAR(100)", "CHAR(50)"]
+    def feishu_fix_columes = ["id", "content.post.zh_cn.title", "msg_type"]
+    def feishu_fix_columes_type = ["BIGINT", "VARCHAR(100)", "CHAR(50)"]
     def github_fix_columes = ["repo.id"]
     def github_fix_columes_type = ["BIGINT"]
     def table_name = ["feishu", "github"]
@@ -228,9 +228,9 @@ suite("test_dynamic_table", "dynamic_table"){
                     create_index("${table_names[tb]}", "content.post.zh_cn.title", "title_idx", "english", "success")
                     create_index("${table_names[tb]}", "msg_type", "msg_idx", "null", "success")
                     //select index colume mix select
-                    qt_sql """ select * from ${table_names[tb]} where msg_type="post" or `content.post.zh_cn.title` match_all "BUILD_FINISHED" order by `content.post.zh_cn.title` limit 30; """
-                    qt_sql """ select * from ${table_names[tb]} where msg_type in ("post", "get") and `content.post.zh_cn.title` match_any "BUILD_FINISHED" order by `content.post.zh_cn.title` limit 30; """
-                    qt_sql """ select `content.post.zh_cn.content.herf` from ${table_names[tb]} where msg_type in ("post") and `content.post.zh_cn.title` match_any "FINISHED" order by `content.post.zh_cn.title` limit 30; """
+                    qt_sql """ select * from ${table_names[tb]} where msg_type="post" or `content.post.zh_cn.title` match_all "BUILD_FINISHED" order by `content.post.zh_cn.title`, id limit 30; """
+                    qt_sql """ select * from ${table_names[tb]} where msg_type in ("post", "get") and `content.post.zh_cn.title` match_any "BUILD_FINISHED" order by `content.post.zh_cn.title`, id limit 30; """
+                    qt_sql """ select `content.post.zh_cn.content.herf` from ${table_names[tb]} where msg_type in ("post") and `content.post.zh_cn.title` match_any "FINISHED" order by `content.post.zh_cn.title`,id limit 30; """
                     qt_sql """ select count() from ${table_names[tb]} where msg_type="post" and `content.post.zh_cn.title` != "BUILD_FINISHED" group by `content.post.zh_cn.title`; """
                     // qt_sql """ select `content.post.zh_cn.title`,`content.post.zh_cn.content.herf` from dytable_complex_feishu_3_DUPLICATE where msg_type="post" group by `content.post.zh_cn.content.herf`, `content.post.zh_cn.title` order by `content.post.zh_cn.title`;"""
                 }else if(table_names[tb].contains("github")) {
