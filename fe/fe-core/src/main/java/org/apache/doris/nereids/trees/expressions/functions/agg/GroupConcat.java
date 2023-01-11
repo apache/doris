@@ -110,7 +110,7 @@ public class GroupConcat extends AggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children().size() > 1);
+        Preconditions.checkArgument(children().size() >= 1);
 
         boolean foundOrderExpr = false;
         int firstOrderExrIndex = 0;
