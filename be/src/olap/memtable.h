@@ -166,7 +166,7 @@ private:
     int64_t _merged_rows = 0;
 
     // for vectorized
-    vectorized::MutableBlock _input_mutable_block; // temp store for aggregate table
+    vectorized::MutableBlock _input_mutable_block;     // temp store for aggregate table
     vectorized::MutableBlock _input_mutable_block_dup; // temp store for duplicate table
     vectorized::MutableBlock _output_mutable_block;
 

@@ -315,7 +315,6 @@ void MemTable::shrink_memtable_by_agg() {
 }
 
 bool MemTable::need_flush() const {
-bool MemTable::need_flush() const {
     return memory_usage() >= config::write_buffer_size;
 }
 
