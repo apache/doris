@@ -69,8 +69,12 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string
 }
 
 HdfsFileSystem::~HdfsFileSystem() {
-    if (_fs_handle && _fs_handle->from_cache) {
-        _fs_handle->dec_ref();
+    if (_fs_handle != nullptr) {
+        if (_fs_handle->from_cache) {
+            _fs_handle->dec_ref();
+        } else {
+            delete _fs_handle;
+        }
     }
 }
 
