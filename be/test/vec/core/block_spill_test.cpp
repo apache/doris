@@ -18,12 +18,15 @@
 #include <gtest/gtest.h>
 
 #include "runtime/block_spill_manager.h"
+#include "runtime/runtime_state.h"
 #include "util/file_utils.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/block_spill_reader.h"
+#include "vec/core/block_spill_writer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -44,6 +47,9 @@ std::shared_ptr<BlockSpillManager> block_spill_manager;
 
 class TestBlockSpill : public testing::Test {
 public:
+    TestBlockSpill() : runtime_state_(TQueryGlobals()) {
+        profile_ = runtime_state_.runtime_profile();
+    }
     static void SetUpTestSuite() {
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -55,14 +61,23 @@ public:
         std::vector<StorePath> paths;
         paths.emplace_back(test_data_dir, -1);
         block_spill_manager = std::make_shared<BlockSpillManager>(paths);
+        block_spill_manager->init();
     }
 
     static void TearDownTestSuite() { FileUtils::remove_all(test_data_dir); }
 
 protected:
-    void SetUp() {}
+    void SetUp() {
+        env_ = ExecEnv::GetInstance();
+        env_->_block_spill_mgr = block_spill_manager.get();
+    }
 
     void TearDown() {}
+
+private:
+    ExecEnv* env_ = nullptr;
+    RuntimeState runtime_state_;
+    RuntimeProfile* profile_;
 };
 
 TEST_F(TestBlockSpill, TestInt) {
@@ -88,31 +103,31 @@ TEST_F(TestBlockSpill, TestInt) {
     vectorized::Block block2({type_and_name2});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     spill_block_writer->write(block1);
     spill_block_writer->write(block2);
     spill_block_writer->close();
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        spill_block_reader->read(block_read, eof);
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+        spill_block_reader->read(&block_read);
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnVector<int>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             EXPECT_EQ(real_column->get_int(j), j + i * batch_size);
         }
     }
 
-    spill_block_reader->read(block_read, eof);
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+    spill_block_reader->read(&block_read);
+    spill_block_reader->close();
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column = (vectorized::ColumnVector<int>*)column.get();
     EXPECT_EQ(real_column->get_int(0), 0);
 }
@@ -137,20 +152,20 @@ TEST_F(TestBlockSpill, TestIntNullable) {
     vectorized::Block block({type_and_name});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     spill_block_writer->write(block);
     spill_block_writer->close();
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        spill_block_reader->read(block_read, eof);
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+        spill_block_reader->read(&block_read);
+
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnNullable*)column.get();
         const auto& int_column =
                 (const vectorized::ColumnVector<int>&)(real_column->get_nested_column());
@@ -163,10 +178,11 @@ TEST_F(TestBlockSpill, TestIntNullable) {
         }
     }
 
-    spill_block_reader->read(block_read, eof);
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+    spill_block_reader->read(&block_read);
+    spill_block_reader->close();
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column = (vectorized::ColumnNullable*)column.get();
     const auto& int_column =
             (const vectorized::ColumnVector<int>&)(real_column->get_nested_column());
@@ -187,32 +203,33 @@ TEST_F(TestBlockSpill, TestString) {
     vectorized::Block block({test_string});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     Status st = spill_block_writer->write(block);
     spill_block_writer->close();
     EXPECT_TRUE(st.ok());
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(block_read, eof);
+        st = spill_block_reader->read(&block_read);
         EXPECT_TRUE(st.ok());
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnString*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             EXPECT_EQ(real_column->get_data_at(j), StringRef(std::to_string(j + i * batch_size)));
         }
     }
 
-    spill_block_reader->read(block_read, eof);
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+    spill_block_reader->read(&block_read);
+    spill_block_reader->close();
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column = (vectorized::ColumnString*)column.get();
     EXPECT_EQ(real_column->get_data_at(0), StringRef(std::to_string(batch_size * 3)));
 }
@@ -237,22 +254,22 @@ TEST_F(TestBlockSpill, TestStringNullable) {
     vectorized::Block block({type_and_name});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     Status st = spill_block_writer->write(block);
     spill_block_writer->close();
     EXPECT_TRUE(st.ok());
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(block_read, eof);
+        st = spill_block_reader->read(&block_read);
         EXPECT_TRUE(st.ok());
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnNullable*)column.get();
         const auto& string_column =
                 (const vectorized::ColumnString&)(real_column->get_nested_column());
@@ -266,11 +283,12 @@ TEST_F(TestBlockSpill, TestStringNullable) {
         }
     }
 
-    st = spill_block_reader->read(block_read, eof);
+    st = spill_block_reader->read(&block_read);
+    spill_block_reader->close();
     EXPECT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column = (vectorized::ColumnNullable*)column.get();
     const auto& string_column = (const vectorized::ColumnString&)(real_column->get_nested_column());
     EXPECT_EQ(string_column.get_data_at(0), StringRef(std::to_string(batch_size * 3)));
@@ -294,22 +312,22 @@ TEST_F(TestBlockSpill, TestDecimal) {
     vectorized::Block block({test_decimal});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     auto st = spill_block_writer->write(block);
     spill_block_writer->close();
     EXPECT_TRUE(st.ok());
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(block_read, eof);
+        st = spill_block_reader->read(&block_read);
         EXPECT_TRUE(st.ok());
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column =
                 (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
@@ -318,11 +336,12 @@ TEST_F(TestBlockSpill, TestDecimal) {
         }
     }
 
-    st = spill_block_reader->read(block_read, eof);
+    st = spill_block_reader->read(&block_read);
+    spill_block_reader->close();
     EXPECT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column =
             (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
     EXPECT_EQ(real_column->get_element(0), batch_size * 3 * (pow(10, 9) + pow(10, 8)));
@@ -349,22 +368,22 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
     vectorized::Block block({type_and_name});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     auto st = spill_block_writer->write(block);
     spill_block_writer->close();
     EXPECT_TRUE(st.ok());
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(block_read, eof);
+        st = spill_block_reader->read(&block_read);
         EXPECT_TRUE(st.ok());
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnNullable*)column.get();
         const auto& decimal_col = (vectorized::ColumnDecimal<vectorized::Decimal<
                                            vectorized::Int128>>&)(real_column->get_nested_column());
@@ -378,11 +397,12 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
         }
     }
 
-    st = spill_block_reader->read(block_read, eof);
+    st = spill_block_reader->read(&block_read);
+    spill_block_reader->close();
     EXPECT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column = (vectorized::ColumnNullable*)column.get();
     const auto& decimal_col =
             (vectorized::ColumnDecimal<
@@ -413,22 +433,22 @@ TEST_F(TestBlockSpill, TestBitmap) {
     vectorized::Block block({type_and_name});
 
     vectorized::BlockSpillWriterUPtr spill_block_writer;
-    block_spill_manager->get_writer(batch_size, spill_block_writer);
+    block_spill_manager->get_writer(batch_size, spill_block_writer, profile_);
     auto st = spill_block_writer->write(block);
     spill_block_writer->close();
     EXPECT_TRUE(st.ok());
 
     vectorized::BlockSpillReaderUPtr spill_block_reader;
-    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader);
-    bool eof = false;
-    vectorized::Block block_read;
+    block_spill_manager->get_reader(spill_block_writer->get_id(), spill_block_reader, profile_);
+
+    vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(block_read, eof);
+        st = spill_block_reader->read(&block_read);
         EXPECT_TRUE(st.ok());
-        ASSERT_FALSE(eof);
-        EXPECT_EQ(block_read.rows(), batch_size);
-        auto column = block_read.get_by_position(0).column;
+
+        EXPECT_EQ(block_read->rows(), batch_size);
+        auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnComplexType<BitmapValue>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             auto bitmap_str = convert_bitmap_to_string(real_column->get_element(j));
@@ -436,11 +456,12 @@ TEST_F(TestBlockSpill, TestBitmap) {
         }
     }
 
-    st = spill_block_reader->read(block_read, eof);
+    st = spill_block_reader->read(&block_read);
+    spill_block_reader->close();
     EXPECT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
-    EXPECT_EQ(block_read.rows(), 1);
-    auto column = block_read.get_by_position(0).column;
+
+    EXPECT_EQ(block_read->rows(), 1);
+    auto column = block_read->get_by_position(0).column;
     auto* real_column = (vectorized::ColumnComplexType<BitmapValue>*)column.get();
     auto bitmap_str = convert_bitmap_to_string(real_column->get_element(0));
     EXPECT_EQ(bitmap_str, expected_bitmap_str[3 * batch_size]);

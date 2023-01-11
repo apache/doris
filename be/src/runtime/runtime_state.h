@@ -414,6 +414,13 @@ public:
 #endif
     }
 
+    int64_t external_sort_bytes_threshold() const {
+        if (_query_options.__isset.external_sort_bytes_threshold) {
+            return _query_options.external_sort_bytes_threshold;
+        }
+        return 0;
+    }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {

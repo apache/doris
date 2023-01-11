@@ -279,6 +279,7 @@ Status ExecEnv::_init_mem_env() {
     // 4. init other managers
     RETURN_IF_ERROR(_disk_io_mgr->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
+    RETURN_IF_ERROR(_block_spill_mgr->init());
 
     // 5. init chunk allocator
     if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {

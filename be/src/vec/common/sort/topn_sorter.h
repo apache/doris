@@ -26,7 +26,7 @@ class TopNSorter final : public Sorter {
 public:
     TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc);
+               const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
 
     ~TopNSorter() override = default;
 
@@ -37,6 +37,8 @@ public:
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
     size_t data_size() const override;
+
+    bool is_spilled() const override { return _state->is_spilled(); }
 
     static constexpr size_t TOPN_SORT_THRESHOLD = 256;
 
