@@ -31,7 +31,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -43,6 +42,7 @@
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -359,6 +359,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::DATA_GEN_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
+    case TPlanNodeType::META_SCAN_NODE:
         break;
     default: {
         const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -402,6 +403,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::SCHEMA_SCAN_NODE:
         *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::META_SCAN_NODE:
+        *node = pool->add(new vectorized::VMetaScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::OLAP_SCAN_NODE:
@@ -550,6 +555,7 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
 }
 
 void ExecNode::try_do_aggregate_serde_improve() {
@@ -573,7 +579,8 @@ void ExecNode::try_do_aggregate_serde_improve() {
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
         typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
         typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
+        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
+        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();

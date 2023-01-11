@@ -212,7 +212,7 @@ public class Utils {
 
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
         for (int i = 0; i < list.size(); i++) {
-            if (list.get(i) == oldItem) {
+            if (list.get(i).equals(oldItem)) {
                 list.set(i, newItem);
             }
         }

@@ -25,15 +25,20 @@ namespace vectorized {
 // Write a block to a local file.
 //
 // The block may be logically splitted to small sub blocks in the single file,
-// which can be read back one small block at a time by BlockNativeReader::get_next.
+// which can be read back one small block at a time by BlockSpillReader::read.
 //
 // Split to small blocks is necessary for Sort node, which need to merge multiple
-// spilled big sorted blocks to a bigger sorted block. A small block is read from each
-// spilled block file.
+// spilled big sorted blocks into a bigger sorted block. A small block is read from each
+// spilled block file each time.
 class BlockSpillWriter {
 public:
-    BlockSpillWriter(int64_t id, size_t batch_size, const std::string& file_path)
-            : stream_id_(id), batch_size_(batch_size), file_path_(file_path) {}
+    BlockSpillWriter(int64_t id, size_t batch_size, const std::string& file_path,
+                     RuntimeProfile* profile)
+            : stream_id_(id), batch_size_(batch_size), file_path_(file_path), profile_(profile) {
+        _init_profile();
+    }
+
+    ~BlockSpillWriter() { close(); }
 
     Status open();
 
@@ -43,12 +48,17 @@ public:
 
     int64_t get_id() const { return stream_id_; }
 
+    size_t get_written_bytes() const { return total_written_bytes_; }
+
 private:
+    void _init_profile();
+
     Status _write_internal(const Block& block);
 
 private:
     int64_t stream_id_;
     size_t batch_size_;
+    size_t max_sub_block_size_ = 0;
     std::string file_path_;
     std::unique_ptr<doris::FileWriter> file_writer_;
 
@@ -58,6 +68,11 @@ private:
 
     bool is_first_write_ = true;
     Block tmp_block_;
+
+    RuntimeProfile* profile_ = nullptr;
+    RuntimeProfile::Counter* write_bytes_counter_;
+    RuntimeProfile::Counter* serialize_timer_;
+    RuntimeProfile::Counter* write_timer_;
 };
 
 using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;

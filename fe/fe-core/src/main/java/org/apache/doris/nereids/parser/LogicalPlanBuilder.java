@@ -479,7 +479,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 String value = parseTVFPropertyItem(argument.value);
                 map.put(key, value);
             }
-            LogicalPlan relation = new UnboundTVFRelation(functionName, new TVFProperties(map.build()));
+            LogicalPlan relation = new UnboundTVFRelation(RelationUtil.newRelationId(),
+                    functionName, new TVFProperties(map.build()));
             return withTableAlias(relation, ctx.tableAlias());
         });
     }

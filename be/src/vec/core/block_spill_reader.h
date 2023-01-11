@@ -25,25 +25,45 @@ namespace vectorized {
 // Read data spilled to local file.
 class BlockSpillReader {
 public:
-    BlockSpillReader(const std::string& file_path) : file_path_(file_path) {}
+    BlockSpillReader(int64_t stream_id, const std::string& file_path, RuntimeProfile* profile,
+                     bool delete_after_read = true)
+            : stream_id_(stream_id),
+              file_path_(file_path),
+              delete_after_read_(delete_after_read),
+              profile_(profile) {
+        _init_profile();
+    }
+
+    ~BlockSpillReader() { close(); }
 
     Status open();
 
-    Status close() {
-        file_reader_.reset();
-        return Status::OK();
-    }
+    Status close();
 
-    // read a small block, set eof to true if no more data to read
-    Status read(Block& block, bool& eof);
+    Status read(Block** block);
+
+    int64_t get_id() const { return stream_id_; }
+
+    std::string get_path() const { return file_path_; }
 
 private:
+    void _init_profile();
+
+    int64_t stream_id_;
     std::string file_path_;
+    bool delete_after_read_;
     io::FileReaderSPtr file_reader_;
 
     size_t block_count_ = 0;
     size_t read_block_index_ = 0;
+    size_t max_sub_block_size_ = 0;
+    std::unique_ptr<char[]> read_buff_;
     std::vector<size_t> block_start_offsets_;
+    std::unique_ptr<Block> current_block_;
+
+    RuntimeProfile* profile_ = nullptr;
+    RuntimeProfile::Counter* read_time_;
+    RuntimeProfile::Counter* deserialize_time_;
 };
 
 using BlockSpillReaderUPtr = std::unique_ptr<BlockSpillReader>;

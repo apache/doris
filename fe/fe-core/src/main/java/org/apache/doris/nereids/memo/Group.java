@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  */
 public class Group {
     private final GroupId groupId;
-    // Save all parent GroupExpression to avoid travsing whole Memo.
+    // Save all parent GroupExpression to avoid traversing whole Memo.
     private final IdentityHashMap<GroupExpression, Void> parentExpressions = new IdentityHashMap<>();
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
@@ -261,47 +261,28 @@ public class Group {
     }
 
     /**
-     * move the ownerGroup of all logical expressions to target group
+     * move the ownerGroup to target group
      * if this.equals(target), do nothing.
      *
      * @param target the new owner group of expressions
      */
-    public void moveLogicalExpressionOwnership(Group target) {
+    public void moveOwnership(Group target) {
         if (equals(target)) {
             return;
         }
-        for (GroupExpression expression : logicalExpressions) {
-            target.addGroupExpression(expression);
-        }
+
+        // move parentExpressions  Ownership
+        parentExpressions.keySet().forEach(kv -> target.addParentExpression(kv));
+        parentExpressions.clear();
+
+        // move LogicalExpression PhysicalExpression Ownership
+        logicalExpressions.forEach(expr -> target.addGroupExpression(expr));
         logicalExpressions.clear();
-    }
-
-    /**
-     * move the ownerGroup of all physical expressions to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void movePhysicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : physicalExpressions) {
-            target.addGroupExpression(expression);
-        }
+        // movePhysicalExpressionOwnership
+        physicalExpressions.forEach(expr -> target.addGroupExpression(expr));
         physicalExpressions.clear();
-    }
 
-    /**
-     * move the ownerGroup of all lowestCostPlans to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void moveLowestCostPlansOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
+        // moveLowestCostPlansOwnership
         lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
             GroupExpression bestGroupExpression = costAndGroupExpr.second;
             // change into target group.

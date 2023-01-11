@@ -74,6 +74,10 @@ suite("nereids_function") {
         result([[0L], [1L], [2L], [3L], [4L], [5L], [6L], [7L], [8L], [9L]])
     }
 
+    qt_subquery1 """ select * from numbers("number" = "10") where number = (select number from numbers("number" = "10") where number=1); """
+    qt_subquery2 """ select * from numbers("number" = "10") where number in (select number from numbers("number" = "10") where number>5); """
+    qt_subquery3 """ select a.number from numbers("number" = "10") a where number in (select number from numbers("number" = "10") b where a.number=b.number); """
+
     test {
         sql """select `number` from numbers("number" = -1, 'backend_num' = `1`)"""
         result([])
@@ -102,6 +106,11 @@ suite("nereids_function") {
     test {
         sql "select convert_to('abc', cast(number as varchar)) from numbers('number'='1')"
         exception "must be a constant"
+    }
+
+    test {
+        sql """select "1" == "123", "%%" == "%%" """
+        result([[false, true]])
     }
 }
 

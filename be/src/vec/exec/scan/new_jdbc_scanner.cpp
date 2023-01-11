@@ -20,8 +20,8 @@
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
                                const TupleId& tuple_id, const std::string& query_string,
-                               TOdbcTableType::type table_type)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                               TOdbcTableType::type table_type, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),

@@ -33,7 +33,6 @@
 #include "exprs/expr_context.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/row_batch.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/countdown_latch.h"

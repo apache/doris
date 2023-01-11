@@ -26,7 +26,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"

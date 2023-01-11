@@ -22,8 +22,8 @@
 #include "common/status.h"
 #include "vec/core/block.h"
 
-// This file will convert Doris RowBatch to/from Arrow's RecordBatch
-// RowBatch is used by Doris query engine to exchange data between
+// This file will convert Doris Block to/from Arrow's RecordBatch
+// Block is used by Doris query engine to exchange data between
 // each execute node.
 
 namespace arrow {
@@ -37,7 +37,6 @@ class Schema;
 namespace doris {
 
 class ObjectPool;
-class RowBatch;
 class RowDescriptor;
 
 Status convert_to_arrow_batch(const vectorized::Block& block,

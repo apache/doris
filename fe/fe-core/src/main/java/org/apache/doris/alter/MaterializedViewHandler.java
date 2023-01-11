@@ -525,6 +525,10 @@ public class MaterializedViewHandler extends AlterHandler {
             if (column.getDataType() == PrimitiveType.ARRAY) {
                 throw new DdlException("The array column[" + column + "] not support to create materialized view");
             }
+            if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
+                    && (column.getType().isBitmapType() || column.getType().isHllType())) {
+                throw new DdlException("Bitmap/HLL type only support aggregate table");
+            }
         }
 
         if (olapTable.getEnableLightSchemaChange()) {

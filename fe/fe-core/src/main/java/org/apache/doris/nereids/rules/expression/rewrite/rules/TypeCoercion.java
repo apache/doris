@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -84,6 +86,15 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         if (binaryOperator instanceof ImplicitCastInputTypes) {
             List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) binaryOperator).expectedInputTypes();
             if (!expectedInputTypes.isEmpty()) {
+                binaryOperator.children().stream().filter(e -> e instanceof StringLikeLiteral)
+                        .forEach(expr -> {
+                            try {
+                                new BigDecimal(((StringLikeLiteral) expr).getStringValue());
+                            } catch (NumberFormatException e) {
+                                throw new IllegalStateException(String.format(
+                                        "string literal %s cannot be cast to double", expr.toSql()));
+                            }
+                        });
                 binaryOperator = (BinaryOperator) visitImplicitCastInputTypes(binaryOperator, expectedInputTypes,
                         context);
             }
@@ -111,13 +122,14 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
         Expression left = rewrite(divide.left(), context);
         Expression right = rewrite(divide.right(), context);
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
         DataType commonType = TypeCoercionUtils.findCommonNumericsType(t1, t2);
-        if (divide.getLegacyOperator() == Operator.DIVIDE) {
-            if (commonType.isBigIntType() || commonType.isLargeIntType()) {
-                commonType = DoubleType.INSTANCE;
-            }
+
+        if (divide.getLegacyOperator() == Operator.DIVIDE
+                && (commonType.isBigIntType() || commonType.isLargeIntType())) {
+            commonType = DoubleType.INSTANCE;
         }
         Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
         Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);

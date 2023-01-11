@@ -21,10 +21,11 @@
 
 namespace doris::vectorized {
 
-VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit)
+VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile)
         : _state(state),
           _parent(parent),
           _limit(limit),
+          _profile(profile),
           _input_tuple_desc(parent->input_tuple_desc()),
           _output_tuple_desc(parent->output_tuple_desc()) {
     _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;

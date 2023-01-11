@@ -17,13 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.BitmapIntersectFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -32,6 +35,10 @@ import java.util.List;
  */
 public class OrthogonalBitmapIntersect extends AggregateFunction
         implements AlwaysNotNullable, OrthogonalBitmapFunction, BitmapIntersectFunction {
+
+    static final List<FunctionSignature> FUNCTION_SIGNATURES = SUPPORTED_TYPES.stream()
+            .map(type -> FunctionSignature.ret(BitmapType.INSTANCE).varArgs(BitmapType.INSTANCE, type, type))
+            .collect(ImmutableList.toImmutableList());
 
     /**
      * constructor with 3 or more arguments.
@@ -47,6 +54,11 @@ public class OrthogonalBitmapIntersect extends AggregateFunction
             Expression arg2, Expression... varArgs) {
         super("orthogonal_bitmap_intersect", distinct,
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, varArgs));
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return FUNCTION_SIGNATURES;
     }
 
     /**

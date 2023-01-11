@@ -32,7 +32,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
@@ -46,6 +45,7 @@
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -166,7 +166,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
             typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
-            typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
+            typeid(*node) == typeid(vectorized::NewJdbcScanNode) ||
+            typeid(*node) == typeid(vectorized::VMetaScanNode)) {
             vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             const std::vector<TScanRangeParams>& scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
