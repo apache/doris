@@ -420,6 +420,12 @@ CREATE RESOURCE pg_resource PROPERTIES (
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
 ```
 
 **CLICKHOUSE catalog example**
@@ -435,6 +441,13 @@ CREATE RESOURCE clickhouse_resource PROPERTIES (
     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
 )
 CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    ...
+)
 ```
 
 Where `jdbc.driver_url` can be a remote jar package

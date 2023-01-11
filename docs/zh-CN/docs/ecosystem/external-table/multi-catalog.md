@@ -492,6 +492,13 @@ CREATE RESOURCE pg_resource PROPERTIES (
     "driver_class" = "org.postgresql.Driver"
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
 ```
 
 **CLICKHOUSE catalog示例**
@@ -507,6 +514,13 @@ CREATE RESOURCE clickhouse_resource PROPERTIES (
     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
 )
 CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    ...
+)
 ```
 
 其中`jdbc.driver_url`可以是远程jar包：
