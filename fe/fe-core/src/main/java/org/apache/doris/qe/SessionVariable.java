@@ -294,7 +294,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
-    public long sqlMode = 0L;
+    public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "normal";
