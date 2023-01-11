@@ -196,33 +196,31 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
 TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
     TypeDescriptor type;
     if (logicalType.__isset.STRING) {
-        type.type = TYPE_STRING;
+        type = TypeDescriptor(TYPE_STRING);
     } else if (logicalType.__isset.DECIMAL) {
-        type.type = TYPE_DECIMALV2;
-        type.precision = 27;
-        type.scale = 9;
+        type = TypeDescriptor(TYPE_DECIMALV2);
     } else if (logicalType.__isset.DATE) {
-        type.type = TYPE_DATEV2;
+        type = TypeDescriptor(TYPE_DATEV2);
     } else if (logicalType.__isset.INTEGER) {
         if (logicalType.INTEGER.isSigned) {
             if (logicalType.INTEGER.bitWidth <= 32) {
-                type.type = TYPE_INT;
+                type = TypeDescriptor(TYPE_INT);
             } else {
-                type.type = TYPE_BIGINT;
+                type = TypeDescriptor(TYPE_BIGINT);
             }
         } else {
             if (logicalType.INTEGER.bitWidth <= 16) {
-                type.type = TYPE_INT;
+                type = TypeDescriptor(TYPE_INT);
             } else {
-                type.type = TYPE_BIGINT;
+                type = TypeDescriptor(TYPE_BIGINT);
             }
         }
     } else if (logicalType.__isset.TIME) {
-        type.type = TYPE_TIMEV2;
+        type = TypeDescriptor(TYPE_TIMEV2);
     } else if (logicalType.__isset.TIMESTAMP) {
-        type.type = TYPE_DATETIMEV2;
+        type = TypeDescriptor(TYPE_DATETIMEV2);
     } else {
-        type.type = INVALID_TYPE;
+        type = TypeDescriptor(INVALID_TYPE);
     }
     return type;
 }
@@ -231,39 +229,41 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
     TypeDescriptor type;
     switch (convertedType) {
     case tparquet::ConvertedType::type::UTF8:
-        type.type = TYPE_STRING;
+        type = TypeDescriptor(TYPE_STRING);
         break;
     case tparquet::ConvertedType::type::DECIMAL:
-        type.type = TYPE_DECIMALV2;
-        type.precision = 27;
-        type.scale = 9;
+        type = TypeDescriptor(TYPE_DECIMALV2);
         break;
     case tparquet::ConvertedType::type::DATE:
-        type.type = TYPE_DATEV2;
+        type = TypeDescriptor(TYPE_DATEV2);
         break;
     case tparquet::ConvertedType::type::TIME_MILLIS:
     case tparquet::ConvertedType::type::TIME_MICROS:
-        type.type = TYPE_TIMEV2;
+        type = TypeDescriptor(TYPE_TIMEV2);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
     case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
-        type.type = TYPE_DATETIMEV2;
+        type = TypeDescriptor(TYPE_DATETIMEV2);
+        break;
+    case tparquet::ConvertedType::type::INT_8:
+        type = TypeDescriptor(TYPE_TINYINT);
         break;
     case tparquet::ConvertedType::type::UINT_8:
-    case tparquet::ConvertedType::type::UINT_16:
-    case tparquet::ConvertedType::type::INT_8:
     case tparquet::ConvertedType::type::INT_16:
+        type = TypeDescriptor(TYPE_SMALLINT);
+        break;
+    case tparquet::ConvertedType::type::UINT_16:
     case tparquet::ConvertedType::type::INT_32:
-        type.type = TYPE_INT;
+        type = TypeDescriptor(TYPE_INT);
         break;
     case tparquet::ConvertedType::type::UINT_32:
     case tparquet::ConvertedType::type::UINT_64:
     case tparquet::ConvertedType::type::INT_64:
-        type.type = TYPE_BIGINT;
+        type = TypeDescriptor(TYPE_BIGINT);
         break;
     default:
         LOG(WARNING) << "Not supported parquet ConvertedType: " << convertedType;
-        type = INVALID_TYPE;
+        type = TypeDescriptor(INVALID_TYPE);
         break;
     }
     return type;
