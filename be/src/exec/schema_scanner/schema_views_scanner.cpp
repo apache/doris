@@ -89,7 +89,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         str_slot->ptr = (char*)pool->allocate(db_name.size());
         str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
     }
     // name
     {
@@ -101,7 +101,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
     // definition
     {
@@ -113,7 +113,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, ddl_sql->c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, ddl_sql->c_str(), str_slot->len);
     }
     // check_option
     {
@@ -126,7 +126,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, check_option.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, check_option.c_str(), str_slot->len);
     }
     // is_updatable
     {
@@ -139,7 +139,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, is_updatable.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, is_updatable.c_str(), str_slot->len);
     }
     // definer
     {
@@ -152,7 +152,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, definer.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, definer.c_str(), str_slot->len);
     }
     // security_type
     {
@@ -165,7 +165,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, security_type.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, security_type.c_str(), str_slot->len);
     }
     // character_set_client
     {
@@ -178,7 +178,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, encoding.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, encoding.c_str(), str_slot->len);
     }
     // collation_connection
     { tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset()); }

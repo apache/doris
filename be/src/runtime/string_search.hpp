@@ -57,7 +57,7 @@ public:
     }
 
     int search(const StringRef& str) const {
-        auto it = search(const_cast<char*>(str.data), str.size);
+        auto it = search(str.data, str.size);
         if (it == str.data + str.size) {
             return -1;
         } else {
@@ -68,7 +68,7 @@ public:
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns str+len if the pattern is not found
-    const char* search(char* str, size_t len) const {
+    const char* search(const char* str, size_t len) const {
         if (!str || !_pattern || _pattern->len == 0) {
             return str + len;
         }

@@ -108,7 +108,7 @@ Status SchemaSchemaPrivilegesScanner::fill_one_col(const std::string* src, MemPo
     if (nullptr == str_slot->ptr) {
         return Status::InternalError("Allocate memcpy failed.");
     }
-    memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+    //memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     return Status::OK();
 }
 

@@ -216,7 +216,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             std::string catalog_name = _db_result.catalogs[_db_index - 1];
             str_slot->ptr = (char*)pool->allocate(catalog_name.size());
             str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+            //memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
         }
     }
     // TABLE_SCHEMA
@@ -226,7 +226,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         str_slot->ptr = (char*)pool->allocate(db_name.size());
         str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
     }
     // TABLE_NAME
     {
@@ -234,7 +234,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->ptr = (char*)pool->allocate(_table_result.tables[_table_index - 1].length());
         str_slot->len = _table_result.tables[_table_index - 1].length();
-        memcpy(str_slot->ptr, _table_result.tables[_table_index - 1].c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, _table_result.tables[_table_index - 1].c_str(), str_slot->len);
     }
     // COLUMN_NAME
     {
@@ -243,8 +243,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         str_slot->ptr = (char*)pool->allocate(
                 _desc_result.columns[_column_index].columnDesc.columnName.length());
         str_slot->len = _desc_result.columns[_column_index].columnDesc.columnName.length();
-        memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnName.c_str(),
-               str_slot->len);
+        //memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnName.c_str(),
+        //       str_slot->len);
     }
     // ORDINAL_POSITION
     {
@@ -263,16 +263,16 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             if (_desc_result.columns[_column_index].columnDesc.isAllowNull) {
                 str_slot->len = strlen("YES");
                 str_slot->ptr = (char*)pool->allocate(str_slot->len);
-                memcpy(str_slot->ptr, "YES", str_slot->len);
+                //memcpy(str_slot->ptr, "YES", str_slot->len);
             } else {
                 str_slot->len = strlen("NO");
                 str_slot->ptr = (char*)pool->allocate(str_slot->len);
-                memcpy(str_slot->ptr, "NO", str_slot->len);
+                //memcpy(str_slot->ptr, "NO", str_slot->len);
             }
         } else {
             str_slot->len = strlen("NO");
             str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            memcpy(str_slot->ptr, "NO", str_slot->len);
+            //memcpy(str_slot->ptr, "NO", str_slot->len);
         }
     }
     // DATA_TYPE
@@ -283,7 +283,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
                 to_mysql_data_type_string(_desc_result.columns[_column_index].columnDesc);
         str_slot->len = buffer.length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
     }
     // CHARACTER_MAXIMUM_LENGTH
     // For string columns, the maximum length in characters.
@@ -352,7 +352,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         std::string buffer = type_to_string(_desc_result.columns[_column_index].columnDesc);
         str_slot->len = buffer.length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
     }
     // COLUMN_KEY
     {
@@ -362,12 +362,12 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             str_slot->len = _desc_result.columns[_column_index].columnDesc.columnKey.length();
             str_slot->ptr = (char*)pool->allocate(
                     _desc_result.columns[_column_index].columnDesc.columnKey.length());
-            memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
-                   str_slot->len);
+            //memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
+            //       str_slot->len);
         } else {
             str_slot->len = strlen("") + 1;
             str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            memcpy(str_slot->ptr, "", str_slot->len);
+            //memcpy(str_slot->ptr, "", str_slot->len);
         }
     }
     // EXTRA
@@ -376,7 +376,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("") + 1;
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, "", str_slot->len);
+        //memcpy(str_slot->ptr, "", str_slot->len);
     }
     // PRIVILEGES
     {
@@ -384,7 +384,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("") + 1;
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, "", str_slot->len);
+        //memcpy(str_slot->ptr, "", str_slot->len);
     }
     // COLUMN_COMMENT
     {
@@ -392,7 +392,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->ptr = (char*)pool->allocate(_desc_result.columns[_column_index].comment.length());
         str_slot->len = _desc_result.columns[_column_index].comment.length();
-        memcpy(str_slot->ptr, _desc_result.columns[_column_index].comment.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, _desc_result.columns[_column_index].comment.c_str(), str_slot->len);
     }
     // COLUMN_SIZE
     {

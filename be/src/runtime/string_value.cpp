@@ -26,26 +26,6 @@
 
 namespace doris {
 
-std::string StringValue::debug_string() const {
-    return std::string(ptr, len);
-}
-
-std::string StringValue::to_string() const {
-    return std::string(ptr, len);
-}
-
-std::ostream& operator<<(std::ostream& os, const StringValue& string_value) {
-    return os << string_value.debug_string();
-}
-
-std::size_t operator-(const StringValue& v1, const StringValue& v2) {
-    return 0;
-}
-
-constexpr char StringValue::MIN_CHAR = 0x00;
-
-constexpr char StringValue::MAX_CHAR = 0xff;
-
 StringValue StringValue::min_string_val() {
     return StringValue((char*)(&StringValue::MIN_CHAR), 0);
 }

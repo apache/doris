@@ -48,7 +48,7 @@ public:
                           bool* flags) const override;
 
     std::string get_search_str() const override {
-        return std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len);
+        return std::string(reinterpret_cast<const char*>(pattern.ptr), pattern.len);
     }
     bool is_opposite() const { return _opposite; }
 

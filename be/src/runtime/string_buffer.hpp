@@ -51,7 +51,7 @@ public:
             grow_buffer(new_len);
         }
 
-        memcpy(_string_value.ptr + _string_value.len, str, len);
+        //memcpy(_string_value.ptr + _string_value.len, str, len);
         _string_value.len = new_len;
     }
 

@@ -320,7 +320,7 @@ struct FixedStringFindOp : public StringFindOp {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* input_data) const {
         const auto* value = reinterpret_cast<const StringValue*>(input_data);
         int64_t size = value->len;
-        char* data = value->ptr;
+        const char* data = value->ptr;
         while (size > 0 && data[size - 1] == '\0') {
             size--;
         }

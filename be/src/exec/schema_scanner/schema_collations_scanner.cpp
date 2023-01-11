@@ -54,7 +54,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].name, len + 1);
+        //memcpy(str_slot->ptr, _s_collations[_index].name, len + 1);
         str_slot->len = len;
     }
     // charset
@@ -66,7 +66,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].charset, len + 1);
+        //memcpy(str_slot->ptr, _s_collations[_index].charset, len + 1);
         str_slot->len = len;
     }
     // id
@@ -83,7 +83,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].is_default, len + 1);
+        //memcpy(str_slot->ptr, _s_collations[_index].is_default, len + 1);
         str_slot->len = len;
     }
     // IS_COMPILED
@@ -95,7 +95,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].is_compile, len + 1);
+        //memcpy(str_slot->ptr, _s_collations[_index].is_compile, len + 1);
         str_slot->len = len;
     }
     // sortlen

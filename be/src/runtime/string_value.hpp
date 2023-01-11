@@ -26,34 +26,8 @@
 
 namespace doris {
 
-inline StringValue StringValue::substring(int start_pos) const {
-    return StringValue(ptr + start_pos, len - start_pos);
-}
 
-inline StringValue StringValue::substring(int start_pos, int new_len) const {
-    return StringValue(ptr + start_pos, (new_len < 0) ? (len - start_pos) : new_len);
-}
 
-inline StringValue StringValue::trim() const {
-    // Remove leading and trailing spaces.
-    int32_t begin = 0;
 
-    while (begin < len && ptr[begin] == ' ') {
-        ++begin;
-    }
-
-    int32_t end = len - 1;
-
-    while (end > begin && ptr[end] == ' ') {
-        --end;
-    }
-
-    return StringValue(ptr + begin, end - begin + 1);
-}
-
-inline int64_t StringValue::find_first_of(char c) const {
-    const char* p = static_cast<const char*>(memchr(ptr, c, len));
-    return p == nullptr ? -1 : p - ptr;
-}
 
 } // namespace doris

@@ -1462,7 +1462,7 @@ void VJsonReader::_fill_slot(doris::Tuple* tuple, SlotDescriptor* slot_desc, Mem
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
     str_slot->ptr = reinterpret_cast<char*>(mem_pool->allocate(len));
-    memcpy(str_slot->ptr, value, len);
+    //memcpy(str_slot->ptr, value, len);
     str_slot->len = len;
 }
 

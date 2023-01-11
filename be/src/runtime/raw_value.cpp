@@ -78,7 +78,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
     case TYPE_CHAR:
     case TYPE_STRING:
         string_val = reinterpret_cast<const StringValue*>(value);
-        stream->write(static_cast<char*>(string_val->ptr), string_val->len);
+        stream->write(const_cast<char*>(string_val->ptr), string_val->len);
         return;
 
     case TYPE_DATE:
@@ -178,7 +178,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_VARCHAR:
     case TYPE_STRING:
         string_val = reinterpret_cast<const StringValue*>(value);
-        tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
+        tmp.assign(const_cast<char*>(string_val->ptr), string_val->len);
         *stream << tmp;
         return;
 
@@ -310,7 +310,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         ss << "ptr:" << (void*)string_val->ptr << " len:" << string_val->len;
         tmp = ss.str();
         if (string_val->len <= 1000) {
-            tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
+            tmp.assign(const_cast<char*>(string_val->ptr), string_val->len);
         }
         str->swap(tmp);
         return;
@@ -422,7 +422,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
 
         if (pool != nullptr) {
             dest->ptr = reinterpret_cast<char*>(pool->allocate(dest->len));
-            memcpy(dest->ptr, src->ptr, dest->len);
+            //memcpy(dest->ptr, src->ptr, dest->len);
         } else {
             dest->ptr = src->ptr;
         }
@@ -512,7 +512,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         StringValue* dest = reinterpret_cast<StringValue*>(dst);
         dest->len = src->len;
         dest->ptr = reinterpret_cast<char*>(*buf);
-        memcpy(dest->ptr, src->ptr, dest->len);
+        //memcpy(dest->ptr, src->ptr, dest->len);
         *buf += dest->len;
         break;
     }

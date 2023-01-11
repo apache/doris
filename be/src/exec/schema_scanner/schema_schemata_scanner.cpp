@@ -84,7 +84,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             std::string catalog_name = _db_result.catalogs[_db_index];
             str_slot->ptr = (char*)pool->allocate(catalog_name.size());
             str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+            //memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
         }
     }
     // schema
@@ -94,7 +94,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index]);
         str_slot->ptr = (char*)pool->allocate(db_name.size());
         str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
@@ -105,7 +105,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, "utf8", str_slot->len);
+        //memcpy(str_slot->ptr, "utf8", str_slot->len);
     }
     // DEFAULT_COLLATION_NAME
     {
@@ -116,7 +116,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, "utf8_general_ci", str_slot->len);
+        //memcpy(str_slot->ptr, "utf8_general_ci", str_slot->len);
     }
     // SQL_PATH
     { tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset()); }

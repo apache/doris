@@ -71,7 +71,7 @@ Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _begin->first.c_str(), len + 1);
+        //memcpy(str_slot->ptr, _begin->first.c_str(), len + 1);
         str_slot->len = len;
     }
     // value
@@ -83,7 +83,7 @@ Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _begin->second.c_str(), len + 1);
+        //memcpy(str_slot->ptr, _begin->second.c_str(), len + 1);
         str_slot->len = len;
     }
     ++_begin;

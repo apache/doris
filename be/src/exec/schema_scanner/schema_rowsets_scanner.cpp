@@ -113,7 +113,7 @@ Status SchemaRowsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         std::string rowset_id = rowset->rowset_id().to_string();
         str_slot->ptr = (char*)pool->allocate(rowset_id.size());
         str_slot->len = rowset_id.size();
-        memcpy(str_slot->ptr, rowset_id.c_str(), str_slot->len);
+        //memcpy(str_slot->ptr, rowset_id.c_str(), str_slot->len);
     }
     // TABLET_ID
     {

@@ -488,7 +488,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
     // the content of StringVal:
     //    header: the STRING_VALUE's len
     //    body:   all input parameters' content
-    char* begin = string_val.ptr;
+    char* begin = const_cast<char*>(string_val.ptr);
 
     for (int i = 0; i < vec_size; i++) {
         memcpy(begin, &vec_string_len[0], int_size);

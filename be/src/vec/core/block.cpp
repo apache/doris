@@ -889,7 +889,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
         // serialize the content of string
         auto string_slot = reinterpret_cast<StringValue*>(dst);
         string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-        bitmap_value->write(string_slot->ptr);
+        //bitmap_value->write(string_slot->ptr);
         string_slot->len = size;
     } else if (type_desc.type == TYPE_HLL) {
         auto hll_value = (HyperLogLog*)(data_ref.data);
@@ -906,8 +906,8 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
             auto string_slot = reinterpret_cast<StringValue*>(dst);
             string_slot->ptr = reinterpret_cast<char*>(pool->allocate(type_desc.len));
             string_slot->len = type_desc.len;
-            memset(string_slot->ptr, 0, type_desc.len);
-            memcpy(string_slot->ptr, data_ref.data, data_ref.size);
+            //memset(string_slot->ptr, 0, type_desc.len);
+            //memcpy(string_slot->ptr, data_ref.data, data_ref.size);
         } else {
             auto str_ptr = pool->allocate(data_ref.size);
             memcpy(str_ptr, data_ref.data, data_ref.size);
