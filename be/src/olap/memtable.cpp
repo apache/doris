@@ -241,8 +241,9 @@ void MemTable::_collect_memtable_results() {
     // collect dup table results
     if (_keys_type == KeysType::DUP_KEYS) {
         DCHECK(is_final);
-        vectorized::Block _input_block_dup = _input_mutable_block_dup.to_block();
-        vectorized::Block _sorted_block = _input_block_dup.clone_empty();
+        vectorized::Block in_block_dup = _input_mutable_block_dup.to_block();
+        DCHECK(in_block_dup.rows() <= std::numeric_limits<size_t>::max());
+        vectorized::Block sorted_block = in_block_dup.clone_empty();
         vectorized::SortDescription _sort_description;
         // construct _sort_description
         for (size_t cid = 0; cid < _schema->num_columns(); cid++) {
@@ -250,13 +251,16 @@ void MemTable::_collect_memtable_results() {
             _sort_description.emplace_back(_sort_column_desc);
         }
         // sort block of duplicate table
-        sort_block(_input_block_dup, _sorted_block, _sort_description);
-        _output_mutable_block.add_rows(&_sorted_block, 0, _sorted_block);
+        sort_block(in_block_dup, sorted_block, _sort_description);
+        _output_mutable_block.add_rows(&sorted_block, 0, in_block_dup.rows());
+
+        _input_mutable_block_dup.clear_column_data();
     }
     // collect agg table results
     else {
         VecTable::Iterator it(_vec_skip_list.get());
         vectorized::Block in_block = _input_mutable_block.to_block();
+        DCHECK(in_block.rows() <= std::numeric_limits<size_t>::max());
 
         size_t idx = 0;
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
