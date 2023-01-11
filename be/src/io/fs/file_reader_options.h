@@ -41,6 +41,7 @@ public:
     // path: the path of file which will be cached
     // return value: the cache path of the given file.
     virtual std::string get_cache_path(const std::string& path) const { return ""; }
+    std::string cache_path;
 };
 
 class NoCachePathPolicy : public CachePathPolicy {
@@ -55,7 +56,7 @@ public:
     std::string get_cache_path(const std::string& path) const override {
         // the segment file path is {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
         // cache path is: {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}/
-        return path.substr(0, path.size() - 4) + "/";
+        return cache_path;
     }
 };
 

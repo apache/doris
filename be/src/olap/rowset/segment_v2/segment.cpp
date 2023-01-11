@@ -46,9 +46,8 @@ using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                     const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
-    io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                         io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));

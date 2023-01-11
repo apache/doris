@@ -363,7 +363,10 @@ public:
         writer.finalize(&file_size, &index_size);
         file_writer->close();
 
-        Segment::open(fs, path, "", seg_id, {}, &_tablet_schema, res);
+        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+                                             io::SegmentCachePathPolicy());
+        reader_options.path_policy.cache_path = segment_cache_path(seg_id);
+        Segment::open(fs, path, "", seg_id, {}, &_tablet_schema, reader_options, res);
     }
 
     std::vector<std::vector<std::string>> generate_dataset(int rows_number) {
