@@ -613,6 +613,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                                                      : telemetry::get_noop_tracer();
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
+    // sometimes TExecPlanFragmentParams debug string is too long and glog
+    // will truncate the log line, so print query options seperately for debuggin purpose
+    VLOG_ROW << "query options is "
+             << apache::thrift::ThriftDebugString(params.query_options).c_str();
     START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
