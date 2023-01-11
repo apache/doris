@@ -58,15 +58,16 @@ public class MappingPhase implements SearchPhase {
         JSONObject properties = EsUtil.getMappingProps(searchContext.sourceIndex(), indexMapping, searchContext.type());
         for (Column col : searchContext.columns()) {
             String colName = col.getName();
-            // if column exists in Doris Table but no found in ES's mapping, we choose to ignore this situation?
-            if (!properties.containsKey(colName)) {
-                throw new DorisEsException(
-                        "index[" + searchContext.sourceIndex() + "] type[" + indexMapping + "] mapping not found column"
-                                + colName + " for the ES Cluster");
+            // _id not exist mapping, but be can query it.
+            if (!"_id".equals(colName)) {
+                if (!properties.containsKey(colName)) {
+                    throw new DorisEsException(
+                            "index[" + searchContext.sourceIndex() + "] mapping[" + indexMapping + "] not found " + "column " + colName + " for the ES Cluster");
+                }
+                JSONObject fieldObject = (JSONObject) properties.get(colName);
+                resolveKeywordFields(searchContext, fieldObject, colName);
+                resolveDocValuesFields(searchContext, fieldObject, colName);
             }
-            JSONObject fieldObject = (JSONObject) properties.get(colName);
-            resolveKeywordFields(searchContext, fieldObject, colName);
-            resolveDocValuesFields(searchContext, fieldObject, colName);
         }
     }
 
@@ -80,9 +81,9 @@ public class MappingPhase implements SearchPhase {
             JSONObject fieldsObject = (JSONObject) fieldObject.get("fields");
             if (fieldsObject != null) {
                 for (Object key : fieldsObject.keySet()) {
-                    JSONObject innerTypeObject = (JSONObject) fieldsObject.get((String) key);
+                    JSONObject innerTypeObject = (JSONObject) fieldsObject.get(key);
                     // just for text type
-                    if ("keyword".equals((String) innerTypeObject.get("type"))) {
+                    if ("keyword".equals(innerTypeObject.get("type"))) {
                         searchContext.fetchFieldsContext().put(colName, colName + "." + key);
                     }
                 }
