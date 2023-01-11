@@ -94,6 +94,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -425,8 +426,16 @@ public class StmtExecutor implements ProfileWriter {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
         // set isQuery first otherwise this state will be lost if some error occurs
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
+        if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
+        }
+
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            context.getState().setNereids(true);
+            if (parsedStmt.getExplainOptions() == null
+                    && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command)) {
+                context.getState().setIsQuery(true);
+            }
         }
 
         try {
@@ -452,6 +461,7 @@ public class StmtExecutor implements ProfileWriter {
                         // fall back to legacy planner
                         LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
+                        context.getState().setNereids(false);
                         analyze(context.getSessionVariable().toThrift());
                     }
                 } catch (Exception e) {
