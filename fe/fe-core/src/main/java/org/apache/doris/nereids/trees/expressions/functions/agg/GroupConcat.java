@@ -107,10 +107,11 @@ public class GroupConcat extends AggregateFunction
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children().size() >= 1);
 
+        // in type coercion, the orderExpression will be the child of cast, we should push down cast.
+        children = children.stream().map(ExpressionUtils::pushDownCastInOrderExpression).collect(Collectors.toList());
         boolean foundOrderExpr = false;
         int firstOrderExrIndex = 0;
         for (int i = 0; i < children.size(); i++) {
-            // in type coercion, the orderExpression will be the child of cast, we should push down cast.
             Expression child = children.get(i);
             if (child instanceof OrderExpression) {
                 foundOrderExpr = true;
@@ -121,8 +122,7 @@ public class GroupConcat extends AggregateFunction
             }
         }
 
-        List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size())
-                .stream().map(ExpressionUtils::pushDownCastInOrderExpression).collect(Collectors.toList());
+        List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size());
         if (firstOrderExrIndex == 1) {
             return new GroupConcat(distinct, children.get(0), orders.toArray(new OrderExpression[0]));
         } else if (firstOrderExrIndex == 2) {
