@@ -36,8 +36,10 @@ import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -213,6 +215,54 @@ public class Group {
         lowestCostPlans.put(newProperty, pair);
     }
 
+    /**
+     * replace oldGroupExpression with newGroupExpression in lowestCostPlans.
+     */
+    public void replaceBestPlanGroupExpr(GroupExpression oldGroupExpression, GroupExpression newGroupExpression) {
+        Map<PhysicalProperties, Pair<Double, GroupExpression>> needReplaceBestExpressions = Maps.newHashMap();
+        for (Iterator<Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
+                lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
+            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
+            Pair<Double, GroupExpression> pair = entry.getValue();
+            if (pair.second.equals(oldGroupExpression)) {
+                needReplaceBestExpressions.put(entry.getKey(), Pair.of(pair.first, newGroupExpression));
+                iterator.remove();
+            }
+        }
+        lowestCostPlans.putAll(needReplaceBestExpressions);
+    }
+
+    /**
+     * delete groupExpression in lowestCostPlans.
+     */
+    public void deleteBestPlan(GroupExpression groupExpression) {
+        for (Iterator<Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
+                lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
+            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
+            Pair<Double, GroupExpression> pair = entry.getValue();
+            GroupExpression bestExpression = pair.second;
+            if (bestExpression.equals(groupExpression)) {
+                iterator.remove();
+            }
+        }
+
+        // we need to delete the enforcer whose input property is satisfied by the deleted group expression.
+        for (Iterator<Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
+                lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
+            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
+            PhysicalProperties requiredProperty = entry.getKey();
+            Pair<Double, GroupExpression> pair = entry.getValue();
+            GroupExpression bestExpression = pair.second;
+            // enforcer's child group is same with itself.
+            if (bestExpression.arity() == 1 && bestExpression.child(0) == bestExpression.getOwnerGroup()) {
+                // the enforcer need to be deleted when its input property can not be satisfied by the group
+                if (!lowestCostPlans.keySet().containsAll(bestExpression.getInputProperties(requiredProperty))) {
+                    iterator.remove();
+                }
+            }
+        }
+    }
+
     public StatsDeriveResult getStatistics() {
         return statistics;
     }
@@ -267,12 +317,32 @@ public class Group {
         parentExpressions.clear();
 
         // move LogicalExpression PhysicalExpression Ownership
-        HashSet<GroupExpression> logicalSet = new HashSet<>(target.getLogicalExpressions());
-        logicalExpressions.stream().filter(ge -> !logicalSet.contains(ge)).forEach(target::addLogicalExpression);
+        Map<GroupExpression, GroupExpression> logicalSet = target.getLogicalExpressions().stream()
+                .collect(Collectors.toMap(Function.identity(), Function.identity()));
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            GroupExpression existGroupExpr = logicalSet.get(logicalExpression);
+            if (existGroupExpr != null) {
+                Preconditions.checkState(logicalExpression != existGroupExpr, "must not equals");
+                // lowCostPlans must be physical GroupExpression, don't need to replaceBestPlanGroupExpr
+                logicalExpression.move(existGroupExpr);
+            } else {
+                target.addLogicalExpression(logicalExpression);
+            }
+        }
         logicalExpressions.clear();
         // movePhysicalExpressionOwnership
-        HashSet<GroupExpression> physicalSet = new HashSet<>(target.getPhysicalExpressions());
-        physicalExpressions.stream().filter(ge -> !physicalSet.contains(ge)).forEach(target::addGroupExpression);
+        Map<GroupExpression, GroupExpression> physicalSet = target.getPhysicalExpressions().stream()
+                .collect(Collectors.toMap(Function.identity(), Function.identity()));
+        for (GroupExpression physicalExpression : physicalExpressions) {
+            GroupExpression existGroupExpr = physicalSet.get(physicalExpression);
+            if (existGroupExpr != null) {
+                Preconditions.checkState(physicalExpression != existGroupExpr, "must not equals");
+                physicalExpression.getOwnerGroup().replaceBestPlanGroupExpr(physicalExpression, existGroupExpr);
+                physicalExpression.move(existGroupExpr);
+            } else {
+                target.addPhysicalExpression(physicalExpression);
+            }
+        }
         physicalExpressions.clear();
 
         // moveLowestCostPlansOwnership

@@ -66,6 +66,8 @@ public class GroupExpression {
     // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
+    private boolean isUnused = false;
+
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
     }
@@ -163,6 +165,19 @@ public class GroupExpression {
         this.statDerived = statDerived;
     }
 
+    public boolean isUnused() {
+        if (isUnused) {
+            Preconditions.checkState(children.isEmpty() || ownerGroup == null);
+            return true;
+        }
+        Preconditions.checkState(ownerGroup != null);
+        return false;
+    }
+
+    public void setUnused(boolean isUnused) {
+        this.isUnused = isUnused;
+    }
+
     public Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> getLowestCostTable() {
         return lowestCostTable;
     }
@@ -175,6 +190,7 @@ public class GroupExpression {
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      * if the outputProperties exists, will be covered.
+     *
      * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
@@ -204,9 +220,53 @@ public class GroupExpression {
         return lowestCostTable.get(property).first;
     }
 
+    /**
+     * Gets the input properties needed for a given required property
+     *
+     * @param property PhysicalPropertySet that needs to be satisfied
+     * @return List of children input physical properties required
+     */
+    public List<PhysicalProperties> getInputProperties(PhysicalProperties property) {
+        Preconditions.checkState(lowestCostTable.containsKey(property));
+        return lowestCostTable.get(property).second;
+    }
+
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
             PhysicalProperties requiredPropertySet) {
         this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
+    /**
+     * Merge GroupExpression.
+     */
+    public void mergeTo(GroupExpression target) {
+        // LowestCostTable
+        this.getLowestCostTable()
+                .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
+        // requestPropertiesMap
+        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
+        // ruleMasks
+        target.ruleMasks.or(this.ruleMasks);
+
+        // clear
+        this.ownerGroup.removeGroupExpression(this);
+        this.children.forEach(child -> child.removeParentExpression(this));
+        this.children.clear();
+    }
+
+    public void move(GroupExpression target) {
+        // LowestCostTable
+        this.getLowestCostTable()
+                .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
+        // requestPropertiesMap
+        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
+        // ruleMasks
+        target.ruleMasks.or(this.ruleMasks);
+
+        // clear
+        // this.ownerGroup.removeGroupExpression(this);
+        this.children.forEach(child -> child.removeParentExpression(this));
+        this.children.clear();
     }
 
     public double getCost() {
