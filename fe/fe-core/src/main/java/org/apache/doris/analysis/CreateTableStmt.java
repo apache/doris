@@ -58,7 +58,7 @@ import java.util.stream.Collectors;
 public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
-    private static final String DEFAULT_ENGINE_NAME = "olap";
+    protected static final String DEFAULT_ENGINE_NAME = "olap";
 
     private boolean ifNotExists;
     private boolean isExternal;
@@ -70,7 +70,7 @@ public class CreateTableStmt extends DdlStmt {
     protected DistributionDesc distributionDesc;
     protected Map<String, String> properties;
     private Map<String, String> extProperties;
-    private String engineName;
+    protected String engineName;
     private String comment;
     private List<AlterClause> rollupAlterClauseList = Lists.newArrayList();
 

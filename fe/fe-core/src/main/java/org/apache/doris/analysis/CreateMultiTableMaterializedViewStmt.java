@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -30,11 +31,13 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
@@ -43,7 +46,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final MVRefreshInfo refreshInfo;
     private final QueryStmt queryStmt;
     private Database database;
-    private final Map<String, OlapTable> olapTables = Maps.newHashMap();
+    private List<TableRef> tableRefs;
 
     public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMode,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
@@ -57,6 +60,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        engineName = DEFAULT_ENGINE_NAME;
     }
 
     @Override
@@ -81,14 +85,13 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             } else if (!dbName.equals(database.getFullName())) {
                 throw new AnalysisException("The databases of multiple tables must be the same.");
             }
-            OlapTable table = (OlapTable) database.getTableOrAnalysisException(tableRef.getName().getTbl());
-            olapTables.put(table.getName(), table);
         }
+        tableRefs = selectStmt.getTableRefs();
         columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
     }
 
     private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException, DdlException {
-        List<MVColumnItem> mvColumnItems = generateMVColumnItems(olapTables, selectList);
+        List<MVColumnItem> mvColumnItems = generateMVColumnItems(selectList);
         List<Column> schema = generateSchema(mvColumnItems);
         return schema.stream()
                 .map(column -> new ColumnDef(
@@ -105,13 +108,17 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private List<Column> generateSchema(List<MVColumnItem> mvColumnItems) throws DdlException {
         List<Column> columns = Lists.newArrayList();
         for (MVColumnItem mvColumnItem : mvColumnItems) {
-            OlapTable olapTable = olapTables.get(mvColumnItem.getBaseTableName());
-            columns.add(mvColumnItem.toMVColumn(olapTable));
+            Optional<TableIf> table = tableRefs.stream()
+                    .filter(tableRef -> tableRef.getTable().getName().equals(mvColumnItem.getBaseTableName())
+                            || tableRef.getAlias().equals(mvColumnItem.getBaseTableName())).map(TableRef::getTable)
+                    .findFirst();
+            Preconditions.checkState(table.isPresent());
+            columns.add(mvColumnItem.toMVColumn((OlapTable) table.get()));
         }
         return columns;
     }
 
-    private List<MVColumnItem> generateMVColumnItems(Map<String, OlapTable> olapTables, SelectList selectList)
+    private List<MVColumnItem> generateMVColumnItems(SelectList selectList)
             throws AnalysisException {
         Map<String, MVColumnItem> uniqueMVColumnItems = Maps.newLinkedHashMap();
         for (SelectListItem item : selectList.getItems()) {
@@ -173,8 +180,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return database;
     }
 
-    public Map<String, OlapTable> getOlapTables() {
-        return olapTables;
+    public List<TableRef> getTableRefs() {
+        return tableRefs;
     }
 
     public MVRefreshInfo getRefreshInfo() {
