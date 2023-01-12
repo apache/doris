@@ -29,10 +29,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.NotifyUpdateStoragePolicyTask;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -377,34 +373,10 @@ public class StoragePolicy extends Policy {
         }
 
         md5Checksum = calcPropertiesMd5();
-        notifyUpdate();
+        // add version
+        super.modifyProperties(properties);
     }
 
-    private void notifyUpdate() {
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        AgentBatchTask batchTask = new AgentBatchTask();
-
-        for (Long beId : systemInfoService.getBackendIds(true)) {
-            Map<String, String> copiedProperties = Env.getCurrentEnv().getResourceMgr().getResource(storageResource)
-                    .getCopiedProperties();
-
-            Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
-
-            tmpMap.put(COOLDOWN_DATETIME, String.valueOf(this.cooldownTimestampMs));
-
-            Optional.ofNullable(this.getCooldownTtl()).ifPresent(date -> {
-                tmpMap.put(COOLDOWN_TTL, this.getCooldownTtl());
-            });
-            tmpMap.put(MD5_CHECKSUM, this.getMd5Checksum());
-            NotifyUpdateStoragePolicyTask notifyUpdateStoragePolicyTask = new NotifyUpdateStoragePolicyTask(beId,
-                    getPolicyName(), tmpMap);
-            batchTask.addTask(notifyUpdateStoragePolicyTask);
-            LOG.info("update policy info to be: {}, policy name: {}, "
-                    + "properties: {} to modify S3 resource batch task.", beId, getPolicyName(), tmpMap);
-        }
-
-        AgentTaskExecutor.submit(batchTask);
-    }
 
     public static StoragePolicy read(DataInput in) throws IOException {
         String json = Text.readString(in);

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -39,6 +40,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Base class for Policy.
@@ -57,6 +60,30 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "policyName")
     protected String policyName = null;
 
+    @SerializedName(value = "version")
+    protected long version = -1;
+
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
+    private void readLock() {
+        lock.readLock().lock();
+    }
+
+    private void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    // just for subclass lombok @Data
+    public Policy() {}
+
     public Policy(PolicyTypeEnum type) {
         this.type = type;
     }
@@ -71,6 +98,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         this.policyId = policyId;
         this.type = type;
         this.policyName = policyName;
+        this.version = 0;
     }
 
     /**
@@ -96,6 +124,12 @@ public abstract class Policy implements Writable, GsonPostProcessable {
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }
+    }
+
+    public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
+        writeLock();
+        version++;
+        writeUnlock();
     }
 
     /**

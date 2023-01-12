@@ -47,7 +47,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.
@@ -165,6 +167,11 @@ public class ResourceMgr implements Writable {
 
     public int getResourceNum() {
         return nameToResource.size();
+    }
+
+    public List<Resource> getAllS3Resource() {
+        return nameToResource.values().stream().filter(resource -> resource.getType() == ResourceType.S3)
+            .collect(Collectors.toList());
     }
 
     public List<List<Comparable>> getResourcesInfo(String name, boolean accurateMatch, Set<String> typeSets) {
