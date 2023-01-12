@@ -43,13 +43,14 @@ CREATE CATALOG
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
 	[WITH RESOURCE resource_name]
-	| [PROPERTIES ("key"="value", ...)];
+	[PROPERTIES ("key"="value", ...)];
 ```
 
 `RESOURCE` 可以通过 [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md) 创建，目前支持三种 Resource，分别连接三种外部数据源：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
+* jdbc：数据库访问的标准接口(JDBC), 当前支持 MySQL 和 PostgreSQL
 
 ### 创建 catalog
 
@@ -61,12 +62,16 @@ CREATE RESOURCE catalog_resource PROPERTIES (
     'type'='hms|es|jdbc',
     ...
 );
-CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+
+// 在 PROERPTIES 中指定的配置，将会覆盖 Resource 中的配置。
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource PROPERTIES(
+    'key' = 'value'
+)
 ```
 
 **通过 properties 创建 catalog**
 
-`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+`1.2.0` 版本通过 properties 创建 catalog。
 ```sql
 CREATE CATALOG catalog_name PROPERTIES (
     'type'='hms|es|jdbc',

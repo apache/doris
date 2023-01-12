@@ -24,6 +24,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
@@ -32,11 +34,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
  * CatalogProperty to store the properties for catalog.
+ * the properties in "properties" will overwrite properties in "resource"
  */
 @Data
 public class CatalogProperty implements Writable {
@@ -50,8 +52,11 @@ public class CatalogProperty implements Writable {
     private volatile Resource catalogResource = null;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
-        this.resource = resource;
+        this.resource = Strings.nullToEmpty(resource);
         this.properties = properties;
+        if (this.properties == null) {
+            this.properties = Maps.newConcurrentMap();
+        }
     }
 
     private Resource catalogResource() {
@@ -66,35 +71,33 @@ public class CatalogProperty implements Writable {
     }
 
     public String getOrDefault(String key, String defaultVal) {
-        if (resource == null) {
-            return properties.getOrDefault(key, defaultVal);
-        } else {
-            return catalogResource().getCopiedProperties().getOrDefault(key, defaultVal);
+        String val = properties.get(key);
+        if (val == null) {
+            Resource res = catalogResource();
+            if (res != null) {
+                val = res.getCopiedProperties().getOrDefault(key, defaultVal);
+            } else {
+                val = defaultVal;
+            }
         }
+        return val;
     }
 
     public Map<String, String> getProperties() {
-        if (resource == null) {
-            return new HashMap<>(properties);
-        } else {
-            return catalogResource().getCopiedProperties();
+        Map<String, String> mergedProperties = Maps.newHashMap();
+        if (!Strings.isNullOrEmpty(resource)) {
+            mergedProperties = catalogResource().getCopiedProperties();
         }
+        mergedProperties.putAll(properties);
+        return mergedProperties;
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
-        if (resource == null) {
-            properties.putAll(props);
-        } else {
-            LOG.error("Please change the resource {} properties directly", resource);
-        }
+        properties.putAll(props);
     }
 
     public Map<String, String> getS3HadoopProperties() {
-        if (resource == null) {
-            return S3Resource.getS3HadoopProperties(properties);
-        } else {
-            return S3Resource.getS3HadoopProperties(catalogResource().getCopiedProperties());
-        }
+        return S3Resource.getS3HadoopProperties(getProperties());
     }
 
     public Map<String, String> getHadoopProperties() {

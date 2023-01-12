@@ -208,6 +208,7 @@ public class UserPrivTable extends PrivTable {
                     // USAGE_PRIV is no need to degrade.
                     PrivBitSet removeUsagePriv = globalPrivEntry.privSet.copy();
                     removeUsagePriv.unset(PaloPrivilege.USAGE_PRIV.getIdx());
+                    removeUsagePriv.unset(PaloPrivilege.NODE_PRIV.getIdx());
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
                             InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, removeUsagePriv);
                     entry.setSetByDomainResolver(false);

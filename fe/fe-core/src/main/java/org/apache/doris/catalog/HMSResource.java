@@ -95,8 +95,8 @@ public class HMSResource extends Resource {
             LOG.debug("Get properties from hive-site.xml");
         }
         Map<String, String> res = Maps.newHashMap();
-        HiveConf hiveConf = new HiveConf();
         // read properties from hive-site.xml.
+        HiveConf hiveConf = new HiveConf();
         String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
         if (!"dlf".equalsIgnoreCase(metastoreType)) {
             return res;

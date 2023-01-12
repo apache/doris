@@ -39,14 +39,14 @@ Syntax:
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
 	[WITH RESOURCE resource_name]
-	| [PROPERTIES ("key"="value", ...)];
+	[PROPERTIES ("key"="value", ...)];
 ```
 
 `RESOURCE` can be created from [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md), current supports：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
-* jdbc：数据库访问的标准接口(JDBC), 当前只支持`jdbc:mysql`
+* jdbc: Standard interface for database access (JDBC), currently supports MySQL and PostgreSQL
 
 #### Create catalog
 
@@ -58,12 +58,14 @@ CREATE RESOURCE catalog_resource PROPERTIES (
     'type'='hms|es|jdbc',
     ...
 );
-CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource PROPERTIES (
+    'key' = 'value'
+);
 ```
 
 **Create catalog through properties**
 
-Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+Version `1.2.0` creates a catalog through properties.
 ```sql
 CREATE CATALOG catalog_name PROPERTIES (
     'type'='hms|es|jdbc',

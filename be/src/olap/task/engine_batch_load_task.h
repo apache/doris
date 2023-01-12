@@ -28,8 +28,6 @@
 #include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
 
-using namespace std;
-
 namespace doris {
 
 const uint32_t PUSH_MAX_RETRY = 1;

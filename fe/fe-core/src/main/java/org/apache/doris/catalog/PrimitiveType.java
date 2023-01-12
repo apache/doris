@@ -31,6 +31,7 @@ import java.util.List;
 
 public enum PrimitiveType {
     INVALID_TYPE("INVALID_TYPE", -1, TPrimitiveType.INVALID_TYPE),
+    UNSUPPORTED("UNSUPPORTED_TYPE", -1, TPrimitiveType.UNSUPPORTED),
     // NULL_TYPE - used only in LiteralPredicate and NullLiteral to make NULLs compatible
     // with all other types.
     NULL_TYPE("NULL_TYPE", 1, TPrimitiveType.NULL_TYPE),

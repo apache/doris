@@ -24,9 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
 
 # 多源数据目录
+
+<version since="1.2.0">
 
 多源数据目录（Multi-Catalog）是 Doris 1.2.0 版本中推出的功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
 
@@ -38,6 +39,8 @@ under the License.
 2. Elasticsearch：对接一个 ES 集群，并直接访问其中的表和分片。
 
 该功能将作为之前外表连接方式（External Table）的补充和增强，帮助用户进行快速的多数据目录联邦查询。
+
+</version>
 
 ## 基础概念
 
@@ -95,12 +98,16 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+// 在 PROERPTIES 中指定的配置，将会覆盖 Resource 中的配置。
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
 
 **通过 properties 创建 catalog**
 
-`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+`1.2.0` 版本通过 properties 创建 catalog
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
@@ -141,6 +148,11 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.xxx' = 'xxx',
     ...
 );
+```
+
+如果需要 hadoop KMS 认证，可以在properties中添加:
+```
+'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
 ```
 
 创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
@@ -593,6 +605,28 @@ MySQL [db1]> select * from tbl1;
 
 用户创建 Catalog 后，Doris 会自动同步数据目录的数据库和表，针对不同的数据目录和数据表格式，Doris 会进行以下列映射关系。
 
+<version since="dev">
+
+对于当前无法映射到 Doris 列类型的外表类型，如 map，struct 等。Doris 会将列类型映射为 UNSUPPORTED 类型。对于 UNSUPPORTED 类型的查询，示例如下：
+
+假设同步后的表 schema 为：
+
+```
+k1 INT,
+k2 INT,
+k3 UNSUPPORTED,
+k4 INT
+```
+
+```
+select * from table;                // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select * except(k3) from table;     // Query OK.
+select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select k1, k4 from table;           // Query OK.
+```
+
+</version>
+
 ### Hive MetaStore
 
 适用于 Hive/Iceberge/Hudi
@@ -702,4 +736,3 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 后续会支持元数据的自动同步。
 
-</version>

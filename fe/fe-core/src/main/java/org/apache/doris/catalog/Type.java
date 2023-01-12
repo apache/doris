@@ -51,6 +51,7 @@ public abstract class Type {
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
+    public static final ScalarType UNSUPPORTED = new ScalarType(PrimitiveType.UNSUPPORTED);
     public static final ScalarType NULL = new ScalarType(PrimitiveType.NULL_TYPE);
     public static final ScalarType BOOLEAN = new ScalarType(PrimitiveType.BOOLEAN);
     public static final ScalarType TINYINT = new ScalarType(PrimitiveType.TINYINT);
@@ -767,7 +768,7 @@ public abstract class Type {
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
                         || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetPrecision());
+                            && scalarType.isSetScale());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {
@@ -1409,7 +1410,6 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.DECIMAL128;
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.DECIMAL128;
 
-
         // HLL
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1445,7 +1445,6 @@ public abstract class Type {
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
 
-
         // TIME why here not???
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1475,7 +1474,8 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
-                        || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) {
+                        || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
+                        || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);

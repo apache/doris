@@ -73,6 +73,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     private ExternalSchemaCache schemaCache;
 
+    public ExternalCatalog(long catalogId, String name) {
+        this.id = catalogId;
+        this.name = name;
+    }
+
     /**
      * @return names of database in this catalog.
      */
@@ -131,6 +136,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected abstract void init();
 
     public void setUninitialized(boolean invalidCache) {
+        this.objectCreated = false;
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
