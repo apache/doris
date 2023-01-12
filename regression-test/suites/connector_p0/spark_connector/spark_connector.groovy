@@ -26,10 +26,9 @@ suite("spark_connector", "connector") {
     logger.info("getS3Url ==== ${getS3Url()}")
     def download_spark_jar = "curl ${getS3Url()}/regression/spark-doris-connector-demo-jar-with-dependencies.jar --output spark-doris-demo.jar".execute().getText()
     logger.info("finish download spark doris demo ...")
-    def java_home = 'echo $JAVA_HOME'.execute().getText()
-    logger.info("get JAVA_HOME: $java_home ")
-
-    def run_cmd = "$java_home/bin/java -jar spark-doris-demo.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableName"
+    def java_path = 'echo java'.execute().getText()
+    logger.info("get java_path : $java_path ")
+    def run_cmd = "$java_path -jar spark-doris-demo.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableName"
     logger.info("run_cmd : $run_cmd")
     def run_spark_jar = run_cmd.execute().getText()
     logger.info("result: $run_spark_jar")
