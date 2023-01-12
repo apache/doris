@@ -424,7 +424,7 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 CONF_Int32(max_free_io_buffers, "128");
 
 // Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
+// including MemPool, ChunkAllocator, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.

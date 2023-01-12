@@ -40,7 +40,6 @@ class BrokerMgr;
 template <class T>
 class BrpcClientCache;
 
-class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
 class EvHttpServer;
