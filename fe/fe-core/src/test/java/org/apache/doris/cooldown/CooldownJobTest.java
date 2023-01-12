@@ -37,6 +37,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
 
 public class CooldownJobTest {
 
@@ -54,14 +56,19 @@ public class CooldownJobTest {
     private static Tablet tablet = new Tablet(tabletId);
     private static Replica replica = new Replica(replicaId, backendId, 1, Replica.ReplicaState.NORMAL);
 
+    private static CooldownConf cooldownConf = new CooldownConf(dbId, tableId, partitionId, indexId, tabletId,
+            cooldownReplicaId, cooldownTerm);
+
+    private static List<CooldownConf> cooldownConfList = new LinkedList<>();
+
     @Mocked
     private EditLog editLog;
 
     public static CooldownJob createCooldownJob() {
         tablet.setCooldownReplicaId(cooldownReplicaId);
         tablet.setCooldownTerm(cooldownTerm);
-        return new CooldownJob(jobId, dbId, tableId, partitionId, indexId, tabletId, cooldownReplicaId, cooldownTerm,
-                timeoutMs);
+        cooldownConfList.add(cooldownConf);
+        return new CooldownJob(jobId, cooldownConfList, timeoutMs);
     }
 
     @Before
@@ -91,7 +98,9 @@ public class CooldownJobTest {
         CooldownJob cooldownJob = createCooldownJob();
         cooldownJob.runPendingJob();
         Assert.assertEquals(CooldownJob.JobState.SEND_CONF, cooldownJob.jobState);
-        Assert.assertEquals(cooldownJob.cooldownReplicaId, replica.getId());
+        for (CooldownConf conf : cooldownJob.getCooldownConfList()) {
+            Assert.assertEquals(conf.getCooldownReplicaId(), replica.getId());
+        }
         CooldownJob job1 = createCooldownJob();
         job1.replay(cooldownJob);
         Assert.assertEquals(CooldownJob.JobState.SEND_CONF, job1.jobState);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.cooldown;
 
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -29,7 +28,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Comparator;
 
 /**
  * This class represents the olap replica related metadata.
