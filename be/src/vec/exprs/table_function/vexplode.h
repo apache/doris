@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include "exprs/table_function/table_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
