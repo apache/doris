@@ -175,6 +175,12 @@ VNodeChannel::VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, 
 }
 
 VNodeChannel::~VNodeChannel() {
+    if (_open_closure != nullptr) {
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
+    }
     if (_add_block_closure != nullptr) {
         delete _add_block_closure;
         _add_block_closure = nullptr;
