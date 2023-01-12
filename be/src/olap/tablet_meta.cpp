@@ -523,8 +523,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     _storage_policy = tablet_meta_pb.storage_policy();
-    _cooldown_replica_id = tablet_meta_pb.cooldown_replica_id();
-    _cooldown_term = tablet_meta_pb.cooldown_term();
+    _cooldown_replica_id = -1;
+    _cooldown_term = -1;
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }

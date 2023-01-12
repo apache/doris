@@ -1765,7 +1765,7 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
     bool exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
-        IOContext io_ctx;
+        io::IOContext io_ctx;
         io::FileReaderSPtr tablet_meta_reader;
         RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
         if (tablet_meta_reader == nullptr) {
@@ -1775,7 +1775,6 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
         size_t bytes_read;
         uint8_t* buf = new uint8_t[file_size];
         Slice slice(buf, file_size);
-        IOContext io_ctx;
         Status st = tablet_meta_reader->read_at(0, slice, io_ctx, &bytes_read);
         if (!st.ok()) {
             tablet_meta_reader->close();
