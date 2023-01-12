@@ -32,7 +32,9 @@ suite("flink_connector") {
     logger.info("getS3Url ==== ${getS3Url()}")
     def download_spark_jar = "curl ${getS3Url()}/regression/flink-doris-demo.jar --output flink-doris-demo.jar".execute().getText()
     logger.info("finish download spark doris demo ...")
-    def run_cmd = "java -cp flink-doris-demo.jar com.doris.DorisFlinkDfSinkDemo $context.config.feHttpAddress regression_test_flink_connector_p0.$tableName $context.config.feHttpUser"
+    def java_home = 'which java'.execute().getText()
+    logger.info("java_home is $java_home")
+    def run_cmd = "$java_home -cp flink-doris-demo.jar com.doris.DorisFlinkDfSinkDemo $context.config.feHttpAddress regression_test_flink_connector_p0.$tableName $context.config.feHttpUser"
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")
