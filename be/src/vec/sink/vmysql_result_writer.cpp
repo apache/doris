@@ -638,8 +638,8 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, true>(
                         column_ptr, result, scale, {nested_type});
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, false>(
-                        column_ptr, result, scale, {type_ptr});
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, false>(column_ptr, result,
+                                                                                 scale, {type_ptr});
             }
             break;
         }
@@ -696,8 +696,8 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                                                                           {sub_type});
             } else {
                 auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result, scale,
-                                                                           {sub_type});
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
+                                                                           scale, {sub_type});
             }
             break;
         }

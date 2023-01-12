@@ -171,7 +171,7 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
 const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
     std::vector<TypeInfoPtr> type_infos;
     type_infos.reserve(field_types.size());
-    for(FieldType& type : field_types) {
+    for (FieldType& type : field_types) {
         if (is_scalar_type(type)) {
             type_infos.push_back(create_static_type_info_ptr(get_scalar_type_info(type)));
         } else {

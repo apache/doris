@@ -22,13 +22,13 @@
 namespace doris {
 
 namespace vectorized {
-    class VStructLiteral : public VLiteral {
-    public:
-        VStructLiteral(const TExprNode& node) : VLiteral(node, false) {}
-        ~VStructLiteral() override = default;
-        Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                               VExprContext* context) override;
-    };
+class VStructLiteral : public VLiteral {
+public:
+    VStructLiteral(const TExprNode& node) : VLiteral(node, false) {}
+    ~VStructLiteral() override = default;
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   VExprContext* context) override;
+};
 } // namespace vectorized
 
 } // namespace doris

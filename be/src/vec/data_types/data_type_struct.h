@@ -91,15 +91,17 @@ public:
     String get_name_by_position(size_t i) const;
 
     [[noreturn]] int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int be_exec_version) const override {
+                                                           int be_exec_version) const override {
         LOG(FATAL) << "get_uncompressed_serialized_bytes not implemented";
     }
 
-    [[noreturn]] char* serialize(const IColumn& column, char* buf, int be_exec_version) const override {
+    [[noreturn]] char* serialize(const IColumn& column, char* buf,
+                                 int be_exec_version) const override {
         LOG(FATAL) << "serialize not implemented";
     }
 
-    [[noreturn]] const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override {
+    [[noreturn]] const char* deserialize(const char* buf, IColumn* column,
+                                         int be_exec_version) const override {
         LOG(FATAL) << "serialize not implemented";
     }
 

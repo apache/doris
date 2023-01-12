@@ -64,7 +64,6 @@ private:
     // child may has null value if has_null is true.
     bool _has_null;
 };
-
 } // namespace doris
 
 

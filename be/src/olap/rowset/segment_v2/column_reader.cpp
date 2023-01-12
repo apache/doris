@@ -490,7 +490,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
                                             bool* has_null) {
     const auto* column_struct = vectorized::check_and_get_column<vectorized::ColumnStruct>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
-            : *dst);
+                               : *dst);
     for (size_t i = 0; i < column_struct->tuple_size(); i++) {
         size_t num_read = *n;
         auto sub_column_ptr = column_struct->get_column(i).assume_mutable();

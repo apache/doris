@@ -24,6 +24,5 @@ void StructValue::shallow_copy(const StructValue* other) {
     _values = other->_values;
     _has_null = other->_has_null;
 }
-
 } // namespace doris
 

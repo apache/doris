@@ -20,7 +20,7 @@
 namespace doris::vectorized {
 
 Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                              VExprContext* context) {
+                               VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
     Field struct_field = Tuple();
     for (const auto child : _children) {

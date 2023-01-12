@@ -66,8 +66,8 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
     }
 
     Status st = check_tuple_names(names);
-//    if (!st.ok()) {
-//    }
+    //if (!st.ok()) {
+    //}
 }
 
 std::string DataTypeStruct::do_get_name() const {
@@ -167,8 +167,8 @@ MutableColumnPtr DataTypeStruct::create_column() const {
 
 Field DataTypeStruct::get_default() const {
     return Tuple();
-//     return Tuple(collections::map<Tuple>(
-//             elems, [](const DataTypePtr& elem) { return elem->get_default(); }));
+    //return Tuple(collections::map<Tuple>(
+    //             elems, [](const DataTypePtr& elem) { return elem->get_default(); }));
 }
 
 void DataTypeStruct::insert_default_into(IColumn& column) const {
