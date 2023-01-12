@@ -27,7 +27,6 @@ import com.google.common.base.Preconditions;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -119,6 +118,7 @@ public class PooledHiveMetaStoreClient {
 
     public Table getTable(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
+            client.client.getAllTables(dbName);
             return client.client.getTable(dbName, tblName);
         } catch (Exception e) {
             throw new HMSClientException("failed to get table %s in db %s from hms client", e, tblName, dbName);
@@ -127,7 +127,7 @@ public class PooledHiveMetaStoreClient {
 
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
-            return client.client.getFields(dbName, tblName);
+            return client.client.getSchema(dbName, tblName);
         } catch (Exception e) {
             throw new HMSClientException("failed to get schema for table %s in db %s", e, tblName, dbName);
         }
@@ -184,7 +184,7 @@ public class PooledHiveMetaStoreClient {
                         ProxyMetaStoreClient.class.getName());
             } else {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        HiveMetaStoreClient.class.getName());
+                        MyHMSClient.class.getName());
             }
         }
 
