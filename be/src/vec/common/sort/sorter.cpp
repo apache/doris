@@ -43,7 +43,7 @@ Status MergeSorterState::add_sorted_block(Block& block) {
         return Status::OK();
     }
     if (0 == avg_row_bytes_) {
-        avg_row_bytes_ = block.bytes() / rows;
+        avg_row_bytes_ = std::max((std::size_t)1, block.bytes() / rows);
         spill_block_batch_size_ = (BLOCK_SPILL_BATCH_BYTES + avg_row_bytes_ - 1) / avg_row_bytes_;
     }
 
