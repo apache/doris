@@ -367,6 +367,14 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datev2.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
+    } else if (which.is_date_time_v2()) {
+        auto& column_vector = assert_cast<const ColumnVector<UInt64>&>(*column);
+        auto value = column_vector[row_idx].get<UInt64>();
+        DateV2Value<DateTimeV2ValueType> datetimev2;
+        memcpy(static_cast<void*>(&datetimev2), static_cast<void*>(&value), sizeof(value));
+        char buf[64];
+        char* pos = datetimev2.to_string(buf);
+        return buffer.push_string(buf, pos - buf - 1);
     } else if (which.is_decimal32()) {
         DataTypePtr nested_type = type;
         if (type->is_nullable()) {
