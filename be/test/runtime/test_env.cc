@@ -33,7 +33,6 @@ TestEnv::TestEnv() {
     // Some code will use ExecEnv::GetInstance(), so init the global ExecEnv singleton
     _exec_env = ExecEnv::GetInstance();
     _exec_env->_thread_mgr = new ThreadResourceMgr(2);
-    _exec_env->disk_io_mgr()->init(-1);
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     // TODO may need rpc support, etc.
 }

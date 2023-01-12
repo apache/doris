@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 #define DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 
-#include "runtime/disk_io_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tmp_file_mgr.h"
