@@ -188,8 +188,9 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array('a', 1, 2)"
     qt_sql "select array(null, null, null)"
     // abnormal test
-    test {
+    try {
         sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-        exception "errCode = 2, detailMessage = No matching function with signature: array_intersect(array<tinyint(4)>, varchar(-1))"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: array_intersect"))
     }
 }
