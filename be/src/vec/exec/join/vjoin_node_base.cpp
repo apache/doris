@@ -158,25 +158,23 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         }
 
-        if (is_mem_reuse) {
-            for (int i = 0; i < origin_col_num; ++i) {
-                if (col_mapping.find(i) == col_mapping.end()) {
-                    // It means this column is not transferred to output block, it is reuseable
-                    resusable_columns.emplace_back(origin_block->get_by_position(i).column);
+        for (int i = 0; i < origin_col_num; ++i) {
+            if (col_mapping.find(i) == col_mapping.end()) {
+                // It means this column is not transferred to output block, it is reuseable
+                resusable_columns.emplace_back(origin_block->get_by_position(i).column);
+            } else {
+                // Move the column from output block
+                if (empty_columns_with_type[col_mapping[i]].type->is_nullable() &&
+                    !origin_block->get_by_position(i).column->is_nullable()) {
+                    resusable_columns.emplace_back(
+                            reinterpret_cast<const ColumnNullable*>(
+                                    output_block->get_by_position(col_mapping[i]).column.get())
+                                    ->get_nested_column_ptr());
+                } else if (!empty_columns_with_type[i].type->is_nullable() &&
+                           origin_block->get_by_position(i).column->is_nullable()) {
+                    LOG(FATAL) << "To column is not nullable, but from column is nullable";
                 } else {
-                    // Move the column from output block
-                    if (empty_columns_with_type[col_mapping[i]].type->is_nullable() &&
-                        !origin_block->get_by_position(i).column->is_nullable()) {
-                        resusable_columns.emplace_back(
-                                reinterpret_cast<const ColumnNullable*>(
-                                        output_block->get_by_position(col_mapping[i]).column.get())
-                                        ->get_nested_column_ptr());
-                    } else if (!empty_columns_with_type[i].type->is_nullable() &&
-                               origin_block->get_by_position(i).column->is_nullable()) {
-                        LOG(FATAL) << "To column is not nullable, but from column is nullable";
-                    } else {
-                        resusable_columns.emplace_back(output_block->get_by_position(i).column);
-                    }
+                    resusable_columns.emplace_back(output_block->get_by_position(i).column);
                 }
             }
         }
