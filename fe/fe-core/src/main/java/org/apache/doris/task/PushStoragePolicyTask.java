@@ -44,7 +44,7 @@ public class PushStoragePolicyTask extends AgentTask {
 
     public PushStoragePolicyTask(long backendId, List<Policy> storagePolicy,
                                  List<Resource> resource, List<Long> droppedStoragePolicy) {
-        super(null, backendId, TTaskType.NOTIFY_UPDATE_STORAGE_POLICY, -1, -1, -1, -1, -1, -1, -1);
+        super(null, backendId, TTaskType.PUSH_STORAGE_POLICY, -1, -1, -1, -1, -1, -1, -1);
         this.storagePolicy.addAll(storagePolicy);
         this.resource.addAll(resource);
         this.droppedStoragePolicy.addAll(droppedStoragePolicy);
