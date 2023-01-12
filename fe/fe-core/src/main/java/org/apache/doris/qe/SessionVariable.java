@@ -1353,7 +1353,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
         this.enableUnicodeNameSupport = enableUnicodeNameSupport;
     }
-    
+
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
         long value = Long.valueOf(externalSortBytesThreshold);
         if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
