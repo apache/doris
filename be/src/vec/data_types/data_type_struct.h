@@ -62,7 +62,7 @@ public:
     std::string do_get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
 
-    bool can_be_inside_nullable() const override { return false; }
+    bool can_be_inside_nullable() const override { return true; }
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;
@@ -90,16 +90,18 @@ public:
     std::optional<size_t> try_get_position_by_name(const String& name) const;
     String get_name_by_position(size_t i) const;
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int be_exec_version) const override {
+    [[noreturn]] int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                                           int be_exec_version) const override {
         LOG(FATAL) << "get_uncompressed_serialized_bytes not implemented";
     }
 
-    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override {
+    [[noreturn]] char* serialize(const IColumn& column, char* buf,
+                                 int be_exec_version) const override {
         LOG(FATAL) << "serialize not implemented";
     }
 
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override {
+    [[noreturn]] const char* deserialize(const char* buf, IColumn* column,
+                                         int be_exec_version) const override {
         LOG(FATAL) << "serialize not implemented";
     }
 

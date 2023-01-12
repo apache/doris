@@ -30,6 +30,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Represents an anonymous type definition, e.g., used in DDL and CASTs.
@@ -94,45 +96,46 @@ public class TypeDef implements ParseNode {
             if (type.isArrayType()) {
                 Type itemType = ((ArrayType) type).getItemType();
                 if (itemType instanceof ScalarType) {
-                    analyzeNestedType((ScalarType) itemType);
+                    analyzeNestedType(type, (ScalarType) itemType);
                 }
             }
             if (type.isMapType()) {
                 ScalarType keyType = (ScalarType) ((MapType) type).getKeyType();
                 ScalarType valueType = (ScalarType) ((MapType) type).getKeyType();
-                analyzeNestedType(keyType);
-                analyzeNestedType(valueType);
+                analyzeNestedType(type, keyType);
+                analyzeNestedType(type, valueType);
             }
             if (type.isStructType()) {
                 ArrayList<StructField> fields = ((StructType) type).getFields();
-                for (int i = 0; i < fields.size(); i++) {
-                    ScalarType filedType = (ScalarType) fields.get(i).getType();
-                    analyzeNestedType(filedType);
+                Set<String> fieldNames = new HashSet<>();
+                for (StructField field : fields) {
+                    Type fieldType = field.getType();
+                    if (fieldType instanceof ScalarType) {
+                        analyzeNestedType(type, (ScalarType) fieldType);
+                        if (!fieldNames.add(field.getName())) {
+                            throw new AnalysisException("Duplicate field name "
+                                    + field.getName() + " in struct " + type.toSql());
+                        }
+                    }
                 }
             }
         }
     }
 
-    private void analyzeNestedType(ScalarType type) throws AnalysisException {
-        if (type.isNull()) {
-            throw new AnalysisException("Unsupported data type: " + type.toSql());
+    private void analyzeNestedType(Type parent, ScalarType child) throws AnalysisException {
+        if (child.isNull()) {
+            throw new AnalysisException("Unsupported data type: " + child.toSql());
         }
-        // check whether the array sub-type is supported
-        Boolean isSupportType = false;
-        for (Type subType : Type.getArraySubTypes()) {
-            if (type.getPrimitiveType() == subType.getPrimitiveType()) {
-                isSupportType = true;
-                break;
-            }
-        }
-        if (!isSupportType) {
-            throw new AnalysisException("Array unsupported sub-type: " + type.toSql());
+        // check whether the sub-type is supported
+        if (!parent.supportSubType(child)) {
+            throw new AnalysisException(
+                    parent.getPrimitiveType() + "unsupported sub-type: " + child.toSql());
         }
 
-        if (type.getPrimitiveType().isStringType() && !type.isLengthSet()) {
-            type.setLength(1);
+        if (child.getPrimitiveType().isStringType() && !child.isLengthSet()) {
+            child.setLength(1);
         }
-        analyze(type);
+        analyze(child);
     }
 
     private void analyzeScalarType(ScalarType scalarType)

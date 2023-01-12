@@ -606,7 +606,7 @@ terminal String
     KW_MTMV,
     KW_TYPECAST;
 
-terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
+terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
 terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
@@ -716,6 +716,7 @@ nonterminal Expr function_call_expr, array_expr;
 nonterminal ArrayLiteral array_literal;
 nonterminal StructField struct_field;
 nonterminal ArrayList<StructField> struct_field_list;
+nonterminal StructLiteral struct_literal;
 nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
@@ -914,6 +915,7 @@ precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
+precedence right LBRACE;
 precedence left KW_ENGINE;
 
 // unused
@@ -5791,16 +5793,23 @@ struct_field ::=
   ;
 
 struct_field_list ::=
-    struct_field:field
-    {:
-      RESULT = Lists.newArrayList(field);
-    :}
-    | struct_field_list:fields COMMA struct_field:field
-    {:
-       fields.add(field);
-       RESULT = fields;
-    :}
-    ;
+  struct_field:field
+  {:
+    RESULT = Lists.newArrayList(field);
+  :}
+  | struct_field_list:fields COMMA struct_field:field
+  {:
+     fields.add(field);
+     RESULT = fields;
+  :}
+  ;
+
+struct_literal ::=
+  LBRACE expr_list:list RBRACE
+  {:
+    RESULT = new StructLiteral(list.toArray(new LiteralExpr[0]));
+  :}
+  ;
 
 exists_predicate ::=
   KW_EXISTS subquery:s
@@ -5824,6 +5833,8 @@ non_pred_expr ::=
   {: RESULT = a; :}
   | array_literal:a
   {: RESULT = a; :}
+  | struct_literal:s
+  {: RESULT = s; :}
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l

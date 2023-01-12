@@ -39,6 +39,7 @@ message PScalarType {
 message PStructField {
     required string name = 1;
     optional string comment = 2;
+    optional bool contains_null = 3;
 };
 
 message PTypeNode {

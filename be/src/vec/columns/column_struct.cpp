@@ -48,8 +48,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     columns.reserve(mutable_columns.size());
     for (auto& column : mutable_columns) {
         if (is_column_const(*column)) {
-            throw Exception {"ColumnStruct cannot have ColumnConst as its element",
-                             ErrorCodes::ILLEGAL_COLUMN};
+            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
         columns.push_back(std::move(column));
     }
@@ -59,8 +58,7 @@ ColumnStruct::ColumnStruct(Columns&& columns) {
     columns.reserve(columns.size());
     for (auto& column : columns) {
         if (is_column_const(*column)) {
-            throw Exception {"ColumnStruct cannot have ColumnConst as its element",
-                             ErrorCodes::ILLEGAL_COLUMN};
+            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
         columns.push_back(std::move(column));
     }
@@ -70,8 +68,7 @@ ColumnStruct::ColumnStruct(TupleColumns&& tuple_columns) {
     columns.reserve(tuple_columns.size());
     for (auto& column : tuple_columns) {
         if (is_column_const(*column)) {
-            throw Exception {"ColumnStruct cannot have ColumnConst as its element",
-                             ErrorCodes::ILLEGAL_COLUMN};
+            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
         columns.push_back(std::move(column));
     }
@@ -79,9 +76,9 @@ ColumnStruct::ColumnStruct(TupleColumns&& tuple_columns) {
 
 ColumnStruct::Ptr ColumnStruct::create(Columns& columns) {
     for (const auto& column : columns) {
-        if (is_column_const(*column))
-            throw Exception {"ColumnStruct cannot have ColumnConst as its element",
-                             ErrorCodes::ILLEGAL_COLUMN};
+        if (is_column_const(*column)) {
+            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+        }
     }
     auto column_struct = ColumnStruct::create(columns);
     return column_struct;
@@ -90,8 +87,7 @@ ColumnStruct::Ptr ColumnStruct::create(Columns& columns) {
 ColumnStruct::Ptr ColumnStruct::create(TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
-            throw Exception {"ColumnStruct cannot have ColumnConst as its element",
-                             ErrorCodes::ILLEGAL_COLUMN};
+            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
     }
     auto column_struct = ColumnStruct::create(tuple_columns);
@@ -144,22 +140,11 @@ bool ColumnStruct::is_default_at(size_t n) const {
     return true;
 }
 
-StringRef ColumnStruct::get_data_at(size_t) const {
-    throw Exception("Method get_data_at is not supported for " + get_name(),
-                    ErrorCodes::NOT_IMPLEMENTED);
-}
-
-void ColumnStruct::insert_data(const char*, size_t) {
-    throw Exception("Method insert_data is not supported for " + get_name(),
-                    ErrorCodes::NOT_IMPLEMENTED);
-}
-
 void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
-        throw Exception("Cannot insert value of different size into tuple",
-                        ErrorCodes::CANNOT_INSERT_VALUE_OF_DIFFERENT_SIZE_INTO_TUPLE);
+        LOG(FATAL) << "Cannot insert value of different size into tuple.";
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -172,8 +157,7 @@ void ColumnStruct::insert_from(const IColumn& src_, size_t n) {
 
     const size_t tuple_size = columns.size();
     if (src.columns.size() != tuple_size) {
-        throw Exception("Cannot insert value of different size into tuple",
-                        ErrorCodes::CANNOT_INSERT_VALUE_OF_DIFFERENT_SIZE_INTO_TUPLE);
+        LOG(FATAL) << "Cannot insert value of different size into tuple.";
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {

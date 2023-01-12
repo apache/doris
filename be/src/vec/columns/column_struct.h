@@ -102,7 +102,7 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
     TypeIndex get_data_type() const { return TypeIndex::Struct; }
-
+    bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -112,8 +112,12 @@ public:
     void get(size_t n, Field& res) const override;
 
     bool is_default_at(size_t n) const override;
-    StringRef get_data_at(size_t n) const override;
-    void insert_data(const char* pos, size_t length) override;
+    [[noreturn]] StringRef get_data_at(size_t n) const override {
+        LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
+    }
+    [[noreturn]] void insert_data(const char* pos, size_t length) override {
+        LOG(FATAL) << "Method insert_data is not supported for " + get_name();
+    }
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
@@ -162,7 +166,10 @@ public:
     // int compare_at_with_collation(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint,
     //                               const Collator& collator) const override;
 
-    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override;
+    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
+                                int nan_direction_hint) const override {
+        LOG(FATAL) << "compare_at not implemented";
+    }
     void get_extremes(Field& min, Field& max) const override;
 
     // void get_permutation(IColumn::PermutationSortDirection direction,

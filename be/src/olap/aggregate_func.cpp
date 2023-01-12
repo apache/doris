@@ -147,6 +147,8 @@ AggregateFuncResolver::AggregateFuncResolver() {
                           OLAP_FIELD_TYPE_DECIMAL128I>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
                           OLAP_FIELD_TYPE_ARRAY>();
+    // struct types
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_STRUCT>();
 
     // Min Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_TINYINT>();

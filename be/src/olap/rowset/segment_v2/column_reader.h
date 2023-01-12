@@ -378,6 +378,44 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+class StructFileColumnIterator final : public ColumnIterator {
+public:
+    explicit StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
+                                      std::vector<ColumnIterator*>& sub_column_iterators);
+
+    ~StructFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status seek_to_first() override {
+        for (auto& column_iterator : _sub_column_iterators) {
+            RETURN_IF_ERROR(column_iterator->seek_to_first());
+        }
+        if (_struct_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override {
+        return _sub_column_iterators[0]->get_current_ordinal();
+    }
+
+private:
+    ColumnReader* _struct_reader;
+    std::unique_ptr<ColumnIterator> _null_iterator;
+    std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
+};
+
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
     explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* offset_reader,
