@@ -126,7 +126,7 @@ date
 cd -
 
 # move data to $SSB_DATA_DIR
-mv "${SSB_DBGEN_DIR}"/*.tbl* "${SSB_DATA_DIR}/"
+mv "${SSB_DBGEN_DIR}"*.tbl* "${SSB_DATA_DIR}/"
 
 # check data
-du -sh "${SSB_DATA_DIR}"/*.tbl*
+du -sh "${SSB_DATA_DIR}"*.tbl*

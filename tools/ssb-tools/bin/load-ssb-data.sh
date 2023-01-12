@@ -188,18 +188,18 @@ ON (p.p_partkey = l.lo_partkey);
 
 check_prerequest "curl --version" "curl"
 
-# load lineorder
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
-echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 
-date
+start_time=$(date +%s)
+echo "Start time: $(date)"
 echo "==========Start to load data into ssb tables=========="
+
 echo 'Loading data for table: part'
 curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
@@ -278,4 +278,7 @@ run_sql "set global query_timeout=${origin_query_timeout};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
 echo '============================================'
 
-echo "DONE."
+end_time=$(date +%s)
+echo "End time: $(date)"
+
+echo "Finish load ssb data, Time taken: $((end_time-start_time)) seconds"
