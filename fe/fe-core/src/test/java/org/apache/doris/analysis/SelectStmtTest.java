@@ -289,7 +289,6 @@ public class SelectStmtTest {
         String betweenExpanded3 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 250";
 
         String rewrittenSql = stmt.toSql();
-        System.out.println(rewrittenSql);
         Assert.assertTrue(rewrittenSql.contains(commonExpr1));
         Assert.assertEquals(rewrittenSql.indexOf(commonExpr1), rewrittenSql.lastIndexOf(commonExpr1));
         Assert.assertTrue(rewrittenSql.contains(commonExpr2));
@@ -331,25 +330,17 @@ public class SelectStmtTest {
         SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
         stmt2.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         String fragment3 =
-                "((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) "
-                        + "AND (`t2`.`k2` = 'United States' OR `t2`.`k2` = 'United States1') "
-                        + "AND `t2`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI')"
-                        + ") "
-
+                "(((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) AND `t2`.`k2` IN ('United States', 'United States1') "
+                        + "AND `t2`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI')) "
                         + "AND `t1`.`k1` = `t2`.`k3` AND `t2`.`k2` = 'United States' "
-                        + "AND `t2`.`k3` IN ('CO', 'IL', 'MN') "
-                        + "AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200 "
-
+                        + "AND `t2`.`k3` IN ('CO', 'IL', 'MN') AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200 "
                         + "OR "
                         + "`t1`.`k1` = `t2`.`k1` AND `t2`.`k2` = 'United States1' "
-                        + "AND `t2`.`k3` IN ('OH', 'MT', 'NM') "
-                        + "AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300 "
-
+                        + "AND `t2`.`k3` IN ('OH', 'MT', 'NM') AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300 "
                         + "OR "
-                        + "`t1`.`k1` = `t2`.`k1` "
-                        + "AND `t2`.`k2` = 'United States' "
+                        + "`t1`.`k1` = `t2`.`k1` AND `t2`.`k2` = 'United States' "
                         + "AND `t2`.`k3` IN ('TX', 'MO', 'MI') "
-                        + "AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250";
+                        + "AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250)";
         Assert.assertTrue(stmt2.toSql().contains(fragment3));
 
         String sql3 = "select\n"
