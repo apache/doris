@@ -17,70 +17,70 @@
 
 suite("test_create_mtmv") {
     def dbName = "db_mtmv"
-    def tableName="t_user"
-    def tableNamePv="t_user_pv"
-    def mvName="multi_mv"
+    def tableName = "t_user"
+    def tableNamePv = "t_user_pv"
+    def mvName = "multi_mv"
     sql """
-        admin set frontend config("enable_mtmv_scheduler_framework"="true");
+        ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
     sql "DROP DATABASE IF EXISTS ${dbName};"
-    sql "create database ${dbName};"
-    sql "use ${dbName};"
+    sql "CREATE DATABASE ${dbName};"
+    sql "USE ${dbName};"
 
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
-        event_day DATE,
-        id bigint,
-        username varchar(20)
+            event_day DATE,
+            id BIGINT,
+            username VARCHAR(20)
         )
         DISTRIBUTED BY HASH(id) BUCKETS 10 
         PROPERTIES (
-        "replication_num" = "1"
+            "replication_num" = "1"
         );
         """
     sql """
-        insert into ${tableName} values("2022-10-26",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
+        INSERT INTO ${tableName} VALUES("2022-10-26",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
     """
     sql """
         create table ${tableNamePv}(
-        event_day DATE,
-        id bigint,
-        pv bigint
+            event_day DATE,
+            id BIGINT,
+            pv BIGINT
         )
         DISTRIBUTED BY HASH(id) BUCKETS 10 
         PROPERTIES (
-    "replication_num" = "1"
-    );
+            "replication_num" = "1"
+        );
     """
 
     sql """
-        insert into ${tableNamePv} values("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
+        INSERT INTO ${tableNamePv} VALUES("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
     """
     sql """
-        CREATE MATERIALIZED VIEW  ${mvName}
+        CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE 
         REFRESH COMPLETE 
-        start with "2022-10-27 19:35:00"
-        next  60 second
+        START WITH "2022-10-27 19:35:00"
+        NEXT  60 second
         KEY(username)   
         DISTRIBUTED BY HASH (username)  buckets 1
         PROPERTIES ('replication_num' = '1') 
         AS 
-        select ${tableName}.username, ${tableNamePv}.pv  from ${tableName}, ${tableNamePv} where ${tableName}.id=${tableNamePv}.id;
+        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-    int retry=10;
-    boolean is_succ=false;
-    while(retry>0){
-        def result= sql """ select * from   ${mvName}"""
-        if(result.size()!=3){
-            Thread.sleep(1000);
-            retry--;
-        }else{
-            is_succ=true;
-            break;
-        }
-    }
-    assertTrue(is_succ);
-    sql "drop database ${dbName}"
+
+    def show_task_meta = sql_meta "SHOW MTMV TASK FROM ${dbName}"
+    def index = show_task_meta.indexOf(['State', 'CHAR'])
+    def query = "SHOW MTMV TASK FROM ${dbName}"
+    def state
+    do {
+        def show_task_result = sql "${query}"
+        state = show_task_result.last().get(index)
+        println "The state of ${query} is ${state}"
+        Thread.sleep(1000);
+    } while (state.equals('PENDING'))
+
+    assertEquals('SUCCESS', state)
+    order_qt_select "SELECT * FROM ${mvName}"
 }
 
