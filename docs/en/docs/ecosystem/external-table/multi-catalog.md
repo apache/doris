@@ -732,11 +732,62 @@ The privilege management of Doris provides an extension to the Cataloig level. F
 
 ## Metadata Refresh
 
+### Manual Refresh
+
 Metadata changes of external data sources, such as creating, dropping tables, adding or dropping columns, etc., will not be synchronized to Doris.
 
-Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
+Users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
-Automatic synchronization of metadata will be supported soon.
+### Auto Refresh
+
+#### Hive MetaStore(HMS) catalog
+
+<version since="dev">
+
+The FE node can sense the change of the Hive table metadata by reading the HMS notification event regularly. Currently, the following events are supported:
+
+</version>
+
+1. CREATE DATABASE event:Create database under the corresponding catalog.                       
+2. DROP DATABASE event:Drop database under the corresponding catalog.
+3. ALTER DATABASE event:The main impact of this event is to change the attribute information, comments and default storage location of the database,These changes do not affect the query operation of doris on the external catalog, so this event will be ignored at present.
+4. CREATE TABLE event:Create table under the corresponding database.
+5. DROP TABLE event:Drop table under the corresponding database and invalidate its cache.
+6. ALTER TABLE event:If renaming, delete the table with the old name first, and then create the table with the new name, otherwise the cache of the table will be invalidated.                    
+7. ADD PARTITION event:Add partition in the partitions list of the corresponding table cache.
+8. DROP PARTITION event:Delete the partition in the partition list of the corresponding table cache and invalidate the cache of the partition.
+9. ALTER PARTITION event:If renaming, delete the partition with the old name first, and then create the partition with the new name, otherwise the cache of the partition will be invalidated. 
+10. When the file is changed due to importing data, the partition table will follow the ALTER PARTITION event logic, and the non-partition table will follow the ALTER TABLE event logic (note: if the file system is directly operated by bypassing the HMS, the HMS will not generate the corresponding event, and Doris will not be aware of it).
+
+The feature is controlled by the following parameters of fe:
+
+1. enable_hms_events_incremental_sync:Whether to enable automatic incremental metadata synchronization. The default value false.
+2. hms_events_polling_interval_ms: The interval between reading events. The default value is 10000, in milliseconds.                                   
+3. hms_events_batch_size_per_rpc:The maximum number of events read each time. The default value is 500.
+
+If you want to use this feature, you need to change the hive-site.xml of HMS and restart HMS
+```
+<property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+</property>
+<property>
+    <name>hive.metastore.dml.events</name>
+    <value>true</value>
+</property>
+<property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+
+```
+##### Use suggestions
+
+Whether you want to change the previously created catalog to automatic refresh or the newly created catalog, you only need to set enable_hms_events_incremental_sync to true, restart the fe node, and do not need to manually refresh the metadata before or after restarting.      
+
+#### Other catalog
+
+Not supported temporarily.
 
 ## FAQ
 
