@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
@@ -172,9 +173,10 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 .map(e -> rewrite(e, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
 
-        if (newInPredicate.getOptions().stream().map(Expression::getDataType)
-                .allMatch(dt -> dt.equals(NullType.INSTANCE)
-                        || dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
+        if (newInPredicate.getOptions().stream()
+                .filter(expression -> !(expression instanceof NullLiteral))
+                .map(Expression::getDataType)
+                .allMatch(dt -> dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
             return newInPredicate;
         }
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(newInPredicate.children()
