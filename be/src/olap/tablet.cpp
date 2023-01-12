@@ -1822,7 +1822,7 @@ Status Tablet::_cooldown_use_remote_data() {
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     int64_t max_version = -1;
     for (const auto& it : _rs_version_map) {
-        auto &rs = it.second;
+        auto& rs = it.second;
         for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
             if (rs->end_version() == rowset_meta_pb.end_version()) {
                 if (max_version < rs->end_version()) {
