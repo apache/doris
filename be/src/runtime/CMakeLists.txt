@@ -59,7 +59,6 @@ set(RUNTIME_FILES
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp
-    bufferpool/system_allocator.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp
