@@ -469,6 +469,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
+        if (ctx.tableAlias().getText().equals("")) {
+            throw new ParseException("Every derived table must have its own alias", ctx);
+        }
         LogicalPlan plan = withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
