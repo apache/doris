@@ -19,14 +19,12 @@
 
 #include <type_traits>
 
-#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/binary_prefix_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
-#include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
 
@@ -108,62 +106,6 @@ struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
     }
 };
 
-template <>
-struct TypeEncodingTraits<OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
-                          typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType> {
-    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>(opts);
-        return Status::OK();
-    }
-    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
-                                      PageDecoder** decoder) {
-        *decoder = new FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE>(data, opts);
-        return Status::OK();
-    }
-};
-
-template <>
-struct TypeEncodingTraits<OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
-                          typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType> {
-    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATEV2>(opts);
-        return Status::OK();
-    }
-    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
-                                      PageDecoder** decoder) {
-        *decoder = new FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATEV2>(data, opts);
-        return Status::OK();
-    }
-};
-
-template <>
-struct TypeEncodingTraits<OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
-                          typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::CppType> {
-    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATETIMEV2>(opts);
-        return Status::OK();
-    }
-    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
-                                      PageDecoder** decoder) {
-        *decoder = new FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATETIMEV2>(data, opts);
-        return Status::OK();
-    }
-};
-
-template <FieldType type, typename CppType>
-struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
-                          typename std::enable_if<std::is_integral<CppType>::value>::type> {
-    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<type>(opts);
-        return Status::OK();
-    }
-    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
-                                      PageDecoder** decoder) {
-        *decoder = new FrameOfReferencePageDecoder<type>(data, opts);
-        return Status::OK();
-    }
-};
-
 template <FieldType type>
 struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
@@ -233,19 +175,15 @@ private:
 
 EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
-    _add_map<OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
 
     _add_map<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
-    _add_map<OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
 
     _add_map<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
-    _add_map<OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
 
     _add_map<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
-    _add_map<OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
 
     _add_map<OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
@@ -253,7 +191,6 @@ EncodingInfoResolver::EncodingInfoResolver() {
 
     _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_LARGEINT, FOR_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
@@ -284,19 +221,15 @@ EncodingInfoResolver::EncodingInfoResolver() {
 
     _add_map<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATEV2, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();

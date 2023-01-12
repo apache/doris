@@ -52,7 +52,7 @@ uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
     // ref parquet bloom_filter branch(BlockSplitBloomFilter.java)
     uint32_t num_bits = -8 * (double)n / log(1 - pow(fpp, 1.0 / 8));
     uint32_t max_bits = MAXIMUM_BYTES << 3;
-    if (num_bits > max_bits || num_bits < 0) {
+    if (num_bits > max_bits) {
         num_bits = max_bits;
     }
 

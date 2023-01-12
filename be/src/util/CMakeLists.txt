@@ -84,7 +84,6 @@ set(UTIL_FILES
   thrift_rpc_helper.cpp
   faststring.cc
   slice.cpp
-  frame_of_reference_coding.cpp
   zip_util.cpp
   utf8_check.cpp
   cgroup_util.cpp
