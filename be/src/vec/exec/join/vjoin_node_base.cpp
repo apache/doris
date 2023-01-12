@@ -174,7 +174,8 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
                            origin_block->get_by_position(i).column->is_nullable()) {
                     LOG(FATAL) << "To column is not nullable, but from column is nullable";
                 } else {
-                    resusable_columns.emplace_back(output_block->get_by_position(i).column);
+                    resusable_columns.emplace_back(
+                            output_block->get_by_position(col_mapping[i]).column);
                 }
             }
         }
