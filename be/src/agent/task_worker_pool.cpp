@@ -1714,23 +1714,27 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
             _tasks.pop_front();
         }
-        int64_t tablet_id = push_cooldown_conf_req.tablet_id;
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
-        if (tablet.get() == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get tablet. tablet_id=" << tablet_id;
-            LOG(WARNING) << ss.str();
-            return;
-        }
-        if (push_cooldown_conf_req.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
-            tablet->tablet_meta()->set_cooldown_replica_id(
-                    push_cooldown_conf_req.cooldown_replica_id);
-            tablet->tablet_meta()->set_cooldown_term(push_cooldown_conf_req.cooldown_term);
-            LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id;
-        } else {
-            LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
-                         << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term() << " -> "
-                         << push_cooldown_conf_req.cooldown_term;
+        for (auto cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
+            int64_t tablet_id = cooldown_conf.tablet_id;
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+            if (tablet.get() == nullptr) {
+                std::stringstream ss;
+                ss << "failed to get tablet. tablet_id=" << tablet_id;
+                LOG(WARNING) << ss.str();
+                return;
+            }
+            if (cooldown_conf.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
+                tablet->tablet_meta()->set_cooldown_replica_id_and_term(
+                        cooldown_conf.cooldown_replica_id,
+                        cooldown_conf.cooldown_term);
+                LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id
+                          << ", cooldown_conf: " << cooldown_conf.cooldown_replica_id
+                          << "(" << cooldown_conf.cooldown_term << ")";
+            } else {
+                LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
+                             << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term()
+                             << " -> " << cooldown_conf.cooldown_term;
+            }
         }
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }

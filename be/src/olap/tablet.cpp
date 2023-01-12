@@ -1458,7 +1458,7 @@ void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) cons
 // such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
 void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const {
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(false, &tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb);
     new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
@@ -1777,8 +1777,9 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
     bool exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
+        IOContext io_ctx;
         io::FileReaderSPtr tablet_meta_reader;
-        RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader));
+        RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
         if (tablet_meta_reader == nullptr) {
             return Status::InternalError("tablet_meta_reader is null");
         }

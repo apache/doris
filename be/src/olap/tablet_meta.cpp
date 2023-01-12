@@ -340,7 +340,7 @@ Status TabletMeta::reset_tablet_uid(const string& header_file) {
         return res;
     }
     TabletMetaPB tmp_tablet_meta_pb;
-    tmp_tablet_meta.to_meta_pb(false, &tmp_tablet_meta_pb);
+    tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
     *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
     res = save(header_file, tmp_tablet_meta_pb);
     if (!res.ok()) {
@@ -374,7 +374,7 @@ Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
 
 Status TabletMeta::save(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(false, &tablet_meta_pb);
+    to_meta_pb(&tablet_meta_pb);
     return TabletMeta::save(file_path, tablet_meta_pb);
 }
 
@@ -428,7 +428,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 
 Status TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(false, &tablet_meta_pb);
+    to_meta_pb(&tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << full_name();
@@ -547,6 +547,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 }
 
+void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+    to_meta_pb(false, tablet_meta_pb);
+}
+
 void TabletMeta::to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
@@ -594,8 +598,6 @@ void TabletMeta::to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb) {
     }
 
     tablet_meta_pb->set_storage_policy(_storage_policy);
-    tablet_meta_pb->set_cooldown_replica_id(_cooldown_replica_id);
-    tablet_meta_pb->set_cooldown_term(_cooldown_term);
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     if (_enable_unique_key_merge_on_write) {
@@ -627,7 +629,7 @@ uint32_t TabletMeta::mem_size() const {
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(false, &tablet_meta_pb);
+    to_meta_pb(&tablet_meta_pb);
     json2pb::ProtoMessageToJson(tablet_meta_pb, json_string, options);
 }
 
@@ -874,8 +876,8 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy != b._storage_policy) return false;
-    if (a._cooldown_replica_id != b._cooldown_replica_id) return false;
-    if (a._cooldown_term != b._cooldown_term) return false;
+    if (a._cooldown_replica_id != b._cooldown_replica_id) { return false; }
+    if (a._cooldown_term != b._cooldown_term) { return false; }
     return true;
 }
 

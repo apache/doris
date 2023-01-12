@@ -42,8 +42,8 @@ struct TTabletInfo {
     15: optional Types.TReplicaId replica_id
     // data size on remote storage
     16: optional Types.TSize remote_data_size
-    17: optional i64 cooldown_replica_id
-    18: optional string storage_policy = ""
+    17: optional Types.TReplicaId cooldown_replica_id
+    18: optional i64 cooldown_term
 }
 
 struct TFinishTaskRequest {

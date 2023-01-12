@@ -34,9 +34,9 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
         *reader = raw_reader;
         break;
     }
-    case io::FileCacheType::SUB_FILE_CACHE:
-    case io::FileCacheType::WHOLE_FILE_CACHE: {
-        std::string cache_path = reader_options.path_policy.cache_path;
+    case io::FileCachePolicy::SUB_FILE_CACHE:
+    case io::FileCachePolicy::WHOLE_FILE_CACHE: {
+        std::string cache_path = reader_options.path_policy.get_cache_path();
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, raw_reader,
                 reader_options.cache_type);

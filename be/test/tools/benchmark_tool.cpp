@@ -365,8 +365,8 @@ public:
 
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              io::SegmentCachePathPolicy());
-        reader_options.path_policy.cache_path = segment_cache_path(seg_id);
-        Segment::open(fs, path, "", seg_id, {}, &_tablet_schema, reader_options, res);
+        reader_options.path_policy.set_cache_path(segment_cache_path(seg_id));
+        Segment::open(fs, path, seg_id, {}, &_tablet_schema, reader_options, res);
     }
 
     std::vector<std::vector<std::string>> generate_dataset(int rows_number) {

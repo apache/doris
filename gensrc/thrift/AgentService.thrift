@@ -349,11 +349,15 @@ struct TPluginMetaInfo {
     4: optional string source
 }
 
-struct TPushCooldownConfReq {
+struct TCooldownConf {
     1: required Types.TTabletId tablet_id
     2: required Types.TReplicaId replica_id
     3: optional Types.TReplicaId cooldown_replica_id
     4: optional i64 cooldown_term
+}
+
+struct TPushCooldownConfReq {
+    1: required list<TCooldownConf> cooldown_confs
 }
 
 struct TAgentTaskRequest {

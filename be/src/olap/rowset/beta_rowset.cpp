@@ -141,7 +141,7 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
         std::shared_ptr<segment_v2::Segment> segment;
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              io::SegmentCachePathPolicy());
-        reader_options.path_policy.cache_path = segment_cache_path(seg_id);
+        reader_options.path_policy.set_cache_path(segment_cache_path(seg_id));
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {
@@ -167,7 +167,7 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
         std::shared_ptr<segment_v2::Segment> segment;
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              io::SegmentCachePathPolicy());
-        reader_options.path_policy.cache_path = segment_cache_path(seg_id);
+        reader_options.path_policy.set_cache_path(segment_cache_path(seg_id));
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {
@@ -341,7 +341,7 @@ bool BetaRowset::check_current_rowset_segment() {
         std::shared_ptr<segment_v2::Segment> segment;
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
                                              io::SegmentCachePathPolicy());
-        reader_options.path_policy.cache_path = segment_cache_path(seg_id);
+        reader_options.path_policy.set_cache_path(segment_cache_path(seg_id));
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {
