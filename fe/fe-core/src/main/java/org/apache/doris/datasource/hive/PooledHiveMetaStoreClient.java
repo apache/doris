@@ -117,7 +117,6 @@ public class PooledHiveMetaStoreClient {
 
     public Table getTable(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
-            client.client.getAllTables(dbName);
             return client.client.getTable(dbName, tblName);
         } catch (Exception e) {
             throw new HMSClientException("failed to get table %s in db %s from hms client", e, tblName, dbName);

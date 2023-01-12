@@ -844,11 +844,6 @@ under the License.
             </exclusions>
         </dependency>
 
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-glue</artifactId>
-        </dependency>
-
     </dependencies>
     <build>
         <finalName>doris-fe</finalName>
