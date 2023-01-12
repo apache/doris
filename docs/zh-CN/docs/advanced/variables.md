@@ -545,4 +545,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 * `group_concat_max_len`
     为了兼容某些BI工具能正确获取和设置该变量，变量值实际并没有作用。
-	
+
+*   `group_by_and_having_use_alias_first`
+
+       指定group by和having语句是否优先使用列的别名，而非从From语句里寻找列的名字。默认为false。
