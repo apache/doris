@@ -111,12 +111,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void notifyPropertiesUpdated() {
-        processCompatibleProperties(catalogProperty.getProperties());
         initLocalObjectsImpl();
     }
 
     @Override
     protected void initLocalObjectsImpl() {
+        processCompatibleProperties(catalogProperty.getProperties());
         jdbcClient = new JdbcClient(jdbcUser, jdbcPasswd, jdbcUrl, driverUrl, driverClass);
         databaseTypeName = jdbcClient.getDbType();
         checkSum = jdbcClient.getCheckSum();
@@ -182,8 +182,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.gsonPostProcess();
         if (catalogProperty.getResource() == null) {
             catalogProperty.setProperties(processCompatibleProperties(catalogProperty.getProperties()));
-        } else {
-            processCompatibleProperties(catalogProperty.getProperties());
         }
     }
 

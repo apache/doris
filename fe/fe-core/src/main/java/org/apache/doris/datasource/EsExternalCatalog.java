@@ -135,16 +135,16 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     @Override
     public void notifyPropertiesUpdated() {
-        try {
-            processCompatibleProperties(catalogProperty.getProperties());
-            initLocalObjectsImpl();
-        } catch (DdlException e) {
-            LOG.warn("Failed to notify properties updated to catalog {}", name, e);
-        }
+        initLocalObjectsImpl();
     }
 
     @Override
     protected void initLocalObjectsImpl() {
+        try {
+            processCompatibleProperties(catalogProperty.getProperties());
+        } catch (DdlException e) {
+            LOG.warn("Failed to notify properties updated to catalog {}", name, e);
+        }
         esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
     }
 
@@ -199,8 +199,6 @@ public class EsExternalCatalog extends ExternalCatalog {
         try {
             if (catalogProperty.getResource() == null) {
                 catalogProperty.setProperties(processCompatibleProperties(catalogProperty.getProperties()));
-            } else {
-                processCompatibleProperties(catalogProperty.getProperties());
             }
         } catch (DdlException e) {
             throw new IOException(e);
