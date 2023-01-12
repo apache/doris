@@ -583,6 +583,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         if (!res.ok()) {
             if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
                 pred->type() != PredicateType::MATCH) {
+                // downgrade without index query
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"

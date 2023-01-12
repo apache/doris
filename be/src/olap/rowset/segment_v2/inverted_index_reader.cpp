@@ -96,8 +96,8 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
                                   InvertedIndexParserType analyser_type,
                                   roaring::Roaring* bit_map) {
     std::string search_str = reinterpret_cast<const StringValue*>(query_value)->to_string();
-    LOG(INFO) << column_name
-              << " begin to load the fulltext index from clucene, query_str=" << search_str;
+    VLOG_DEBUG << column_name
+               << " begin to load the fulltext index from clucene, query_str=" << search_str;
     std::unique_ptr<lucene::search::Query> query;
     std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
     std::wstring search_str_ws = std::wstring(search_str.begin(), search_str.end());
@@ -205,12 +205,12 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
     const StringValue* search_query = reinterpret_cast<const StringValue*>(query_value);
     auto act_len = strnlen(search_query->ptr, search_query->len);
     std::string search_str(search_query->ptr, act_len);
-    LOG(INFO) << "begin to query the inverted index from clucene"
-              << ", column_name: " << column_name << ", search_str: " << search_str;
+    VLOG_DEBUG << "begin to query the inverted index from clucene"
+               << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
     std::wstring search_str_ws = std::wstring(search_str.begin(), search_str.end());
     lucene::index::Term* term =
-            new lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str());
+            _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str());
     std::unique_ptr<lucene::search::Query> query;
 
     io::Path path(_path);
@@ -227,22 +227,27 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY: {
         query.reset(new lucene::search::TermQuery(term));
+        _CLDECDELETE(term);
         break;
     }
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         query.reset(new lucene::search::RangeQuery(nullptr, term, false));
+        _CLDECDELETE(term);
         break;
     }
     case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
         query.reset(new lucene::search::RangeQuery(nullptr, term, true));
+        _CLDECDELETE(term);
         break;
     }
     case InvertedIndexQueryType::GREATER_THAN_QUERY: {
         query.reset(new lucene::search::RangeQuery(term, nullptr, false));
+        _CLDECDELETE(term);
         break;
     }
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
         query.reset(new lucene::search::RangeQuery(term, nullptr, true));
+        _CLDECDELETE(term);
         break;
     }
     default:
