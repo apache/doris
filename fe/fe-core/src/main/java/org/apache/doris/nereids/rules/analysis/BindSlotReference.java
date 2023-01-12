@@ -293,8 +293,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .collect(Collectors.toSet());
 
                     boundSlots.addAll(outputSlots);
-                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)),
-                            agg, ctx.cascadesContext);
+                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), ctx.cascadesContext);
 
                     List<Expression> groupBy = replacedGroupBy.stream()
                             .map(expression -> binder.bind(expression))
