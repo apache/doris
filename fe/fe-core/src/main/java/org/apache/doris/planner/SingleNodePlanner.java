@@ -2670,15 +2670,9 @@ public class SingleNodePlanner {
                     continue;
                 }
 
-                boolean isFromSourceExpr = false;
-                for (Expr expr : stmt.getGroupByClause().getGroupingExprs()) {
-                    if (expr.isFromSrcExpr(sourceExpr)) {
-                        isFromSourceExpr = true;
-                        break;
-                    }
-                }
-
-                if (stmt.getGroupByClause().isGroupByExtension() && isFromSourceExpr) {
+                if (sourceExpr.getFn() instanceof AggregateFunction) {
+                    isAllSlotReferToGroupBys = false;
+                } else if (stmt.getGroupByClause().isGroupByExtension()) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
                     if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
                             || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
@@ -2693,9 +2687,6 @@ public class SingleNodePlanner {
                             }
                         }
                     }
-                }
-                if (sourceExpr.getFn() instanceof AggregateFunction) {
-                    isAllSlotReferToGroupBys = false;
                 }
             }
 
