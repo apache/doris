@@ -25,8 +25,8 @@
 namespace doris {
 
 // Utility class for common local file system operations such as file creation and
-// deletion. This class should NOT be used to read or write data (DiskIoMgr is used
-// for that). Errors are indicated by the status code RUNTIME_ERROR, and are not
+// deletion. This class should NOT be used to read or write data
+// Errors are indicated by the status code RUNTIME_ERROR, and are not
 // handled via exceptions.
 class FileSystemUtil {
 public:

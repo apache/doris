@@ -43,8 +43,6 @@ class BrpcClientCache;
 class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
-class DiskIoMgr;
-class EtlJobMgr;
 class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
@@ -153,7 +151,6 @@ public:
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
-    DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
@@ -163,7 +160,6 @@ public:
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
     }
-    BufferPool* buffer_pool() { return _buffer_pool; }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
@@ -195,8 +191,6 @@ private:
     void _destroy();
 
     Status _init_mem_env();
-    /// Initialise 'buffer_pool_' with given capacity.
-    void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
     void _register_metrics();
     void _deregister_metrics();
@@ -237,7 +231,6 @@ private:
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
-    DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
@@ -247,8 +240,6 @@ private:
     NewLoadStreamMgr* _new_load_stream_mgr = nullptr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
-
-    BufferPool* _buffer_pool = nullptr;
 
     StorageEngine* _storage_engine = nullptr;
 

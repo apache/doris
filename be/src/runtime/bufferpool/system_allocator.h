@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "runtime/bufferpool/buffer_pool.h"
 
 namespace doris {
 
