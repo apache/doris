@@ -468,8 +468,10 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
         return Status::OK();
     }
 
+    LOG(INFO) << "aaaa0 _join_block_column_num:" << _join_block_column_num;
     MutableBlock mutable_join_block(&_join_block);
-
+    LOG(INFO) << "aaaa1 _join_block_column_num:" << _join_block_column_num;
+    LOG(INFO) << "aaaa2 mutable_join_block:" << mutable_join_block.columns();
     Status st;
     if (_probe_index < _probe_block.rows()) {
         DCHECK(_has_set_need_null_map_for_probe);
@@ -543,6 +545,8 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
     }
     RETURN_IF_ERROR(_build_output_block(&_join_block, output_block));
     // Clear join block since it's column is moved to output block
+
+    LOG(INFO) << "aaaa3 mutable_join_block:" << mutable_join_block.columns();
     _join_block.prune_columns(_join_block_column_num);
     _join_block.clear_column_data();
     _reset_tuple_is_null_column();

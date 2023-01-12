@@ -137,12 +137,16 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             for (int i = 0; i < output_size; ++i) {
                 int result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
-                auto column_ptr = origin_block->get_by_position(result_column_id)
-                                          .column->convert_to_full_column_if_const();
-                columns.emplace_back(column_ptr);
-                if (result_column_id < origin_col_num) {
-                    col_mapping[result_column_id] = i;
+                auto& column_ptr = origin_block->get_by_position(result_column_id).column;
+                LOG(INFO) << "aaaa1";
+                if (!column_ptr->is_column_const()) {
+                    if (result_column_id < origin_col_num) {
+                        col_mapping[result_column_id] = i;
+                    }
+                } else {
+                    LOG(INFO) << "aaaa2";
                 }
+                columns.emplace_back(column_ptr->convert_to_full_column_if_const());
             }
         }
         // TODO: After FE plan support same nullable of output expr and origin block and mutable column
