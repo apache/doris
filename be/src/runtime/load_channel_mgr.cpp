@@ -220,8 +220,11 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     DCHECK(_load_soft_mem_limit > 0);
     int64_t process_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
-    if (_mem_tracker->consumption() < _load_soft_mem_limit &&
-        proc_mem_no_allocator_cache < process_mem_limit) {
+    // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
+    // total memory, we don't need to reduce memory of load jobs.
+    bool reduce_on_process_mem_limit = proc_mem_no_allocator_cache >= process_mem_limit &&
+                                       _mem_tracker->consumption() >= _load_hard_mem_limit / 10;
+    if (_mem_tracker->consumption() < _load_soft_mem_limit && !reduce_on_process_mem_limit) {
         return;
     }
     // Indicate whether current thread is reducing mem on hard limit.
