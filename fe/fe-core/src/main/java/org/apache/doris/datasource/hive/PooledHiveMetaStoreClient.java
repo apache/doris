@@ -83,8 +83,7 @@ public class PooledHiveMetaStoreClient {
 
     public boolean tableExists(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
-            Table tbl = client.client.getTable(dbName, tblName);
-            return tbl != null;
+            return client.client.tableExists(dbName, tblName);
         } catch (Exception e) {
             throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
         }

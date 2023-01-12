@@ -1,20 +1,22 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Copy from
+// https://github.com/apache/hive/blob/rel/release-2.3.7/metastore/src/java/org/apache/hadoop/hive/metastore/HiveMetaStoreClient.java
 
 package org.apache.doris.datasource.hive;
 
@@ -152,6 +154,7 @@ import org.apache.hadoop.hive.shims.Utils;
 import org.apache.hadoop.hive.thrift.HadoopThriftAuthBridge;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
+import org.apache.logging.log4j.LogManager;
 import org.apache.thrift.TApplicationException;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
@@ -161,8 +164,6 @@ import org.apache.thrift.transport.TFramedTransport;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -201,6 +202,7 @@ import javax.security.auth.login.LoginException;
 @Public
 @Unstable
 public class HiveMetaStoreClient implements IMetaStoreClient {
+    private static final org.apache.logging.log4j.Logger LOG = LogManager.getLogger(HiveMetaStoreClient.class);
     /**
      * Capabilities of the current client. If this client talks to a MetaStore server in a manner
      * implying the usage of some expanded features that require client-side support that this client
@@ -214,7 +216,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
     ThriftHiveMetastore.Iface client = null;
     private TTransport transport = null;
     private boolean isConnected = false;
-    private URI metastoreUris[];
+    private URI[] metastoreUris;
     private final HiveMetaHookLoader hookLoader;
     protected final HiveConf conf;
     // Keep a copy of HiveConf so if Session conf changes, we may need to get a new HMS client.
@@ -233,8 +235,6 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
     private long retryDelaySeconds = 0;
     private final ClientCapabilities version;
 
-    static protected final Logger LOG = LoggerFactory.getLogger("hive.metastore");
-
     public HiveMetaStoreClient(HiveConf conf) throws MetaException {
         this(conf, null, true);
     }
@@ -243,7 +243,6 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
         this(conf, hookLoader, true);
     }
 
-    @SuppressWarnings("checkstyle:LocalVariableName")
     public HiveMetaStoreClient(HiveConf conf, HiveMetaHookLoader hookLoader, Boolean allowEmbedded)
             throws MetaException {
 
@@ -279,8 +278,8 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
             return;
         } else {
             if (conf.getBoolVar(ConfVars.METASTORE_FASTPATH)) {
-                throw new RuntimeException("You can't set hive.metastore.fastpath to true when you're " +
-                        "talking to the thrift metastore service.  You must run the metastore locally.");
+                throw new RuntimeException("You can't set hive.metastore.fastpath to true when you're "
+                        + "talking to the thrift metastore service.  You must run the metastore locally.");
             }
         }
 
@@ -1886,6 +1885,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
         // }
 
         // List<FieldSchema> fields = client.get_schema_with_environment_context(db, tableName, envCxt);
+        LOG.info("yy debug get version:" + client.getVersion());
         List<FieldSchema> fields = client.get_schema(db, tableName);
         return fastpath ? fields : deepCopyFieldSchemas(fields);
     }
