@@ -236,4 +236,4 @@ exec 3>&-
 end_time=$(date +%s)
 echo "End time: $(date)"
 
-echo "Finish load tpch data, Time taken: $((end_time-start_time)) seconds"
+echo "Finish load tpch data, Time taken: $((end_time - start_time)) seconds"
