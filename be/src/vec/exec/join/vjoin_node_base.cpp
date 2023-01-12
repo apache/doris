@@ -113,9 +113,9 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
     auto origin_col_num = origin_block->columns();
     if (rows != 0) {
         SCOPED_TIMER(_projection_timer);
-        ColumnsWithTypeAndName empty_columns_with_type =
-                VectorizedUtils::create_empty_block(row_desc());
         if (!is_mem_reuse) {
+            ColumnsWithTypeAndName empty_columns_with_type =
+                    VectorizedUtils::create_empty_block(row_desc());
             MutableBlock mutable_block = MutableBlock(empty_columns_with_type);
             // If not mem reuse, it means output block is empty, so that we create empty column for it
             // Then the empty column maybe swap to origin_block, origin_block will reuse the column to
@@ -149,10 +149,12 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
         // we should replace `insert_column_datas` by `insert_range_from`
         // Sometimes the origin block's column nullable property is not equal to row descriptor
         // So that should change it here
+
         for (int i = 0; i < output_size; ++i) {
-            if (empty_columns_with_type[i].type->is_nullable() && !columns[i]->is_nullable()) {
+            if (output_block->get_by_position(i).column->is_nullable() &&
+                !columns[i]->is_nullable()) {
                 columns[i] = vectorized::make_nullable(columns[i]);
-            } else if (!empty_columns_with_type[i].type->is_nullable() &&
+            } else if (!output_block->get_by_position(i).column->is_nullable() &&
                        columns[i]->is_nullable()) {
                 LOG(FATAL) << "To column is not nullable, but from column is nullable";
             }
@@ -164,13 +166,13 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
                 resusable_columns.emplace_back(origin_block->get_by_position(i).column);
             } else {
                 // Move the column from output block
-                if (empty_columns_with_type[col_mapping[i]].type->is_nullable() &&
+                if (output_block->get_by_position(col_mapping[i]).column->is_nullable() &&
                     !origin_block->get_by_position(i).column->is_nullable()) {
                     resusable_columns.emplace_back(
                             reinterpret_cast<const ColumnNullable*>(
                                     output_block->get_by_position(col_mapping[i]).column.get())
                                     ->get_nested_column_ptr());
-                } else if (!empty_columns_with_type[col_mapping[i]].type->is_nullable() &&
+                } else if (!output_block->get_by_position(col_mapping[i]).column->is_nullable() &&
                            origin_block->get_by_position(i).column->is_nullable()) {
                     LOG(FATAL) << "To column is not nullable, but from column is nullable";
                 } else {
