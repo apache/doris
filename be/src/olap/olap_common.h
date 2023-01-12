@@ -210,8 +210,11 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
            field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
            field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
-           field_type == OLAP_FIELD_TYPE_DATETIME || field_type == OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_BOOL;
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
 }
 
 // <start_version_id, end_version_id>, such as <100, 110>
