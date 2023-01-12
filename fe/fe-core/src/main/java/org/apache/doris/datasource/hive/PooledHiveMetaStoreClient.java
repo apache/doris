@@ -184,7 +184,7 @@ public class PooledHiveMetaStoreClient {
                         ProxyMetaStoreClient.class.getName());
             } else {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        MyHMSClient.class.getName());
+                        HiveMetaStoreClient.class.getName());
             }
         }
 
