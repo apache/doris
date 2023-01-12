@@ -731,11 +731,63 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 ## 元数据更新
 
+### 手动刷新
+
 外部数据源的元数据变动，如创建、删除表，加减列等操作，不会同步给 Doris。
 
-目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
+用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
-后续会支持元数据的自动同步。
+### 自动刷新
+
+#### Hive MetaStore(HMS)数据目录
+
+<version since="dev">
+
+通过让FE节点定时读取HMS的notification event来感知Hive表元数据的变更情况，目前支持处理如下event：
+
+</version>
+
+1. CREATE DATABASE event:在对应数据目录下创建数据库。
+2. DROP DATABASE event:在对应数据目录下删除数据库。
+3. ALTER DATABASE event:此事件的影响主要有更改数据库的属性信息，注释及默认存储位置等，这些改变不影响doris对外部数据目录的查询操作，因此目前会忽略此event。
+4. CREATE TABLE event:在对应数据库下创建表。
+5. DROP TABLE event:在对应数据库下删除表，并失效表的缓存。
+6. ALTER TABLE event:如果是重命名，先删除旧名字的表，再用新名字创建表，否则失效该表的缓存。
+7. ADD PARTITION event:在对应表缓存的分区列表里添加分区。
+8. DROP PARTITION event:在对应表缓存的分区列表里删除分区，并失效该分区的缓存。
+9. ALTER PARTITION event:如果是重命名，先删除旧名字的分区，再用新名字创建分区，否则失效该分区的缓存。
+10. 当导入数据导致文件变更,分区表会走ALTER PARTITION event逻辑，不分区表会走ALTER TABLE event逻辑(注意：如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知)。
+
+该特性被fe的如下参数控制：
+
+1. enable_hms_events_incremental_sync:是否开启元数据自动增量同步功能,默认关闭。
+2. hms_events_polling_interval_ms: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
+3. hms_events_batch_size_per_rpc:每次读取 event 的最大数量，默认值为 500。
+
+如果想使用该特性，需要更改HMS的hive-site.xml并重启HMS
+```
+<property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+</property>
+<property>
+    <name>hive.metastore.dml.events</name>
+    <value>true</value>
+</property>
+<property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+
+```
+##### 使用建议
+
+无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的catalog，都只需要把enable_hms_events_incremental_sync设置为true，重启fe节点，
+无需重启之前或之后再手动刷新元数据。
+
+#### 其它数据目录
+
+暂未支持。
 
 ## 常见问题
 
@@ -748,3 +800,14 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
   
 配置完成后需要重启Hive Metastore。
 
+### Kerberos
+
+1.2.0 版本连接 `Kerberos` 认证的 `Hive Metastore` 出现 `GSS initiate failed` 异常信息。
+   
+   - 请更新到 1.2.2 版本，或使用最新的 docker 开发镜像重新编译 1.2.1 版本的 FE。
+
+### HDFS
+
+读取 HDFS 3.x 时出现 `java.lang.VerifyError: xxx` 错误。
+
+   - 更新 `fe/pom.xml` 中的 hadoop 相关依赖到 2.10.2 版本，并重新编译 FE。

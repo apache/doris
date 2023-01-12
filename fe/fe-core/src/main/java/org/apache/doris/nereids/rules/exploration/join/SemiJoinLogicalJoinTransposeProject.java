@@ -56,9 +56,10 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
-                .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
-                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN
-                        || topJoin.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)
+                .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
+                        && (topJoin.left().child().getJoinType().isInnerJoin()
+                                || topJoin.left().child().getJoinType().isLeftOuterJoin()
+                                || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .when(join -> JoinReorderCommon.checkProject(join.left()))
@@ -80,6 +81,8 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                         lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
                     }
 
+                    JoinType newTopJoinType = JoinType.INNER_JOIN;
+
                     if (lasscom) {
                         /*-
                          *     topSemiJoin                    project
@@ -94,8 +97,9 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
                                 topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, c);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
+                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(newTopJoinType,
+                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                                JoinHint.NONE,
                                 newBottomSemiJoin, b);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
@@ -113,8 +117,9 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
                                 topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, b, c);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
+                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(newTopJoinType,
+                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                                JoinHint.NONE,
                                 a, newBottomSemiJoin);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);

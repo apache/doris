@@ -36,4 +36,23 @@ suite("group_by_constant") {
 
     qt_sql """select 2 from lineorder group by 1"""
 
+    qt_sql """select SUM(lo_tax) FROM lineorder group by null;"""
+
+    qt_sql """select 5 FROM lineorder group by null;"""
+
+    qt_sql """select lo_orderkey from lineorder order by lo_tax desc, lo_tax desc;"""
+
+    test {
+        sql "select SUM(lo_tax) FROM lineorder group by 1;"
+        exception "GROUP BY expression must not contain aggregate functions: sum(lo_tax)"
+    }
+
+    test {
+        sql "select SUM(lo_tax) FROM lineorder group by SUM(lo_tax);"
+        exception "GROUP BY expression must not contain aggregate functions: sum(lo_tax)"
+    }
+
+    qt_sql """select SUM(if(lo_tax=1,lo_tax,0)) FROM lineorder where false;"""
+
+    qt_sql """select 2 FROM lineorder group by 1;"""
 }

@@ -297,7 +297,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
-    public long sqlMode = 0L;
+    public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "normal";
@@ -653,7 +653,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
     public boolean enableUnicodeNameSupport = false;
 
-    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM)
+    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
+
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)

@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "exprs/table_function/table_function.h"
 #include "vec/columns/column.h"
+#include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
 
