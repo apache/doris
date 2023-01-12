@@ -143,6 +143,7 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/table_function/table_function_factory.cpp
   exprs/table_function/vexplode.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
