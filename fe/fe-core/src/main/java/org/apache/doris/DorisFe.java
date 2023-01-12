@@ -121,7 +121,7 @@ public class DorisFe {
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
 
-            LOG.info("Palo FE starting...");
+            LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
 
