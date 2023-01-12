@@ -1885,7 +1885,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
         // }
 
         // List<FieldSchema> fields = client.get_schema_with_environment_context(db, tableName, envCxt);
-        LOG.info("yy debug get version:" + client.getVersion());
+        LOG.info("yy debug get version:" + this.conf.get("yyversion"));
         List<FieldSchema> fields = client.get_schema(db, tableName);
         return fastpath ? fields : deepCopyFieldSchemas(fields);
     }
