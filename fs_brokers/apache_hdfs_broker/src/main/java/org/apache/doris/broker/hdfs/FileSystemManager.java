@@ -73,7 +73,7 @@ public class FileSystemManager {
     private static final String OSS_SCHEME = "oss";
     private static final String COS_SCHEME = "cosn";
     private static final String BOS_SCHEME = "bos";
-    private static final String JFS_SCHEME = "JFS";
+    private static final String JFS_SCHEME = "jfs";
     private static final String AFS_SCHEME = "afs";
 
     private static final String USER_NAME_KEY = "username";
