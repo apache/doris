@@ -54,6 +54,7 @@ public:
     void set_cache_path(const std::string& cache_path) { _cache_path = cache_path; }
 
     std::string get_cache_path(const std::string& path) const override { return _cache_path; }
+
 private:
     std::string _cache_path;
 };
