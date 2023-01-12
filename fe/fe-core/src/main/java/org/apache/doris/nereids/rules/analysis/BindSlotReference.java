@@ -74,6 +74,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -227,8 +228,20 @@ public class BindSlotReference implements AnalysisRuleFactory {
                      group by key cannot bind with agg func
                      plan:
                         agg(group_by v, output sum(k) as v)
-
                      throw AnalysisException
+
+                    CASE 4
+                     sql:
+                        `select count(1) from t1 join t2 group by a`
+                     we cannot bind `group by a`, because it is ambiguous (t1.a and t2.a)
+
+                    CASE 5
+                     following case 4, if t1.a is in agg.output, we can bind `group by a` to t1.a
+                     sql
+                        select t1.a
+                        from t1 join t2 on t1.a = t2.a
+                        group by a
+                     group_by_key is bound on t1.a
                     */
                     duplicatedSlotNames.stream().forEach(dup -> childOutputsToExpr.remove(dup));
                     Map<String, Expression> aliasNameToExpr = output.stream()
@@ -261,8 +274,31 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 }
                                 return groupBy;
                             }).collect(Collectors.toList());
+                    /*
+                    according to case 4 and case 5, we construct boundSlots
+                    */
+                    Set<String> outputSlotNames = Sets.newHashSet();
+                    Set<Slot> outputSlots = output.stream()
+                            .filter(SlotReference.class::isInstance)
+                            .peek(slot -> outputSlotNames.add(slot.getName()))
+                            .map(NamedExpression::toSlot).collect(
+                                    Collectors.toSet());
+                    //suppose group by key is a.
+                    // if both t1.a and t2.a are in agg.child.output, and t1.a in agg.output,
+                    // bind group_by_key a with t1.a
+                    // ` .filter(slot -> !outputSlotNames.contains(slot.getName()))`
+                    // is used to avoid add t2.a into boundSlots
+                    Set<Slot> boundSlots = agg.child().getOutputSet().stream()
+                            .filter(slot -> !outputSlotNames.contains(slot.getName()))
+                            .collect(Collectors.toSet());
 
-                    List<Expression> groupBy = bind(replacedGroupBy, agg.children(), agg, ctx.cascadesContext);
+                    boundSlots.addAll(outputSlots);
+                    SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), ctx.cascadesContext);
+
+                    List<Expression> groupBy = replacedGroupBy.stream()
+                            .map(expression -> binder.bind(expression))
+                            .collect(Collectors.toList());
+
                     List<Expression> unboundGroupBys = Lists.newArrayList();
                     boolean hasUnbound = groupBy.stream().anyMatch(
                             expression -> {
