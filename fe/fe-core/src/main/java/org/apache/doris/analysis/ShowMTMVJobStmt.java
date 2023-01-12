@@ -87,7 +87,7 @@ public class ShowMTMVJobStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (dbName != null && mvName != null && !dbName.equals(mvName.getDb())) {
+        if (dbName != null && mvName != null && mvName.getDb() != null && !dbName.equals(mvName.getDb())) {
             throw new UserException("Database name should be same when they both been set.");
         }
         if (!Strings.isNullOrEmpty(dbName)) {
