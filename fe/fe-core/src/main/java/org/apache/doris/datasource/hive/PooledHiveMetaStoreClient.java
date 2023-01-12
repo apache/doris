@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
@@ -83,7 +84,8 @@ public class PooledHiveMetaStoreClient {
 
     public boolean tableExists(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
-            return client.client.tableExists(dbName, tblName);
+            Table tbl = client.client.getTable(dbName, tblName);
+            return tbl != null;
         } catch (Exception e) {
             throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
         }
@@ -125,7 +127,7 @@ public class PooledHiveMetaStoreClient {
 
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
-            return client.client.getSchema(dbName, tblName);
+            return client.client.getFields(dbName, tblName);
         } catch (Exception e) {
             throw new HMSClientException("failed to get schema for table %s in db %s", e, tblName, dbName);
         }
