@@ -257,20 +257,18 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
         return Status::InternalError("used before initialize.");
     }
     RETURN_IF_CANCELLED(state);
-    std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
     bool schema_eos = false;
 
+    block->clear();
+
+    for (int i = 0; i < _slot_num; ++i) {
+        int j = _index_map[i];
+        const auto slot_desc = _src_tuple_desc->slots()[j];
+        block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+                                            slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+    }
+
     do {
-        block->clear();
-
-        for (int i = 0; i < _slot_num; ++i) {
-            int j = _index_map[i];
-            const auto slot_desc = _src_tuple_desc->slots()[j];
-            block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                slot_desc->get_data_type_ptr(),
-                                                slot_desc->col_name()));
-        }
-
         while (true) {
             RETURN_IF_CANCELLED(state);
 
@@ -282,7 +280,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
                 break;
             }
 
-            if (block->rows() == state->batch_size()) {
+            if (block->rows() >= state->batch_size()) {
                 break;
             }
         }

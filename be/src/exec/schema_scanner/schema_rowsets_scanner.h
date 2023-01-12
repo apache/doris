@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -41,6 +42,7 @@ private:
 
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
     int64_t backend_id_ = 0;
+    size_t _rowsets_idx = 0;
     std::vector<RowsetSharedPtr> rowsets_;
 };
 } // namespace doris
