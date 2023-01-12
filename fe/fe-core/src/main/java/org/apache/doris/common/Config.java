@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.PaloFe;
+import org.apache.doris.DorisFe;
 
 public class Config extends ConfigBase {
 
@@ -25,7 +25,7 @@ public class Config extends ConfigBase {
      * Dir of custom config file
      */
     @ConfField
-    public static String custom_config_dir = PaloFe.DORIS_HOME_DIR + "/conf";
+    public static String custom_config_dir = DorisFe.DORIS_HOME_DIR + "/conf";
 
     /**
      * The max size of one sys log and audit log
@@ -64,7 +64,7 @@ public class Config extends ConfigBase {
      *          120s    120 seconds
      */
     @ConfField
-    public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
+    public static String sys_log_dir = DorisFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO";
     @ConfField public static int sys_log_roll_num = 10;
     @ConfField
@@ -101,7 +101,7 @@ public class Config extends ConfigBase {
      *          120s    120 seconds
      */
     @ConfField
-    public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
+    public static String audit_log_dir = DorisFe.DORIS_HOME_DIR + "/log";
     @ConfField
     public static int audit_log_roll_num = 90;
     @ConfField
@@ -185,13 +185,13 @@ public class Config extends ConfigBase {
      * 2. Safe (RAID)
      */
     @ConfField
-    public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
+    public static String meta_dir = DorisFe.DORIS_HOME_DIR + "/doris-meta";
 
     /**
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
      * file in this dir will be cleaned after these process is finished.
      */
-    @ConfField public static String tmp_dir = PaloFe.DORIS_HOME_DIR + "/temp_dir";
+    @ConfField public static String tmp_dir = DorisFe.DORIS_HOME_DIR + "/temp_dir";
 
     /**
      * Edit log type.
@@ -619,7 +619,7 @@ public class Config extends ConfigBase {
      * Default spark home dir
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static String spark_home_default_dir = PaloFe.DORIS_HOME_DIR + "/lib/spark2x";
+    public static String spark_home_default_dir = DorisFe.DORIS_HOME_DIR + "/lib/spark2x";
 
     /**
      * Default spark dependencies path
@@ -637,7 +637,7 @@ public class Config extends ConfigBase {
      * Default yarn client path
      */
     @ConfField
-    public static String yarn_client_path = PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn";
+    public static String yarn_client_path = DorisFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn";
 
     /**
      * Default yarn config file directory
@@ -645,7 +645,7 @@ public class Config extends ConfigBase {
      * config file exists under this path, and if not, create them.
      */
     @ConfField
-    public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
+    public static String yarn_config_dir = DorisFe.DORIS_HOME_DIR + "/lib/yarn-config";
 
     /**
      * Maximal intervals between two syncJob's commits.
@@ -1225,7 +1225,7 @@ public class Config extends ConfigBase {
     /**
      * Save small files
      */
-    @ConfField public static String small_file_dir = PaloFe.DORIS_HOME_DIR + "/small_files";
+    @ConfField public static String small_file_dir = DorisFe.DORIS_HOME_DIR + "/small_files";
 
     /**
      * If set to true, the insert stmt with processing error will still return a label to user.

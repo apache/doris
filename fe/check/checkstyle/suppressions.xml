@@ -31,25 +31,25 @@ under the License.
 
     <!-- Suppress some rules except nereids -->
     <!-- Java doc -->
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="AtclauseOrder" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="JavadocMethod" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="JavadocParagraph" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="JavadocStyle" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="JavadocTagContinuationIndentation" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="InvalidJavadocPosition" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="MissingJavadocMethod" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="MissingJavadocType" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="NonEmptyAtclauseDescription" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="RequireEmptyLineBeforeBlockTagGroup" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="SummaryJavadoc" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="SingleLineJavadoc" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="AtclauseOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="JavadocMethod" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="JavadocParagraph" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="JavadocStyle" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="JavadocTagContinuationIndentation" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="InvalidJavadocPosition" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="MissingJavadocMethod" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="MissingJavadocType" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="NonEmptyAtclauseDescription" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="RequireEmptyLineBeforeBlockTagGroup" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="SummaryJavadoc" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="SingleLineJavadoc" />
 
     <!-- other -->
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="DeclarationOrder" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="OverloadMethodsDeclarationOrder" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="SingleSpaceSeparator" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="VariableDeclarationUsageDistance" />
-    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="EmptyLineSeparator" id="forNereids" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="DeclarationOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="OverloadMethodsDeclarationOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="SingleSpaceSeparator" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="VariableDeclarationUsageDistance" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFe\.java" checks="EmptyLineSeparator" id="forNereids" />
 
     <!-- exclude rules for special files -->
     <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]ColumnParser\.java" checks="OneTopLevelClass" />

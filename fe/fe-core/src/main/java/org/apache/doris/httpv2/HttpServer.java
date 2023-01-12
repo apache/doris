@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2;
 
-import org.apache.doris.PaloFe;
+import org.apache.doris.DorisFe;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
@@ -118,8 +118,8 @@ public class HttpServer extends SpringBootServletInitializer {
         // To avoid some unexpected behavior.
         System.setProperty("spring.devtools.restart.enabled", "false");
         // Value of `DORIS_HOME_DIR` is null in unit test.
-        if (PaloFe.DORIS_HOME_DIR != null) {
-            System.setProperty("spring.http.multipart.location", PaloFe.DORIS_HOME_DIR);
+        if (DorisFe.DORIS_HOME_DIR != null) {
+            System.setProperty("spring.http.multipart.location", DorisFe.DORIS_HOME_DIR);
         }
         System.setProperty("spring.banner.image.location", "doris-logo.png");
         if (FeConstants.runningUnitTest) {

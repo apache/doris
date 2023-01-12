@@ -17,8 +17,8 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.PaloFe;
-import org.apache.doris.PaloFe.StartupOptions;
+import org.apache.doris.DorisFe;
+import org.apache.doris.DorisFe.StartupOptions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.PrintableMap;
 
@@ -180,7 +180,7 @@ public class MockedFrontend {
             // And it also cost time to start up.
             options.enableHttpServer = false;
             options.enableQeService = false;
-            PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args, options);
+            DorisFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args, options);
         }
     }
 
