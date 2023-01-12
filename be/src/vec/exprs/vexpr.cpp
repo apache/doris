@@ -35,6 +35,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
 namespace doris::vectorized {
@@ -122,6 +123,10 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     case TExprNodeType::ARRAY_LITERAL: {
         *expr = pool->add(new VArrayLiteral(texpr_node));
+        return Status::OK();
+    }
+    case TExprNodeType::STRUCT_LITERAL: {
+        *expr = pool->add(new VStructLiteral(texpr_node));
         return Status::OK();
     }
     case doris::TExprNodeType::SLOT_REF: {
