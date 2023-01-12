@@ -65,5 +65,3 @@ private:
     bool _has_null;
 };
 } // namespace doris
-
-
