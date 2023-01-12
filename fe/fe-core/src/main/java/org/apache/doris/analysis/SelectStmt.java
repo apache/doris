@@ -1023,7 +1023,6 @@ public class SelectStmt extends QueryStmt {
                         } catch (AnalysisException ex) {
                             // according to case3, column name do not exist, keep alias name inside alias map
                         }
-                        havingClauseAfterAnaylzed = havingClause.substitute(excludeGroupByaliasSMap, analyzer, false);
                     }
                     havingClauseAfterAnaylzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
                 } else {
