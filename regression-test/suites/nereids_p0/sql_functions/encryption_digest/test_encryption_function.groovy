@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_encryption_function") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     sql "set batch_size = 4096;"
 
     sql "set block_encryption_mode=\"AES_256_CBC\";"
@@ -39,8 +42,6 @@ suite("test_encryption_function") {
     qt_sql "select sm3(\"abcd\");"
     qt_sql "select sm3sum(\"ab\",\"cd\");"
 
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
 
     sql "set block_encryption_mode=\"AES_256_CBC\";"
     qt_sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"

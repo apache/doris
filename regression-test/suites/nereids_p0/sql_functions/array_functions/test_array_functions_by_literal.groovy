@@ -16,181 +16,330 @@
 // under the License.
 
 suite("test_array_functions_by_literal") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     // array_contains function
-    qt_sql "select array_contains([1,2,3], 1)"
-    qt_sql "select array_contains([1,2,3], 4)"
-    qt_sql "select array_contains([1,2,3,NULL], 1)"
-    qt_sql "select array_contains([1,2,3,NULL], NULL)"
-    qt_sql "select array_contains([], 1)"
-    qt_sql "select array_contains([], NULL)"
-    qt_sql "select array_contains(NULL, 1)"
-    qt_sql "select array_contains(NULL, NULL)"
-    qt_sql "select array_contains([true], false)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([1,2,3], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([1,2,3], 4)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([1,2,3,NULL], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([1,2,3,NULL], NULL)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([], NULL)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains(NULL, 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains(NULL, NULL)"
+    // Nereids does't support array function
+    // qt_sql "select array_contains([true], false)"
 
     // array_position function
-    qt_sql "select array_position([1,2,3], 1)"
-    qt_sql "select array_position([1,2,3], 3)"
-    qt_sql "select array_position([1,2,3], 4)"
-    qt_sql "select array_position([NULL,2,3], 2)"
-    qt_sql "select array_position([NULL,2,3], NULL)"
-    qt_sql "select array_position([], 1)"
-    qt_sql "select array_position([], NULL)"
-    qt_sql "select array_position(NULL, 1)"
-    qt_sql "select array_position(NULL, NULL)"
-    qt_sql "select array_position([null], 0)"
-    qt_sql "select array_position([0], null)"
-    qt_sql "select array_position([null, '1'], '')"
-    qt_sql "select array_position([''], null)"
-    qt_sql "select array_position([false, NULL, true], true)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([1,2,3], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([1,2,3], 3)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([1,2,3], 4)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([NULL,2,3], 2)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([NULL,2,3], NULL)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([], NULL)"
+    // Nereids does't support array function
+    // qt_sql "select array_position(NULL, 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_position(NULL, NULL)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([null], 0)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([0], null)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([null, '1'], '')"
+    // Nereids does't support array function
+    // qt_sql "select array_position([''], null)"
+    // Nereids does't support array function
+    // qt_sql "select array_position([false, NULL, true], true)"
 
     // element_at function
-    qt_sql "select element_at([1,2,3], 1)"
-    qt_sql "select element_at([1,2,3], 3)"
-    qt_sql "select element_at([1,2,3], 4)"
-    qt_sql "select element_at([1,2,3], -1)"
-    qt_sql "select element_at([1,2,3], NULL)"
-    qt_sql "select element_at([1,2,NULL], 3)"
-    qt_sql "select element_at([1,2,NULL], 2)"
-    qt_sql "select element_at([], -1)"
-    qt_sql "select element_at([true, NULL, false], 2)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,3], 1)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,3], 3)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,3], 4)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,3], -1)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,3], NULL)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,NULL], 3)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([1,2,NULL], 2)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([], -1)"
+    // Nereids does't support array function
+    // qt_sql "select element_at([true, NULL, false], 2)"
 
     // array subscript function
-    qt_sql "select [1,2,3][1]"
-    qt_sql "select [1,2,3][3]"
-    qt_sql "select [1,2,3][4]"
-    qt_sql "select [1,2,3][-1]"
-    qt_sql "select [1,2,3][NULL]"
-    qt_sql "select [1,2,NULL][3]"
-    qt_sql "select [1,2,NULL][2]"
-    qt_sql "select [][-1]"
-    qt_sql "select [true, false]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][1]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][3]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][4]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][-1]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][NULL]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,NULL][3]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,NULL][2]"
+    // Nereids does't support array function
+    // qt_sql "select [][-1]"
+    // Nereids does't support array function
+    // qt_sql "select [true, false]"
 
     // array_aggregation function
-    qt_sql "select array_avg([1,2,3])"
-    qt_sql "select array_sum([1,2,3])"
-    qt_sql "select array_min([1,2,3])"
-    qt_sql "select array_max([1,2,3])"
-    qt_sql "select array_product([1,2,3])"
-    qt_sql "select array_avg([1,2,3,null])"
-    qt_sql "select array_sum([1,2,3,null])"
-    qt_sql "select array_min([1,2,3,null])"
-    qt_sql "select array_max([1,2,3,null])"
-    qt_sql "select array_product([1,2,3,null])"
-    qt_sql "select array_avg([])"
-    qt_sql "select array_sum([])"
-    qt_sql "select array_min([])"
-    qt_sql "select array_max([])"
-    qt_sql "select array_product([])"
-    qt_sql "select array_avg([null])"
-    qt_sql "select array_sum([null])"
-    qt_sql "select array_min([null])"
-    qt_sql "select array_max([null])"
-    qt_sql "select array_product([null])"
-    qt_sql "select array_product([1.12, 3.45, 4.23])"
-    qt_sql "select array_product([1.12, 3.45, -4.23])"
+    // Nereids does't support array function
+    // qt_sql "select array_avg([1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_sum([1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_min([1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_max([1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_product([1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_avg([1,2,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_sum([1,2,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_min([1,2,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_max([1,2,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_product([1,2,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_avg([])"
+    // Nereids does't support array function
+    // qt_sql "select array_sum([])"
+    // Nereids does't support array function
+    // qt_sql "select array_min([])"
+    // Nereids does't support array function
+    // qt_sql "select array_max([])"
+    // Nereids does't support array function
+    // qt_sql "select array_product([])"
+    // Nereids does't support array function
+    // qt_sql "select array_avg([null])"
+    // Nereids does't support array function
+    // qt_sql "select array_sum([null])"
+    // Nereids does't support array function
+    // qt_sql "select array_min([null])"
+    // Nereids does't support array function
+    // qt_sql "select array_max([null])"
+    // Nereids does't support array function
+    // qt_sql "select array_product([null])"
+    // Nereids does't support array function
+    // qt_sql "select array_product([1.12, 3.45, 4.23])"
+    // Nereids does't support array function
+    // qt_sql "select array_product([1.12, 3.45, -4.23])"
 
     // array_distinct function
-    qt_sql "select array_distinct([1,1,2,2,3,3])"
-    qt_sql "select array_distinct([1,1,2,2,3,3,null])"
-    qt_sql "select array_distinct([1,1,3,3,null, null, null])"
-    qt_sql "select array_distinct(['a','a','a'])"
-    qt_sql "select array_distinct([null, 'a','a','a', null])"
-    qt_sql "select array_distinct([true, false, false, null])"
-    qt_sql "select array_distinct([])"
-    qt_sql "select array_distinct([null,null])"
-    qt_sql "select array_distinct([1, 0, 0, null])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([1,1,2,2,3,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([1,1,2,2,3,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([1,1,3,3,null, null, null])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct(['a','a','a'])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([null, 'a','a','a', null])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([true, false, false, null])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([null,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_distinct([1, 0, 0, null])"
 
 
     // array_remove function
-    qt_sql "select array_remove([1,2,3], 1)"
-    qt_sql "select array_remove([1,2,3,null], 1)"
-    qt_sql "select array_remove(['a','b','c'], 'a')"
-    qt_sql "select array_remove(['a','b','c',null], 'a')"
-    qt_sql "select array_remove([true, false, false], false)"
+    // Nereids does't support array function
+    // qt_sql "select array_remove([1,2,3], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_remove([1,2,3,null], 1)"
+    // Nereids does't support array function
+    // qt_sql "select array_remove(['a','b','c'], 'a')"
+    // Nereids does't support array function
+    // qt_sql "select array_remove(['a','b','c',null], 'a')"
+    // Nereids does't support array function
+    // qt_sql "select array_remove([true, false, false], false)"
  
     // array_sort function
-    qt_sql "select array_sort([1,2,3])"
-    qt_sql "select array_sort([3,2,1])"
-    qt_sql "select array_sort([1,2,3,null])"
-    qt_sql "select array_sort([null,1,2,3])"
-    qt_sql "select array_sort(['a','b','c'])"
-    qt_sql "select array_sort(['c','b','a'])"
-    qt_sql "select array_sort([true, false, true])"
-    qt_sql "select array_sort([])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort([1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort([3,2,1])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort([1,2,3,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort([null,1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort(['a','b','c'])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort(['c','b','a'])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort([true, false, true])"
+    // Nereids does't support array function
+    // qt_sql "select array_sort([])"
 
     // array_overlap function
-    qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
-    qt_sql "select arrays_overlap([1,2,3], [3,4,5])"
-    qt_sql "select arrays_overlap([1,2,3,null], [3,4,5])"
-    qt_sql "select arrays_overlap([true], [false])"
-    qt_sql "select arrays_overlap([], [])"
+    // Nereids does't support array function
+    // qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
+    // Nereids does't support array function
+    // qt_sql "select arrays_overlap([1,2,3], [3,4,5])"
+    // Nereids does't support array function
+    // qt_sql "select arrays_overlap([1,2,3,null], [3,4,5])"
+    // Nereids does't support array function
+    // qt_sql "select arrays_overlap([true], [false])"
+    // Nereids does't support array function
+    // qt_sql "select arrays_overlap([], [])"
 
     // array_binary function
-    qt_sql "select array_union([1,2,3], [2,3,4])"
-    qt_sql "select array_except([1,2,3], [2,3,4])"
-    qt_sql "select array_intersect([1,2,3], [2,3,4])"
-    qt_sql "select array_union([1,2,3], [2,3,4,null])"
-    qt_sql "select array_except([1,2,3], [2,3,4,null])"
-    qt_sql "select array_intersect([1,2,3], [2,3,4,null])"
-    qt_sql "select array_union([true], [false])"
-    qt_sql "select array_except([true, false], [true])"
-    qt_sql "select array_intersect([false, true], [false])"
-    qt_sql "select array_union([], [])"
-    qt_sql "select array_except([], [])"
-    qt_sql "select array_intersect([], [])"
-    qt_sql "select array_union([], [1,2,3])"
-    qt_sql "select array_except([], [1,2,3])"
-    qt_sql "select array_intersect([], [1,2,3])"
-    qt_sql "select array_union([null], [1,2,3])"
-    qt_sql "select array_except([null], [1,2,3])"
-    qt_sql "select array_intersect([null], [1,2,3])"
-    qt_sql "select array_union([1], [100000000])"
-    qt_sql "select array_except([1], [100000000])"
-    qt_sql "select array_intersect([1], [100000000])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([1,2,3], [2,3,4])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([1,2,3], [2,3,4])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([1,2,3], [2,3,4])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([1,2,3], [2,3,4,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([1,2,3], [2,3,4,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([1,2,3], [2,3,4,null])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([true], [false])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([true, false], [true])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([false, true], [false])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([], [])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([], [])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([], [])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([], [1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([], [1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([], [1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([null], [1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([null], [1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([null], [1,2,3])"
+    // Nereids does't support array function
+    // qt_sql "select array_union([1], [100000000])"
+    // Nereids does't support array function
+    // qt_sql "select array_except([1], [100000000])"
+    // Nereids does't support array function
+    // qt_sql "select array_intersect([1], [100000000])"
 
     // arrat_slice function
-    qt_sql "select [1,2,3][1:1]"
-    qt_sql "select [1,2,3][1:3]"
-    qt_sql "select [1,2,3][1:5]"
-    qt_sql "select [1,2,3][2:]"
-    qt_sql "select [1,2,3][-2:]"
-    qt_sql "select [1,2,3][2:-1]"
-    qt_sql "select [1,2,3][0:]"
-    qt_sql "select [1,2,3][-5:]"
-    qt_sql "select [true, false, false][2:]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][1:1]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][1:3]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][1:5]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][2:]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][-2:]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][2:-1]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][0:]"
+    // Nereids does't support array function
+    // qt_sql "select [1,2,3][-5:]"
+    // Nereids does't support array function
+    // qt_sql "select [true, false, false][2:]"
 
     // array_join function 
-    qt_sql "select array_join([1, 2, 3], '_')"
-    qt_sql "select array_join(['1', '2', '3', null], '_')"
-    qt_sql "select array_join([null, '1', '2', '3', null], '_')"
-    qt_sql "select array_join(['', '2', '3'], '_')"
-    qt_sql "select array_join(['1', '2', ''], '_')"
-    qt_sql "select array_join(['1', '2', '', null], '_')"
-    qt_sql "select array_join(['', '', '3'], '_')"
-    qt_sql "select array_join(['1', '2', '', ''], '_')"
-    qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
-    qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
-    qt_sql "select array_join([''], '_')"
-    qt_sql "select array_join(['', ''], '_')"
-    qt_sql "select array_with_constant(3, '_')"
-    qt_sql "select array_with_constant(2, '1')"
-    qt_sql "select array_with_constant(4, 1223)"
-    qt_sql "select array_with_constant(8, null)"
+    // Nereids does't support array function
+    // qt_sql "select array_join([1, 2, 3], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['1', '2', '3', null], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join([null, '1', '2', '3', null], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['', '2', '3'], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['1', '2', ''], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['1', '2', '', null], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['', '', '3'], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['1', '2', '', ''], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
+    // Nereids does't support array function
+    // qt_sql "select array_join([''], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_join(['', ''], '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_with_constant(3, '_')"
+    // Nereids does't support array function
+    // qt_sql "select array_with_constant(2, '1')"
+    // Nereids does't support array function
+    // qt_sql "select array_with_constant(4, 1223)"
+    // Nereids does't support array function
+    // qt_sql "select array_with_constant(8, null)"
     // array_compact function
-    qt_sql "select array_compact([1, 2, 3, 3, null, null, 4, 4])"
-    qt_sql "select array_compact([null, null, null])"
-    qt_sql "select array_compact([1.2, 1.2, 3.4, 3.3, 2.1])"
-    qt_sql "select array_compact(['a','b','c','c','d'])"
-    qt_sql "select array_compact(['aaa','aaa','bbb','ccc','ccccc',null, null,'dddd'])"
-    qt_sql "select array_compact(['2015-03-13','2015-03-13'])"
+    // Nereids does't support array function
+    // qt_sql "select array_compact([1, 2, 3, 3, null, null, 4, 4])"
+    // Nereids does't support array function
+    // qt_sql "select array_compact([null, null, null])"
+    // Nereids does't support array function
+    // qt_sql "select array_compact([1.2, 1.2, 3.4, 3.3, 2.1])"
+    // Nereids does't support array function
+    // qt_sql "select array_compact(['a','b','c','c','d'])"
+    // Nereids does't support array function
+    // qt_sql "select array_compact(['aaa','aaa','bbb','ccc','ccccc',null, null,'dddd'])"
+    // Nereids does't support array function
+    // qt_sql "select array_compact(['2015-03-13','2015-03-13'])"
 
-    qt_sql "select array(8, null)"
-    qt_sql "select array('a', 1, 2)"
-    qt_sql "select array(null, null, null)"
+    // Nereids does't support array function
+    // qt_sql "select array(8, null)"
+    // Nereids does't support array function
+    // qt_sql "select array('a', 1, 2)"
+    // Nereids does't support array function
+    // qt_sql "select array(null, null, null)"
     // abnormal test
-    try {
-        sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-    } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: array_intersect"))
-    }
+    // Nereids does't support array function
+    // try {
+    //     sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
+    // } catch (Exception ex) {
+    //     assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: array_intersect"))
+    // }
 }

@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_bitmap_function") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     // BITMAP_AND
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt """
@@ -180,9 +183,12 @@ suite("test_bitmap_function") {
     qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
     qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
 
-    qt_sql """ select bitmap_to_array(user_id) from ${intersectCountTable} order by dt desc; """
-    qt_sql """ select bitmap_to_array(bitmap_empty()); """
-    qt_sql """ select bitmap_to_array(bitmap_from_string('100,200,3,4')); """
+    // Nereids does't support array function
+    // qt_sql """ select bitmap_to_array(user_id) from ${intersectCountTable} order by dt desc; """
+    // Nereids does't support array function
+    // qt_sql """ select bitmap_to_array(bitmap_empty()); """
+    // Nereids does't support array function
+    // qt_sql """ select bitmap_to_array(bitmap_from_string('100,200,3,4')); """
 
     qt_sql """ select bitmap_to_string(sub_bitmap(bitmap_from_string('1,2,3,4,5'), 0, 3)) value; """
     qt_sql """ select bitmap_to_string(sub_bitmap(bitmap_from_string('1'), 0, 3)) value;  """

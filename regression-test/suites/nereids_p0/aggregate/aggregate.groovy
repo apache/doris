@@ -20,6 +20,9 @@
 // and modified by Doris.
 
 suite("aggregate") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -140,7 +143,8 @@ suite("aggregate") {
     qt_aggregate """ select (k1 + k2) * k3 k4 from (select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3) t order by k4 """
     qt_aggregate32" select topn_weighted(c_string,c_bigint,3) from ${tableName}"
     qt_aggregate33" select avg_weighted(c_double,c_bigint) from ${tableName};"
-    qt_aggregate34" select percentile_array(c_bigint,[0.2,0.5,0.9]) from ${tableName};"
+    // Nereids does't support array function
+    // qt_aggregate34" select percentile_array(c_bigint,[0.2,0.5,0.9]) from ${tableName};"
     qt_aggregate """
                 SELECT c_bigint,  
                     CASE
@@ -176,7 +180,8 @@ suite("aggregate") {
     // test_query_normal_aggression
     String k1 = fields[1]
     String k2 = fields[2]
-    qt_aggregate1"select ${k1}, sum(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    // Nereids does't support window function
+    // qt_aggregate1"select ${k1}, sum(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
     qt_aggregate2"""
                 select t1.${k1}, t2.mysum from baseall t1,
                 (select ${k1}, sum(${k2}) as mysum from baseall 
@@ -184,22 +189,26 @@ suite("aggregate") {
                 order by t1.${k1}, t2.mysum
                 """
 
-    qt_aggregate3"select * from (select ${k1}, sum(${k2}) over (partition by ${k1}) as wj from baseall) b order by ${k1}, wj"
-    order_qt_aggregate4"select ${k1}, min(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    // Nereids does't support window function
+    // qt_aggregate3"select * from (select ${k1}, sum(${k2}) over (partition by ${k1}) as wj from baseall) b order by ${k1}, wj"
+    // Nereids does't support window function
+    // order_qt_aggregate4"select ${k1}, min(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
     qt_aggregate5"""
                     select t1.${k1}, t2.mysum from baseall t1,
                     (select ${k1}, min(${k2}) as mysum from baseall 
                     group by ${k1}) t2 where t1.${k1}=t2.${k1} 
                     order by t1.${k1}, t2.mysum
                 """
-    qt_aggregate6"select ${k1}, max(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    // Nereids does't support window function
+    // qt_aggregate6"select ${k1}, max(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
     qt_aggregate7"""
                     select t1.${k1}, t2.mysum from baseall t1,
                     (select ${k1}, max(${k2}) as mysum from baseall 
                     group by ${k1}) t2 where t1.${k1}=t2.${k1} 
                     order by t1.${k1}, t2.mysum
                 """
-    qt_aggregate8"select ${k1}, count(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    // Nereids does't support window function
+    // qt_aggregate8"select ${k1}, count(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
     qt_aggregate9"""select t1.${k1}, t2.mysum from baseall t1,
                 (select ${k1}, count(${k2}) as mysum from baseall
                 group by ${k1}) t2 where t1.${k1}=t2.${k1}
@@ -209,15 +218,18 @@ suite("aggregate") {
     // test_query_normal_order_aggression
     String k3 = fields[8]
     String k8 = fields[9]
-    qt_aggregate10"select ${k1}, ${k3}, count(${k2}) over (partition by ${k1}, ${k3} order by ${k3}) as wj from baseall order by ${k1}, ${k3}, wj"
-    qt_aggregate11"""select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
-             range between unbounded preceding and unbounded following)
-             as wj from baseall order by ${k1}, wj"""
-    qt_aggregate12"""
-            select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
-            rows between unbounded preceding and unbounded following)
-            as wj from baseall order by ${k1}, wj
-            """
+    // Nereids does't support window function
+    // qt_aggregate10"select ${k1}, ${k3}, count(${k2}) over (partition by ${k1}, ${k3} order by ${k3}) as wj from baseall order by ${k1}, ${k3}, wj"
+    // Nereids does't support window function
+    // qt_aggregate11"""select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
+    //          range between unbounded preceding and unbounded following)
+    //          as wj from baseall order by ${k1}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate12"""
+    //         select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
+    //         rows between unbounded preceding and unbounded following)
+    //         as wj from baseall order by ${k1}, wj
+    //         """
     qt_aggregate13"""
             select t1.${k1}, t2.mysum from baseall t1,
             (select ${k1}, count(${k2}) as mysum from baseall 
@@ -230,14 +242,17 @@ suite("aggregate") {
             group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
             order by t1.${k1}, t1.${k3}, t2.mysum
             """
-    qt_aggregate15"""select ${k1}, ${k3}, max(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
-             as wj from baseall order by ${k1}, ${k3}, wj"""
-    qt_aggregate16"""select ${k1}, max(${k2}) over (partition by ${k1} order by ${k3}
-             range between unbounded preceding and unbounded following)
-             as wj from baseall order by ${k1}, wj"""
-    qt_aggregate17"""select ${k1}, max(${k2}) over (partition by ${k1} order by ${k3}
-             rows between unbounded preceding and unbounded following)
-             as wj from baseall order by ${k1}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate15"""select ${k1}, ${k3}, max(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
+    //          as wj from baseall order by ${k1}, ${k3}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate16"""select ${k1}, max(${k2}) over (partition by ${k1} order by ${k3}
+    //          range between unbounded preceding and unbounded following)
+    //          as wj from baseall order by ${k1}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate17"""select ${k1}, max(${k2}) over (partition by ${k1} order by ${k3}
+    //          rows between unbounded preceding and unbounded following)
+    //          as wj from baseall order by ${k1}, wj"""
     qt_aggregate18"""select t1.${k1}, t2.mysum from baseall t1,
              (select ${k1}, max(${k2}) as mysum from baseall
              group by ${k1}) t2 where t1.${k1}=t2.${k1}
@@ -246,14 +261,17 @@ suite("aggregate") {
              (select ${k1}, ${k3}, max(${k2}) as mysum from baseall
              group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
              order by t1.${k1}, t1.${k3}, t2.mysum"""
-    qt_aggregate20"""select ${k1}, ${k3}, min(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
-             as wj from baseall order by ${k1}, ${k3}, wj"""
-    qt_aggregate21"""select ${k1}, min(${k2}) over (partition by ${k1} order by ${k3} 
-             range between unbounded preceding and unbounded following) 
-             as wj from baseall order by ${k1}, wj"""
-    qt_aggregate22"""select ${k1}, min(${k2}) over (partition by ${k1} order by ${k3} 
-             rows between unbounded preceding and unbounded following) 
-             as wj from baseall order by ${k1}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate20"""select ${k1}, ${k3}, min(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
+    //          as wj from baseall order by ${k1}, ${k3}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate21"""select ${k1}, min(${k2}) over (partition by ${k1} order by ${k3} 
+    //          range between unbounded preceding and unbounded following) 
+    //          as wj from baseall order by ${k1}, wj"""
+    // Nereids does't support window function
+    // qt_aggregate22"""select ${k1}, min(${k2}) over (partition by ${k1} order by ${k3} 
+    //          rows between unbounded preceding and unbounded following) 
+    //          as wj from baseall order by ${k1}, wj"""
     qt_aggregate23"""select t1.${k1}, t2.mysum from baseall t1,
              (select ${k1}, min(${k2}) as mysum from baseall 
              group by ${k1}) t2 where t1.${k1}=t2.${k1} 
@@ -262,17 +280,20 @@ suite("aggregate") {
              (select ${k1}, ${k3}, min(${k2}) as mysum from baseall 
              group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
              order by t1.${k1}, t1.${k3}, t2.mysum"""
-    qt_aggregate25"""select ${k1}, ${k3}, sum(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
-             as wj from baseall order by ${k1}, ${k3}, wj
-            """
-    qt_aggregate26"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} 
-             range between unbounded preceding and unbounded following) 
-             as wj from baseall order by ${k1}, wj
-            """
-    qt_aggregate27"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} 
-             rows between unbounded preceding and unbounded following) 
-             as wj from baseall order by ${k1}, wj
-            """
+    // Nereids does't support window function
+    // qt_aggregate25"""select ${k1}, ${k3}, sum(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
+    //          as wj from baseall order by ${k1}, ${k3}, wj
+    //         """
+    // Nereids does't support window function
+    // qt_aggregate26"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} 
+    //          range between unbounded preceding and unbounded following) 
+    //          as wj from baseall order by ${k1}, wj
+    //         """
+    // Nereids does't support window function
+    // qt_aggregate27"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} 
+    //          rows between unbounded preceding and unbounded following) 
+    //          as wj from baseall order by ${k1}, wj
+    //         """
     qt_aggregate28"""select t1.${k1}, t2.mysum from baseall t1,
              (select ${k1}, sum(${k2}) as mysum from baseall 
              group by ${k1}) t2 where t1.${k1}=t2.${k1} 
@@ -292,9 +313,6 @@ suite("aggregate") {
     sql"""create table tempbaseall PROPERTIES("replication_num" = "1")  as select k1, k2 from baseall where k1 is not null;"""
     qt_aggregate32"select k1, k2 from (select k1, max(k2) as k2 from tempbaseall where k1 > 0 group by k1 order by k1)a where k1 > 0 and k1 < 10 order by k1;"
 
-    sql 'set enable_vectorized_engine=true;'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
-    qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_query_p0_aggregate.${tableName} """
-    qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_query_p0_aggregate.${tableName} """
+    qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_nereids_p0_aggregate.${tableName} """
+    qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
 }

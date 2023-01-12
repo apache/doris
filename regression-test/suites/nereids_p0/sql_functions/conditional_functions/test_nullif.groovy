@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_nullif") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     qt_ifnull_const1 """select CONCAT('a', ifnull(split_part('A.B','.',1), 'x'));"""
     qt_ifnull_const2 """select CONCAT('a', ifnull(split_part('A.B','.',1), null));"""
 

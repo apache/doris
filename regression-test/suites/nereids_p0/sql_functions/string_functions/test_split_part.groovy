@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_split_part") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
   test {
     sql """
       select

@@ -53,40 +53,41 @@ insert into user_analysis values (1000012,'browse','2022-07-28 00:00:00');
 insert into user_analysis values (1000013,'browse','2022-07-29 00:00:00');
 insert into user_analysis values (1000014,'browse','2022-07-30 00:00:00');
 insert into user_analysis values (1000015,'browse','2022-07-31 00:00:00');
+--- Nereids does't support window function
+--- WITH
+---     level_detail AS ( 
+---         SELECT 
+---             level
+---             ,COUNT(1) AS count_user 
+---         FROM ( 
+---             SELECT 
+---                 user_id 
+---                 ,window_funnel(
+---                     1800
+---                     ,'default'
+---                     ,event_time
+---                     ,event_type = 'browse'
+---                     ,event_type = 'favorite'
+---                     ,event_type = 'shopping cart'
+---                     ,event_type = 'buy' 
+---                     ) AS level 
+---             FROM user_analysis
+---             WHERE event_time >= TIMESTAMP '2022-07-17 00:00:00'
+---                 AND event_time < TIMESTAMP '2022-07-31 00:00:00'
+---             GROUP BY user_id 
+---             ) AS basic_table 
+---         GROUP BY level 
+---         ORDER BY level ASC )
+--- SELECT  CASE level    WHEN 0 THEN 'users'
+---                       WHEN 1 THEN 'browser'
+---                       WHEN 2 THEN 'favorite'
+---                       WHEN 3 THEN 'shopping cart'
+---                       WHEN 4 THEN 'buy' 
+---               END
+---         ,SUM(count_user) over ( ORDER BY level DESC )
+--- FROM    level_detail
+--- GROUP BY level
+---          ,count_user
+--- ORDER BY level ASC;
 
-WITH
-    level_detail AS ( 
-        SELECT 
-            level
-            ,COUNT(1) AS count_user 
-        FROM ( 
-            SELECT 
-                user_id 
-                ,window_funnel(
-                    1800
-                    ,'default'
-                    ,event_time
-                    ,event_type = 'browse'
-                    ,event_type = 'favorite'
-                    ,event_type = 'shopping cart'
-                    ,event_type = 'buy' 
-                    ) AS level 
-            FROM user_analysis
-            WHERE event_time >= TIMESTAMP '2022-07-17 00:00:00'
-                AND event_time < TIMESTAMP '2022-07-31 00:00:00'
-            GROUP BY user_id 
-            ) AS basic_table 
-        GROUP BY level 
-        ORDER BY level ASC )
-SELECT  CASE level    WHEN 0 THEN 'users'
-                      WHEN 1 THEN 'browser'
-                      WHEN 2 THEN 'favorite'
-                      WHEN 3 THEN 'shopping cart'
-                      WHEN 4 THEN 'buy' 
-              END
-        ,SUM(count_user) over ( ORDER BY level DESC )
-FROM    level_detail
-GROUP BY level
-         ,count_user
-ORDER BY level ASC;
 

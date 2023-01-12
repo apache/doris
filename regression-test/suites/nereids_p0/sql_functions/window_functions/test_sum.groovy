@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_sum") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     qt_select """
                   select k1, sum(k5) over 
                       (partition by k1 order by k3 range between current row and unbounded following) as w 

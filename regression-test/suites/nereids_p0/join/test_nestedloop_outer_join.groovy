@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nestedloop_outer_join", "query_p0") {
+suite("test_nestedloop_outer_join", "nereids_p0") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def tbl1 = "test_nestedloop_outer_join1"
     def tbl2 = "test_nestedloop_outer_join2"
 

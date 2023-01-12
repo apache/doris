@@ -20,6 +20,9 @@
 // and modified by Doris.
 
 suite("explode_json_array") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def tableName = "person"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -35,26 +38,31 @@ suite("explode_json_array") {
         (200, 'Mary', NULL, 1, 'Street 2'),
         (300, 'Mike', 80, 3, 'Street 3'),
         (400, 'Dan', 50, 4, 'Street 4')  """
-    qt_explode_json_array7 """ SELECT * FROM ${tableName}
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
-                        ORDER BY id, c_age, d_age """
+    // Nereids does't support array function
+    // qt_explode_json_array7 """ SELECT * FROM ${tableName}
+    //                     LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
+    //                     LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
+    //                     ORDER BY id, c_age, d_age """
 
-    qt_explode_json_array8 """ SELECT c_age, COUNT(1) FROM ${tableName}
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
-                        GROUP BY c_age ORDER BY c_age """
+    // Nereids does't support array function
+    // qt_explode_json_array8 """ SELECT c_age, COUNT(1) FROM ${tableName}
+    //                     LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
+    //                     LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
+    //                     GROUP BY c_age ORDER BY c_age """
 
-    qt_explode_json_array9 """ SELECT * FROM ${tableName}
-                            LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
-                            ORDER BY id, c_age """
+    // Nereids does't support array function
+    // qt_explode_json_array9 """ SELECT * FROM ${tableName}
+    //                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
+    //                         ORDER BY id, c_age """
 
-    qt_explode_json_array10 """ SELECT * FROM ${tableName}
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
-                        ORDER BY id, c, d """
+    // Nereids does't support array function
+    // qt_explode_json_array10 """ SELECT * FROM ${tableName}
+    //                     LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
+    //                     LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+    //                     ORDER BY id, c, d """
 
-    qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM 
-                                        ${tableName} a LEFT JOIN ${tableName} b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]')
-                                        TMP AS e1) AS T ORDER BY age, e1"""
+    // Nereids does't support array function
+    // qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM 
+    //                                     ${tableName} a LEFT JOIN ${tableName} b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]')
+    //                                     TMP AS e1) AS T ORDER BY age, e1"""
 }

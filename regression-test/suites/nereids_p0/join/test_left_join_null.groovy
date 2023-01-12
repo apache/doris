@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_left_join_null", "query") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
 
     def tbName1 = "dept_emp"
     def tbName2 = "departments"

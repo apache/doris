@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_window_fn") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def tbName1 = "empsalary"
     def tbName2 = "tenk1"
     sql """ DROP TABLE IF EXISTS ${tbName1} """
@@ -116,207 +119,257 @@ suite("test_window_fn") {
     }
 
     // first_value
-    qt_sql """
-        select first_value(salary) over(order by salary range between UNBOUNDED preceding  and UNBOUNDED following), lead(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by l, salary;
-    """
-    qt_sql """
-        select first_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), last_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT first_value(unique1) over (order by four range between current row and unbounded following),  
-        last_value(unique1) over (order by four range between current row and unbounded following), unique1, four 
-        FROM ${tbName2} WHERE unique1 < 10 order by unique1, four;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select first_value(salary) over(order by salary range between UNBOUNDED preceding  and UNBOUNDED following), lead(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by l, salary;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select first_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), last_value(salary) over(order by enroll_date range between unbounded preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT first_value(unique1) over (order by four range between current row and unbounded following),  
+    //     last_value(unique1) over (order by four range between current row and unbounded following), unique1, four 
+    //     FROM ${tbName2} WHERE unique1 < 10 order by unique1, four;
+    // """
 
     // last_value
-    qt_sql """
-        select last_value(salary) over(order by salary range between UNBOUNDED preceding and UNBOUNDED following), lag(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by l, salary;
-    """
-    qt_sql """
-        SELECT last_value(ten) OVER (ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT last_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM
-        (SELECT * FROM ${tbName2} WHERE unique2 < 10 ORDER BY four, ten)s ORDER BY four, ten;
-    """
-    qt_sql """
-        SELECT four, ten, sum(ten) over (partition by four order by ten), last_value(ten) over (partition by four order by ten) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
-    """
-    qt_sql """
-        SELECT four, ten, sum(ten) over (partition by four order by ten range between unbounded preceding and current row), 
-        last_value(ten) over (partition by four order by ten range between unbounded preceding and current row) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
-    """
-    qt_sql """
-        SELECT four, ten, sum(ten) over (partition by four order by ten range between unbounded preceding and unbounded following), 
-        last_value(ten) over (partition by four order by ten range between unbounded preceding and unbounded following) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
-    """
-    qt_sql """
-        SELECT four, ten/4 as two, sum(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row), 
-        last_value(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, two;
-    """
-    qt_sql """
-        SELECT four, ten/4 as two, sum(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row), 
-        last_value(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row) 
-        FROM (select distinct ten, four from ${tbName2}) ss order by four, two;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select last_value(salary) over(order by salary range between UNBOUNDED preceding and UNBOUNDED following), lag(salary, 1, 0) over(order by salary) as l, salary from ${tbName1} order by l, salary;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT last_value(ten) OVER (ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT last_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM
+    //     (SELECT * FROM ${tbName2} WHERE unique2 < 10 ORDER BY four, ten)s ORDER BY four, ten;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT four, ten, sum(ten) over (partition by four order by ten), last_value(ten) over (partition by four order by ten) 
+    //     FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT four, ten, sum(ten) over (partition by four order by ten range between unbounded preceding and current row), 
+    //     last_value(ten) over (partition by four order by ten range between unbounded preceding and current row) 
+    //     FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT four, ten, sum(ten) over (partition by four order by ten range between unbounded preceding and unbounded following), 
+    //     last_value(ten) over (partition by four order by ten range between unbounded preceding and unbounded following) 
+    //     FROM (select distinct ten, four from ${tbName2}) ss order by four, ten;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT four, ten/4 as two, sum(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row), 
+    //     last_value(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row) 
+    //     FROM (select distinct ten, four from ${tbName2}) ss order by four, two;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT four, ten/4 as two, sum(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row), 
+    //     last_value(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row) 
+    //     FROM (select distinct ten, four from ${tbName2}) ss order by four, two;
+    // """
 
 
     // min_max
-    qt_sql """
-        SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () 
-        FROM( SELECT *, CASE WHEN enroll_date < '2008-01-01' THEN 2008 - extract(YEAR FROM enroll_date) END * 500 AS bonus,         
-        CASE WHEN AVG(salary) OVER (PARTITION BY depname) < salary THEN 200 END AS depadj FROM ${tbName1})s order by empno;
-    """
-    qt_sql """
-        select max(enroll_date) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        select max(enroll_date) over (order by salary range between UNBOUNDED preceding and UNBOUNDED following ), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        select max(enroll_date) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () 
+    //     FROM( SELECT *, CASE WHEN enroll_date < '2008-01-01' THEN 2008 - extract(YEAR FROM enroll_date) END * 500 AS bonus,         
+    //     CASE WHEN AVG(salary) OVER (PARTITION BY depname) < salary THEN 200 END AS depadj FROM ${tbName1})s order by empno;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select max(enroll_date) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select max(enroll_date) over (order by salary range between UNBOUNDED preceding and UNBOUNDED following ), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select max(enroll_date) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
 
     // rank
-    qt_sql  """ 
-        SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM ${tbName1} order by depname
-    """
-    qt_sql """
-        SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary, empno) 
-        FROM ${tbName1} ORDER BY rank() OVER (PARTITION BY depname ORDER BY salary, empno);
-    """
-    qt_sql """
-        SELECT sum(salary) as s, row_number() OVER (ORDER BY depname)  as r, sum(sum(salary)) OVER (ORDER BY depname DESC) as ss 
-        FROM ${tbName1} GROUP BY depname order by s, r, ss;
-    """
-    qt_sql """
-        SELECT sum(salary) OVER (PARTITION BY depname ORDER BY salary DESC) as s, rank() OVER (PARTITION BY depname ORDER BY salary DESC) as r 
-        FROM ${tbName1} order by s, r;
-    """
-    qt_sql """
-        SELECT * FROM ( select *, row_number() OVER (ORDER BY salary) as a from ${tbName1} ) as t where t.a < 10;
-    """
-    qt_sql """
-        SELECT row_number() OVER (ORDER BY unique2) FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        select ten,   sum(unique1) + sum(unique2) as res,   rank() over (order by sum(unique1) + sum(unique2)) as rank from ${tbName2} group by ten order by ten;
-    """
+    // Nereids does't support window function
+    // qt_sql  """ 
+    //     SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM ${tbName1} order by depname
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary, empno) 
+    //     FROM ${tbName1} ORDER BY rank() OVER (PARTITION BY depname ORDER BY salary, empno);
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT sum(salary) as s, row_number() OVER (ORDER BY depname)  as r, sum(sum(salary)) OVER (ORDER BY depname DESC) as ss 
+    //     FROM ${tbName1} GROUP BY depname order by s, r, ss;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT sum(salary) OVER (PARTITION BY depname ORDER BY salary DESC) as s, rank() OVER (PARTITION BY depname ORDER BY salary DESC) as r 
+    //     FROM ${tbName1} order by s, r;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT * FROM ( select *, row_number() OVER (ORDER BY salary) as a from ${tbName1} ) as t where t.a < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT row_number() OVER (ORDER BY unique2) FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select ten,   sum(unique1) + sum(unique2) as res,   rank() over (order by sum(unique1) + sum(unique2)) as rank from ${tbName2} group by ten order by ten;
+    // """
 
 
     // sum_avg_count
-    qt_sql """
-        SELECT depname, empno, salary, sum(salary) OVER (PARTITION BY depname) FROM ${tbName1} order by depname,empno,salary;
-    """
-    qt_sql """
-        SELECT sum(salary) OVER (ORDER BY salary) as s, count(1) OVER (ORDER BY salary) as c FROM ${tbName1} order by s, c;
-    """
-    qt_sql """
-        select sum(salary) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        select sum(salary) over (order by enroll_date desc range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        select sum(salary) over (order by enroll_date desc range between UNBOUNDED preceding and current row) as s, salary, enroll_date from ${tbName1} order by s, salary;
-    """
-    qt_sql """
-        select sum(salary) over (order by enroll_date, salary range between UNBOUNDED preceding and UNBOUNDED  following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        select sum(salary) over (order by depname range between UNBOUNDED  preceding and UNBOUNDED following ), salary, enroll_date from ${tbName1} order by salary, enroll_date;
-    """
-    qt_sql """
-        SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM ${tbName2}
-        GROUP BY four, ten ORDER BY four, ten;
-    """
-    qt_sql """
-        SELECT COUNT(1) OVER () FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT sum(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM ${tbName2} WHERE unique2 < 10 order by ten, four;
-    """
-    qt_sql """
-        SELECT ten, two, sum(hundred) AS gsum, sum(sum(hundred)) OVER (PARTITION BY two ORDER BY ten) AS wsum FROM ${tbName2} GROUP BY ten, two order by gsum, wsum;
-    """
-    qt_sql """
-        SELECT count(1) OVER (PARTITION BY four) as c, four FROM (SELECT * FROM ${tbName2} WHERE two = 1)s WHERE unique2 < 10 order by c, four;
-    """
-    qt_sql """
-        SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT count(1) OVER (PARTITION BY four) FROM (SELECT * FROM ${tbName2} WHERE FALSE)s;
-    """
-    qt_sql """
-        SELECT sum(unique1) over (order by four range between current row and unbounded following) as s, unique1, four 
-        FROM ${tbName2} WHERE unique1 < 10 order by s;
-    """
-    qt_sql """
-        SELECT count() OVER () FROM ${tbName2} limit 5;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT depname, empno, salary, sum(salary) OVER (PARTITION BY depname) FROM ${tbName1} order by depname,empno,salary;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT sum(salary) OVER (ORDER BY salary) as s, count(1) OVER (ORDER BY salary) as c FROM ${tbName1} order by s, c;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select sum(salary) over (order by enroll_date range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select sum(salary) over (order by enroll_date desc range between UNBOUNDED preceding and UNBOUNDED following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select sum(salary) over (order by enroll_date desc range between UNBOUNDED preceding and current row) as s, salary, enroll_date from ${tbName1} order by s, salary;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select sum(salary) over (order by enroll_date, salary range between UNBOUNDED preceding and UNBOUNDED  following), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     select sum(salary) over (order by depname range between UNBOUNDED  preceding and UNBOUNDED following ), salary, enroll_date from ${tbName1} order by salary, enroll_date;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM ${tbName2}
+    //     GROUP BY four, ten ORDER BY four, ten;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT COUNT(1) OVER () FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT sum(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM ${tbName2} WHERE unique2 < 10 order by ten, four;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT ten, two, sum(hundred) AS gsum, sum(sum(hundred)) OVER (PARTITION BY two ORDER BY ten) AS wsum FROM ${tbName2} GROUP BY ten, two order by gsum, wsum;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT count(1) OVER (PARTITION BY four) as c, four FROM (SELECT * FROM ${tbName2} WHERE two = 1)s WHERE unique2 < 10 order by c, four;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT count(1) OVER (PARTITION BY four) FROM (SELECT * FROM ${tbName2} WHERE FALSE)s;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT sum(unique1) over (order by four range between current row and unbounded following) as s, unique1, four 
+    //     FROM ${tbName2} WHERE unique1 < 10 order by s;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT count() OVER () FROM ${tbName2} limit 5;
+    // """
 
 
     // ntile
-    qt_sql """
-        SELECT ntile(3) OVER (ORDER BY ten, four), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT ntile(3) OVER (ORDER BY ten, four), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
 
 
     // lag
-    qt_sql """
-        SELECT lag(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT lag(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
 
 
     // lead
-    qt_sql """
-        SELECT lead(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT lead(ten * 2, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
-    qt_sql """
-        SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT lead(ten, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT lead(ten * 2, 1, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10;
+    // """
 
 
     // sub query
-    qt_sql """
-        SELECT * FROM(   SELECT count(1) OVER (PARTITION BY four ORDER BY ten) + sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS total,     
-        count(1) OVER (PARTITION BY four ORDER BY ten) AS fourcount, 
-        sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS twosum FROM ${tbName2} )sub 
-        WHERE total <> fourcount + twosum;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     SELECT * FROM(   SELECT count(1) OVER (PARTITION BY four ORDER BY ten) + sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS total,     
+    //     count(1) OVER (PARTITION BY four ORDER BY ten) AS fourcount, 
+    //     sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS twosum FROM ${tbName2} )sub 
+    //     WHERE total <> fourcount + twosum;
+    // """
 
     // cte
-    qt_sql """
-        with cte as (select empno as x from ${tbName1}) 
-        SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and UNBOUNDED following)) FROM cte;
-    """
-    qt_sql """
-        with cte as (select empno as x from ${tbName1}) 
-        SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and CURRENT ROW)) FROM cte;
-    """
-    qt_sql """
-        WITH cte  AS (
-        select 1 as x union all select 1 as x union all select 1 as x union all
-        SELECT empno as x FROM ${tbName1})
-        SELECT x, (sum(x) over  (ORDER BY x rows between 1 preceding and 1 following)) FROM cte;
-    """
+    // Nereids does't support window function
+    // qt_sql """
+    //     with cte as (select empno as x from ${tbName1}) 
+    //     SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and UNBOUNDED following)) FROM cte;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     with cte as (select empno as x from ${tbName1}) 
+    //     SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and CURRENT ROW)) FROM cte;
+    // """
+    // Nereids does't support window function
+    // qt_sql """
+    //     WITH cte  AS (
+    //     select 1 as x union all select 1 as x union all select 1 as x union all
+    //     SELECT empno as x FROM ${tbName1})
+    //     SELECT x, (sum(x) over  (ORDER BY x rows between 1 preceding and 1 following)) FROM cte;
+    // """
 
     sql "DROP TABLE IF EXISTS ${tbName1};"
     sql "DROP TABLE IF EXISTS ${tbName2};"

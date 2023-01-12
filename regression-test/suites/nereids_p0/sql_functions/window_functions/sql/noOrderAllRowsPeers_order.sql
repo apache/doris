@@ -1,3 +1,4 @@
-select orderkey, suppkey, discount,
-rank() over (partition by suppkey)
-from tpch_tiny_lineitem where partkey = 272
+--- Nereids does't support window function
+--- select orderkey, suppkey, discount,
+--- rank() over (partition by suppkey)
+--- from tpch_tiny_lineitem where partkey = 272
