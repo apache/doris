@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Copy from
-// https://github.com/apache/hive/blob/rel/release-2.3.7/metastore/src/java/org/apache/hadoop/hive/metastore/HiveMetaStoreClient.java
-
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.HMSResource;
@@ -202,11 +199,14 @@ import javax.security.auth.login.LoginException;
  * For users who require retry mechanism when the connection between metastore and client is
  * broken, RetryingMetaStoreClient class should be used.
  * <p>
+ * <p>
+ * Copy from
+ * https://github.com/apache/hive/blob/rel/release-2.3.7/metastore/src/java/org/apache/hadoop/hive/metastore/HiveMetaStoreClient.java
  * Doris Modification.
- * To support different type of hive, copy this file from hive repo and modify some method.
- * 1. getSchema
- * 2. tableExists
- * 3. getTable
+ * To support different type of hive, copy this file from hive repo and modify some method based on hive version
+ * 1. getSchema()
+ * 2. getTable()
+ * 3. tableExists()
  */
 @Public
 @Unstable
@@ -243,7 +243,6 @@ public class HiveMetaStoreClient implements IMetaStoreClient {
     private int retries = 5;
     private long retryDelaySeconds = 0;
     private final ClientCapabilities version;
-
     private final HiveVersion hiveVersion;
 
     public HiveMetaStoreClient(HiveConf conf) throws MetaException {

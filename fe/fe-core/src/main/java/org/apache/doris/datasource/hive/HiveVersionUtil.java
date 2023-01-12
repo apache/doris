@@ -21,8 +21,15 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * For getting a compatible version of hive
+ * if user specified the version, it will parse it and return the compatible HiveVersion,
+ * otherwise, use DEFAULT_HIVE_VERSION
+ */
 public class HiveVersionUtil {
     private static final Logger LOG = LogManager.getLogger(HiveVersionUtil.class);
+
+    private static final HiveVersion DEFAULT_HIVE_VERSION = HiveVersion.V2_3;
 
     public enum HiveVersion {
         V1_0,   // [1.0.0 - 1.2.2]
@@ -33,12 +40,12 @@ public class HiveVersionUtil {
 
     public static HiveVersion getVersion(String version) {
         if (Strings.isNullOrEmpty(version)) {
-            return HiveVersion.V1_0;
+            return DEFAULT_HIVE_VERSION;
         }
         String[] parts = version.split("\\.");
         if (parts.length < 2) {
             LOG.warn("invalid hive version: " + version);
-            return HiveVersion.V1_0;
+            return DEFAULT_HIVE_VERSION;
         }
         try {
             int major = Integer.parseInt(parts[0]);
@@ -52,17 +59,17 @@ public class HiveVersionUtil {
                     return HiveVersion.V2_3;
                 } else {
                     LOG.warn("invalid hive version: " + version);
-                    return HiveVersion.V1_0;
+                    return DEFAULT_HIVE_VERSION;
                 }
             } else if (major >= 3) {
                 return HiveVersion.V2_3;
             } else {
                 LOG.warn("invalid hive version: " + version);
-                return HiveVersion.V1_0;
+                return DEFAULT_HIVE_VERSION;
             }
         } catch (NumberFormatException e) {
             LOG.warn("invalid hive version: " + version);
-            return HiveVersion.V1_0;
+            return DEFAULT_HIVE_VERSION;
         }
     }
 }
