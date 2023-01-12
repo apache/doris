@@ -82,6 +82,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
+void register_function_width_bucket(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -229,6 +230,7 @@ public:
             register_function_url(instance);
             register_function_multi_string_position(instance);
             register_function_multi_string_search(instance);
+            register_function_width_bucket(instance);
             register_function_match(instance);
         });
         return instance;
