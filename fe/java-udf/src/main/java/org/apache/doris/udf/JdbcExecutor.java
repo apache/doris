@@ -242,8 +242,8 @@ public class JdbcExecutor {
         try {
             File file = new File(driverUrl);
             URL url = file.toURI().toURL();
-            URLClassLoader urlClassLoader = new URLClassLoader(new URL[] {url});
-            Driver driver = (Driver) Class.forName(driverClass, true, urlClassLoader).getDeclaredConstructor()
+            classLoader = new URLClassLoader(new URL[] {url});
+            Driver driver = (Driver) Class.forName(driverClass, true, classLoader).getDeclaredConstructor()
                     .newInstance();
             // in jdk11 cann't call addURL function by reflect to load class. so use this way
             // But DriverManager can't find the driverClass correctly, so add a faker driver
