@@ -43,7 +43,6 @@
 #include "exprs/operators.h"
 #include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/table_function/dummy_table_functions.h"
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
@@ -414,7 +413,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     QuantileStateFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
-    DummyTableFunctions::init();
     MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();

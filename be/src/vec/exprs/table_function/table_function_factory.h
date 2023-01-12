@@ -22,10 +22,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/table_function/explode_bitmap.h"
-#include "exprs/table_function/explode_json_array.h"
-#include "exprs/table_function/explode_split.h"
-#include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
@@ -33,18 +30,17 @@
 #include "vec/exprs/table_function/vexplode_split.h"
 
 namespace doris {
-
 class ObjectPool;
+
+namespace vectorized {
 class TableFunction;
 class TableFunctionFactory {
 public:
     TableFunctionFactory() {}
     ~TableFunctionFactory() {}
-    static Status get_fn(const std::string& fn_name_raw, bool is_vectorized, ObjectPool* pool,
-                         TableFunction** fn);
+    static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn);
 
-    const static std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
-            _function_map;
+    const static std::unordered_map<std::string, std::function<TableFunction*()>> _function_map;
 };
-
+} // namespace vectorized
 } // namespace doris
