@@ -182,7 +182,6 @@ public class PooledHiveMetaStoreClient {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
             } else {
-                hiveConf.set("yyversion", "2.3.1");
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         HiveMetaStoreClient.class.getName());
             }

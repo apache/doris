@@ -47,6 +47,7 @@ public class HMSResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(HMSResource.class);
     public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
     public static final String DLF_TYPE = "dlf";
+    public static final String HIVE_VERSION = "hive.version";
     // required
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
 
