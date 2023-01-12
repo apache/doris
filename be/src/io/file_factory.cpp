@@ -210,7 +210,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std
                                        io::FileReaderSPtr* reader,
                                        const io::FileReaderOptions& reader_options,
                                        IOContext* io_ctx) {
-    hdfs_file_system->reset(new io::HdfsFileSystem(hdfs_params, ""));
+    *hdfs_file_system = io::HdfsFileSystem::create(hdfs_params, "");
     RETURN_IF_ERROR((std::static_pointer_cast<io::HdfsFileSystem>(*hdfs_file_system))->connect());
     RETURN_IF_ERROR((*hdfs_file_system)->open_file(path, reader_options, reader, io_ctx));
     return Status::OK();
@@ -235,7 +235,7 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     }
     S3Conf s3_conf;
     RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
-    s3_file_system->reset(new io::S3FileSystem(s3_conf, ""));
+    *s3_file_system = io::S3FileSystem::create(s3_conf, "");
     RETURN_IF_ERROR((std::static_pointer_cast<io::S3FileSystem>(*s3_file_system))->connect());
     RETURN_IF_ERROR((*s3_file_system)->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
     return Status::OK();
@@ -248,8 +248,8 @@ Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
                                          io::FileReaderSPtr* reader,
                                          const io::FileReaderOptions& reader_options,
                                          IOContext* io_ctx) {
-    broker_file_system->reset(
-            new io::BrokerFileSystem(broker_addr, prop, file_description.file_size));
+    *broker_file_system =
+            io::BrokerFileSystem::create(broker_addr, prop, file_description.file_size);
     RETURN_IF_ERROR(
             (std::static_pointer_cast<io::BrokerFileSystem>(*broker_file_system))->connect());
     RETURN_IF_ERROR((*broker_file_system)

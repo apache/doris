@@ -49,6 +49,11 @@ namespace io {
     }
 #endif
 
+std::shared_ptr<S3FileSystem> S3FileSystem::create(S3Conf s3_conf, ResourceId resource_id) {
+    return std::shared_ptr<S3FileSystem>(
+            new S3FileSystem(std::move(s3_conf), std::move(resource_id)));
+}
+
 S3FileSystem::S3FileSystem(S3Conf s3_conf, ResourceId resource_id)
         : RemoteFileSystem(
                   fmt::format("{}/{}/{}", s3_conf.endpoint, s3_conf.bucket, s3_conf.prefix),

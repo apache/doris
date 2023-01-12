@@ -35,7 +35,8 @@ namespace io {
 // This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    S3FileSystem(S3Conf s3_conf, ResourceId resource_id);
+    static std::shared_ptr<S3FileSystem> create(S3Conf s3_conf, ResourceId resource_id);
+
     ~S3FileSystem() override;
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
@@ -78,6 +79,8 @@ public:
     std::string get_key(const Path& path) const;
 
 private:
+    S3FileSystem(S3Conf s3_conf, ResourceId resource_id);
+
     S3Conf _s3_conf;
 
     // FIXME(cyx): We can use std::atomic<std::shared_ptr> since c++20.
