@@ -789,6 +789,20 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 暂未支持。
 
+## Time Travel
+
+### Iceberg
+
+每一次对iceberg表的写操作都会产生一个新的快照，而读操作只会读取最新版本的快照。
+iceberg表可以使用`FOR TIME AS OF`和`FOR VERSION AS OF`语句，根据快照ID或者快照产生的时间读取历史版本的数据。
+
+`SELECT * FROM db.tbl FOR TIME AS OF "2022-10-07 17:20:37";`
+
+`SELECT * FROM db.tbl FOR VERSION AS OF 868895038966572;`
+
+另外，查看iceberg表的snapshot id和snapshot创建的时间戳可以使用[iceberg_meta](../../sql-manual/sql-functions/table-functions/iceber_meta.md)表函数
+
+
 ## 常见问题
 
 ### Iceberg
