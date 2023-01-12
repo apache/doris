@@ -105,6 +105,7 @@ enum TStorageBackendType {
     BROKER,
     S3,
     HDFS,
+    JFS,
     LOCAL,
     OFS
 }
