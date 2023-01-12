@@ -66,8 +66,10 @@ Status PprofUtils::get_self_cmdline(std::string* cmd) {
         return Status::InternalError("Unable to open file: /proc/self/cmdline");
     }
     char buf[1024];
-    // Ignore unused return value
-    (void)fscanf(fp, "%1023s ", buf);
+
+    if (fscanf(fp, "%1023s ", buf) != 1) {
+        return Status::InternalError("get_self_cmdline read buffer failed");
+    }
     fclose(fp);
     *cmd = buf;
     return Status::OK();

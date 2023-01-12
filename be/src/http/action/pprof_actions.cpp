@@ -228,8 +228,11 @@ void CmdlineAction::handle(HttpRequest* req) {
         return;
     }
     char buf[1024];
-    // Ignore unused return value
-    (void)fscanf(fp, "%1023s ", buf);
+
+    if (fscanf(fp, "%1023s ", buf) != 1) {
+        return;
+    }
+
     fclose(fp);
     std::string str = buf;
 
