@@ -1005,7 +1005,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 可过滤数据（由于数据不规则等原因）的最大百分比。默认值为0，表示严格模式，只要数据有一条被过滤掉整个导入失败
 
-#### `defalut_db_running_txn_num`
+#### `defalut_max_db_running_txn_num`
 
 默认值：100
 
@@ -1264,7 +1264,7 @@ Spark 负载调度程序运行间隔,默认 60 秒
 
 当前，它仅限制 `broker load`和 `spark load`的 `pending_load`任务的数量。
 
-它应该小于 `defalut_db_running_txn_num`的值
+它应该小于 `defalut_max_db_running_txn_num`的值
 
 #### `async_load_task_pool_size`
 

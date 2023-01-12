@@ -740,7 +740,7 @@ public class Config extends ConfigBase {
      * txn manager will reject coming txns
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int defalut_db_running_txn_num = 100;
+    public static int defalut_max_db_running_txn_num = 100;
 
     /**
      * This configuration is just for compatible with old version,
@@ -754,7 +754,7 @@ public class Config extends ConfigBase {
     /**
      * The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
      * Currently, it only limits the pending_load task of broker load and spark load.
-     * It should be less than 'defalut_db_running_txn_num'
+     * It should be less than 'defalut_max_db_running_txn_num'
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int async_pending_load_task_pool_size = 10;

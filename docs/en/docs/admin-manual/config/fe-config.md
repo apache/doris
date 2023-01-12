@@ -1005,7 +1005,7 @@ MasterOnly：true
 
 Maximum percentage of data that can be filtered (due to reasons such as data is irregularly) , The default value is 0.
 
-#### `defalut_db_running_txn_num`
+#### `defalut_max_db_running_txn_num`
 
 Default：100
 
@@ -1264,7 +1264,7 @@ The pending_load task executor pool size. This pool size limits the max running 
 
 Currently, it only limits the pending_load task of broker load and spark load.
 
-It should be less than 'defalut_db_running_txn_num'
+It should be less than 'defalut_max_db_running_txn_num'
 
 #### `async_load_task_pool_size`
 
