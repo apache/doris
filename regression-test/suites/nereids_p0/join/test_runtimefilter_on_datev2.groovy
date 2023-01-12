@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_runtimefilter_on_datev2", "query_p0") {
+suite("test_runtimefilter_on_datev2", "nereids_p0") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def dateTable = "dateTable"
     def dateV2Table = "dateV2Table"
     def dateTimeTable = "dateTimeTable"
@@ -216,9 +219,6 @@ suite("test_runtimefilter_on_datev2", "query_p0") {
         SELECT * FROM ${dateV2Table} a, ${dateV2Table2} b WHERE a.date = b.date;
     """
 
-    sql 'set enable_vectorized_engine=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
     qt_join1 """
         SELECT * FROM ${dateTable} a, ${dateV2Table} b WHERE a.date = b.date;
     """

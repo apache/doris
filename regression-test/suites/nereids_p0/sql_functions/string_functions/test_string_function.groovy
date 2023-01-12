@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_string_function") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     sql "set batch_size = 4096;"
 
     qt_sql "select elt(0, \"hello\", \"doris\");"
@@ -42,10 +45,14 @@ suite("test_string_function") {
     qt_sql "select concat_ws(\"or\", \"d\", \"is\");"
     qt_sql "select concat_ws(NULL, \"d\", \"is\");"
     qt_sql "select concat_ws(\"or\", \"d\", NULL,\"is\");"
-    qt_sql "select concat_ws(\"or\", [\"d\", \"is\"]);"
-    qt_sql "select concat_ws(NULL, [\"d\", \"is\"]);"
-    qt_sql "select concat_ws(\"or\", [\"d\", NULL,\"is\"]);"
-    qt_sql "select concat_ws(\"or\", [\"d\", \"\",\"is\"]);"
+    // Nereids does't support array function
+    // qt_sql "select concat_ws(\"or\", [\"d\", \"is\"]);"
+    // Nereids does't support array function
+    // qt_sql "select concat_ws(NULL, [\"d\", \"is\"]);"
+    // Nereids does't support array function
+    // qt_sql "select concat_ws(\"or\", [\"d\", NULL,\"is\"]);"
+    // Nereids does't support array function
+    // qt_sql "select concat_ws(\"or\", [\"d\", \"\",\"is\"]);"
 
     qt_sql "select ends_with(\"Hello doris\", \"doris\");"
     qt_sql "select ends_with(\"Hello doris\", \"Hello\");"
@@ -167,8 +174,6 @@ suite("test_string_function") {
     qt_sql "select substring_index(\"prefix_string\", \"_\", null);"
     qt_sql "select substring_index(\"prefix_string\", \"__\", -1);"
 
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
 
     qt_sql "select elt(0, \"hello\", \"doris\");"
     qt_sql "select elt(1, \"hello\", \"doris\");"

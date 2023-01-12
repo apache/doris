@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_array_show_create", "query") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     // define a sql table
     def testTable = "test_array_show_create"
 

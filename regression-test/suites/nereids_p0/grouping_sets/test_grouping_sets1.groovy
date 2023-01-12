@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_grouping_sets1") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     qt_select """
         select 
             col1

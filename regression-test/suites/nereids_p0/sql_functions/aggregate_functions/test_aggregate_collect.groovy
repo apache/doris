@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_aggregate_collect") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def tableName = "collect_test"
     def tableCTAS = "collect_test_ctas"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -64,9 +67,13 @@ suite("test_aggregate_collect") {
         """
     sql "INSERT INTO ${tableName_12} values(1,10,'2022-11-1',6.8754576), (2,8,'2022-11-3',0.576), (2,10,'2022-11-2',1.234) ,(3,10,'2022-11-2',0.576) ,(5,29,'2022-11-2',6.8754576) ,(6,8,'2022-11-1',6.8754576)"
 
-    qt_select43 "select topn_array(level,2) from ${tableName_12}"
-    qt_select44 "select topn_array(level,2,100) from ${tableName_12}" 
-    qt_select45 "select topn_array(dt,2,100) from ${tableName_12}"  
-    qt_select46 "select topn_array(num,2,100) from ${tableName_12}"  
+    // Nereids does't support array function
+    // qt_select43 "select topn_array(level,2) from ${tableName_12}"
+    // Nereids does't support array function
+    // qt_select44 "select topn_array(level,2,100) from ${tableName_12}" 
+    // Nereids does't support array function
+    // qt_select45 "select topn_array(dt,2,100) from ${tableName_12}"  
+    // Nereids does't support array function
+    // qt_select46 "select topn_array(num,2,100) from ${tableName_12}"  
     sql "DROP TABLE IF EXISTS ${tableName_12}"    
 }

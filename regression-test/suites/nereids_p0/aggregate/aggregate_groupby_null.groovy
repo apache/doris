@@ -16,6 +16,9 @@
 // under the License.
 
 suite("aggregate_groupby_null") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=false" 
     def leftTable = "agg_groupby_null_left"
     sql """ DROP TABLE IF EXISTS ${leftTable} """
     sql """
