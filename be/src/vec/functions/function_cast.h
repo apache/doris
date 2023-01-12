@@ -1722,6 +1722,7 @@ protected:
             LOG(FATAL) << fmt::format(
                     "Second argument to {} must be a constant string describing type", get_name());
         }
+        // TODO(xy): support return struct type for factory
         auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
         DCHECK(type != nullptr);
 

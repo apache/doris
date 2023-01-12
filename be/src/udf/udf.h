@@ -89,6 +89,7 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
+        TYPE_STRUCT,
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
         TYPE_DATETIMEV2,

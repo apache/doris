@@ -173,8 +173,7 @@ const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
     type_infos.reserve(field_types.size());
     for(FieldType& type : field_types) {
         if (is_scalar_type(type)) {
-            type_infos.push_back(
-                    std::move(create_static_type_info_ptr(get_scalar_type_info(type))));
+            type_infos.push_back(create_static_type_info_ptr(get_scalar_type_info(type)));
         } else {
             // TODO(xy): Not supported nested complex type now
         }
@@ -257,7 +256,7 @@ TypeInfoPtr clone_type_info(const TypeInfo* type_info) {
             const std::vector<TypeInfoPtr>* sub_type_infos = struct_type_info->type_infos();
             clone_type_infos.reserve(sub_type_infos->size());
             for (size_t i = 0; i < sub_type_infos->size(); i++) {
-                clone_type_infos.push_back(std::move(clone_type_info((*sub_type_infos)[i].get())));
+                clone_type_infos.push_back(clone_type_info((*sub_type_infos)[i].get()));
             }
             return create_dynamic_type_info_ptr(new StructTypeInfo(clone_type_infos));
         } else {

@@ -110,6 +110,7 @@ public abstract class Type {
     private static final ArrayList<ScalarType> numericTypes;
     private static final ArrayList<ScalarType> supportedTypes;
     private static final ArrayList<Type> arraySubTypes;
+    private static final ArrayList<Type> structSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
@@ -166,6 +167,10 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+
+        structSubTypes = Lists.newArrayList();
+        structSubTypes.add(INT);
+        structSubTypes.add(STRING);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -186,6 +191,17 @@ public abstract class Type {
 
     public static ArrayList<Type> getArraySubTypes() {
         return arraySubTypes;
+    }
+
+    public static ArrayList<Type> getStructSubTypes() {
+        return structSubTypes;
+    }
+
+    /**
+     * Return true if this is complex type and support subType
+     */
+    public boolean supportSubType(Type subType) {
+        return false;
     }
 
     /**
@@ -497,6 +513,8 @@ public abstract class Type {
             return false;
         } else if (targetType.isStructType() && sourceType.isStringType()) {
             return true;
+        } else if (sourceType.isStructType() && targetType.isStructType()) {
+            return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
@@ -815,7 +833,7 @@ public abstract class Type {
                     }
                     Pair<Type, Integer> res = fromThrift(col, tmpNodeIdx);
                     tmpNodeIdx = res.second.intValue();
-                    structFields.add(new StructField(name, res.first, comment));
+                    structFields.add(new StructField(name, res.first, comment, true));
                 }
                 type = new StructType(structFields);
                 break;

@@ -58,7 +58,6 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
-    private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "name")
@@ -111,7 +110,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.stats = new ColumnStats();
         this.visible = true;
         this.defineExpr = null;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.children = new ArrayList<>();
         this.uniqueId = -1;
     }
 
@@ -160,7 +159,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.children = new ArrayList<>();
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
     }
@@ -188,10 +187,10 @@ public class Column implements Writable, GsonPostProcessable {
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         } else if (type.isStructType()) {
-            ArrayList<StructField> fileds = ((StructType) type).getFields();
-            for (StructField field : fileds) {
-                Column c = new Column(COLUMN_STRUCT_CHILDREN, field.getType());
-                // c.setIsAllowNull(field.getContainsNull());
+            ArrayList<StructField> fields = ((StructType) type).getFields();
+            for (StructField field : fields) {
+                Column c = new Column(field.getName(), field.getType());
+                c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
         }

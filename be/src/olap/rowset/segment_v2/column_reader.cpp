@@ -56,13 +56,13 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             // create struct column reader
             std::unique_ptr<ColumnReader> struct_reader(
                     new ColumnReader(opts, meta, num_rows, file_reader));
-            struct_reader->_sub_readers.resize(meta.children_columns_size());
+            struct_reader->_sub_readers.reserve(meta.children_columns_size());
             for (size_t i = 0; i < meta.children_columns_size(); i++) {
                 std::unique_ptr<ColumnReader> sub_reader;
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
                                                      meta.children_columns(i).num_rows(),
                                                      file_reader, &sub_reader));
-                struct_reader->_sub_readers[i] = std::move(sub_reader);
+                struct_reader->_sub_readers.push_back(std::move(sub_reader));
             }
             *reader = std::move(struct_reader);
             return Status::OK();
@@ -419,9 +419,12 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             std::vector<ColumnIterator*> sub_column_iterators;
             size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
-            sub_column_iterators.resize(child_size);
+            sub_column_iterators.reserve(child_size);
+
+            ColumnIterator* sub_column_iterator;
             for (size_t i = 0; i < child_size; i++) {
-                RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterators[i]));
+                RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator));
+                sub_column_iterators.push_back(std::move(sub_column_iterator));
             }
 
             ColumnIterator* null_iterator = nullptr;

@@ -89,6 +89,11 @@ public class MapType extends Type {
     }
 
     @Override
+    public boolean supportSubType(Type subType) {
+        return true;
+    }
+
+    @Override
     public void toThrift(TTypeDesc container) {
         TTypeNode node = new TTypeNode();
         container.types.add(node);

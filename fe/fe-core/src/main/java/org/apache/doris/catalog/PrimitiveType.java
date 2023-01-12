@@ -67,7 +67,10 @@ public enum PrimitiveType {
     // sizeof(CollectionValue)
     ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
-    STRUCT("STRUCT", 24, TPrimitiveType.STRUCT),
+    // sizeof(StructValue)
+    // 8-byte pointer and 4-byte size and 1 bytes has_null (13 bytes total)
+    // Aligning to 16 bytes total.
+    STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
