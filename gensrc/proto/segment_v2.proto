@@ -39,7 +39,7 @@ enum EncodingTypePB {
     RLE = 4;
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
-    FOR_ENCODING = 7; // discarded
+    FOR_ENCODING = 7; // Frame-Of-Reference
 }
 
 enum CompressionTypePB {

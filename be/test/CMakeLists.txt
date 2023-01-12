@@ -119,6 +119,7 @@ set(OLAP_TEST_FILES
     olap/rowset/segment_v2/rle_page_test.cpp
     olap/rowset/segment_v2/binary_dict_page_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
+    olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
     olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
     olap/rowset/segment_v2/zone_map_index_test.cpp
@@ -223,6 +224,7 @@ set(UTIL_TEST_FILES
     util/tdigest_test.cpp
     util/block_compression_test.cpp
     util/counter_cond_variable_test.cpp
+    util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp
     util/radix_sort_test.cpp
     util/zip_util_test.cpp
