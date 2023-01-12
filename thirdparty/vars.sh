@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 #clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.2.zip"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.2.zip"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.2"
-CLUCENE_MD5SUM="4eb39c02c42d93599112f8c7761972b5"
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.4.zip"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.4.zip"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.4"
+CLUCENE_MD5SUM="431b4c2dc5c75df5e114da72a2e9b74a"
 
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
