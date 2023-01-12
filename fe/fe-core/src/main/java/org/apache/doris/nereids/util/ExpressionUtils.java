@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -465,5 +466,18 @@ public class ExpressionUtils {
         return exprs.stream()
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * cast push down in order expression
+     */
+    public static Expression pushDownCastInOrderExpression(Expression expression) {
+        if (expression instanceof Cast
+                && ((Cast) expression).child() instanceof OrderExpression) {
+            Cast cast = ((Cast) expression);
+            OrderExpression order = ((OrderExpression) cast.child());
+            return order.withChildren(cast.withChildren(order.getOrderKey().getExpr()));
+        }
+        return expression;
     }
 }
