@@ -462,7 +462,7 @@ At this time, it cannot be started from the checkpoint, and the expiration time 
 
 6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
-This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `defalut_db_running_txn_num` of fe.conf. For details, please refer to [defalut_db_running_txn_num](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#defalut_db_running_txn_num)
 
 7. **How to ensure the order of a batch of data when Flink writes to the Uniq model?**
 

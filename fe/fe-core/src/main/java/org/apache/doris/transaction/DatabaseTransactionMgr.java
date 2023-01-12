@@ -124,8 +124,6 @@ public class DatabaseTransactionMgr {
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
-    private final Map<Long, Long> dbIdToTxnNumber = new HashMap<>();
-
     // count the number of running txns of database, except for the routine load txn
     private volatile int runningTxnNums = 0;
     private volatile int runningTxnReplicaNums = 0;
@@ -1093,7 +1091,6 @@ public class DatabaseTransactionMgr {
                 if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
                     runningRoutineLoadTxnNums++;
                 } else {
-                    dbIdToTxnNumber.put(dbId, dbIdToTxnNumber.getOrDefault(dbId, 0L) + 1L);
                     runningTxnNums++;
                 }
             }
@@ -1102,9 +1099,6 @@ public class DatabaseTransactionMgr {
                 if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
                     runningRoutineLoadTxnNums--;
                 } else {
-                    if (dbIdToTxnNumber.containsKey(dbId) && dbIdToTxnNumber.get(dbId) >= 1L) {
-                        dbIdToTxnNumber.put(dbId, dbIdToTxnNumber.get(dbId) - 1L);
-                    }
                     runningTxnNums--;
                 }
             }
@@ -1536,8 +1530,7 @@ public class DatabaseTransactionMgr {
                 break;
             default:
                 long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
-                if (dbIdToTxnNumber.containsKey(dbId)
-                        && dbIdToTxnNumber.get(dbId) >= txnQuota) {
+                if (runningTxnNums >= txnQuota) {
                     throw new BeginTransactionException("current running txns on db " + dbId + " is "
                             + runningTxnNums + ", larger than limit " + txnQuota);
                 }

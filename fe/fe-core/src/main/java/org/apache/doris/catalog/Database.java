@@ -120,7 +120,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.lowerCaseToTableName = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = Config.default_db_replica_quota_size;
-        this.transactionQuotaSize = Config.default_max_running_txn_per_db;
+        this.transactionQuotaSize = Config.defalut_db_running_txn_num;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
@@ -539,88 +539,57 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, fullQualifiedName);
-        // write tables
-        int numTables = nameToTable.size();
-        out.writeInt(numTables);
-        for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
-            entry.getValue().write(out);
-        }
-
-        out.writeLong(dataQuotaBytes);
-        Text.writeString(out, clusterName);
-        Text.writeString(out, dbState.name());
-        Text.writeString(out, attachDbName);
-
-        // write functions
-        out.writeInt(name2Function.size());
-        for (Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            out.writeInt(entry.getValue().size());
-            for (Function function : entry.getValue()) {
-                function.write(out);
-            }
-        }
-
-        // write encryptKeys
-        dbEncryptKey.write(out);
-
-        out.writeLong(replicaQuotaSize);
-        dbProperties.write(out);
-        out.writeLong(transactionQuotaSize);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        } else {
+            super.readFields(in);
 
-        id = in.readLong();
-        fullQualifiedName = Text.readString(in);
-        // read groups
-        int numTables = in.readInt();
-        for (int i = 0; i < numTables; ++i) {
-            Table table = Table.read(in);
-            table.setQualifiedDbName(fullQualifiedName);
-            String tableName = table.getName();
-            nameToTable.put(tableName, table);
-            idToTable.put(table.getId(), table);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
-        }
-
-        // read quota
-        dataQuotaBytes = in.readLong();
-        clusterName = Text.readString(in);
-        dbState = DbState.valueOf(Text.readString(in));
-        attachDbName = Text.readString(in);
-
-        int numEntries = in.readInt();
-        for (int i = 0; i < numEntries; ++i) {
-            String name = Text.readString(in);
-            ImmutableList.Builder<Function> builder = ImmutableList.builder();
-            int numFunctions = in.readInt();
-            for (int j = 0; j < numFunctions; ++j) {
-                builder.add(Function.read(in));
+            id = in.readLong();
+            fullQualifiedName = Text.readString(in);
+            // read groups
+            int numTables = in.readInt();
+            for (int i = 0; i < numTables; ++i) {
+                Table table = Table.read(in);
+                table.setQualifiedDbName(fullQualifiedName);
+                String tableName = table.getName();
+                nameToTable.put(tableName, table);
+                idToTable.put(table.getId(), table);
+                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             }
 
-            name2Function.put(name, builder.build());
-        }
+            // read quota
+            dataQuotaBytes = in.readLong();
+            clusterName = Text.readString(in);
+            dbState = DbState.valueOf(Text.readString(in));
+            attachDbName = Text.readString(in);
 
-        // read encryptKeys
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
-            dbEncryptKey = DatabaseEncryptKey.read(in);
-        }
+            int numEntries = in.readInt();
+            for (int i = 0; i < numEntries; ++i) {
+                String name = Text.readString(in);
+                ImmutableList.Builder<Function> builder = ImmutableList.builder();
+                int numFunctions = in.readInt();
+                for (int j = 0; j < numFunctions; ++j) {
+                    builder.add(Function.read(in));
+                }
 
-        replicaQuotaSize = in.readLong();
+                name2Function.put(name, builder.build());
+            }
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            dbProperties = DatabaseProperty.read(in);
-        }
+            // read encryptKeys
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
+                dbEncryptKey = DatabaseEncryptKey.read(in);
+            }
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
-            transactionQuotaSize = in.readLong();
+            replicaQuotaSize = in.readLong();
+
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
+                dbProperties = DatabaseProperty.read(in);
+            }
         }
     }
 
