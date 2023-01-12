@@ -170,7 +170,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
                             reinterpret_cast<const ColumnNullable*>(
                                     output_block->get_by_position(col_mapping[i]).column.get())
                                     ->get_nested_column_ptr());
-                } else if (!empty_columns_with_type[i].type->is_nullable() &&
+                } else if (!empty_columns_with_type[col_mapping[i]].type->is_nullable() &&
                            origin_block->get_by_position(i).column->is_nullable()) {
                     LOG(FATAL) << "To column is not nullable, but from column is nullable";
                 } else {
