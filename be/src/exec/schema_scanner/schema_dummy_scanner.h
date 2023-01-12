@@ -24,8 +24,8 @@ namespace doris {
 class SchemaDummyScanner : public SchemaScanner {
 public:
     SchemaDummyScanner();
-    virtual ~SchemaDummyScanner();
-    virtual Status start(RuntimeState* state = nullptr);
+    ~SchemaDummyScanner() override;
+    Status start(RuntimeState* state = nullptr) override;
     Status get_next_block(vectorized::Block* block, bool* eos) override;
 };
 

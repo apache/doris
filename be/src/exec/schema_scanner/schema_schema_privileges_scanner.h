@@ -25,9 +25,9 @@ namespace doris {
 class SchemaSchemaPrivilegesScanner : public SchemaScanner {
 public:
     SchemaSchemaPrivilegesScanner();
-    virtual ~SchemaSchemaPrivilegesScanner();
+    ~SchemaSchemaPrivilegesScanner() override;
 
-    virtual Status start(RuntimeState* state);
+    Status start(RuntimeState* state) override;
     Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:

@@ -27,8 +27,8 @@ namespace doris {
 class SchemaColumnsScanner : public SchemaScanner {
 public:
     SchemaColumnsScanner();
-    virtual ~SchemaColumnsScanner();
-    virtual Status start(RuntimeState* state);
+    ~SchemaColumnsScanner() override;
+    Status start(RuntimeState* state) override;
     Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:

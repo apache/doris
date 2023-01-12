@@ -26,7 +26,7 @@ namespace doris {
 class SchemaCharsetsScanner : public SchemaScanner {
 public:
     SchemaCharsetsScanner();
-    virtual ~SchemaCharsetsScanner();
+    ~SchemaCharsetsScanner() override;
 
     Status get_next_block(vectorized::Block* block, bool* eos) override;
 

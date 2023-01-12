@@ -26,7 +26,7 @@ namespace doris {
 class SchemaCollationsScanner : public SchemaScanner {
 public:
     SchemaCollationsScanner();
-    virtual ~SchemaCollationsScanner();
+    ~SchemaCollationsScanner() override;
 
     Status get_next_block(vectorized::Block* block, bool* eos) override;
 
