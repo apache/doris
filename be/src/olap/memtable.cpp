@@ -176,7 +176,6 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         _input_mutable_block_dup.add_rows(&target_block, row_idxs.data(),
                                           row_idxs.data() + num_rows);
         _rows += num_rows;
-        return;
     }
     // agg table (unique table is a special agg table)
     else {
@@ -246,11 +245,12 @@ void MemTable::_collect_memtable_results() {
         vectorized::Block sorted_block = in_block_dup.clone_empty();
         vectorized::SortDescription _sort_description;
         // construct _sort_description
-        for (size_t cid = 0; cid < _schema->num_columns(); cid++) {
+        for (size_t cid = 0; cid < _schema->num_key_columns(); cid++) {
             vectorized::SortColumnDescription _sort_column_desc(cid, 1, -1);
             _sort_description.emplace_back(_sort_column_desc);
         }
-        // sort block of duplicate table
+        // sort duplicate table's block by key columns
+        // 先按照key排序 (asc),其他列按照desc排序?
         sort_block(in_block_dup, sorted_block, _sort_description);
         _output_mutable_block.add_rows(&sorted_block, 0, in_block_dup.rows());
 
