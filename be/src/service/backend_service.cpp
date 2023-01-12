@@ -87,8 +87,6 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    VLOG_ROW << "exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
 
