@@ -91,6 +91,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     private volatile long replicaQuotaSize;
 
+    private volatile long transactionQuotaSize;
+
     private volatile boolean isDropped;
 
     public enum DbState {
@@ -118,6 +120,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.lowerCaseToTableName = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = Config.default_db_replica_quota_size;
+        this.transactionQuotaSize = Config.default_max_running_txn_per_db;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
@@ -213,12 +216,22 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public void setTransactionQuotaSize(long newQuota) {
+        Preconditions.checkArgument(newQuota >= 0L);
+        LOG.info("database[{}] set transaction quota from {} to {}", fullQualifiedName, transactionQuotaSize, newQuota);
+        this.transactionQuotaSize = newQuota;
+    }
+
     public long getDataQuota() {
         return dataQuotaBytes;
     }
 
     public long getReplicaQuota() {
         return replicaQuotaSize;
+    }
+
+    public long getTransactionQuotaSize() {
+        return transactionQuotaSize;
     }
 
     public DatabaseProperty getDbProperties() {
@@ -557,6 +570,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         out.writeLong(replicaQuotaSize);
         dbProperties.write(out);
+        out.writeLong(transactionQuotaSize);
     }
 
     @Override
@@ -603,6 +617,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
+        }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            transactionQuotaSize = in.readLong();
         }
     }
 

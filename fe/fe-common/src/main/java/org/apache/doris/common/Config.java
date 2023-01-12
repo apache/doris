@@ -1964,5 +1964,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false)
     public static int topn_two_phase_limit_threshold = 512;
+
+    /**
+     * Maximum running transaction number per database
+     */
+    @ConfField(masterOnly = true)
+    public static int default_max_running_txn_per_db = 100;
 }
 

@@ -775,6 +775,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 db.setDataQuota(stmt.getQuota());
             } else if (quotaType == QuotaType.REPLICA) {
                 db.setReplicaQuota(stmt.getQuota());
+            } else if (quotaType == QuotaType.TRANSACTION) {
+                db.setTransactionQuotaSize(stmt.getQuota());
             }
             long quota = stmt.getQuota();
             DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
@@ -792,6 +794,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 db.setDataQuota(quota);
             } else if (quotaType == QuotaType.REPLICA) {
                 db.setReplicaQuota(quota);
+            } else if (quotaType == QuotaType.TRANSACTION) {
+                db.setTransactionQuotaSize(quota);
             }
         } finally {
             db.writeUnlock();
