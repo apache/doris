@@ -203,6 +203,14 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
 //     }
 // }
 
+void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                       const int* indices_end) {
+    const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i]->insert_indices_from(src_concrete.get_column(i), indices_begin, indices_end);
+    }
+}
+
 // const char * ColumnStruct::skip_serialized_in_arena(const char * pos) const {
 //     for (const auto & column : columns) {
 //         pos = column->skip_serialized_in_arena(pos);

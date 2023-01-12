@@ -129,9 +129,7 @@ public:
     // void update_hash_fast(SipHash & hash) const override;
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
-        LOG(FATAL) << "insert_indices_from not implemented";
-    }
+                             const int* indices_end) override;
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {

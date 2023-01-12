@@ -565,7 +565,7 @@ endif()
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
+    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 else()
     set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 endif()
