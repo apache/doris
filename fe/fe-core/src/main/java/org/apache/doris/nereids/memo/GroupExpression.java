@@ -216,9 +216,28 @@ public class GroupExpression {
         return lowestCostTable.get(property).first;
     }
 
+    /**
+     * Gets the input properties needed for a given required property
+     *
+     * @param property PhysicalPropertySet that needs to be satisfied
+     * @return List of children input physical properties required
+     */
+    public List<PhysicalProperties> getInputProperties(PhysicalProperties property) {
+        Preconditions.checkState(lowestCostTable.containsKey(property));
+        return lowestCostTable.get(property).second;
+    }
+
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
             PhysicalProperties requiredPropertySet) {
         this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
+    public void moveState(GroupExpression target) {
+        // LowestCostTable
+        this.getLowestCostTable()
+                .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
+        // requestPropertiesMap
+        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
     }
 
     public double getCost() {

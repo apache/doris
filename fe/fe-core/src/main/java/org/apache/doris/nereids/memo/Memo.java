@@ -444,22 +444,34 @@ public class Memo {
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 
         Map<Group, Group> needMergeGroup = Maps.newHashMap();
-        for (GroupExpression groupExpression : needReplaceChild) {
+        for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.
-            groupExpressions.remove(groupExpression);
-            Utils.replaceList(groupExpression.children(), source, destination);
+            groupExpressions.remove(reinsertGroupExpr);
+            Utils.replaceList(reinsertGroupExpr.children(), source, destination);
 
-            GroupExpression that = groupExpressions.get(groupExpression);
-            if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
-                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
-                // that.getOwnerGroup() already has this groupExpression.
-                groupExpression.setUnused(true);
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                needMergeGroup.put(groupExpression.getOwnerGroup(), that.getOwnerGroup());
+            GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
+            if (existGroupExpr != null && existGroupExpr.getOwnerGroup() != null) {
+                // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
+                // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
+                // reinsertGroupExpr.setUnused(true);
+                // reinsertGroupExpr.getOwnerGroup().removeGroupExpression(reinsertGroupExpr);
+                // needMergeGroup.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+
+                if (existGroupExpr.getOwnerGroup() != null
+                        && existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
+                    // reinsertGroupExpr & existGroupExpr are in same Group,use existGroupExpr to
+                    // replace the bestExpression in the group
+                    reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
+                    // existingGroupExpression merge the state of reinsertGroupExpr
+                    reinsertGroupExpr.moveState(existGroupExpr);
+                } else {
+                    // reinsertGroupExpr and existGroupExpr are not in the same group, need to merge them.
+                    reinsertGroupExpr.getOwnerGroup().deleteBestPlan(reinsertGroupExpr);
+                    needMergeGroup.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                }
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
             }
         }
         if (!source.equals(destination)) {
