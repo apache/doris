@@ -25,8 +25,8 @@ namespace vectorized {
     class VStructLiteral : public VLiteral {
     public:
         VStructLiteral(const TExprNode& node) : VLiteral(node, false) {}
-        virtual ~VStructLiteral() = default;
-        virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+        ~VStructLiteral() override = default;
+        Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                                VExprContext* context) override;
     };
 } // namespace vectorized

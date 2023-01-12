@@ -424,7 +424,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             ColumnIterator* sub_column_iterator;
             for (size_t i = 0; i < child_size; i++) {
                 RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator));
-                sub_column_iterators.push_back(std::move(sub_column_iterator));
+                sub_column_iterators.push_back(sub_column_iterator);
             }
 
             ColumnIterator* null_iterator = nullptr;

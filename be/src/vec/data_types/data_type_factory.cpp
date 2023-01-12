@@ -35,7 +35,7 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
         dataTypes.reserve(field_size);
         names.reserve(field_size);
         for (size_t i = 0; i < field_size; i++) {
-            dataTypes.push_back(std::move(create_data_type(*col_desc.get_sub_field(i))));
+            dataTypes.push_back(create_data_type(*col_desc.get_sub_field(i)));
             names.push_back(col_desc.name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
@@ -160,7 +160,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         dataTypes.reserve(child_size);
         names.reserve(child_size);
         for (size_t i = 0; i < child_size; i++) {
-            dataTypes.push_back(std::move(create_data_type(col_desc.children[i], col_desc.contains_nulls[i])));
+            dataTypes.push_back(create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
             names.push_back(col_desc.field_names[i]);
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);

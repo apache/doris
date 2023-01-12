@@ -62,8 +62,8 @@ void VMysqlResultWriter::_init_profile() {
 
 template <PrimitiveType type, bool is_nullable>
 Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
-                                           std::unique_ptr<TFetchDataResult>& result,
-                                           int scale, const DataTypes& sub_types) {
+                                           std::unique_ptr<TFetchDataResult>& result, int scale,
+                                           const DataTypes& sub_types) {
     SCOPED_TIMER(_convert_tuple_timer);
 
     const auto row_size = column_ptr->size();
@@ -442,7 +442,7 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         auto decimal_str = assert_cast<const DataTypeDecimal<Decimal128I>*>(nested_type.get())
                                    ->to_string(*column, row_idx);
         return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-    // TODO(xy): support nested struct
+        // TODO(xy): support nested struct
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
@@ -635,11 +635,11 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, true>(column_ptr, result,
-                                                                                scale, {nested_type});
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, true>(
+                        column_ptr, result, scale, {nested_type});
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, false>(column_ptr, result,
-                                                                                 scale, {type_ptr});
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, false>(
+                        column_ptr, result, scale, {type_ptr});
             }
             break;
         }
@@ -670,9 +670,11 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         }
         case TYPE_DATETIMEV2: {
             if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(column_ptr, result, scale);
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(column_ptr, result,
+                                                                               scale);
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(column_ptr, result, scale);
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(column_ptr, result,
+                                                                                scale);
             }
             break;
         }
@@ -690,12 +692,12 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result,
-                                                                          scale, {sub_type});
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result, scale,
+                                                                          {sub_type});
             } else {
                 auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
-                                                                           scale, {sub_type});
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result, scale,
+                                                                           {sub_type});
             }
             break;
         }
