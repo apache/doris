@@ -141,9 +141,10 @@ protected:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
+        io::SegmentCachePathPolicy cache_policy;
+        cache_policy.set_cache_path(segment_cache_path(0));
         io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                             io::SegmentCachePathPolicy());
-        reader_options.path_policy.set_cache_path(segment_cache_path(0));
+                                             cache_policy);
         st = segment_v2::Segment::open(fs, path, 0, {}, query_schema, reader_options, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());

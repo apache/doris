@@ -1765,7 +1765,7 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
     bool exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
-        io::IOContext io_ctx;
+        IOContext io_ctx;
         io::FileReaderSPtr tablet_meta_reader;
         RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
         if (tablet_meta_reader == nullptr) {
