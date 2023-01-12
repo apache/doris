@@ -54,43 +54,25 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     }
 }
 
-ColumnStruct::ColumnStruct(Columns&& columns) {
-    columns.reserve(columns.size());
-    for (auto& column : columns) {
-        if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
-        }
-        columns.push_back(std::move(column));
-    }
-}
-
-ColumnStruct::ColumnStruct(TupleColumns&& tuple_columns) {
-    columns.reserve(tuple_columns.size());
-    for (auto& column : tuple_columns) {
-        if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
-        }
-        columns.push_back(std::move(column));
-    }
-}
-
-ColumnStruct::Ptr ColumnStruct::create(Columns& columns) {
+ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
     }
-    auto column_struct = ColumnStruct::create(columns);
+    auto column_struct = ColumnStruct::create(MutableColumns());
+    column_struct->columns.assign(columns.begin(), columns.end());
     return column_struct;
 }
 
-ColumnStruct::Ptr ColumnStruct::create(TupleColumns& tuple_columns) {
+ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
     }
-    auto column_struct = ColumnStruct::create(tuple_columns);
+    auto column_struct = ColumnStruct::create(MutableColumns());
+    column_struct->columns = tuple_columns;
     return column_struct;
 }
 
@@ -273,7 +255,7 @@ ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
         new_columns[i] = columns[i]->permute(perm, limit);
     }
 
-    return ColumnStruct::create(new_columns);
+    return ColumnStruct::create(std::move(new_columns));
 }
 
 ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
@@ -284,7 +266,7 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
         new_columns[i] = columns[i]->replicate(offsets);
     }
 
-    return ColumnStruct::create(new_columns);
+    return ColumnStruct::create(std::move(new_columns));
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
