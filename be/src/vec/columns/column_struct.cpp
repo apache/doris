@@ -255,7 +255,7 @@ ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
         new_columns[i] = columns[i]->permute(perm, limit);
     }
 
-    return ColumnStruct::create(std::move(new_columns));
+    return ColumnStruct::create(new_columns);
 }
 
 ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
@@ -266,7 +266,7 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
         new_columns[i] = columns[i]->replicate(offsets);
     }
 
-    return ColumnStruct::create(std::move(new_columns));
+    return ColumnStruct::create(new_columns);
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
