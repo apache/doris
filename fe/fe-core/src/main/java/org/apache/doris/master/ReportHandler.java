@@ -299,10 +299,15 @@ public class ReportHandler extends Daemon {
         LOG.info("after diff policy, policyToPush {}, policyToDrop {}, and resourceToPush {}",
                 policyToPush, policyToDrop, resourceToPush);
 
+        long end = System.currentTimeMillis();
+        if (policyToPush.size() == 0 && resourceToPush.size() == 0 && policyToDrop.size() == 0) {
+            LOG.info("finished to handle storage policy report no push rpc from backend[{}] cost: {} ms",
+                    backendId, (end - start));
+            return;
+        }
         // send push rpc
         handlePushStoragePolicy(backendId, policyToPush, resourceToPush, policyToDrop);
 
-        long end = System.currentTimeMillis();
         LOG.info("finished to handle storage policy report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 

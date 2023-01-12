@@ -35,7 +35,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +42,6 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -95,10 +93,6 @@ public class StoragePolicy extends Policy {
     private static final long ONE_HOUR_MS = 3600 * 1000;
     private static final long ONE_DAY_MS = 24 * ONE_HOUR_MS;
     private static final long ONE_WEEK_MS = 7 * ONE_DAY_MS;
-
-    public static final String MD5_CHECKSUM = "md5_checksum";
-    @SerializedName(value = "md5Checksum")
-    private String md5Checksum = null;
 
     @SerializedName(value = "storageResource")
     private String storageResource = null;
@@ -197,7 +191,6 @@ public class StoragePolicy extends Policy {
         if (!addResourceReference() && !ifNotExists) {
             throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
         }
-        this.md5Checksum = calcPropertiesMd5();
     }
 
     private static Resource checkIsS3ResourceAndExist(final String storageResource) throws AnalysisException {
@@ -320,25 +313,6 @@ public class StoragePolicy extends Policy {
         return cooldownTtlMs;
     }
 
-    // be use this md5Sum to determine whether storage policy has been changed.
-    // if md5Sum not eq previous value, be change its storage policy.
-    private String calcPropertiesMd5() {
-        List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
-                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS,
-                S3Resource.S3_ACCESS_KEY, S3Resource.S3_SECRET_KEY);
-        Map<String, String> copiedStoragePolicyProperties = Env.getCurrentEnv().getResourceMgr()
-                .getResource(this.storageResource).getCopiedProperties();
-
-        copiedStoragePolicyProperties.put(COOLDOWN_DATETIME, String.valueOf(this.cooldownTimestampMs));
-        copiedStoragePolicyProperties.put(COOLDOWN_TTL, this.cooldownTtl);
-
-        LOG.info("calcPropertiesMd5 map {}", copiedStoragePolicyProperties);
-
-        return DigestUtils.md5Hex(calcKey.stream()
-                .map(iter -> "(" + iter + ":" + copiedStoragePolicyProperties.get(iter) + ")")
-                .reduce("", String::concat));
-    }
-
     public void checkProperties(Map<String, String> properties) throws AnalysisException {
         // check properties
         Map<String, String> copiedProperties = Maps.newHashMap(properties);
@@ -372,7 +346,6 @@ public class StoragePolicy extends Policy {
             storageResource = alterStorageResource;
         }
 
-        md5Checksum = calcPropertiesMd5();
         // add version
         super.modifyProperties(properties);
     }
