@@ -45,7 +45,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 public class CooldownJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(CooldownJob.class);
@@ -66,20 +69,8 @@ public class CooldownJob implements Writable {
     protected long jobId;
     @SerializedName(value = "jobState")
     protected CooldownJob.JobState jobState;
-    @SerializedName(value = "dbId")
-    protected long dbId;
-    @SerializedName(value = "tableId")
-    protected long tableId;
-    @SerializedName(value = "partitionId")
-    protected long partitionId;
-    @SerializedName(value = "indexId")
-    protected long indexId;
-    @SerializedName(value = "tabletId")
-    protected long tabletId;
-    @SerializedName(value = "cooldownReplicaId")
-    protected long cooldownReplicaId;
-    @SerializedName(value = "cooldownTerm")
-    protected long cooldownTerm;
+    @SerializedName(value = "cooldownConfList")
+    protected List<CooldownConf> cooldownConfList;
 
     @SerializedName(value = "errMsg")
     protected String errMsg = "";
@@ -90,27 +81,28 @@ public class CooldownJob implements Writable {
     @SerializedName(value = "timeoutMs")
     protected long timeoutMs = -1;
 
-    private AgentBatchTask cooldownBatchTask = new AgentBatchTask();
-
     public long getJobId() {
         return jobId;
     }
 
-    public long getTabletId() {
-        return tabletId;
+    public JobState getJobState() {
+        return jobState;
     }
 
-    public CooldownJob(long jobId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                       long cooldownReplicaId, long cooldownTerm, long timeoutMs) {
+    public List<CooldownConf> getCooldownConfList() {
+        return cooldownConfList;
+    }
+
+    public long getTimeoutMs() {
+        return timeoutMs;
+    }
+
+    private AgentBatchTask cooldownBatchTask = new AgentBatchTask();
+
+    public CooldownJob(long jobId, List<CooldownConf> cooldownConfList, long timeoutMs) {
         this.jobId = jobId;
         this.jobState = JobState.PENDING;
-        this.dbId = dbId;
-        this.tableId = tableId;
-        this.partitionId = partitionId;
-        this.indexId = indexId;
-        this.tabletId = tabletId;
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
+        this.cooldownConfList = cooldownConfList;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
     }
@@ -119,9 +111,15 @@ public class CooldownJob implements Writable {
         Preconditions.checkState(jobState == CooldownJob.JobState.PENDING, jobState);
         this.jobState = JobState.SEND_CONF;
         // write edit log
-        setCooldownReplica(cooldownReplicaId, cooldownTerm);
-        Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownReplicaId(cooldownReplicaId);
-        Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownTerm(cooldownTerm);
+        for (CooldownConf cooldownConf : cooldownConfList) {
+            setCooldownReplica(cooldownConf.getDbId(), cooldownConf.getTableId(), cooldownConf.getPartitionId(),
+                    cooldownConf.getIndexId(), cooldownConf.getTabletId(), cooldownConf.getCooldownReplicaId(),
+                    cooldownConf.getCooldownTerm());
+            Env.getCurrentInvertedIndex().getTabletMeta(cooldownConf.getTabletId()).setCooldownReplicaId(
+                    cooldownConf.getCooldownReplicaId());
+            Env.getCurrentInvertedIndex().getTabletMeta(cooldownConf.getTabletId()).setCooldownTerm(
+                    cooldownConf.getCooldownTerm());
+        }
         Env.getCurrentEnv().getEditLog().logCooldownJob(this);
         LOG.info("send cooldown job {} state to {}", jobId, this.jobState);
     }
@@ -130,39 +128,47 @@ public class CooldownJob implements Writable {
         Preconditions.checkState(jobState == JobState.SEND_CONF, jobState);
         LOG.info("begin to send cooldown conf tasks. job: {}", jobId);
         if (!FeConstants.runningUnitTest) {
-            Database db = Env.getCurrentInternalCatalog()
-                    .getDbOrException(dbId, s -> new CooldownException("Database " + s + " does not exist"));
-            OlapTable tbl;
-            try {
-                tbl = (OlapTable) db.getTableOrMetaException(tableId, TableIf.TableType.OLAP);
-            } catch (MetaNotFoundException e) {
-                throw new CooldownException(e.getMessage());
+            Map<Long, List<CooldownConf>> cooldownMap = new HashMap<>();
+            for (CooldownConf cooldownConf : cooldownConfList) {
+                Database db = Env.getCurrentInternalCatalog()
+                        .getDbOrException(cooldownConf.getDbId(), s -> new CooldownException(
+                                "Database " + s + " does not exist"));
+                OlapTable tbl;
+                try {
+                    tbl = (OlapTable) db.getTableOrMetaException(cooldownConf.getTableId(), TableIf.TableType.OLAP);
+                } catch (MetaNotFoundException e) {
+                    throw new CooldownException(e.getMessage());
+                }
+                if (tbl == null) {
+                    throw new CooldownException(String.format("No table: %d", cooldownConf.getTableId()));
+                }
+                tbl.readLock();
+                try {
+                    Partition partition = tbl.getPartition(cooldownConf.getPartitionId());
+                    if (partition == null) {
+                        throw new CooldownException(String.format("No partition: %d", cooldownConf.getPartitionId()));
+                    }
+                    MaterializedIndex index = partition.getIndex(cooldownConf.getIndexId());
+                    if (index == null) {
+                        throw new CooldownException(String.format("No index: %d", cooldownConf.getIndexId()));
+                    }
+                    Tablet tablet = index.getTablet(cooldownConf.getTabletId());
+                    if (tablet == null) {
+                        throw new CooldownException(String.format("No tablet: %d", cooldownConf.getTabletId()));
+                    }
+                    for (Replica replica : tablet.getReplicas()) {
+                        if (!cooldownMap.containsKey(replica.getBackendId())) {
+                            cooldownMap.put(replica.getBackendId(), new LinkedList<>());
+                        }
+                        cooldownMap.get(replica.getBackendId()).add(cooldownConf);
+                    }
+                } finally {
+                    tbl.readUnlock();
+                }
             }
-            if (tbl == null) {
-                throw new CooldownException(String.format("No table: %d", tableId));
-            }
-            tbl.readLock();
-            try {
-                Partition partition = tbl.getPartition(partitionId);
-                if (partition == null) {
-                    throw new CooldownException(String.format("No partition: %d", partitionId));
-                }
-                MaterializedIndex index = partition.getIndex(indexId);
-                if (index == null) {
-                    throw new CooldownException(String.format("No index: %d", indexId));
-                }
-                Tablet tablet = index.getTablet(tabletId);
-                if (tablet == null) {
-                    throw new CooldownException(String.format("No tablet: %d", tabletId));
-                }
-                for (Replica replica : tablet.getReplicas()) {
-                    PushCooldownConfTask pushCooldownConfTask = new PushCooldownConfTask(replica.getBackendId(),
-                            dbId, tableId, partitionId, indexId, tabletId, cooldownReplicaId, cooldownTerm);
-                    cooldownBatchTask.addTask(pushCooldownConfTask);
-
-                }
-            } finally {
-                tbl.readUnlock();
+            for (Map.Entry<Long, List<CooldownConf>> entry : cooldownMap.entrySet()) {
+                PushCooldownConfTask pushCooldownConfTask = new PushCooldownConfTask(entry.getKey(), entry.getValue());
+                cooldownBatchTask.addTask(pushCooldownConfTask);
             }
             AgentTaskQueue.addBatchTask(cooldownBatchTask);
             AgentTaskExecutor.submit(cooldownBatchTask);
@@ -183,7 +189,7 @@ public class CooldownJob implements Writable {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUSH_COOLDOWN_CONF, task.getSignature());
                     LOG.warn("push cooldown conf task failed after try three times: " + task.getErrorMsg());
-                    throw new CooldownException("cooldown tasks failed on same tablet: " + tabletId);
+                    throw new CooldownException("cooldown tasks failed on backend: " + task.getBackendId());
                 }
             }
             return;
@@ -296,27 +302,32 @@ public class CooldownJob implements Writable {
      */
     private void replayCreateJob(CooldownJob replayedJob) {
         jobId = replayedJob.jobId;
-        dbId = replayedJob.dbId;
-        tableId = replayedJob.tableId;
-        partitionId = replayedJob.partitionId;
-        indexId = replayedJob.indexId;
-        tabletId = replayedJob.tabletId;
-        cooldownReplicaId = replayedJob.cooldownReplicaId;
-        cooldownTerm = replayedJob.cooldownTerm;
+        for (CooldownConf replayedConf : replayedJob.cooldownConfList) {
+            CooldownConf cooldownConf = new CooldownConf(replayedConf.getDbId(), replayedConf.getTableId(),
+                    replayedConf.getPartitionId(), replayedConf.getIndexId(), replayedConf.getTabletId(),
+                    replayedConf.getCooldownReplicaId(), replayedConf.getCooldownTerm());
+            cooldownConfList.add(cooldownConf);
+        }
         createTimeMs = replayedJob.createTimeMs;
         timeoutMs = replayedJob.timeoutMs;
         jobState = JobState.PENDING;
-        LOG.info("replay create cooldown job: {}, table id: {}, tablet id : {}", jobId, tableId, tabletId);
+        LOG.info("replay create cooldown job: {}, conf size: {}", jobId, cooldownConfList.size());
     }
 
     /**
      * Replay job in PENDING state. set cooldown type in Replica
      */
     private void replayPengingJob() throws CooldownException {
-        setCooldownReplica(cooldownReplicaId, cooldownTerm);
-        if (Env.getCurrentInvertedIndex().getTabletMeta(tabletId) != null) {
-            Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownReplicaId(cooldownReplicaId);
-            Env.getCurrentInvertedIndex().getTabletMeta(tabletId).setCooldownTerm(cooldownTerm);
+        for (CooldownConf cooldownConf : cooldownConfList) {
+            setCooldownReplica(cooldownConf.getDbId(), cooldownConf.getTableId(), cooldownConf.getPartitionId(),
+                    cooldownConf.getIndexId(), cooldownConf.getTabletId(), cooldownConf.getCooldownReplicaId(),
+                    cooldownConf.getCooldownTerm());
+            if (Env.getCurrentInvertedIndex().getTabletMeta(cooldownConf.getTabletId()) != null) {
+                Env.getCurrentInvertedIndex().getTabletMeta(cooldownConf.getTabletId()).setCooldownReplicaId(
+                        cooldownConf.getCooldownReplicaId());
+                Env.getCurrentInvertedIndex().getTabletMeta(cooldownConf.getTabletId()).setCooldownTerm(
+                        cooldownConf.getCooldownTerm());
+            }
         }
         jobState = JobState.SEND_CONF;
         LOG.info("replay send cooldown conf, job: {}", jobId);
@@ -332,7 +343,8 @@ public class CooldownJob implements Writable {
         LOG.info("replay finished cooldown job: {}", jobId);
     }
 
-    private void setCooldownReplica(long cooldownReplicaId, long cooldownTerm) throws CooldownException {
+    private void setCooldownReplica(long dbId, long tableId, long partitionId, long indexId, long tabletId,
+                                    long cooldownReplicaId, long cooldownTerm) throws CooldownException {
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new CooldownException("Database " + s + " does not exist"));
         OlapTable tbl;

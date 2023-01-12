@@ -17,31 +17,35 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.cooldown.CooldownConf;
+import org.apache.doris.thrift.TCooldownConf;
 import org.apache.doris.thrift.TPushCooldownConfReq;
 import org.apache.doris.thrift.TTaskType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+
 public class PushCooldownConfTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PushCooldownConfTask.class);
 
-    private long cooldownReplicaId;
-    private long cooldownTerm;
+    private List<CooldownConf> cooldownConfList;
 
-    public PushCooldownConfTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                                long cooldownReplicaId, long cooldownTerm) {
-        super(null, backendId, TTaskType.PUSH_COOLDOWN_CONF, dbId, tableId, partitionId, indexId, tabletId);
+    public PushCooldownConfTask(long backendId, List<CooldownConf> cooldownConfList) {
+        super(null, backendId, TTaskType.PUSH_COOLDOWN_CONF, -1, -1, -1, -1, -1);
 
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
+        this.cooldownConfList = cooldownConfList;
     }
 
     public TPushCooldownConfReq toThrift() {
         TPushCooldownConfReq pushCooldownConfReq = new TPushCooldownConfReq();
-        pushCooldownConfReq.setTabletId(tabletId);
-        pushCooldownConfReq.setCooldownReplicaId(cooldownReplicaId);
-        pushCooldownConfReq.setCooldownTerm(cooldownTerm);
+        for (CooldownConf cooldownConf : cooldownConfList) {
+            TCooldownConf tCooldownConf = new TCooldownConf();
+            tCooldownConf.setTabletId(cooldownConf.getTabletId());
+            tCooldownConf.setCooldownReplicaId(cooldownConf.getCooldownReplicaId());
+            tCooldownConf.setCooldownTerm(cooldownConf.getCooldownTerm());
+        }
 
         return pushCooldownConfReq;
     }

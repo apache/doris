@@ -351,9 +351,8 @@ struct TPluginMetaInfo {
 
 struct TCooldownConf {
     1: required Types.TTabletId tablet_id
-    2: required Types.TReplicaId replica_id
-    3: optional Types.TReplicaId cooldown_replica_id
-    4: optional i64 cooldown_term
+    2: optional Types.TReplicaId cooldown_replica_id
+    3: optional i64 cooldown_term
 }
 
 struct TPushCooldownConfReq {

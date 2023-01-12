@@ -33,6 +33,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -44,12 +45,14 @@ public class CooldownHandler extends MasterDaemon {
 
     private static final int MAX_RUNABLE_COOLDOWN_JOB_SIZE = 100;
 
+    private static final int MAX_TABLET_PER_JOB = 100;
+
     private static final long timeoutMs = 1000L * Config.push_cooldown_conf_timeout_second;
 
     // jobId -> CooldownJob, it is used to hold CooldownJob which is used to sent conf to be.
     private final Map<Long, CooldownJob> runableCooldownJobs = Maps.newConcurrentMap();
     private final Map<Long, Boolean> resetingTablet = Maps.newConcurrentMap();
-    // tabletId -> CooldownJob,
+    // jobId -> CooldownJob,
     public final Map<Long, CooldownJob> activeCooldownJobs = Maps.newConcurrentMap();
 
     public final ThreadPoolExecutor cooldownThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
@@ -57,6 +60,7 @@ public class CooldownHandler extends MasterDaemon {
 
     // syncCooldownTabletMap: tabletId -> TabletMeta
     public void handleCooldownConf(Map<Long, TabletMeta> syncCooldownTabletMap) {
+        List<CooldownConf> cooldownConfList = new LinkedList<>();
         for (Map.Entry<Long, TabletMeta> entry : syncCooldownTabletMap.entrySet()) {
             if (runableCooldownJobs.size() >= MAX_RUNABLE_COOLDOWN_JOB_SIZE) {
                 return;
@@ -84,12 +88,26 @@ public class CooldownHandler extends MasterDaemon {
                 cooldownReplicaId = replicas.get(index).getId();
                 ++cooldownTerm;
             }
+            CooldownConf cooldownConf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, cooldownReplicaId, cooldownTerm);
+            cooldownConfList.add(cooldownConf);
+            if (cooldownConfList.size() >= MAX_TABLET_PER_JOB) {
+                long jobId = Env.getCurrentEnv().getNextId();
+                CooldownJob cooldownJob = new CooldownJob(jobId, cooldownConfList, timeoutMs);
+                runableCooldownJobs.put(jobId, cooldownJob);
+                for (CooldownConf conf : cooldownConfList) {
+                    resetingTablet.put(conf.getTabletId(), true);
+                }
+                cooldownConfList = new LinkedList<>();
+            }
+        }
+        if (cooldownConfList.size() > 0) {
             long jobId = Env.getCurrentEnv().getNextId();
-            CooldownJob cooldownJob = new CooldownJob(jobId, tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, cooldownReplicaId, cooldownTerm,
-                    timeoutMs);
+            CooldownJob cooldownJob = new CooldownJob(jobId, cooldownConfList, timeoutMs);
             runableCooldownJobs.put(jobId, cooldownJob);
-            resetingTablet.put(tabletId, true);
+            for (CooldownConf conf : cooldownConfList) {
+                resetingTablet.put(conf.getTabletId(), true);
+            }
         }
     }
 
@@ -97,17 +115,17 @@ public class CooldownHandler extends MasterDaemon {
     protected void runAfterCatalogReady() {
         clearFinishedOrCancelledCooldownJob();
         runableCooldownJobs.values().forEach(cooldownJob -> {
-            if (!cooldownJob.isDone() && !activeCooldownJobs.containsKey(cooldownJob.getTabletId())
+            if (!cooldownJob.isDone() && !activeCooldownJobs.containsKey(cooldownJob.getJobId())
                     && activeCooldownJobs.size() < MAX_ACTIVE_COOLDOWN_JOB_SIZE) {
                 if (FeConstants.runningUnitTest) {
                     cooldownJob.run();
                 } else {
                     cooldownThreadPool.submit(() -> {
-                        if (activeCooldownJobs.putIfAbsent(cooldownJob.getTabletId(), cooldownJob) == null) {
+                        if (activeCooldownJobs.putIfAbsent(cooldownJob.getJobId(), cooldownJob) == null) {
                             try {
                                 cooldownJob.run();
                             } finally {
-                                activeCooldownJobs.remove(cooldownJob.getTabletId());
+                                activeCooldownJobs.remove(cooldownJob.getJobId());
                             }
                         }
                     });
@@ -134,18 +152,21 @@ public class CooldownHandler extends MasterDaemon {
     public void replayCooldownJob(CooldownJob cooldownJob) {
         CooldownJob replayCooldownJob = null;
         if (!runableCooldownJobs.containsKey(cooldownJob.getJobId())) {
-            replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.dbId, cooldownJob.tableId,
-                    cooldownJob.partitionId, cooldownJob.indexId, cooldownJob.tabletId, cooldownJob.cooldownReplicaId,
-                    cooldownJob.cooldownTerm, cooldownJob.timeoutMs);
+            replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.getCooldownConfList(),
+                    cooldownJob.timeoutMs);
             runableCooldownJobs.put(cooldownJob.getJobId(), replayCooldownJob);
-            resetingTablet.put(cooldownJob.getTabletId(), true);
+            for (CooldownConf cooldownConf : cooldownJob.getCooldownConfList()) {
+                resetingTablet.put(cooldownConf.getTabletId(), true);
+            }
         } else {
             replayCooldownJob = runableCooldownJobs.get(cooldownJob.getJobId());
         }
         replayCooldownJob.replay(cooldownJob);
         if (replayCooldownJob.isDone()) {
             runableCooldownJobs.remove(cooldownJob.getJobId());
-            resetingTablet.remove(cooldownJob.getTabletId());
+            for (CooldownConf cooldownConf : cooldownJob.getCooldownConfList()) {
+                resetingTablet.remove(cooldownConf.getTabletId());
+            }
         }
     }
 
@@ -155,7 +176,9 @@ public class CooldownHandler extends MasterDaemon {
             CooldownJob cooldownJob = iterator.next().getValue();
             if (cooldownJob.isDone()) {
                 iterator.remove();
-                resetingTablet.remove(cooldownJob.getTabletId());
+                for (CooldownConf cooldownConf : cooldownJob.getCooldownConfList()) {
+                    resetingTablet.remove(cooldownConf.getTabletId());
+                }
             }
         }
     }
