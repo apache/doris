@@ -120,7 +120,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.lowerCaseToTableName = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = Config.default_db_replica_quota_size;
-        this.transactionQuotaSize = Config.defalut_max_db_running_txn_num;
+        this.transactionQuotaSize = Config.default_db_max_running_txn_num;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
