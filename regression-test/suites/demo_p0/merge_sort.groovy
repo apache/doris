@@ -39,7 +39,7 @@ suite("merge_sort_rows_bigger_than_bytes") {
         LEFT JOIN B AS ref_9 ON (ref_0.`id` = ref_9.`b_id`)
         WHERE ref_9.`b_id` IS NULL) AS subq_0
         WHERE subq_0.`c0` IS NOT NULL
-        ORDER BY subq_0.`c0` DESC
+        ORDER BY subq_0.`c1`, subq_0.`c0` DESC
         LIMIT 5;
     """
 }
