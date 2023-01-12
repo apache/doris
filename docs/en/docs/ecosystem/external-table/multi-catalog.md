@@ -800,3 +800,14 @@ The following configurations solves the problem `failed to get schema for table 
 
 Restart `Hive Metastore` after the configuration is complete. 
 
+### Kerberos
+
+When connecting to `Hive Metastore` authenticated by `Kerberos` with doris 1.2.0, an exception message containing `GSS initiate failed` appears.
+
+- Please update to version 1.2.2, or recompile FE version 1.2.1 using the latest docker development image.
+
+### HDFS
+
+`java.lang.VerifyError: xxx` error occurred while reading HDFS version 3.x.
+
+   - Update hadoop-related dependencies in `fe/pom.xml` to version 2.10.2, and recompile FE.
