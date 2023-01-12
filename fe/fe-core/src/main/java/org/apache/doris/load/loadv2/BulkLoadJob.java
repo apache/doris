@@ -301,6 +301,10 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
+    public OriginStatement getOriginStmt() {
+        return this.originStmt;
+    }
+
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
