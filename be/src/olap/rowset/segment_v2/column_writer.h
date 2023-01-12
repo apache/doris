@@ -265,6 +265,57 @@ private:
     FlushPageCallback* _new_page_callback = nullptr;
 };
 
+class StructColumnWriter final : public ColumnWriter {
+public:
+    explicit StructColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+                                ScalarColumnWriter* null_writer,
+                                std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
+    ~StructColumnWriter() override = default;
+
+    Status init() override;
+
+    Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows);
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+    Status append_nulls(size_t num_rows) override;
+
+    Status finish_current_page() override;
+
+    Status write_zone_map() override {
+        if (_opts.need_zone_map) {
+            return Status::NotSupported("struct not support zone map");
+        }
+        return Status::OK();
+    }
+
+    Status write_bitmap_index() override {
+        if (_opts.need_bitmap_index) {
+            return Status::NotSupported("struct not support bitmap index");
+        }
+        return Status::OK();
+    }
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override {
+        if (_opts.need_bloom_filter) {
+            return Status::NotSupported("struct not support bloom filter index");
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
+
+private:
+    size_t _num_sub_column_writers;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::vector<std::unique_ptr<ColumnWriter>> _sub_column_writers;
+    ColumnWriterOptions _opts;
+};
+
 class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,

@@ -30,6 +30,7 @@
 #include "util/rle_encoding.h" // for RleDecoder
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_struct.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
@@ -48,6 +49,23 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
     } else {
         auto type = (FieldType)meta.type();
         switch (type) {
+        case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+            // not support empty struct
+            DCHECK(meta.children_columns_size() >= 1);
+            // create struct column reader
+            std::unique_ptr<ColumnReader> struct_reader(
+                    new ColumnReader(opts, meta, num_rows, file_reader));
+            struct_reader->_sub_readers.reserve(meta.children_columns_size());
+            for (size_t i = 0; i < meta.children_columns_size(); i++) {
+                std::unique_ptr<ColumnReader> sub_reader;
+                RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
+                                                     meta.children_columns(i).num_rows(),
+                                                     file_reader, &sub_reader));
+                struct_reader->_sub_readers.push_back(std::move(sub_reader));
+            }
+            *reader = std::move(struct_reader);
+            return Status::OK();
+        }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             DCHECK(meta.children_columns_size() == 2 || meta.children_columns_size() == 3);
 
@@ -442,6 +460,24 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
     } else {
         auto type = (FieldType)_meta.type();
         switch (type) {
+        case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+            std::vector<ColumnIterator*> sub_column_iterators;
+            size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
+            sub_column_iterators.reserve(child_size);
+
+            ColumnIterator* sub_column_iterator;
+            for (size_t i = 0; i < child_size; i++) {
+                RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator));
+                sub_column_iterators.push_back(sub_column_iterator);
+            }
+
+            ColumnIterator* null_iterator = nullptr;
+            if (is_nullable()) {
+                RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator));
+            }
+            *iterator = new StructFileColumnIterator(this, null_iterator, sub_column_iterators);
+            return Status::OK();
+        }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             ColumnIterator* item_iterator = nullptr;
             RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&item_iterator));
@@ -463,6 +499,82 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
                                         std::to_string(type));
         }
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+StructFileColumnIterator::StructFileColumnIterator(
+        ColumnReader* reader, ColumnIterator* null_iterator,
+        std::vector<ColumnIterator*>& sub_column_iterators)
+        : _struct_reader(reader) {
+    _sub_column_iterators.resize(sub_column_iterators.size());
+    for (size_t i = 0; i < sub_column_iterators.size(); i++) {
+        _sub_column_iterators[i].reset(sub_column_iterators[i]);
+    }
+    if (_struct_reader->is_nullable()) {
+        _null_iterator.reset(null_iterator);
+    }
+}
+
+Status StructFileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    for (auto& column_iterator : _sub_column_iterators) {
+        RETURN_IF_ERROR(column_iterator->init(opts));
+    }
+    if (_struct_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init(opts));
+    }
+    return Status::OK();
+}
+
+Status StructFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
+    return Status::NotSupported("not supported");
+}
+
+Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                            bool* has_null) {
+    const auto* column_struct = vectorized::check_and_get_column<vectorized::ColumnStruct>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+    for (size_t i = 0; i < column_struct->tuple_size(); i++) {
+        size_t num_read = *n;
+        auto sub_column_ptr = column_struct->get_column(i).assume_mutable();
+        bool column_has_null = false;
+        RETURN_IF_ERROR(
+                _sub_column_iterators[i]->next_batch(&num_read, sub_column_ptr, &column_has_null));
+        DCHECK(num_read == *n);
+    }
+
+    if (dst->is_nullable()) {
+        size_t num_read = *n;
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        bool null_signs_has_null = false;
+        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        DCHECK(num_read == *n);
+    }
+
+    return Status::OK();
+}
+
+Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    for (auto& column_iterator : _sub_column_iterators) {
+        RETURN_IF_ERROR(column_iterator->seek_to_ordinal(ord));
+    }
+    if (_struct_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+    }
+    return Status::OK();
+}
+
+Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                vectorized::MutableColumnPtr& dst) {
+    for (size_t i = 0; i < count; ++i) {
+        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+        size_t num_read = 1;
+        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        DCHECK(num_read == 1);
+    }
+    return Status::OK();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

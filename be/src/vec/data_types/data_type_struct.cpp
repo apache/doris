@@ -43,16 +43,15 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_)
     }
 }
 
-static std::optional<Exception> check_tuple_names(const Strings& names) {
+static Status check_tuple_names(const Strings& names) {
     std::unordered_set<String> names_set;
     for (const auto& name : names) {
         if (name.empty()) {
-            return Exception("Names of tuple elements cannot be empty", ErrorCodes::BAD_ARGUMENTS);
+            return Status::InvalidArgument("Names of tuple elements cannot be empty");
         }
 
         if (!names_set.insert(name).second) {
-            return Exception("Names of tuple elements must be unique",
-                             ErrorCodes::DUPLICATE_COLUMN);
+            return Status::InvalidArgument("Names of tuple elements must be unique");
         }
     }
 
@@ -63,13 +62,12 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
         : elems(elems_), names(names_), have_explicit_names(true) {
     size_t size = elems.size();
     if (names.size() != size) {
-        throw Exception("Wrong number of names passed to constructor of DataTypeStruct",
-                        ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH);
+        LOG(FATAL) << "Wrong number of names passed to constructor of DataTypeStruct";
     }
 
-    if (auto exception = check_tuple_names(names)) {
-        throw std::move(*exception);
-    }
+    Status st = check_tuple_names(names);
+    //if (!st.ok()) {
+    //}
 }
 
 std::string DataTypeStruct::do_get_name() const {
@@ -114,8 +112,7 @@ static void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) 
             if (element_column.size() != new_size) {
                 // This is not a logical error because it may work with
                 // user-supplied data.
-                throw Exception("Cannot read a tuple because not all elements are present",
-                                ErrorCodes::SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH);
+                LOG(FATAL) << "Cannot read a tuple because not all elements are present";
             }
         }
     } catch (...) {
@@ -168,10 +165,11 @@ MutableColumnPtr DataTypeStruct::create_column() const {
 //     return ColumnStruct::create(std::move(tuple_columns));
 // }
 
-// Field DataTypeStruct::get_default() const {
-//     return Tuple(collections::map<Tuple>(
-//             elems, [](const DataTypePtr& elem) { return elem->get_default(); }));
-// }
+Field DataTypeStruct::get_default() const {
+    return Tuple();
+    //return Tuple(collections::map<Tuple>(
+    //             elems, [](const DataTypePtr& elem) { return elem->get_default(); }));
+}
 
 void DataTypeStruct::insert_default_into(IColumn& column) const {
     add_element_safe(elems, column, [&] {
@@ -210,8 +208,7 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
             return i;
         }
     }
-    throw Exception("Struct doesn't have element with name '" + name + "'",
-                    ErrorCodes::NOT_FOUND_COLUMN_IN_BLOCK);
+    LOG(FATAL) << "Struct doesn't have element with name '" + name + "'";
 }
 
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {
@@ -229,7 +226,7 @@ String DataTypeStruct::get_name_by_position(size_t i) const {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Index of tuple element ({}) if out range ([1, {}])", i,
                        names.size());
-        throw Exception(fmt::to_string(error_msg), ErrorCodes::ILLEGAL_INDEX);
+        LOG(FATAL) << fmt::to_string(error_msg);
     }
 
     return names[i - 1];

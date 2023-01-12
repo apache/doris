@@ -133,6 +133,7 @@ set(VEC_FILES
   exprs/vexpr_context.cpp
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
+  exprs/vstruct_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
   exprs/vbitmap_predicate.cpp

@@ -360,6 +360,27 @@ private:
         }
     };
 
+    class OlapColumnDataConvertorStruct : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorStruct(
+                std::vector<OlapColumnDataConvertorBaseUPtr>& sub_convertors) {
+            for (auto& sub_convertor : sub_convertors) {
+                _sub_convertors.push_back(std::move(sub_convertor));
+            }
+            size_t allocate_size = _sub_convertors.size() * 2;
+            _results.resize(allocate_size);
+        }
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap() override;
+
+    private:
+        std::vector<OlapColumnDataConvertorBaseUPtr> _sub_convertors;
+        std::vector<const void*> _results;
+    };
+
     class OlapColumnDataConvertorArray
             : public OlapColumnDataConvertorPaddedPODArray<CollectionValue> {
     public:

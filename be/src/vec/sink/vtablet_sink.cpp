@@ -1398,11 +1398,12 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             }
             fmt::format_to(error_prefix, "ARRAY type failed: ");
             RETURN_IF_ERROR(_validate_column(
-                    state, nested_type, nested_type.contains_null, column_array->get_data_ptr(),
+                    state, nested_type, nested_type.contains_nulls[0], column_array->get_data_ptr(),
                     slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
         }
         break;
     }
+    // TODO(xy): add struct type validate
     default:
         break;
     }

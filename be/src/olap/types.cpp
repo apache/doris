@@ -166,10 +166,33 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
     return array_type_Info_arr[leaf_type][iterations];
 }
 
+// Produce a struct type info
+// TODO(xy): Need refactor to this produce method
+const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
+    std::vector<TypeInfoPtr> type_infos;
+    type_infos.reserve(field_types.size());
+    for (FieldType& type : field_types) {
+        if (is_scalar_type(type)) {
+            type_infos.push_back(create_static_type_info_ptr(get_scalar_type_info(type)));
+        } else {
+            // TODO(xy): Not supported nested complex type now
+        }
+    }
+    return new StructTypeInfo(type_infos);
+}
+
 // TODO: Support the type info of the nested array with more than 9 depths.
+// TODO(xy): Support the type info of the nested struct
 TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
     FieldType type = (FieldType)column_meta_pb->type();
-    if (UNLIKELY(type == OLAP_FIELD_TYPE_ARRAY)) {
+    if (UNLIKELY(type == OLAP_FIELD_TYPE_STRUCT)) {
+        std::vector<FieldType> field_types;
+        for (uint32_t i = 0; i < column_meta_pb->children_columns_size(); i++) {
+            const auto* child_column = &column_meta_pb->children_columns(i);
+            field_types.push_back((FieldType)child_column->type());
+        }
+        return create_dynamic_type_info_ptr(get_struct_type_info(field_types));
+    } else if (UNLIKELY(type == OLAP_FIELD_TYPE_ARRAY)) {
         int32_t iterations = 0;
         const auto* child_column = &column_meta_pb->children_columns(0);
         while (child_column->type() == OLAP_FIELD_TYPE_ARRAY) {
@@ -202,7 +225,14 @@ TypeInfoPtr create_type_info_ptr(const TypeInfo* type_info, bool should_reclaim_
 // TODO: Support the type info of the nested array with more than 9 depths.
 TypeInfoPtr get_type_info(const TabletColumn* col) {
     auto type = col->type();
-    if (UNLIKELY(type == OLAP_FIELD_TYPE_ARRAY)) {
+    if (UNLIKELY(type == OLAP_FIELD_TYPE_STRUCT)) {
+        std::vector<FieldType> field_types;
+        for (uint32_t i = 0; i < col->get_subtype_count(); i++) {
+            const auto* child_column = &col->get_sub_column(i);
+            field_types.push_back(child_column->type());
+        }
+        return create_dynamic_type_info_ptr(get_struct_type_info(field_types));
+    } else if (UNLIKELY(type == OLAP_FIELD_TYPE_ARRAY)) {
         int32_t iterations = 0;
         const auto* child_column = &col->get_sub_column(0);
         while (child_column->type() == OLAP_FIELD_TYPE_ARRAY) {
@@ -219,9 +249,21 @@ TypeInfoPtr clone_type_info(const TypeInfo* type_info) {
     if (is_scalar_type(type_info->type())) {
         return create_static_type_info_ptr(type_info);
     } else {
-        const auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
-        return create_dynamic_type_info_ptr(
-                new ArrayTypeInfo(clone_type_info(array_type_info->item_type_info())));
+        auto type = type_info->type();
+        if (type == OLAP_FIELD_TYPE_STRUCT) {
+            const auto struct_type_info = dynamic_cast<const StructTypeInfo*>(type_info);
+            std::vector<TypeInfoPtr> clone_type_infos;
+            const std::vector<TypeInfoPtr>* sub_type_infos = struct_type_info->type_infos();
+            clone_type_infos.reserve(sub_type_infos->size());
+            for (size_t i = 0; i < sub_type_infos->size(); i++) {
+                clone_type_infos.push_back(clone_type_info((*sub_type_infos)[i].get()));
+            }
+            return create_dynamic_type_info_ptr(new StructTypeInfo(clone_type_infos));
+        } else {
+            const auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
+            return create_dynamic_type_info_ptr(
+                    new ArrayTypeInfo(clone_type_info(array_type_info->item_type_info())));
+        }
     }
 }
 

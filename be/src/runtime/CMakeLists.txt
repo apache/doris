@@ -45,6 +45,7 @@ set(RUNTIME_FILES
     threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
+    struct_value.cpp
     collection_value.cpp
     fragment_mgr.cpp
     load_path_mgr.cpp

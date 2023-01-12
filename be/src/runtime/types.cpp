@@ -55,12 +55,29 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::ARRAY: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
+        // contains_null should be always set in ArrayType
+        DCHECK(node.__isset.contains_null);
         type = TYPE_ARRAY;
-        if (node.__isset.contains_null) {
-            contains_null = node.contains_null;
-        }
+        contains_nulls.reserve(1);
+        contains_nulls.push_back(node.contains_null);
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        break;
+    }
+    case TTypeNodeType::STRUCT: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 1);
+        DCHECK(!node.__isset.contains_null);
+        DCHECK(node.__isset.struct_fields);
+        DCHECK_GE(node.struct_fields.size(), 1);
+        type = TYPE_STRUCT;
+        contains_nulls.reserve(node.struct_fields.size());
+        for (size_t i = 0; i < node.struct_fields.size(); i++) {
+            ++(*idx);
+            children.push_back(TypeDescriptor(types, idx));
+            field_names.push_back(node.struct_fields[i].name);
+            contains_nulls.push_back(node.struct_fields[i].contains_null);
+        }
         break;
     }
     // case TTypeNodeType::STRUCT:
@@ -98,15 +115,17 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
     if (is_complex_type()) {
         if (type == TYPE_ARRAY) {
             node.type = TTypeNodeType::ARRAY;
+            node.contains_null = contains_nulls[0];
         } else if (type == TYPE_MAP) {
             node.type = TTypeNodeType::MAP;
         } else {
             DCHECK_EQ(type, TYPE_STRUCT);
             node.type = TTypeNodeType::STRUCT;
             node.__set_struct_fields(std::vector<TStructField>());
-            for (auto& field_name : field_names) {
+            for (size_t i = 0; i < field_names.size(); i++) {
                 node.struct_fields.push_back(TStructField());
-                node.struct_fields.back().name = field_name;
+                node.struct_fields.back().name = field_names[i];
+                node.struct_fields.back().contains_null = contains_nulls[i];
             }
         }
         for (const TypeDescriptor& child : children) {
@@ -147,10 +166,12 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         scalar_type->set_scale(scale);
     } else if (type == TYPE_ARRAY) {
         node->set_type(TTypeNodeType::ARRAY);
+        node->set_contains_null(contains_nulls[0]);
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
     }
+    // TODO(xy): support struct
 }
 
 TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNode>& types, int* idx)
@@ -184,13 +205,15 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::ARRAY: {
         type = TYPE_ARRAY;
+        contains_nulls.push_back(true);
         if (node.has_contains_null()) {
-            contains_null = node.contains_null();
+            contains_nulls[0] = node.contains_null();
         }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;
     }
+    // TODO(xy): support struct
     default:
         DCHECK(false) << node.type();
     }
@@ -216,6 +239,19 @@ std::string TypeDescriptor::debug_string() const {
         return ss.str();
     case TYPE_ARRAY: {
         ss << "ARRAY<" << children[0].debug_string() << ">";
+        return ss.str();
+    }
+    case TYPE_STRUCT: {
+        ss << "STRUCT<";
+        for (size_t i = 0; i < children.size(); i++) {
+            ss << field_names[i];
+            ss << ":";
+            ss << children[i].debug_string();
+            if (i != children.size() - 1) {
+                ss << ",";
+            }
+        }
+        ss << ">";
         return ss.str();
     }
     default:

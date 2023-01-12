@@ -54,6 +54,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DECIMAL128I:
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
+    case TYPE_STRUCT:
     case TYPE_HLL:
         return false;
     case TYPE_TINYINT:

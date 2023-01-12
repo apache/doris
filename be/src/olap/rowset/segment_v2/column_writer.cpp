@@ -88,6 +88,78 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
         return Status::OK();
     } else {
         switch (column->type()) {
+        case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+            // not support empty struct
+            DCHECK(column->get_subtype_count() >= 1);
+            std::vector<std::unique_ptr<ColumnWriter>> sub_column_writers;
+            sub_column_writers.reserve(column->get_subtype_count());
+            for (uint32_t i = 0; i < column->get_subtype_count(); i++) {
+                const TabletColumn& sub_column = column->get_sub_column(i);
+
+                // create sub writer
+                ColumnWriterOptions column_options;
+                column_options.meta = opts.meta->mutable_children_columns(i);
+                column_options.need_zone_map = false;
+                column_options.need_bloom_filter = sub_column.is_bf_column();
+                column_options.need_bitmap_index = sub_column.has_bitmap_index();
+                column_options.inverted_index = nullptr;
+                if (sub_column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+                    if (column_options.need_bloom_filter) {
+                        return Status::NotSupported("Do not support bloom filter for struct type");
+                    }
+                    if (column_options.need_bitmap_index) {
+                        return Status::NotSupported("Do not support bitmap index for struct type");
+                    }
+                }
+                if (sub_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+                    if (column_options.need_bloom_filter) {
+                        return Status::NotSupported("Do not support bloom filter for array type");
+                    }
+                    if (column_options.need_bitmap_index) {
+                        return Status::NotSupported("Do not support bitmap index for array type");
+                    }
+                }
+                std::unique_ptr<ColumnWriter> sub_column_writer;
+                RETURN_IF_ERROR(ColumnWriter::create(column_options, &sub_column, file_writer,
+                                                     &sub_column_writer));
+                sub_column_writers.push_back(std::move(sub_column_writer));
+            }
+
+            // if nullable, create null writer
+            ScalarColumnWriter* null_writer = nullptr;
+            if (opts.meta->is_nullable()) {
+                FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
+                ColumnWriterOptions null_options;
+                null_options.meta = opts.meta->add_children_columns();
+                null_options.meta->set_column_id(column->get_subtype_count() + 1);
+                null_options.meta->set_unique_id(column->get_subtype_count() + 1);
+                null_options.meta->set_type(null_type);
+                null_options.meta->set_is_nullable(false);
+                null_options.meta->set_length(
+                        get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
+                null_options.meta->set_encoding(DEFAULT_ENCODING);
+                null_options.meta->set_compression(opts.meta->compression());
+
+                null_options.need_zone_map = false;
+                null_options.need_bloom_filter = false;
+                null_options.need_bitmap_index = false;
+
+                TabletColumn null_column = TabletColumn(
+                        OLAP_FIELD_AGGREGATION_NONE, null_type, null_options.meta->is_nullable(),
+                        null_options.meta->unique_id(), null_options.meta->length());
+                null_column.set_name("nullable");
+                null_column.set_index_length(-1); // no short key index
+                std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
+                null_writer =
+                        new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
+            }
+
+            std::unique_ptr<ColumnWriter> writer_local =
+                    std::unique_ptr<ColumnWriter>(new StructColumnWriter(
+                            opts, std::move(field), null_writer, sub_column_writers));
+            *writer = std::move(writer_local);
+            return Status::OK();
+        }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             DCHECK(column->get_subtype_count() == 1);
             const TabletColumn& item_column = column->get_sub_column(0);
@@ -537,6 +609,108 @@ Status ScalarColumnWriter::finish_current_page() {
     _push_back_page(page.release());
     _first_rowid = _next_rowid;
     return Status::OK();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+StructColumnWriter::StructColumnWriter(
+        const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+        ScalarColumnWriter* null_writer,
+        std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
+    for (auto& sub_column_writer : sub_column_writers) {
+        _sub_column_writers.push_back(std::move(sub_column_writer));
+    }
+    _num_sub_column_writers = _sub_column_writers.size();
+    DCHECK(_num_sub_column_writers >= 1);
+    if (is_nullable()) {
+        _null_writer.reset(null_writer);
+    }
+}
+
+Status StructColumnWriter::init() {
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->init());
+    }
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->init());
+    }
+    return Status::OK();
+}
+
+Status StructColumnWriter::write_inverted_index() {
+    if (_opts.inverted_index) {
+        for (auto& column_writer : _sub_column_writers) {
+            RETURN_IF_ERROR(column_writer->write_inverted_index());
+        }
+    }
+    return Status::OK();
+}
+
+Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                           size_t num_rows) {
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+    return Status::OK();
+}
+
+Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    auto data_cursor = reinterpret_cast<const void**>(ptr);
+    auto null_map_cursor = data_cursor + _num_sub_column_writers;
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->append(reinterpret_cast<const uint8_t*>(*null_map_cursor),
+                                              *data_cursor, num_rows));
+        data_cursor++;
+        null_map_cursor++;
+    }
+    return Status::OK();
+}
+
+uint64_t StructColumnWriter::estimate_buffer_size() {
+    uint64_t size = 0;
+    for (auto& column_writer : _sub_column_writers) {
+        size += column_writer->estimate_buffer_size();
+    }
+    size += is_nullable() ? _null_writer->estimate_buffer_size() : 0;
+    return size;
+}
+
+Status StructColumnWriter::finish() {
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->finish());
+    }
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->finish());
+    }
+    return Status::OK();
+}
+
+Status StructColumnWriter::write_data() {
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->write_data());
+    }
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->write_data());
+    }
+    return Status::OK();
+}
+
+Status StructColumnWriter::write_ordinal_index() {
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->write_ordinal_index());
+    }
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->write_ordinal_index());
+    }
+    return Status::OK();
+}
+
+Status StructColumnWriter::append_nulls(size_t num_rows) {
+    return Status::NotSupported("struct writer not support append nulls");
+}
+
+Status StructColumnWriter::finish_current_page() {
+    return Status::NotSupported("struct writer has no data, can not finish_current_page");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
