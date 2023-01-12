@@ -876,8 +876,12 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy != b._storage_policy) return false;
-    if (a._cooldown_replica_id != b._cooldown_replica_id) { return false; }
-    if (a._cooldown_term != b._cooldown_term) { return false; }
+    if (a._cooldown_replica_id != b._cooldown_replica_id) {
+        return false;
+    }
+    if (a._cooldown_term != b._cooldown_term) {
+        return false;
+    }
     return true;
 }
 

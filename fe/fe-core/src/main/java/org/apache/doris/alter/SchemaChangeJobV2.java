@@ -745,8 +745,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium,
-                            shadownTablet.getCooldownReplicaId(), shadownTablet.getCooldownTerm());
+                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium, -1, 0);
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
                     for (Replica shadowReplica : shadownTablet.getReplicas()) {
                         invertedIndex.addReplica(shadownTablet.getId(), shadowReplica);

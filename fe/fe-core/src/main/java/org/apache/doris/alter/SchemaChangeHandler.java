@@ -1490,7 +1490,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            newSchemaHash, medium, originTablet.getCooldownReplicaId(), originTablet.getCooldownTerm());
+                            newSchemaHash, medium, -1, 0);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 

@@ -1691,8 +1691,7 @@ Status Tablet::cooldown() {
         return Status::Error<TRY_LOCK_FAILED>();
     }
 
-    if (!config::cooldown_single_remote_file ||
-        _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
+    if (_tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
         RETURN_IF_ERROR(_cooldown_upload_data());
     } else {
         RETURN_IF_ERROR(_cooldown_use_remote_data());
@@ -1737,13 +1736,12 @@ Status Tablet::_cooldown_upload_data() {
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
 
-    if (config::cooldown_single_remote_file) {
-        TabletMetaPB remote_tablet_meta_pb;
-        _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
-        new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
-        // upload rowset_meta to remote fs.
-        RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, remote_tablet_meta_pb));
-    }
+    // write remote tablet meta
+    TabletMetaPB remote_tablet_meta_pb;
+    _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
+    new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
+    // upload rowset_meta to remote fs.
+    RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, remote_tablet_meta_pb));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1751,22 +1749,12 @@ Status Tablet::_cooldown_upload_data() {
     std::vector to_add {std::move(new_rowset)};
     std::vector to_delete {std::move(old_rowset)};
 
-    bool has_shutdown = false;
     {
         std::unique_lock meta_wlock(_meta_lock);
-        has_shutdown = tablet_state() == TABLET_SHUTDOWN;
-        if (!has_shutdown) {
+        if (tablet_state() != TABLET_SHUTDOWN) {
             modify_rowsets(to_add, to_delete);
-            if (!config::cooldown_single_remote_file) {
-                _self_owned_remote_rowsets.insert(to_add.front());
-            }
             save_meta();
         }
-    }
-    if (has_shutdown && !config::cooldown_single_remote_file) {
-        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
-                                    to_add.front()->num_segments());
-        return Status::Aborted("tablet {} has shutdown", tablet_id());
     }
     return Status::OK();
 }
@@ -1833,18 +1821,30 @@ Status Tablet::_cooldown_use_remote_data() {
     DCHECK(dest_fs->type() == io::FileSystemType::S3);
     TabletMetaPB remote_tablet_meta_pb;
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
+    int64_t max_version = -1;
+    for (const auto& it : _rs_version_map) {
+        auto &rs = it.second;
+        for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+            if (rs->end_version() == rowset_meta_pb.end_version()) {
+                if (max_version < rs->end_version()) {
+                    max_version = rs->end_version();
+                }
+                break;
+            }
+        }
+    }
+
     std::vector<RowsetSharedPtr> to_add;
     std::vector<RowsetSharedPtr> to_delete;
-    int64_t max_version = -1;
     for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+        if (rowset_meta_pb.end_version() > max_version) {
+            continue;
+        }
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_pb(rowset_meta_pb);
         RowsetSharedPtr new_rowset;
         RowsetFactory::create_rowset(_schema, _tablet_path, rowset_meta, &new_rowset);
         to_add.push_back(new_rowset);
-        if (rowset_meta_pb.end_version() > max_version) {
-            max_version = rowset_meta_pb.end_version();
-        }
     }
 
     {
@@ -1857,11 +1857,9 @@ Status Tablet::_cooldown_use_remote_data() {
         }
     }
 
-    bool has_shutdown = false;
     {
         std::unique_lock meta_wlock(_meta_lock);
-        has_shutdown = tablet_state() == TABLET_SHUTDOWN;
-        if (!has_shutdown) {
+        if (tablet_state() != TABLET_SHUTDOWN) {
             modify_rowsets(to_add, to_delete);
             save_meta();
         }

@@ -206,8 +206,7 @@ public:
     void set_cooldown_replica_id_and_term(int64_t cooldown_replica_id, int64_t cooldown_term) {
         VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_replica_id from "
                     << _cooldown_replica_id << " to " << cooldown_replica_id
-                    << ", cooldown_term from " << _cooldown_term
-                    << " to " << cooldown_term;
+                    << ", cooldown_term from " << _cooldown_term << " to " << cooldown_term;
         _cooldown_replica_id = cooldown_replica_id;
         _cooldown_term = cooldown_term;
     }

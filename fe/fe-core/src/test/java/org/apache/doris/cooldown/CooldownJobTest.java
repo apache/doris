@@ -50,7 +50,7 @@ public class CooldownJobTest {
     private static long tabletId = 105L;
     private static long replicaId = 106L;
     private static long backendId = 107L;
-    private static long cooldownReplicaId = 108L;
+    private static long cooldownReplicaId = 106L;
     private static long cooldownTerm = 109L;
     private static long timeoutMs = 10000L;
     private static Tablet tablet = new Tablet(tabletId);
