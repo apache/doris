@@ -1681,7 +1681,8 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "select day from tbl_int_date where day = '2020-10-30'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` = '2020-10-30'"
+                : "PREDICATES: `day` = '2020-10-30 00:00:00'"));
         sql = "select day from tbl_int_date where day = from_unixtime(1196440219)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2007-12-01 00:30:19'"));
@@ -1691,19 +1692,19 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         sql = "select day from tbl_int_date where day = 20201030";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` = '2020-10-30'"
+                : "PREDICATES: `day` = '2020-10-30 00:00:00'"));
         //valid date
         sql = "select day from tbl_int_date where day = '20201030'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` = '2020-10-30'"
+                : "PREDICATES: `day` = '2020-10-30 00:00:00'"));
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        if (Config.enable_date_conversion) {
-            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01.111111'"));
-        } else {
-            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
-        }
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion
+                ? "PREDICATES: `day` = '2020-10-30 10:00:01.111111'"
+                : "PREDICATES: `day` = '2020-10-30 10:00:01'"));
         //invalid date
 
         sql = "select day from tbl_int_date where day = '2020-10-32'";
@@ -1757,11 +1758,8 @@ public class QueryPlanTest extends TestWithFeService {
         //valid datetime contains micro second
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        if (Config.enable_date_conversion) {
-            Assert.assertTrue(explainString.contains("VEMPTYSET"));
-        } else {
-            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
-        }
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion
+                ? "VEMPTYSET" : "PREDICATES: `date` = '2020-10-30 10:00:01'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
