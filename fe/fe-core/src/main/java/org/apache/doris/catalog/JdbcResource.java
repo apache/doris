@@ -236,7 +236,7 @@ public class JdbcResource extends Resource {
             return ORACLE;
         } else if (url.startsWith(JDBC_SQLSERVER)) {
             return SQLSERVER;
-        } else if (url.startsWith(DBC_CLICKHOUSE)) {
+        } else if (url.startsWith(JDBC_CLICKHOUSE)) {
             return CLICKHOUSE;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
