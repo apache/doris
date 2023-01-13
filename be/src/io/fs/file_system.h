@@ -44,9 +44,6 @@ enum class FileSystemType : uint8_t {
 
 class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
-    FileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
-            : _root_path(std::move(root_path)), _resource_id(std::move(resource_id)), _type(type) {}
-
     virtual ~FileSystem() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileSystem);
@@ -81,6 +78,9 @@ public:
     const FileSystemType type() const { return _type; }
 
 protected:
+    FileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
+            : _root_path(std::move(root_path)), _resource_id(std::move(resource_id)), _type(type) {}
+
     Path _root_path;
     ResourceId _resource_id;
     FileSystemType _type;

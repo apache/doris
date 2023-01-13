@@ -81,7 +81,9 @@ private:
 
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
-    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path);
+    static std::shared_ptr<HdfsFileSystem> create(const THdfsParams& hdfs_params,
+                                                  const std::string& path);
+
     ~HdfsFileSystem() override;
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
@@ -119,6 +121,8 @@ public:
     HdfsFileSystemHandle* get_handle();
 
 private:
+    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path);
+
     Path _covert_path(const Path& path) const;
     const THdfsParams& _hdfs_params;
     std::string _namenode;

@@ -25,7 +25,8 @@ namespace io {
 
 class LocalFileSystem final : public FileSystem {
 public:
-    LocalFileSystem(Path root_path, ResourceId resource_id = ResourceId());
+    static std::shared_ptr<LocalFileSystem> create(Path path, ResourceId resource_id = "");
+
     ~LocalFileSystem() override;
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
@@ -52,6 +53,8 @@ public:
     Status list(const Path& path, std::vector<Path>* files) override;
 
 private:
+    LocalFileSystem(Path root_path, ResourceId resource_id = ResourceId());
+
     Path absolute_path(const Path& path) const;
 };
 
