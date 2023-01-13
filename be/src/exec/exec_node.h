@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
 #include "service/backend_options.h"
@@ -248,15 +247,6 @@ public:
 protected:
     friend class DataSink;
 
-    /// Initialize 'buffer_pool_client_' and claim the initial reservation for this
-    /// ExecNode. Only needs to be called by ExecNodes that will use the client.
-    /// The client is automatically cleaned up in Close(). Should not be called if
-    /// the client is already open.
-    /// The ExecNode must return the initial reservation to
-    /// QueryState::initial_reservations(), which is done automatically in Close() as long
-    /// as the initial reservation is not released before Close().
-    Status claim_buffer_reservation(RuntimeState* state);
-
     /// Release all memory of block which got from child. The block
     // 1. clear mem of valid column get from child, make sure child can reuse the mem
     // 2. delete and release the column which create by function all and other reason
@@ -314,12 +304,6 @@ protected:
     // "Codegen Enabled"
     std::mutex _exec_options_lock;
     std::string _runtime_exec_options;
-
-    /// Buffer pool client for this node. Initialized with the node's minimum reservation
-    /// in ClaimBufferReservation(). After initialization, the client must hold onto at
-    /// least the minimum reservation so that it can be returned to the initial
-    /// reservations pool in Close().
-    BufferPool::ClientHandle _buffer_pool_client;
 
     // Set to true if this is a vectorized exec node.
     bool _is_vec = false;

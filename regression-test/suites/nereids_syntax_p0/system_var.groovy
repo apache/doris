@@ -44,6 +44,6 @@ suite("nereids_sys_var") {
     sql "select @@session.time_zone"
     test {
         sql "select @@session.enable_nereids_planner"
-        result ([["true"]])
+        result ([[true]])
     }
 }

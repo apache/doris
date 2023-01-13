@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
@@ -431,6 +432,10 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isBooleanType() {
         return this instanceof BooleanType;
+    }
+
+    public boolean isIntegerLikeType() {
+        return this instanceof IntegralType;
     }
 
     public boolean isTinyIntType() {

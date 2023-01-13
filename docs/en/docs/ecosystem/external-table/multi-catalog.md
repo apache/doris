@@ -382,7 +382,7 @@ Parameter | Description
 ### Connect JDBC
 
 
-The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
+The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, supports MYSQL, POSTGRESQL, CLICKHOUSE database types.
 
 **mysql catalog example**
 
@@ -392,8 +392,8 @@ CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "file:///path/to/mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -401,7 +401,7 @@ CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 -- 1.2.0 Version
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
     ...
 )
 ```
@@ -415,7 +415,7 @@ CREATE RESOURCE pg_resource PROPERTIES (
     "user"="postgres",
     "password"="123456",
     "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_url" = "file:///path/to/postgresql-42.5.1.jar",
     "driver_class" = "org.postgresql.Driver"
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
@@ -424,6 +424,28 @@ CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
+**CLICKHOUSE catalog example**
+
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE clickhouse_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="default",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+)
+CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     ...
 )
 ```
@@ -724,6 +746,25 @@ For Hive/Iceberge/Hudi
 | bit/bit(n)/bit varying(n) | STRING | `bit` type corresponds to the `STRING` type of DORIS. The data read is `true/false`, not `1/0` |
 | uuid/josnb | STRING | |
 
+#### CLICKHOUSE
+
+| ClickHouse Type        | Doris Type | Comment                                                                                                                              |
+|------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Bool                   | BOOLEAN    |                                                                                                                                      |
+| String                 | STRING     |                                                                                                                                      |
+| Date/Date32            | DATE       |                                                                                                                                      |
+| DateTime/DateTime64    | DATETIME   | Data that exceeds Doris's maximum DateTime accuracy is truncated                                                                     |
+| Float32                | FLOAT      |                                                                                                                                      |
+| Float64                | DOUBLE     |                                                                                                                                      |
+| Int8                   | TINYINT    |                                                                                                                                      |
+| Int16/UInt8            | SMALLINT   | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int32/UInt16           | INT        | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int64/Uint32           | BIGINT     | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int128/UInt64          | LARGEINT   | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int256/UInt128/UInt256 | STRING     | Doris does not have a data type of this magnitude and is processed with STRING                                                       |
+| DECIMAL                | DECIMAL    | Data that exceeds Doris's maximum Decimal precision is mapped to a STRING                                                            |
+| Enum/IPv4/IPv6/UUID    | STRING     | In the display of IPv4 and IPv6, an extra `/` is displayed before the data, which needs to be processed by the `split_part` function |
+
 ## Privilege Management
 
 Using Doris to access the databases and tables in the External Catalog is not controlled by the permissions of the external data source itself, but relies on Doris's own permission access management.
@@ -732,11 +773,62 @@ The privilege management of Doris provides an extension to the Cataloig level. F
 
 ## Metadata Refresh
 
+### Manual Refresh
+
 Metadata changes of external data sources, such as creating, dropping tables, adding or dropping columns, etc., will not be synchronized to Doris.
 
-Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
+Users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
-Automatic synchronization of metadata will be supported soon.
+### Auto Refresh
+
+#### Hive MetaStore(HMS) catalog
+
+<version since="dev">
+
+The FE node can sense the change of the Hive table metadata by reading the HMS notification event regularly. Currently, the following events are supported:
+
+</version>
+
+1. CREATE DATABASE event:Create database under the corresponding catalog.                       
+2. DROP DATABASE event:Drop database under the corresponding catalog.
+3. ALTER DATABASE event:The main impact of this event is to change the attribute information, comments and default storage location of the database,These changes do not affect the query operation of doris on the external catalog, so this event will be ignored at present.
+4. CREATE TABLE event:Create table under the corresponding database.
+5. DROP TABLE event:Drop table under the corresponding database and invalidate its cache.
+6. ALTER TABLE event:If renaming, delete the table with the old name first, and then create the table with the new name, otherwise the cache of the table will be invalidated.                    
+7. ADD PARTITION event:Add partition in the partitions list of the corresponding table cache.
+8. DROP PARTITION event:Delete the partition in the partition list of the corresponding table cache and invalidate the cache of the partition.
+9. ALTER PARTITION event:If renaming, delete the partition with the old name first, and then create the partition with the new name, otherwise the cache of the partition will be invalidated. 
+10. When the file is changed due to importing data, the partition table will follow the ALTER PARTITION event logic, and the non-partition table will follow the ALTER TABLE event logic (note: if the file system is directly operated by bypassing the HMS, the HMS will not generate the corresponding event, and Doris will not be aware of it).
+
+The feature is controlled by the following parameters of fe:
+
+1. enable_hms_events_incremental_sync:Whether to enable automatic incremental metadata synchronization. The default value false.
+2. hms_events_polling_interval_ms: The interval between reading events. The default value is 10000, in milliseconds.                                   
+3. hms_events_batch_size_per_rpc:The maximum number of events read each time. The default value is 500.
+
+If you want to use this feature, you need to change the hive-site.xml of HMS and restart HMS
+```
+<property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+</property>
+<property>
+    <name>hive.metastore.dml.events</name>
+    <value>true</value>
+</property>
+<property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+
+```
+##### Use suggestions
+
+Whether you want to change the previously created catalog to automatic refresh or the newly created catalog, you only need to set enable_hms_events_incremental_sync to true, restart the fe node, and do not need to manually refresh the metadata before or after restarting.      
+
+#### Other catalog
+
+Not supported temporarily.
 
 ## FAQ
 
@@ -749,3 +841,14 @@ The following configurations solves the problem `failed to get schema for table 
 
 Restart `Hive Metastore` after the configuration is complete. 
 
+### Kerberos
+
+When connecting to `Hive Metastore` authenticated by `Kerberos` with doris 1.2.0, an exception message containing `GSS initiate failed` appears.
+
+- Please update to version 1.2.2, or recompile FE version 1.2.1 using the latest docker development image.
+
+### HDFS
+
+`java.lang.VerifyError: xxx` error occurred while reading HDFS version 3.x.
+
+   - Update hadoop-related dependencies in `fe/pom.xml` to version 2.10.2, and recompile FE.

@@ -143,9 +143,9 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    // unique key merge on write should flush serial cause calc delete bitmap should load segment serial
-    bool should_serial = (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                          _tablet->enable_unique_key_merge_on_write());
+    // unique key should flush serial because we need to make sure same key should sort
+    // in the same order in all replica.
+    bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 

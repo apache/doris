@@ -48,6 +48,10 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
         return orderKey.isNullFirst();
     }
 
+    public OrderKey getOrderKey() {
+        return orderKey;
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitOrderExpression(this, context);

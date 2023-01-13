@@ -17,13 +17,13 @@
 
 #include "vec/exec/vtable_function_node.h"
 
-#include "exprs/table_function/table_function.h"
-#include "exprs/table_function/table_function_factory.h"
+#include "vec/exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/table_function_factory.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
-VTableFunctionNode::VTableFunctionNode(ObjectPool* pool, const TPlanNode& tnode,
+VTableFunctionNode::VTableFunctionNode(doris::ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs) {}
 
@@ -38,7 +38,7 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         VExpr* root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, true, _pool, &fn));
+        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
         fn->set_vexpr_context(ctx);
         _fns.push_back(fn);
     }

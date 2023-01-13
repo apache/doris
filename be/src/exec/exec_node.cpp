@@ -224,10 +224,6 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
         }
         vectorized::VExpr::close(_projections, state);
 
-        if (_buffer_pool_client.is_registered()) {
-            state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
-        }
-
         runtime_profile()->add_to_span();
         _is_resource_released = true;
     }
@@ -595,36 +591,6 @@ void ExecNode::init_runtime_profile(const std::string& name) {
     ss << name << " (id=" << _id << ")";
     _runtime_profile.reset(new RuntimeProfile(ss.str()));
     _runtime_profile->set_metadata(_id);
-}
-
-Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
-    DCHECK(!_buffer_pool_client.is_registered());
-    BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
-    // Check the minimum buffer size in case the minimum buffer size used by the planner
-    // doesn't match this backend's.
-    std::stringstream ss;
-    if (_resource_profile.__isset.spillable_buffer_size &&
-        _resource_profile.spillable_buffer_size < buffer_pool->min_buffer_len()) {
-        ss << "Spillable buffer size for node " << _id << " of "
-           << _resource_profile.spillable_buffer_size
-           << "bytes is less than the minimum buffer pool buffer size of "
-           << buffer_pool->min_buffer_len() << "bytes";
-        return Status::InternalError(ss.str());
-    }
-
-    ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
-    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), runtime_profile(), &_buffer_pool_client));
-
-    /*
-    if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
-        (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
-       // We may not have been able to enable the debug action at the start of Prepare() or
-       // Open() because the client is not registered then. Do it now to be sure that it is
-       // effective.
-               RETURN_IF_ERROR(EnableDenyReservationDebugAction());
-    } 
-*/
-    return Status::OK();
 }
 
 void ExecNode::release_block_memory(vectorized::Block& block, uint16_t child_idx) {

@@ -24,16 +24,10 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-
-// TODO: think about how to manager memeory consumption of table functions.
-// Currently, the memory allocated from table function is from malloc directly.
-class TableFunctionState {};
+namespace doris::vectorized {
 
 constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
-class ExprContext;
-class TupleRow;
 class TableFunction {
 public:
     virtual ~TableFunction() {}
@@ -42,24 +36,14 @@ public:
 
     virtual Status open() { return Status::OK(); }
 
-    virtual Status process(TupleRow* tuple_row) {
-        return Status::NotSupported("table function {} not supported now.", _fn_name);
-    }
+    // only used for vectorized.
+    virtual Status process_init(vectorized::Block* block) = 0;
 
     // only used for vectorized.
-    virtual Status process_init(vectorized::Block* block) {
-        return Status::NotSupported("vectorized table function {} not supported now.", _fn_name);
-    }
+    virtual Status process_row(size_t row_idx) = 0;
 
     // only used for vectorized.
-    virtual Status process_row(size_t row_idx) {
-        return Status::NotSupported("vectorized table function {} not supported now.", _fn_name);
-    }
-
-    // only used for vectorized.
-    virtual Status process_close() {
-        return Status::NotSupported("vectorized table function {} not supported now.", _fn_name);
-    }
+    virtual Status process_close() = 0;
 
     virtual Status reset() = 0;
 
@@ -92,7 +76,6 @@ public:
     std::string name() const { return _fn_name; }
     bool eos() const { return _eos; }
 
-    void set_expr_context(ExprContext* expr_context) { _expr_context = expr_context; }
     void set_vexpr_context(vectorized::VExprContext* vexpr_context) {
         _vexpr_context = vexpr_context;
     }
@@ -110,7 +93,6 @@ public:
 
 protected:
     std::string _fn_name;
-    ExprContext* _expr_context = nullptr;
     vectorized::VExprContext* _vexpr_context = nullptr;
     // true if there is no more data can be read from this function.
     bool _eos = false;
@@ -124,4 +106,4 @@ protected:
     // set _is_outer to false for explode function, and should not return tuple while array is null or empty
     bool _is_outer = false;
 };
-} // namespace doris
+} // namespace doris::vectorized
