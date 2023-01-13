@@ -69,7 +69,7 @@ suite("nereids_fn") {
             `kadcml` array<decimal> null,
             `kadcmlv3` array<decimalv3> null
         ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+        DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
     """
 
