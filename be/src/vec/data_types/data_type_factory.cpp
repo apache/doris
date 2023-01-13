@@ -36,7 +36,7 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
         names.reserve(field_size);
         for (size_t i = 0; i < field_size; i++) {
             dataTypes.push_back(create_data_type(*col_desc.get_sub_field(i)));
-            names.push_back(col_desc.name());
+            names.push_back(col_desc.get_sub_field(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {
@@ -64,7 +64,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         names.reserve(col_size);
         for (size_t i = 0; i < col_size; i++) {
             dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
-            names.push_back(col_desc.name());
+            names.push_back(col_desc.get_sub_field(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {
@@ -343,7 +343,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         names.reserve(col_size);
         for (size_t i = 0; i < col_size; i++) {
             dataTypes.push_back(create_data_type(pcolumn.children(i)));
-            names.push_back(pcolumn.name());
+            names.push_back(pcolumn.children(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
         break;
