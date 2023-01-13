@@ -657,7 +657,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                        rollupSchemaHash, medium, rollupTablet.getCooldownReplicaId(), rollupTablet.getCooldownTerm());
+                        rollupSchemaHash, medium, -1, 0);
                 invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
                 for (Replica rollupReplica : rollupTablet.getReplicas()) {
                     invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);

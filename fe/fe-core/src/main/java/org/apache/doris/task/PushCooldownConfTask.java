@@ -45,8 +45,8 @@ public class PushCooldownConfTask extends AgentTask {
             tCooldownConf.setTabletId(cooldownConf.getTabletId());
             tCooldownConf.setCooldownReplicaId(cooldownConf.getCooldownReplicaId());
             tCooldownConf.setCooldownTerm(cooldownConf.getCooldownTerm());
+            pushCooldownConfReq.addToCooldownConfs(tCooldownConf);
         }
-
         return pushCooldownConfReq;
     }
 }
