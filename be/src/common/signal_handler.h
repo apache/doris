@@ -307,7 +307,15 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     formatter.AppendString(")");
     formatter.AppendString(" received by PID ");
     formatter.AppendUint64(static_cast<uint64>(getpid()), 10);
-    formatter.AppendString(" (TID 0x");
+    formatter.AppendString(" (TID ");
+    uint64_t tid;
+#ifdef __APPLE__
+    pthread_threadid_np(nullptr, &tid);
+#else
+    tid = syscall(SYS_gettid);
+#endif
+    formatter.AppendUint64(tid, 10);
+    formatter.AppendString(" OR 0x");
     // We assume pthread_t is an integral number or a pointer, rather
     // than a complex struct.  In some environments, pthread_self()
     // returns an uint64 but in some other environments pthread_self()
