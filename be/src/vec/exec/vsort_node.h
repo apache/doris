@@ -76,7 +76,6 @@ private:
     Field old_top {Field::Types::Null};
 
     bool _reuse_mem;
-    bool _use_two_phase_read = false;
 
     std::unique_ptr<Sorter> _sorter;
 

@@ -69,8 +69,6 @@ private:
     // such as: "(a or b) and (c or d)", conditions for a,b,c,d will be stored
     std::vector<TCondition> _compound_filters;
 
-    std::set<int32_t> _pruned_column_ids;
-
 private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
 

@@ -638,7 +638,6 @@ bool VScanNode::_is_predicate_acting_on_slot(
         return false;
     }
     *slot_desc = entry->second.first;
-    _conjuct_column_unique_ids.emplace((*slot_desc)->col_unique_id());
     DCHECK(child_contains_slot != nullptr);
     if (child_contains_slot->type().type != (*slot_desc)->type().type ||
         child_contains_slot->type().precision != (*slot_desc)->type().precision ||

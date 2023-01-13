@@ -38,7 +38,7 @@ public:
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
-            : unsorted_block(new Block(
+            : unsorted_block_(new Block(
                       VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
               offset_(offset),
               limit_(limit),

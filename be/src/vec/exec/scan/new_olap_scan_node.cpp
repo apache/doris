@@ -25,8 +25,6 @@
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
-#include "vec/exprs/vslot_ref.h"
-#include "vec/functions/in.h"
 
 namespace doris::vectorized {
 

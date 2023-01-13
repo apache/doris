@@ -250,9 +250,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    // column uniq ids of conjucts
-    std::set<int32_t> _conjuct_column_unique_ids;
-
 protected:
     std::unique_ptr<RuntimeProfile> _scanner_profile;
 

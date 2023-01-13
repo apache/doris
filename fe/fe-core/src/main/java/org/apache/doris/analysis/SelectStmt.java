@@ -121,7 +121,6 @@ public class SelectStmt extends QueryStmt {
 
     // Members that need to be reset to origin
     private SelectList originSelectList;
-    boolean isTwoPhaseReadEnabled = false;
 
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
@@ -598,7 +597,7 @@ public class SelectStmt extends QueryStmt {
             // rest of resultExprs will be marked as `INVALID`, such columns will
             // be prevent from reading from ScanNode.Those columns will be finally
             // read by the second fetch phase
-            isTwoPhaseReadEnabled = true;
+            LOG.info("two phase read optimize enabled");
             // Expr.analyze(resultExprs, analyzer);
             Set<SlotRef> resultSlots = Sets.newHashSet();
             Set<SlotRef> orderingSlots = Sets.newHashSet();
@@ -608,32 +607,26 @@ public class SelectStmt extends QueryStmt {
             if (whereClause != null) {
                 whereClause.collect(SlotRef.class, conjuntSlots);
             }
-            LOG.debug("before resultsSlots {}", resultSlots);
             resultSlots.removeAll(orderingSlots);
             resultSlots.removeAll(conjuntSlots);
             // reset slots need to do fetch column
             for (SlotRef slot : resultSlots) {
                 // invalid slots will be pruned from reading from ScanNode
                 slot.setInvalid();
-                LOG.debug("set slot {} invalid", slot);
             }
             LOG.debug("resultsSlots {}", resultSlots);
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
         }
-        LOG.debug("opt result Exprs {}", resultExprs);
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
-        LOG.debug("opt result Exprs {}", resultExprs);
 
         if (needToSql) {
             sqlString = toSql();
         }
 
-        LOG.debug("opt result Exprs {}", resultExprs);
         resolveInlineViewRefs(analyzer);
-        LOG.debug("opt result Exprs {}", resultExprs);
 
         if (analyzer.hasEmptySpjResultSet() && aggInfo == null) {
             analyzer.setHasEmptyResultSet();

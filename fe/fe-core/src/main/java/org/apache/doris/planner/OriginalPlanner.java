@@ -215,7 +215,6 @@ public class OriginalPlanner extends Planner {
         // Because the olapscan must be in the end. So get the last two nodes.
         if (VectorizedUtil.isVectorized()) {
             pushSortToOlapScan();
-            pushOrderByExprsToOlapScan();
         }
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
@@ -420,27 +419,6 @@ public class OriginalPlanner extends Planner {
             }
             scanNode.setSortInfo(sortNode.getSortInfo());
             scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.resolvedTupleExprs);
-        }
-    }
-
-    private void pushOrderByExprsToOlapScan() {
-        for (PlanFragment fragment : fragments) {
-            PlanNode node = fragment.getPlanRoot();
-            PlanNode parent = null;
-
-            // OlapScanNode is the last node.
-            // So, just get the last two node and check if they are SortNode and OlapScan.
-            while (node.getChildren().size() != 0) {
-                parent = node;
-                node = node.getChildren().get(0);
-            }
-
-            if (!(node instanceof OlapScanNode) || !(parent instanceof SortNode)) {
-                continue;
-            }
-            SortNode sortNode = (SortNode) parent;
-            OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.setOrderingExprs(sortNode.getSortInfo().getOrigOrderingExprs());
         }
     }
 

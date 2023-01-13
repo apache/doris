@@ -52,7 +52,6 @@ public class SortInfo {
 
     private List<Expr> orderingExprs;
     private final List<Boolean> isAscOrder;
-    private List<Expr> origOrderingExprs;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
     // Subset of ordering exprs that are materialized. Populated in
@@ -117,10 +116,6 @@ public class SortInfo {
             SlotDescriptor slotDesc = sortTupleDesc.getSlots().get(i);
             slotDesc.setSourceExpr(sortTupleSlotExprs.get(i));
         }
-    }
-
-    public List<Expr> getOrigOrderingExprs() {
-        return origOrderingExprs;
     }
 
     public List<Expr> getOrderingExprs() {
@@ -250,16 +245,15 @@ public class SortInfo {
                 Predicates.instanceOf(SlotRef.class), sourceSlots);
         TreeNode.collect(Expr.substituteList(orderingExprs, substOrderBy, analyzer, false),
                 Predicates.instanceOf(SlotRef.class), sourceSlots);
+        LOG.debug("sortTuple sourceSlots{} ", sourceSlots);
         for (SlotRef origSlotRef : sourceSlots) {
-            // if (origSlotRef.isInvalid()) {
-            //     LOG.debug("ignore slot {}", origSlotRef);
-            //     continue;
-            // }
             // Don't rematerialize slots that are already in the sort tuple.
             if (origSlotRef.getDesc().getParent().getId() != sortTupleDesc.getId()) {
                 SlotDescriptor origSlotDesc = origSlotRef.getDesc();
+                LOG.debug("sortTuple origSlotDesc {} ", origSlotDesc);
                 SlotDescriptor materializedDesc =
                         analyzer.copySlotDescriptor(origSlotDesc, sortTupleDesc);
+                LOG.debug("sortTuple materializedDesc{} ", materializedDesc);
                 // set to nullable if the origSlot is outer joined
                 if (analyzer.isOuterJoined(origSlotDesc.getParent().getId())) {
                     materializedDesc.setIsNullable(true);
@@ -269,8 +263,7 @@ public class SortInfo {
                 sortTupleExprs.add(origSlotRef);
             }
         }
-        // backup before substitute orderingExprs
-        origOrderingExprs = orderingExprs;
+        LOG.debug("sortTupleExprs {}", sortTupleExprs);
 
         // The ordering exprs are evaluated against the sort tuple, so they must reflect the
         // materialization decision above.
@@ -278,6 +271,8 @@ public class SortInfo {
 
         // Update the tuple descriptor used to materialize the input of the sort.
         setMaterializedTupleInfo(sortTupleDesc, sortTupleExprs);
+        LOG.debug("sortTupleExprs {}", sortTupleExprs);
+        LOG.debug("sortTupleDesc {}", sortTupleDesc);
 
         return substOrderBy;
     }
@@ -302,10 +297,10 @@ public class SortInfo {
         List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         ExprSubstitutionMap substOrderBy = new ExprSubstitutionMap();
         for (Expr origOrderingExpr : orderingExprs) {
-            SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
             SlotDescriptor materializedDesc = analyzer.addSlotDescriptor(sortTupleDesc);
             materializedDesc.initFromExpr(origOrderingExpr);
             materializedDesc.setIsMaterialized(true);
+            SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
             if (origSlotRef != null) {
                 materializedDesc.setColumn(origSlotRef.getColumn());
             }
