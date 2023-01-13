@@ -454,7 +454,7 @@ mysql> select * from test;
 ### 连接JDBC
 
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
-jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL数据库类型。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL、CLICKHOUSE数据库类型。
 
 **MYSQL catalog示例**
 
@@ -464,8 +464,8 @@ CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "file:///path/to/mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -473,7 +473,7 @@ CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 -- 1.2.0 版本
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
     ...
 )
 ```
@@ -487,7 +487,7 @@ CREATE RESOURCE pg_resource PROPERTIES (
     "user"="postgres",
     "password"="123456",
     "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_url" = "file:///path/to/postgresql-42.5.1.jar",
     "driver_class" = "org.postgresql.Driver"
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
@@ -496,6 +496,28 @@ CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
+**CLICKHOUSE catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE clickhouse_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="default",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+)
+CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     ...
 )
 ```
@@ -721,6 +743,25 @@ select k1, k4 from table;           // Query OK.
 | cidr/inet/macaddr | STRING | |
 | bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
 | uuid/josnb | STRING | |
+
+#### CLICKHOUSE
+
+| ClickHouse Type        | Doris Type | Comment                                             |
+|------------------------|------------|-----------------------------------------------------|
+| Bool                   | BOOLEAN    |                                                     |
+| String                 | STRING     |                                                     |
+| Date/Date32            | DATE       |                                                     |
+| DateTime/DateTime64    | DATETIME   | 对于超过了Doris最大的DateTime精度的数据，将截断处理                    |
+| Float32                | FLOAT      |                                                     |
+| Float64                | DOUBLE     |                                                     |
+| Int8                   | TINYINT    |                                                     |
+| Int16/UInt8            | SMALLINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int32/UInt16           | INT        | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int64/Uint32           | BIGINT     | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int128/UInt64          | LARGEINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理                        |
+| DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING                |
+| Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
 
 ## 权限管理
 

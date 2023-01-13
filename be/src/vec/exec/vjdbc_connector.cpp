@@ -235,7 +235,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
             type_str, slot_desc->type().debug_string(), slot_desc->col_name());
     switch (slot_desc->type().type) {
     case TYPE_BOOLEAN: {
-        if (type_str != "java.lang.Boolean" && type_str != "java.math.BigDecimal") {
+        if (type_str != "java.lang.Boolean" && type_str != "java.math.BigDecimal" &&
+            type_str != "java.lang.Byte") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -244,7 +245,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_SMALLINT:
     case TYPE_INT: {
         if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
-            type_str != "java.math.BigDecimal") {
+            type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -281,7 +282,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2: {
         if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
-            type_str != "java.sql.Date") {
+            type_str != "java.sql.Date" && type_str != "java.time.LocalDate") {
             return Status::InternalError(error_msg);
         }
         break;

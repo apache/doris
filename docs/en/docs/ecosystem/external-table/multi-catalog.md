@@ -381,7 +381,7 @@ Parameter | Description
 ### Connect JDBC
 
 
-The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
+The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, supports MYSQL, POSTGRESQL, CLICKHOUSE database types.
 
 **mysql catalog example**
 
@@ -391,8 +391,8 @@ CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "file:///path/to/mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -400,7 +400,7 @@ CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 -- 1.2.0 Version
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
     ...
 )
 ```
@@ -414,7 +414,7 @@ CREATE RESOURCE pg_resource PROPERTIES (
     "user"="postgres",
     "password"="123456",
     "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-    "driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+    "driver_url" = "file:///path/to/postgresql-42.5.1.jar",
     "driver_class" = "org.postgresql.Driver"
 );
 CREATE CATALOG jdbc WITH RESOURCE pg_resource;
@@ -423,6 +423,28 @@ CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
+**CLICKHOUSE catalog example**
+
+```sql
+-- 1.2.0+ Version
+CREATE RESOURCE clickhouse_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="default",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+)
+CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+
+-- 1.2.0 Version
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     ...
 )
 ```
@@ -722,6 +744,25 @@ For Hive/Iceberge/Hudi
 | cidr/inet/macaddr | STRING | |
 | bit/bit(n)/bit varying(n) | STRING | `bit` type corresponds to the `STRING` type of DORIS. The data read is `true/false`, not `1/0` |
 | uuid/josnb | STRING | |
+
+#### CLICKHOUSE
+
+| ClickHouse Type        | Doris Type | Comment                                                                                                                              |
+|------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Bool                   | BOOLEAN    |                                                                                                                                      |
+| String                 | STRING     |                                                                                                                                      |
+| Date/Date32            | DATE       |                                                                                                                                      |
+| DateTime/DateTime64    | DATETIME   | Data that exceeds Doris's maximum DateTime accuracy is truncated                                                                     |
+| Float32                | FLOAT      |                                                                                                                                      |
+| Float64                | DOUBLE     |                                                                                                                                      |
+| Int8                   | TINYINT    |                                                                                                                                      |
+| Int16/UInt8            | SMALLINT   | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int32/UInt16           | INT        | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int64/Uint32           | BIGINT     | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int128/UInt64          | LARGEINT   | DORIS does not have the UNSIGNED data type, so expand the type                                                                       |
+| Int256/UInt128/UInt256 | STRING     | Doris does not have a data type of this magnitude and is processed with STRING                                                       |
+| DECIMAL                | DECIMAL    | Data that exceeds Doris's maximum Decimal precision is mapped to a STRING                                                            |
+| Enum/IPv4/IPv6/UUID    | STRING     | In the display of IPv4 and IPv6, an extra `/` is displayed before the data, which needs to be processed by the `split_part` function |
 
 ## Privilege Management
 
