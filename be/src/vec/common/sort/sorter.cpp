@@ -48,9 +48,9 @@ Status MergeSorterState::add_sorted_block(Block& block) {
     }
 
     auto bytes_used = data_size();
+    auto total_bytes_used = bytes_used + block.bytes();
     if (is_spilled_ || (external_sort_bytes_threshold_ > 0 &&
-                        (bytes_used + block.allocated_bytes()) >=
-                                (external_sort_bytes_threshold_ - BLOCK_SPILL_BATCH_BYTES))) {
+                        total_bytes_used >= external_sort_bytes_threshold_)) {
         is_spilled_ = true;
         BlockSpillWriterUPtr spill_block_writer;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->block_spill_mgr()->get_writer(
@@ -178,7 +178,8 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
 }
 
 int MergeSorterState::_calc_spill_blocks_to_merge() const {
-    return external_sort_bytes_threshold_ / BLOCK_SPILL_BATCH_BYTES;
+    int count = external_sort_bytes_threshold_ / BLOCK_SPILL_BATCH_BYTES;
+    return std::max(2, count);
 }
 
 // merge all the intermediate spilled blocks
@@ -349,10 +350,13 @@ Status FullSorter::_do_sort() {
     } else {
         // dispose normal sort logic
         _state->add_sorted_block(desc_block);
-        if (_state->is_spilled()) {
-            std::priority_queue<MergeSortBlockCursor> tmp;
-            _block_priority_queue.swap(tmp);
-        }
+    }
+    if (_state->is_spilled()) {
+        std::priority_queue<MergeSortBlockCursor> tmp;
+        _block_priority_queue.swap(tmp);
+
+        buffered_block_size_ = SPILL_BUFFERED_BLOCK_SIZE;
+        buffered_block_bytes_ = SPILL_BUFFERED_BLOCK_BYTES;
     }
     return Status::OK();
 }

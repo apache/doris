@@ -56,6 +56,7 @@ private:
     Status _write_internal(const Block& block);
 
 private:
+    bool is_open_ = false;
     int64_t stream_id_;
     size_t batch_size_;
     size_t max_sub_block_size_ = 0;
