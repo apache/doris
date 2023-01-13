@@ -90,20 +90,11 @@ public:
     std::optional<size_t> try_get_position_by_name(const String& name) const;
     String get_name_by_position(size_t i) const;
 
-    [[noreturn]] int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                                           int be_exec_version) const override {
-        LOG(FATAL) << "get_uncompressed_serialized_bytes not implemented";
-    }
-
-    [[noreturn]] char* serialize(const IColumn& column, char* buf,
-                                 int be_exec_version) const override {
-        LOG(FATAL) << "serialize not implemented";
-    }
-
-    [[noreturn]] const char* deserialize(const char* buf, IColumn* column,
-                                         int be_exec_version) const override {
-        LOG(FATAL) << "serialize not implemented";
-    }
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     // bool is_parametric() const { return true; }
     // SerializationPtr do_get_default_serialization() const override;

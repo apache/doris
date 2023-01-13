@@ -54,43 +54,25 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     }
 }
 
-ColumnStruct::ColumnStruct(Columns&& columns) {
-    columns.reserve(columns.size());
-    for (auto& column : columns) {
-        if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
-        }
-        columns.push_back(std::move(column));
-    }
-}
-
-ColumnStruct::ColumnStruct(TupleColumns&& tuple_columns) {
-    columns.reserve(tuple_columns.size());
-    for (auto& column : tuple_columns) {
-        if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
-        }
-        columns.push_back(std::move(column));
-    }
-}
-
-ColumnStruct::Ptr ColumnStruct::create(Columns& columns) {
+ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
     }
-    auto column_struct = ColumnStruct::create(columns);
+    auto column_struct = ColumnStruct::create(MutableColumns());
+    column_struct->columns.assign(columns.begin(), columns.end());
     return column_struct;
 }
 
-ColumnStruct::Ptr ColumnStruct::create(TupleColumns& tuple_columns) {
+ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
         }
     }
-    auto column_struct = ColumnStruct::create(tuple_columns);
+    auto column_struct = ColumnStruct::create(MutableColumns());
+    column_struct->columns = tuple_columns;
     return column_struct;
 }
 
@@ -220,6 +202,14 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
 //         column->update_hash_fast(hash);
 //     }
 // }
+
+void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                       const int* indices_end) {
+    const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i]->insert_indices_from(src_concrete.get_column(i), indices_begin, indices_end);
+    }
+}
 
 // const char * ColumnStruct::skip_serialized_in_arena(const char * pos) const {
 //     for (const auto & column : columns) {
