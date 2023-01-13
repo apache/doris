@@ -361,14 +361,16 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
     } else if (which.is_date_v2()) {
         auto& column_vector = assert_cast<const ColumnVector<UInt32>&>(*column);
         auto value = column_vector[row_idx].get<UInt32>();
-        DateV2Value<DateV2ValueType> datev2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(value);
+        DateV2Value<DateV2ValueType> datev2 =
+                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(value);
         char buf[64];
         char* pos = datev2.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
     } else if (which.is_date_time_v2()) {
         auto& column_vector = assert_cast<const ColumnVector<UInt64>&>(*column);
         auto value = column_vector[row_idx].get<UInt64>();
-        DateV2Value<DateTimeV2ValueType> datetimev2 = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(value);
+        DateV2Value<DateTimeV2ValueType> datetimev2 =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(value);
         char buf[64];
         char* pos = datetimev2.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
