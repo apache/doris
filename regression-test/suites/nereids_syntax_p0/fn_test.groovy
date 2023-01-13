@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_function") {
+suite("nereids_fn") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
@@ -380,7 +380,7 @@ suite("nereids_function") {
         'float' : ['kfloat'],
         'double' : ['kdbl'],
         'decimal' : ['kdcml'],
-        'decimalv3_32' : ['kdcmlv3s1'],
+        'decimalv3_32' : ['kdcmlv3s1', 'kdcmlv3s2', 'kdcmlv3s3'],
         'decimalv3_64' : ['kdcmlv3s2'],
         'decimalv3_128' : ['kdcmlv3s3'],
         'char' : ['kchr'],
@@ -393,10 +393,16 @@ suite("nereids_function") {
     ]
 
     // key is string, value is array
-    scalar_function.each { k, v ->
-            v.substr(1, v.size).each {
-
+    scalar_function.each { fn_name, v ->
+        v.each {
+            def types = it.subList(1, it.size()).collect {
+                typeToColumn[it][0]
             }
+            def args = String.join(',', types)
+            def fn = '${fn_name}(${args})'
+            def scalar_sql = 'select ${fn} from t order by ${args}'
+            qt_order scalar_sql
+        }
     }
     // test end
 }
