@@ -1692,14 +1692,14 @@ Status Tablet::cooldown() {
     }
 
     if (_tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
-        RETURN_IF_ERROR(_cooldown_upload_data());
+        RETURN_IF_ERROR(_cooldown_data());
     } else {
-        RETURN_IF_ERROR(_cooldown_use_remote_data());
+        RETURN_IF_ERROR(_follow_cooldowned_data());
     }
     return Status::OK();
 }
 
-Status Tablet::_cooldown_upload_data() {
+Status Tablet::_cooldown_data() {
     auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::Error<UNINITIALIZED>();
@@ -1812,7 +1812,7 @@ Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, const TabletMetaPB& 
     return Status::OK();
 }
 
-Status Tablet::_cooldown_use_remote_data() {
+Status Tablet::_follow_cooldowned_data() {
     auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::InternalError("storage_policy doesn't exist: " + storage_policy());

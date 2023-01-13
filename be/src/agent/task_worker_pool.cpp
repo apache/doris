@@ -1719,7 +1719,7 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
                 std::stringstream ss;
                 ss << "failed to get tablet. tablet_id=" << tablet_id;
                 LOG(WARNING) << ss.str();
-                return;
+                continue;
             }
             if (cooldown_conf.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
                 tablet->tablet_meta()->set_cooldown_replica_id_and_term(

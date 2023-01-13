@@ -114,7 +114,7 @@ public:
     void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
-    void to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb);
+    void to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     uint32_t mem_size() const;
 

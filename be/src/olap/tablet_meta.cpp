@@ -551,7 +551,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     to_meta_pb(false, tablet_meta_pb);
 }
 
-void TabletMeta::to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb) {
+void TabletMeta::to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
@@ -581,7 +581,7 @@ void TabletMeta::to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb) {
     }
 
     for (auto& rs : _rs_metas) {
-        if (!only_remote || !rs->is_local()) {
+        if ((only_include_remote_rowset && !rs->is_local()) || !only_include_remote_rowset) {
             rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
         }
     }
