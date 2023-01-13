@@ -822,9 +822,9 @@ public class FileSystemManager {
                 host = properties.get(FS_DEFAULTFS_KEY);
                 logger.info("no schema and authority in path. use fs.defaultFs");
             } else {
-                logger.warn("invalid hdfs path. authority is null,path:" + path);
+                logger.warn("invalid jfs path. authority is null,path:" + path);
                 throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                    "invalid hdfs path. authority is null");
+                    "invalid jfs path. authority is null");
             }
         }
         String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
