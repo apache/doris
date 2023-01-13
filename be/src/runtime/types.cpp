@@ -150,6 +150,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
+        node->set_contains_null(contains_null);
     }
 }
 
