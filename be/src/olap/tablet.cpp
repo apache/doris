@@ -1440,7 +1440,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
     tablet_info->__set_is_cooldown(!_tablet_meta->storage_policy().empty());
-    if (tablet_info->is_cooldown()) {
+    if (tablet_info->is_cooldown) {
         tablet_info->__set_cooldown_replica_id(_tablet_meta->cooldown_replica_id());
     }
 }
@@ -1822,8 +1822,8 @@ Status Tablet::_follow_cooldowned_data() {
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     int64_t max_version = -1;
     for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
-        if (max_version < rs->end_version()) {
-            max_version = rs->end_version();
+        if (max_version < remote_tablet_meta_pb.end_version()) {
+            max_version = remote_tablet_meta_pb.end_version();
         }
     }
 
