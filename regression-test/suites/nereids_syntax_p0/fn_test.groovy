@@ -378,7 +378,7 @@ suite("nereids_fn") {
         'largeint' : ['klint'],
         'float' : ['kfloat'],
         'double' : ['kdbl'],
-        'decimal' : ['kdcml'],
+        'decimalv2' : ['kdcml'],
         'decimalv3_32' : ['kdcmlv3s1', 'kdcmlv3s2', 'kdcmlv3s3'],
         'decimalv3_64' : ['kdcmlv3s2'],
         'decimalv3_128' : ['kdcmlv3s3'],
