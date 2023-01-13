@@ -65,11 +65,13 @@ public class JdbcResource extends Resource {
     public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
     public static final String JDBC_ORACLE = "jdbc:oracle";
     public static final String JDBC_SQLSERVER = "jdbc:sqlserver";
+    public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
 
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
     private static final String SQLSERVER = "SQLSERVER";
+    public static final String CLICKHOUSE = "CLICKHOUSE";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -234,6 +236,8 @@ public class JdbcResource extends Resource {
             return ORACLE;
         } else if (url.startsWith(JDBC_SQLSERVER)) {
             return SQLSERVER;
+        } else if (url.startsWith(DBC_CLICKHOUSE)) {
+            return CLICKHOUSE;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
