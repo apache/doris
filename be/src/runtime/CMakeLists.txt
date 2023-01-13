@@ -56,16 +56,9 @@ set(RUNTIME_FILES
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc
-    disk_io_mgr.cc
-    disk_io_mgr_reader_context.cc
-    disk_io_mgr_scan_range.cc 
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp
-    bufferpool/buffer_allocator.cc
-    bufferpool/buffer_pool.cc
-    bufferpool/suballocator.cc
-    bufferpool/system_allocator.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp

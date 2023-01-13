@@ -424,7 +424,7 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 CONF_Int32(max_free_io_buffers, "128");
 
 // Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
+// including MemPool, ChunkAllocator, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
@@ -472,14 +472,6 @@ CONF_Bool(madvise_huge_pages, "false");
 
 // whether use mmap to allocate memory
 CONF_Bool(mmap_buffers, "false");
-
-// max memory can be allocated by buffer pool
-// This is the percentage of mem_limit
-CONF_String(buffer_pool_limit, "20%");
-
-// clean page can be hold by buffer pool
-// This is the percentage of buffer_pool_limit
-CONF_String(buffer_pool_clean_pages_limit, "50%");
 
 // Sleep time in milliseconds between memory maintenance iterations
 CONF_mInt64(memory_maintenance_sleep_time_ms, "500");
