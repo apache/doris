@@ -150,10 +150,8 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
-        String jobId = element.infoStrings.get(ProfileManager.JOB_ID);
-        String queryId = element.infoStrings.get(ProfileManager.QUERY_ID);
-        // if this is a query profile, the jobId will be "N/A"
-        String key = "N/A".equals(jobId) ? queryId : jobId;
+        String key = isQueryProfile(profile) ? element.infoStrings.get(ProfileManager.QUERY_ID)
+                : element.infoStrings.get(ProfileManager.JOB_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
         if (Strings.isNullOrEmpty(key)) {
@@ -337,5 +335,9 @@ public class ProfileManager {
         } finally {
             readLock.unlock();
         }
+    }
+
+    public boolean isQueryProfile(RuntimeProfile profile) {
+        return "Query".equals(profile.getName());
     }
 }
