@@ -89,6 +89,7 @@ void ExchangeSinkBuffer::close() {
         if (pair.second) {
             pair.second->release_finst_id();
             pair.second->release_query_id();
+            delete pair.second;
         }
     }
 }
@@ -168,7 +169,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _construct_request(id);
     }
 
-    auto& brpc_request = _instance_to_request[id];
+    auto brpc_request = _instance_to_request[id];
     brpc_request->set_eos(request.eos);
     brpc_request->set_packet_seq(_instance_to_seq[id]++);
     if (request.block) {
@@ -210,7 +211,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 }
 
 void ExchangeSinkBuffer::_construct_request(InstanceLoId id) {
-    _instance_to_request[id] = std::make_unique<PTransmitDataParams>();
+    _instance_to_request[id] = new PTransmitDataParams();
     _instance_to_request[id]->set_allocated_finst_id(&_instance_to_finst_id[id]);
     _instance_to_request[id]->set_allocated_query_id(&_query_id);
 
