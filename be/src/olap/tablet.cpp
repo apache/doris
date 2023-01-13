@@ -1822,8 +1822,8 @@ Status Tablet::_follow_cooldowned_data() {
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     int64_t max_version = -1;
     for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
-        if (max_version < remote_tablet_meta_pb.end_version()) {
-            max_version = remote_tablet_meta_pb.end_version();
+        if (max_version < rowset_meta_pb.end_version()) {
+            max_version = rowset_meta_pb.end_version();
         }
     }
 
