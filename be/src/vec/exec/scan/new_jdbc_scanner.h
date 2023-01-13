@@ -18,6 +18,7 @@
 #pragma once
 
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exec/vjdbc_connector.h"
@@ -43,6 +44,8 @@ protected:
     RuntimeProfile::Counter* _init_connector_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _check_type_timer = nullptr;
+    RuntimeProfile::Counter* _execte_read_timer = nullptr;
+    RuntimeProfile::Counter* _connector_close_timer = nullptr;
 
 private:
     bool _is_init;

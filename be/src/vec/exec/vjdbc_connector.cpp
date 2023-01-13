@@ -71,6 +71,7 @@ JdbcConnector::~JdbcConnector() {
 #define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
 
 Status JdbcConnector::close() {
+    SCOPED_TIMER(_jdbc_scanner->_connector_close_timer);
     _closed = true;
     if (!_is_open) {
         return Status::OK();
@@ -184,13 +185,16 @@ Status JdbcConnector::query() {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jint colunm_count =
-            env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_read_id);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-
-    if (colunm_count != materialize_num) {
-        return Status::InternalError("input and output column num not equal of jdbc query.");
+    {
+        SCOPED_TIMER(_jdbc_scanner->_execte_read_timer);
+        jint colunm_count =
+                env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_read_id);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        if (colunm_count != materialize_num) {
+            return Status::InternalError("input and output column num not equal of jdbc query.");
+        }
     }
+
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
     RETURN_IF_ERROR(_check_column_type());
     return Status::OK();

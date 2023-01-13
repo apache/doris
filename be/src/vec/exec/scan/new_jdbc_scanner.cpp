@@ -34,6 +34,8 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
     _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
     _get_data_timer = ADD_TIMER(get_parent()->_scanner_profile, "GetDataTime");
+    _execte_read_timer = ADD_TIMER(get_parent()->_scanner_profile, "ExecteReadTime");
+    _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
 }
 
 Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
