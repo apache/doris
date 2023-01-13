@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -33,21 +34,20 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class PushStoragePolicyTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PushStoragePolicyTask.class);
 
-    private List<Policy> storagePolicy = new ArrayList<>();
-    private List<Resource> resource = new ArrayList<>();
-    private List<Long> droppedStoragePolicy = new ArrayList<>();
+    private List<Policy> storagePolicy;
+    private List<Resource> resource;
+    private List<Long> droppedStoragePolicy;
 
     public PushStoragePolicyTask(long backendId, List<Policy> storagePolicy,
                                  List<Resource> resource, List<Long> droppedStoragePolicy) {
         super(null, backendId, TTaskType.PUSH_STORAGE_POLICY, -1, -1, -1, -1, -1, -1, -1);
-        this.storagePolicy.addAll(storagePolicy);
-        this.resource.addAll(resource);
-        this.droppedStoragePolicy.addAll(droppedStoragePolicy);
+        this.storagePolicy = storagePolicy;
+        this.resource = resource;
+        this.droppedStoragePolicy = droppedStoragePolicy;
     }
 
     public TPushStoragePolicyReq toThrift() {
@@ -55,46 +55,52 @@ public class PushStoragePolicyTask extends AgentTask {
         List<TStoragePolicy> tsp = new ArrayList<>();
         storagePolicy.forEach(p -> {
             TStoragePolicy item = new TStoragePolicy();
-            item.setId(p.getPolicyId());
+            p.readLock();
+            item.setId(p.getId());
             item.setName(p.getPolicyName());
             item.setVersion(p.getVersion());
-            String resourceName = ((StoragePolicy) p).getStorageResource();
-            List<Resource> allS3Resource = Env.getCurrentEnv().getResourceMgr().getAllS3Resource();
-            Optional<Resource> s3 = allS3Resource.stream().filter(r -> r.getName().equals(resourceName)).findAny();
-            if (!s3.isPresent()) {
+            StoragePolicy storagePolicy = (StoragePolicy) p;
+            String resourceName = storagePolicy.getStorageResource();
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (resource == null || resource.getType() != ResourceType.S3) {
+                p.readUnlock();
                 LOG.warn("can't find s3 resource by name {}", resourceName);
                 return;
             }
-            item.setResourceId(s3.get().getResourceId());
-            long coolDownDatetime = ((StoragePolicy) p).getCooldownTimestampMs() / 1000;
+            item.setResourceId(resource.getId());
+            long coolDownDatetime = storagePolicy.getCooldownTimestampMs() / 1000;
             item.setCooldownDatetime(coolDownDatetime);
-            long coolDownTtl = ((StoragePolicy) p).getCooldownTtlMs() / 1000;
+            long coolDownTtl = storagePolicy.getCooldownTtlMs() / 1000;
             item.setCooldownTtl(coolDownTtl);
+            p.readUnlock();
         });
         ret.setStoragePolicy(tsp);
 
         List<TStorageResource> tsr = new ArrayList<>();
         resource.forEach(r -> {
             TStorageResource item = new TStorageResource();
-            item.setId(r.getResourceId());
+            r.readLock();
+            item.setId(r.getId());
             item.setName(r.getName());
             item.setVersion(r.getVersion());
             TS3StorageParam s3Info = new TS3StorageParam();
-            s3Info.setEndpoint(((S3Resource) r).getProperty(S3Resource.S3_ENDPOINT));
-            s3Info.setRegion(((S3Resource) r).getProperty(S3Resource.S3_REGION));
-            s3Info.setAk(((S3Resource) r).getProperty(S3Resource.S3_ACCESS_KEY));
-            s3Info.setSk(((S3Resource) r).getProperty(S3Resource.S3_SECRET_KEY));
-            s3Info.setRootPath(((S3Resource) r).getProperty(S3Resource.S3_ROOT_PATH));
-            s3Info.setBucket(((S3Resource) r).getProperty(S3Resource.S3_BUCKET));
-            String maxConnections = ((S3Resource) r).getProperty(S3Resource.S3_MAX_CONNECTIONS);
+            S3Resource s3Resource = (S3Resource) r;
+            s3Info.setEndpoint(s3Resource.getProperty(S3Resource.S3_ENDPOINT));
+            s3Info.setRegion(s3Resource.getProperty(S3Resource.S3_REGION));
+            s3Info.setAk(s3Resource.getProperty(S3Resource.S3_ACCESS_KEY));
+            s3Info.setSk(s3Resource.getProperty(S3Resource.S3_SECRET_KEY));
+            s3Info.setRootPath(s3Resource.getProperty(S3Resource.S3_ROOT_PATH));
+            s3Info.setBucket(s3Resource.getProperty(S3Resource.S3_BUCKET));
+            String maxConnections = s3Resource.getProperty(S3Resource.S3_MAX_CONNECTIONS);
             s3Info.setMaxConn(Integer.parseInt(maxConnections == null
                     ? S3Resource.DEFAULT_S3_MAX_CONNECTIONS : maxConnections));
-            String requestTimeoutMs = ((S3Resource) r).getProperty(S3Resource.S3_REQUEST_TIMEOUT_MS);
+            String requestTimeoutMs = s3Resource.getProperty(S3Resource.S3_REQUEST_TIMEOUT_MS);
             s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
                     ? S3Resource.DEFAULT_S3_REQUEST_TIMEOUT_MS : requestTimeoutMs));
-            String connTimeoutMs = ((S3Resource) r).getProperty(S3Resource.S3_CONNECTION_TIMEOUT_MS);
+            String connTimeoutMs = s3Resource.getProperty(S3Resource.S3_CONNECTION_TIMEOUT_MS);
             s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
                     ? S3Resource.DEFAULT_S3_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+            r.readUnlock();
             item.setS3StorageParam(s3Info);
         });
         ret.setResource(tsr);

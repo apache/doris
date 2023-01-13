@@ -45,7 +45,7 @@ public class StoragePolicyPersistTest {
 
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        StoragePolicy anotherStoragePolicy = StoragePolicy.read(dis);
+        StoragePolicy anotherStoragePolicy = (StoragePolicy) StoragePolicy.read(dis);
         Assert.assertEquals(cooldownTime, anotherStoragePolicy.getCooldownTimestampMs());
 
         StoragePolicy clonePolicy = anotherStoragePolicy.clone();

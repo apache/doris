@@ -169,9 +169,9 @@ public class ResourceMgr implements Writable {
         return nameToResource.size();
     }
 
-    public List<Resource> getAllS3Resource() {
-        return nameToResource.values().stream().filter(resource -> resource.getType() == ResourceType.S3)
-            .collect(Collectors.toList());
+    public List<Resource> getResource(ResourceType type) {
+        return nameToResource.values().stream().filter(resource -> resource.getType() == type)
+                .collect(Collectors.toList());
     }
 
     public List<List<Comparable>> getResourcesInfo(String name, boolean accurateMatch, Set<String> typeSets) {

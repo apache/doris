@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -282,33 +283,26 @@ public class ReportHandler extends Daemon {
     private static void storagePolicyReport(long backendId,
                                             List<TStoragePolicy> storagePoliciesInBe,
                                             List<TStorageResource> storageResourcesInBe) {
-        long start = System.currentTimeMillis();
         LOG.info("backend[{}] reports policies {} . report resources: {}",
                 backendId, storagePoliciesInBe, storageResourcesInBe);
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
         List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-        List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getAllS3Resource();
+        List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.S3);
 
-        // id, version
         List<Resource> resourceToPush = new ArrayList<>();
         List<Policy> policyToPush = new ArrayList<>();
         List<Long> policyToDrop = new ArrayList<>();
 
         diffPolicy(storagePoliciesInBe, policiesInFe, policyToPush, policyToDrop);
         diffResource(storageResourcesInBe, resourcesInFe, resourceToPush);
-        LOG.info("after diff policy, policyToPush {}, policyToDrop {}, and resourceToPush {}",
-                policyToPush, policyToDrop, resourceToPush);
 
-        long end = System.currentTimeMillis();
-        if (policyToPush.size() == 0 && resourceToPush.size() == 0 && policyToDrop.size() == 0) {
-            LOG.info("finished to handle storage policy report no push rpc from backend[{}] cost: {} ms",
-                    backendId, (end - start));
+        if (policyToPush.isEmpty() && resourceToPush.isEmpty() && policyToDrop.isEmpty()) {
             return;
         }
+        LOG.info("after diff policy, policyToPush {}, policyToDrop {}, and resourceToPush {}", policyToPush,
+                policyToDrop, resourceToPush);
         // send push rpc
         handlePushStoragePolicy(backendId, policyToPush, resourceToPush, policyToDrop);
-
-        LOG.info("finished to handle storage policy report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
     private static void diffPolicy(List<TStoragePolicy> storagePoliciesInBe, List<Policy> policiesInFe,
@@ -318,23 +312,20 @@ public class ReportHandler extends Daemon {
         for (Policy policy : policiesInFe) {
             boolean beHasIt = false;
             for (TStoragePolicy tStoragePolicy : storagePoliciesInBe) {
-                if (policy.getPolicyId() == tStoragePolicy.getId()) {
+                if (policy.getId() == tStoragePolicy.getId()) {
                     beHasIt = true;
                     // find id eq
                     if (policy.getVersion() == tStoragePolicy.getVersion()) {
                         // find version eq
-                        continue;
-                    }
-                    if (policy.getVersion() > tStoragePolicy.getVersion()) {
+                    } else if (policy.getVersion() > tStoragePolicy.getVersion()) {
                         // need to add
-
                         policyToPush.add(policy);
-                    }
-                    if (policy.getVersion() < tStoragePolicy.getVersion()) {
+                    } else {
                         // impossible
                         LOG.warn("fe policy version {} litter than be {}, impossible",
                                 policy.getVersion(), tStoragePolicy.getVersion());
                     }
+                    break;
                 }
             }
             if (!beHasIt) {
@@ -346,7 +337,7 @@ public class ReportHandler extends Daemon {
         for (TStoragePolicy tStoragePolicy : storagePoliciesInBe) {
             boolean feHasIt = false;
             for (Policy policy : policiesInFe) {
-                if (policy.getPolicyId() == tStoragePolicy.getId()) {
+                if (policy.getId() == tStoragePolicy.getId()) {
                     feHasIt = true;
                     // find id eq
                     break;
@@ -364,22 +355,20 @@ public class ReportHandler extends Daemon {
         for (Resource resource : resourcesInFe) {
             boolean beHasIt = false;
             for (TStorageResource tStorageResource : storageResourcesInBe) {
-                if (resource.getResourceId() == tStorageResource.getId()) {
+                if (resource.getId() == tStorageResource.getId()) {
                     beHasIt = true;
                     // find id eq
                     if (resource.getVersion() == tStorageResource.getVersion()) {
                         // find version eq
-                        continue;
-                    }
-                    if (resource.getVersion() > tStorageResource.getVersion()) {
+                    } else if (resource.getVersion() > tStorageResource.getVersion()) {
                         // need to add
                         resourceToPush.add(resource);
-                    }
-                    if (resource.getVersion() < tStorageResource.getVersion()) {
+                    } else {
                         // impossible
                         LOG.warn("fe resource version {} litter than be {}, impossible",
                                 resource.getVersion(), tStorageResource.getVersion());
                     }
+                    break;
                 }
             }
             if (!beHasIt) {

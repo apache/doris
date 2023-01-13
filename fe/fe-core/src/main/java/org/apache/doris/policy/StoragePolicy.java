@@ -25,9 +25,7 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -38,7 +36,6 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -70,11 +67,12 @@ public class StoragePolicy extends Policy {
     public static final ShowResultSetMetaData STORAGE_META_DATA =
             ShowResultSetMetaData.builder()
                 .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Id", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Version", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Type", ScalarType.createVarchar(20)))
                 .addColumn(new Column("StorageResource", ScalarType.createVarchar(20)))
                 .addColumn(new Column("CooldownDatetime", ScalarType.createVarchar(20)))
                 .addColumn(new Column("CooldownTtl", ScalarType.createVarchar(20)))
-                .addColumn(new Column("properties", ScalarType.createVarchar(65535)))
                 .build();
 
     private static final Logger LOG = LogManager.getLogger(StoragePolicy.class);
@@ -218,25 +216,18 @@ public class StoragePolicy extends Policy {
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        final String[] props = {""};
-        if (Env.getCurrentEnv().getResourceMgr().containsResource(this.storageResource)) {
-            props[0] = Env.getCurrentEnv().getResourceMgr().getResource(this.storageResource).toString();
+        readLock();
+        try {
+            if (cooldownTimestampMs == -1) {
+                return Lists.newArrayList(this.policyName, String.valueOf(this.id), String.valueOf(this.version),
+                        this.type.name(), this.storageResource, "-1", this.cooldownTtl);
+            }
+            return Lists.newArrayList(this.policyName, String.valueOf(this.id), String.valueOf(this.version),
+                    this.type.name(), this.storageResource, TimeUtils.longToTimeString(this.cooldownTimestampMs),
+                    this.cooldownTtl);
+        } finally {
+            readUnlock();
         }
-        if (!props[0].equals("")) {
-            // s3_secret_key => ******
-            S3Resource s3Resource = GsonUtils.GSON.fromJson(props[0], S3Resource.class);
-            Optional.ofNullable(s3Resource).ifPresent(s3 -> {
-                Map<String, String> copyMap = s3.getCopiedProperties();
-                copyMap.put(S3Resource.S3_SECRET_KEY, "******");
-                props[0] = GsonUtils.GSON.toJson(copyMap);
-            });
-        }
-        if (cooldownTimestampMs == -1) {
-            return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource, "-1", this.cooldownTtl,
-                    props[0]);
-        }
-        return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-                TimeUtils.longToTimeString(this.cooldownTimestampMs), this.cooldownTtl, props[0]);
     }
 
     @Override
@@ -244,7 +235,7 @@ public class StoragePolicy extends Policy {
 
     @Override
     public StoragePolicy clone() {
-        return new StoragePolicy(this.policyId, this.policyName, this.storageResource, this.cooldownTimestampMs,
+        return new StoragePolicy(this.id, this.policyName, this.storageResource, this.cooldownTimestampMs,
                 this.cooldownTtl, this.cooldownTtlMs);
     }
 
@@ -327,33 +318,44 @@ public class StoragePolicy extends Policy {
     }
 
     public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
-        Optional.ofNullable(properties.get(COOLDOWN_TTL)).ifPresent(this::setCooldownTtl);
-        Optional.ofNullable(properties.get(COOLDOWN_DATETIME)).ifPresent(date -> {
+        // some check
+        long cooldownTtlMs = -1;
+        String cooldownTtl = properties.get(COOLDOWN_TTL);
+        if (cooldownTtl != null) {
+            cooldownTtlMs = getMsByCooldownTtl(cooldownTtl);
+        }
+        long cooldownTimestampMs = -1;
+        String cooldownDatetime = properties.get(COOLDOWN_DATETIME);
+        if (cooldownDatetime != null) {
             SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
-                this.cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
+                cooldownTimestampMs = df.parse(cooldownDatetime).getTime();
             } catch (ParseException e) {
                 throw new RuntimeException(e);
             }
-        });
-
-        if (policyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && storageResource == null) {
-            // here first time set S3 resource to default storage policy.
-            String alterStorageResource = Optional.ofNullable(properties.get(STORAGE_RESOURCE)).orElseThrow(
-                    () -> new DdlException("first time set default storage policy, but not give storageResource"));
-            // check alterStorageResource resource exist.
-            checkIsS3ResourceAndExist(alterStorageResource);
-            storageResource = alterStorageResource;
         }
-
-        // add version
-        super.modifyProperties(properties);
-    }
-
-
-    public static StoragePolicy read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, StoragePolicy.class);
+        String storageResource = properties.get(STORAGE_RESOURCE);
+        if (storageResource != null) {
+            checkIsS3ResourceAndExist(storageResource);
+        }
+        if (this.policyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && this.storageResource == null
+                && storageResource == null) {
+            throw new DdlException("first time set default storage policy, but not give storageResource");
+        }
+        // modify properties
+        writeLock();
+        if (cooldownTtlMs > 0) {
+            this.cooldownTtl = cooldownTtl;
+            this.cooldownTtlMs = cooldownTtlMs;
+        }
+        if (cooldownTimestampMs > 0) {
+            this.cooldownTimestampMs = cooldownTimestampMs;
+        }
+        if (storageResource != null) {
+            this.storageResource = storageResource;
+        }
+        ++version;
+        writeUnlock();
     }
 
     public boolean addResourceReference() {

@@ -85,12 +85,8 @@ public class S3Resource extends Resource {
     private Map<String, String> properties;
 
     public S3Resource(String name) {
-        this(name, Maps.newHashMap());
-    }
-
-    public S3Resource(String name, Map<String, String> properties) {
         super(name, ResourceType.S3);
-        this.properties = properties;
+        properties = Maps.newHashMap();
     }
 
     public String getProperty(String propertyKey) {
@@ -179,9 +175,12 @@ public class S3Resource extends Resource {
             }
         }
         // modify properties
+        writeLock();
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        ++version;
+        writeUnlock();
         super.modifyProperties(properties);
     }
 

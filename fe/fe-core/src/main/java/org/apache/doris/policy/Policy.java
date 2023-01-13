@@ -51,8 +51,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(Policy.class);
 
-    @SerializedName(value = "policyId")
-    protected long policyId = -1;
+    @SerializedName(value = "id")
+    protected long id = -1;
 
     @SerializedName(value = "type")
     protected PolicyTypeEnum type = null;
@@ -65,19 +65,19 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private void writeLock() {
+    public void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
-    private void readLock() {
+    public void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    public void readUnlock() {
         lock.readLock().unlock();
     }
 
@@ -94,8 +94,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * @param type policy type
      * @param policyName policy name
      */
-    public Policy(long policyId, final PolicyTypeEnum type, final String policyName) {
-        this.policyId = policyId;
+    public Policy(long id, final PolicyTypeEnum type, final String policyName) {
+        this.id = id;
         this.type = type;
         this.policyName = policyName;
         this.version = 0;
@@ -127,9 +127,6 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     }
 
     public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
-        writeLock();
-        version++;
-        writeUnlock();
     }
 
     /**

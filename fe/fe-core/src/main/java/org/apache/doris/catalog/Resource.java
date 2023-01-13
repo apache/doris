@@ -84,26 +84,26 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     protected ResourceType type;
     @SerializedName(value = "references")
     protected Map<String, ReferenceType> references = Maps.newHashMap();
-    @SerializedName(value = "resourceId")
-    protected long resourceId = -1;
+    @SerializedName(value = "id")
+    protected long id = -1;
     @SerializedName(value = "version")
     protected long version = -1;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private void writeLock() {
+    public void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
-    private void readLock() {
+    public void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    public void readUnlock() {
         lock.readLock().unlock();
     }
 
@@ -113,18 +113,18 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     public Resource(String name, ResourceType type) {
         this.name = name;
         this.type = type;
-        this.resourceId = Env.getCurrentEnv().getNextId();
-        this.version = 0;
     }
 
     public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
         Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
+        resource.id = Env.getCurrentEnv().getNextId();
+        resource.version = 0;
         resource.setProperties(stmt.getProperties());
         return resource;
     }
 
-    public long getResourceId() {
-        return this.resourceId;
+    public long getId() {
+        return this.id;
     }
 
     public long getVersion() {
@@ -203,9 +203,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
      * @throws DdlException
      */
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        writeLock();
-        version++;
-        writeUnlock();
         notifyUpdate();
     }
 
