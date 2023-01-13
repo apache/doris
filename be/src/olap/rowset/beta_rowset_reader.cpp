@@ -42,6 +42,31 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.key_ranges.clear();
 }
 
+static std::string read_columns_to_string(RowsetReaderContext* read_context,
+                                          const std::vector<uint32_t>& read_columns) {
+    std::string read_columns_string;
+    read_columns_string += "[";
+    for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
+        if (it != read_columns.cbegin()) {
+            read_columns_string += ", ";
+        }
+        read_columns_string += read_context->tablet_schema->columns().at(*it).name();
+    }
+    read_columns_string += "]";
+    return read_columns_string;
+}
+
+bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+    // add read_columns in scanner_profile
+    profile->add_info_string("ReadColumns",
+                             read_columns_to_string(_context, _input_schema->column_ids()));
+
+    if (_iterator != nullptr) {
+        return _iterator->update_profile(profile);
+    }
+    return false;
+}
+
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIterator*>* out_iters) {
     RETURN_NOT_OK(_rowset->load());
