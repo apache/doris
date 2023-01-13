@@ -24,8 +24,9 @@ namespace doris {
 namespace io {
 class BrokerFileSystem final : public RemoteFileSystem {
 public:
-    BrokerFileSystem(const TNetworkAddress& broker_addr,
-                     const std::map<std::string, std::string>& broker_prop, size_t file_size);
+    static std::shared_ptr<BrokerFileSystem> create(
+            const TNetworkAddress& broker_addr,
+            const std::map<std::string, std::string>& broker_prop, size_t file_size);
 
     ~BrokerFileSystem() override = default;
 
@@ -66,6 +67,9 @@ public:
     Status get_client(std::shared_ptr<BrokerServiceConnection>* client) const;
 
 private:
+    BrokerFileSystem(const TNetworkAddress& broker_addr,
+                     const std::map<std::string, std::string>& broker_prop, size_t file_size);
+
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
     size_t _file_size;

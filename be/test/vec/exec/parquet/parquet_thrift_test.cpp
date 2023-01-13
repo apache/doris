@@ -47,7 +47,7 @@ public:
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
                                   &reader, nullptr);
@@ -79,7 +79,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     //   `friend` map<string,string>,
     //   `mark` struct<math:int,english:int>)
 
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
                                   &reader, nullptr);
@@ -283,7 +283,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
      * `list_string` array<string>) // 14
      */
 
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file(parquet_file, &reader, nullptr);
     EXPECT_TRUE(st.ok());
@@ -405,7 +405,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
         lazy_read_ctx.all_read_columns.emplace_back(slot->col_name());
         read_columns.emplace_back(ParquetReadColumn(7, slot->col_name()));
     }
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr file_reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
                                   &file_reader, nullptr);
