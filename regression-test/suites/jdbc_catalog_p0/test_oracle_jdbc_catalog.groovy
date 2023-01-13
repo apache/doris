@@ -30,7 +30,6 @@ suite("test_oracle_jdbc_catalog", "p0") {
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists ${resource_name}"""
 
-        // TODO(ftw): modify driver_url and jdbc_url
         sql """create resource if not exists ${resource_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",

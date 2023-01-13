@@ -596,16 +596,12 @@ public class JdbcClient {
                 }
             case "FLOAT":
                 return Type.DOUBLE;
-            case "VARCHAR2":
-            case "NVARCHAR2":
-                ScalarType varcharType = ScalarType.createVarcharType(fieldSchema.columnSize);
-                return varcharType;
-            case "CHAR":
-            case "NCHAR":
-                ScalarType charType = ScalarType.createCharType(fieldSchema.columnSize);
-                return charType;
             case "DATE":
                 return ScalarType.getDefaultDateType(Type.DATETIME);
+            case "VARCHAR2":
+            case "NVARCHAR2":
+            case "CHAR":
+            case "NCHAR":
             case "LONG":
             case "RAW":
             case "LONG RAW":
