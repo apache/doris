@@ -103,7 +103,6 @@ public:
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
-
     size_t size() const override { return columns.at(0)->size(); }
 
     Field operator[](size_t n) const override;

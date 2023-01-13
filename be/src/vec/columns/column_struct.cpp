@@ -22,13 +22,6 @@
 
 namespace doris::vectorized {
 
-namespace ErrorCodes {
-extern const int ILLEGAL_COLUMN;
-extern const int NOT_IMPLEMENTED;
-extern const int CANNOT_INSERT_VALUE_OF_DIFFERENT_SIZE_INTO_TUPLE;
-extern const int LOGICAL_ERROR;
-} // namespace ErrorCodes
-
 std::string ColumnStruct::get_name() const {
     std::stringstream res;
     res << "Struct(";

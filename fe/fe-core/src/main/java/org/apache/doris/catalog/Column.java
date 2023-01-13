@@ -61,6 +61,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
+    private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown",

@@ -319,9 +319,17 @@ public class CastExpr extends Expr {
                     type, Function.NullableMode.ALWAYS_NULLABLE,
                     Lists.newArrayList(Type.VARCHAR), false,
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
+        } else if (type.isStructType()) {
+            fn = ScalarFunction.createBuiltin(getFnName(Type.STRUCT),
+                    type, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(Type.VARCHAR), false,
+                    "doris::CastFunctions::cast_to_struct_val", null, null, true);
         }
 
         if (fn == null) {
+            if (type.isStructType() && childType.isStringType()) {
+                return;
+            }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
                 return;
             } else {

@@ -183,8 +183,20 @@ public abstract class Type {
         arraySubTypes.add(STRING);
 
         structSubTypes = Lists.newArrayList();
-        structSubTypes.add(INT);
+        structSubTypes.addAll(numericTypes);
+        structSubTypes.add(BOOLEAN);
+        structSubTypes.add(VARCHAR);
         structSubTypes.add(STRING);
+        structSubTypes.add(CHAR);
+        structSubTypes.add(DATE);
+        structSubTypes.add(DATETIME);
+        structSubTypes.add(DATEV2);
+        structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(TIME);
+        structSubTypes.add(TIMEV2);
+        structSubTypes.add(DECIMAL32);
+        structSubTypes.add(DECIMAL64);
+        structSubTypes.add(DECIMAL128);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
