@@ -209,8 +209,8 @@ suite("join") {
         contains "INNER JOIN"
     }
 
-    explain {
-        sql("""SELECT count(1)
+    def explainStr =
+        sql(""" explain SELECT count(1)
                 FROM 
                     (SELECT sub1.wtid,
                         count(*)
@@ -224,9 +224,18 @@ suite("join") {
                             FROM test_table_a a ) sub2
                                 ON sub1.wtid = sub2.wtid
                                     AND sub1.wfid = sub2.wfid
-                            GROUP BY  sub1.wtid ) qqqq;""")
-        contains "4:VAGGREGATE (update serialize)"
-        contains "6:VAGGREGATE (merge finalize)"
-    }
+                            GROUP BY  sub1.wtid ) qqqq;""").toString()
+    logger.info(explainStr)
+    assertTrue(
+        //if analyze finished
+        explainStr.contains("4:VAGGREGATE (update serialize)") 
+        && explainStr.contains("6:VAGGREGATE (merge finalize)") 
+        ||
+        //analyze not finished
+        explainStr.contains("7:VAGGREGATE (update finalize)") 
+        && explainStr.contains("5:VAGGREGATE (update finalize)") 
+        && explainStr.contains("4:VEXCHANGE")
+        && explainStr.contains("3:VHASH JOIN")
+    )    
 }
 
