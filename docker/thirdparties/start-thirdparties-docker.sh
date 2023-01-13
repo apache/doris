@@ -56,6 +56,13 @@ sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
 sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
 sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
 
+# oracle
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
+sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env down
+sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
+sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
+sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
+
 # hive
 # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
 sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml

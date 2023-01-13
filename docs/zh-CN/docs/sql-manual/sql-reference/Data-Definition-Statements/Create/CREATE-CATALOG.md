@@ -154,7 +154,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	**postgresql**
 
 	```sql
-	-- 1.2.0+ 版本
+	-- 方式一
 	CREATE RESOURCE pg_resource PROPERTIES (
 		"type"="jdbc",
 		"user"="postgres",
@@ -165,7 +165,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
-	-- 1.2.0 版本
+	-- 方式二，注意有jdbc前缀
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
 		"jdbc.user"="postgres",
@@ -197,6 +197,30 @@ CREATE CATALOG catalog_name PROPERTIES (
        ...
    )
    ```
+
+	**oracle**
+	```sql
+	-- 方式一
+	CREATE RESOURCE oracle_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="doris",
+		"password"="123456",
+		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"driver_url" = "file:/path/to/ojdbc6.jar",
+		"driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
+
+	-- 方式二，注意有jdbc前缀
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="doris",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+		"jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);	
+	```
 
 ### Keywords
 

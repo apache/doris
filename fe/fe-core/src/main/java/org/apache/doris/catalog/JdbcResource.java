@@ -66,6 +66,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_ORACLE = "jdbc:oracle";
     public static final String JDBC_SQLSERVER = "jdbc:sqlserver";
     public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
+
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
@@ -253,6 +254,7 @@ public class JdbcResource extends Resource {
             // it will convert to Doris tinyint, not bit.
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
         return newJdbcUrl;
     }
