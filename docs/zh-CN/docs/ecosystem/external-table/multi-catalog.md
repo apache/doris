@@ -503,7 +503,7 @@ CREATE CATALOG jdbc PROPERTIES (
 **CLICKHOUSE catalog示例**
 
 ```sql
--- 1.2.0+ 版本
+-- 方式一
 CREATE RESOURCE clickhouse_resource PROPERTIES (
     "type"="jdbc",
     "user"="default",
@@ -514,12 +514,37 @@ CREATE RESOURCE clickhouse_resource PROPERTIES (
 )
 CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
 
--- 1.2.0 版本
+-- 方式二，注意有jdbc前缀
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     ...
 )
+```
+
+**ORACLE catalog示例**
+
+```sql
+-- 方式一
+CREATE RESOURCE oracle_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="doris",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "driver_url" = "file:/path/to/ojdbc6.jar",
+    "driver_class" = "oracle.jdbc.driver.OracleDriver"
+);
+CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
+
+-- 方式二，注意有jdbc前缀
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="doris",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+    "jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+);	
 ```
 
 其中`jdbc.driver_url`可以是远程jar包：
@@ -576,7 +601,9 @@ MySQL [(none)]> show databases;
 9 rows in set (0.67 sec)
 ```
 
-> 注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
+> 注意：
+> 1. 在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
+> 2. 在oracle catalog中，doris的一个database对应于oracle中的一个user，database下的tables则对应于oracle该user下的有权限访问的tables。
 
 查看`db1`数据库下的表，并查询：
 ```sql
@@ -762,6 +789,18 @@ select k1, k4 from table;           // Query OK.
 | Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理                        |
 | DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING                |
 | Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
+
+#### ORACLE
+ ORACLE Type | Doris Type | Comment |
+|---|---|---|
+| number(p) / number(p,0) |  | Doris会根据p的大小来选择对应的类型：p<3 -> TINYINT; p<5 -> SMALLINT; p<10 -> INT; p<19 -> BIGINT; p>19 -> LARGEINT |
+| number(p,s) | DECIMAL | |
+| decimal | DECIMAL | |
+| float/real | DOUBLE | |
+| DATE | DATETIME | |
+| CHAR/NCHAR | CHAR | |
+| VARCHAR2/NVARCHAR2 | VARCHAR | |
+| LONG/ RAW/ LONG RAW/ INTERVAL | TEXT | |
 
 ## 权限管理
 

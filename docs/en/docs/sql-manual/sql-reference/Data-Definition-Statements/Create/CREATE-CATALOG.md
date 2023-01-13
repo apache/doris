@@ -148,7 +148,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	**postgresql**
 
 	```sql
-	-- 1.2.0+ Version
+	-- The first way
 	CREATE RESOURCE pg_resource PROPERTIES (
 		"type"="jdbc",
 		"user"="postgres",
@@ -159,7 +159,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
-	-- 1.2.0 Version
+	-- The second way, note: keys have 'jdbc' prefix in front.
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
 		"jdbc.user"="postgres",
@@ -190,6 +190,30 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
 		...
 	)
+	```
+
+	**oracle**
+	```sql
+	-- The first way
+	CREATE RESOURCE oracle_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="doris",
+		"password"="123456",
+		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"driver_url" = "file:/path/to/ojdbc6.jar",
+		"driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
+
+	-- The second way, note: keys have 'jdbc' prefix in front.
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="doris",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+		"jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);	
 	```
 
 ### Keywords

@@ -430,7 +430,7 @@ CREATE CATALOG jdbc PROPERTIES (
 **CLICKHOUSE catalog example**
 
 ```sql
--- 1.2.0+ Version
+-- The first way
 CREATE RESOURCE clickhouse_resource PROPERTIES (
     "type"="jdbc",
     "user"="default",
@@ -441,12 +441,37 @@ CREATE RESOURCE clickhouse_resource PROPERTIES (
 )
 CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
 
--- 1.2.0 Version
+-- The second way, note: keys have 'jdbc' prefix in front.
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
     "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     ...
 )
+```
+
+**oracle catalog example**
+
+```sql
+-- The first way
+CREATE RESOURCE oracle_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="doris",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "driver_url" = "file:/path/to/ojdbc6.jar",
+    "driver_class" = "oracle.jdbc.driver.OracleDriver"
+);
+CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
+
+-- The second way, note: keys have 'jdbc' prefix in front.
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="doris",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+    "jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+);	
 ```
 
 Where `jdbc.driver_url` can be a remote jar package
@@ -481,7 +506,9 @@ MySQL [(none)]> show catalogs;
 2 rows in set (0.02 sec)
 ```
 
-> Note: In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
+> Note: 
+> 1. In the `postgresql catalog`, a database for doris corresponds to a schema in the postgresql specified catalog (specified in the `jdbc.jdbc_url` parameter), tables under this database corresponds to tables under this postgresql's schema.
+> 2. In the `oracle catalog`, a database for doris corresponds to a user in the oracle, tables under this database corresponds to tables under this oracle's user.
 
 Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
 
@@ -763,6 +790,18 @@ For Hive/Iceberge/Hudi
 | Int256/UInt128/UInt256 | STRING     | Doris does not have a data type of this magnitude and is processed with STRING                                                       |
 | DECIMAL                | DECIMAL    | Data that exceeds Doris's maximum Decimal precision is mapped to a STRING                                                            |
 | Enum/IPv4/IPv6/UUID    | STRING     | In the display of IPv4 and IPv6, an extra `/` is displayed before the data, which needs to be processed by the `split_part` function |
+
+#### ORACLE
+ ORACLE Type | Doris Type | Comment |
+|---|---|---|
+| number(p) / number(p,0) |  | Doris will choose the corresponding doris type based on the p: p<3 -> TINYINT; p<5 -> SMALLINT; p<10 -> INT; p<19 -> BIGINT; p>19 -> LARGEINT |
+| number(p,s) | DECIMAL | |
+| decimal | DECIMAL | |
+| float/real | DOUBLE | |
+| DATE | DATETIME | |
+| CHAR/NCHAR | CHAR | |
+| VARCHAR2/NVARCHAR2 | VARCHAR | |
+| LONG/ RAW/ LONG RAW/ INTERVAL | TEXT | |
 
 ## Privilege Management
 
