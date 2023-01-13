@@ -66,6 +66,8 @@ struct RowsetReaderContext {
     const DeleteBitmap* delete_bitmap = nullptr;
     bool record_rowids = false;
     std::shared_ptr<RowBlockV2> reuse_block;
+    bool is_vertical_compaction = false;
+    bool is_key_column_group = false;
     std::shared_ptr<Schema> reuse_input_schema;
 };
 

@@ -70,7 +70,8 @@ public:
 
     Status remove() override;
 
-    Status link_files_to(const std::string& dir, RowsetId new_rowset_id) override;
+    Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
+                         size_t new_rowset_start_seg_id = 0) override;
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
@@ -89,6 +90,8 @@ public:
 
     Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
+
+    Status get_segments_size(std::vector<size_t>* segments_size);
 
 protected:
     BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,

@@ -53,9 +53,13 @@ Status EngineChecksumTask::_compute_checksum() {
     TupleReader reader;
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
+    reader_params.tablet_schema = tablet->tablet_schema();
     reader_params.reader_type = READER_CHECKSUM;
     reader_params.version = Version(0, _version);
-
+    auto& delete_preds = tablet->delete_predicates();
+    std::copy(delete_preds.cbegin(), delete_preds.cend(),
+              std::inserter(reader_params.delete_predicates,
+                            reader_params.delete_predicates.begin()));
     {
         std::shared_lock rdlock(tablet->get_header_lock());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
