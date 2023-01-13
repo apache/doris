@@ -110,4 +110,7 @@ HeartbeatFailureCounter: 0
   
  ## Unfinished business 
  - Computational spillover: Doris inner table query, when the cluster load is high, the upper layer (outside TableScan) operator can be scheduled to the compute node.
- - Graceful offline: When the compute node goes offline, the new task of the task is automatically scheduled to online nodes; the node go offline after all the old tasks on the node are completed; when the old task cannot be completed on time, the task can kill by itself.
+ - Graceful offline:
+   - When the compute node goes offline, the new task of the task is automatically scheduled to online nodes
+   - the node go offline after all the old tasks on the node are completed
+   - when the old task cannot be completed on time, the task can kill by itself
