@@ -411,15 +411,11 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
 
 int64_t DorisCompoundDirectory::FSIndexOutput::length() const {
     CND_PRECONDITION(writer != nullptr, "file is not open");
-    struct stat64 buf;
-    char buffer[CL_MAX_DIR];
-    buffer[0] = 0;
-    strcat(buffer, writer->path().c_str());
-    if (stat64(buffer, &buf) == -1) {
-        return 0;
-    } else {
-        return buf.st_size;
+    size_t ret;
+    if (!writer->fs()->file_size(writer->path(), &ret).ok()) {
+        return -1;
     }
+    return ret;
 }
 
 DorisCompoundDirectory::DorisCompoundDirectory() {
@@ -577,10 +573,10 @@ DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(
 
 int64_t DorisCompoundDirectory::fileModified(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
-    struct stat64 buf;
+    struct stat buf;
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
-    if (stat64(buffer, &buf) == -1) {
+    if (stat(buffer, &buf) == -1) {
         return 0;
     } else {
         return buf.st_mtime;
