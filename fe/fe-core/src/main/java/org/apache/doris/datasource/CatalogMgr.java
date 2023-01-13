@@ -49,7 +49,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -519,17 +518,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    // init catalog and init db can happen at any time,
+    // even after catalog or db is dropped.
+    // Because it may already hold the catalog or db object before they are being dropped.
+    // So just skip the edit log if object does not exist.
     public void replayInitCatalog(InitCatalogLog log) {
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        Preconditions.checkArgument(catalog != null);
+        if (catalog == null) {
+            return;
+        }
         catalog.replayInitCatalog(log);
     }
 
     public void replayInitExternalDb(InitDatabaseLog log) {
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        Preconditions.checkArgument(catalog != null);
+        if (catalog == null) {
+            return;
+        }
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        Preconditions.checkArgument(db != null);
+        if (db == null) {
+            return;
+        }
         db.replayInitDb(log, catalog);
     }
 
@@ -602,3 +611,4 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_DS_ID);
     }
 }
+
