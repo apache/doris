@@ -875,7 +875,11 @@ CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
-
+// inverted index
+CONF_mDouble(inverted_index_ram_buffer_size, "512");
+CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
+// dict path for chinese analyzer
+CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

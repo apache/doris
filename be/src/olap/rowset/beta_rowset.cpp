@@ -29,6 +29,7 @@
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
@@ -201,6 +202,19 @@ Status BetaRowset::remove() {
             LOG(WARNING) << st.to_string();
             success = false;
         }
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id());
+                st = fs->delete_file(inverted_index_file);
+                if (!st.ok()) {
+                    LOG(WARNING) << st.to_string();
+                    success = false;
+                }
+            }
+        }
         if (fs->type() != io::FileSystemType::LOCAL) {
             auto cache_path = segment_cache_path(i);
             FileCacheManager::instance()->remove_file_cache(cache_path);
@@ -240,6 +254,30 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                          << "to=" << dst_path << ", errno=" << Errno::no();
             return Status::Error<OS_ERROR>();
         }
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_src_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(src_path,
+                                                                     index_meta->index_id());
+                std::string inverted_index_dst_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(dst_path,
+                                                                     index_meta->index_id());
+
+                if (!fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
+                             .ok()) {
+                    LOG(WARNING) << "fail to create hard link. from="
+                                 << inverted_index_src_file_path << ", "
+                                 << "to=" << inverted_index_dst_file_path
+                                 << ", errno=" << Errno::no();
+                    return Status::Error<OS_ERROR>();
+                }
+                LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
+                          << ", "
+                          << "to=" << inverted_index_dst_file_path;
+            }
+        }
     }
     return Status::OK();
 }
@@ -263,6 +301,28 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                          << ", errno=" << Errno::no();
             return Status::Error<OS_ERROR>();
         }
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_src_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(src_path,
+                                                                     index_meta->index_id());
+                std::string inverted_index_dst_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(dst_path,
+                                                                     index_meta->index_id());
+                if (!Env::Default()
+                             ->copy_path(inverted_index_src_file_path, inverted_index_dst_file_path)
+                             .ok()) {
+                    LOG(WARNING) << "fail to copy file. from=" << inverted_index_src_file_path
+                                 << ", to=" << inverted_index_dst_file_path
+                                 << ", errno=" << Errno::no();
+                    return Status::Error<OS_ERROR>();
+                }
+                LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path << ", "
+                          << "to=" << inverted_index_dst_file_path;
+            }
+        }
     }
     return Status::OK();
 }
@@ -278,8 +338,24 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
     dest_paths.reserve(num_segments());
     for (int i = 0; i < num_segments(); ++i) {
         // Note: Here we use relative path for remote.
-        dest_paths.push_back(remote_segment_path(_rowset_meta->tablet_id(), new_rowset_id, i));
-        local_paths.push_back(segment_file_path(i));
+        auto remote_seg_path = remote_segment_path(_rowset_meta->tablet_id(), new_rowset_id, i);
+        auto local_seg_path = segment_file_path(i);
+        dest_paths.push_back(remote_seg_path);
+        local_paths.push_back(local_seg_path);
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string remote_inverted_index_file =
+                        InvertedIndexDescriptor::get_index_file_name(remote_seg_path,
+                                                                     index_meta->index_id());
+                std::string local_inverted_index_file =
+                        InvertedIndexDescriptor::get_index_file_name(local_seg_path,
+                                                                     index_meta->index_id());
+                dest_paths.push_back(remote_inverted_index_file);
+                local_paths.push_back(local_inverted_index_file);
+            }
+        }
     }
     auto st = dest_fs->batch_upload(local_paths, dest_paths);
     if (st.ok()) {
