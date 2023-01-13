@@ -421,6 +421,14 @@ timeout = 1000s 等于 10G / 10M/s
            <version>4.5.13</version>
          </dependency>
      ```
+- 用户在开启 BE 上的 Stream Load 记录后，查询不到记录
+
+  这是因为拉取速度慢造成的，可以尝试调整下面的参数：
+  
+  1. 调大 BE 配置 `stream_load_record_batch_size`，这个配置表示每次从 BE 上最多拉取多少条 Stream load 的记录数，默认值为50条，可以调大到500条。
+  2. 调小 FE 的配置 `fetch_stream_load_record_interval_second`，这个配置表示获取 Stream load 记录间隔，默认每120秒拉取一次，可以调整到60秒。
+  3. 如果要保存更多的 Stream load 记录（不建议，占用 FE 更多的资源）可以将 FE 的配置 `max_stream_load_record_size` 调大，默认是5000条。
+
 ## 更多帮助
 
 关于 Stream Load 使用的更多详细语法及最佳实践，请参阅 [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP STREAM LOAD` 获取更多帮助信息。
