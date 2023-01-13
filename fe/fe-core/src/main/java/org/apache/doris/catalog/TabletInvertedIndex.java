@@ -336,7 +336,7 @@ public class TabletInvertedIndex {
     }
 
     private boolean needChangeCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo) {
-        if (beTabletInfo.getStoragePolicy().isEmpty()) {
+        if (!beTabletInfo.isIsCooldown()) {
             return false;
         }
         // check cooldown type in fe and be, they need to be the same.

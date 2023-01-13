@@ -1439,8 +1439,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
-    tablet_info->__set_storage_policy(_tablet_meta->storage_policy());
-    if (!tablet_info->storage_policy.empty()) {
+    tablet_info->__set_is_cooldown(!_tablet_meta->storage_policy().empty());
+    if (tablet_info->is_cooldown()) {
         tablet_info->__set_cooldown_replica_id(_tablet_meta->cooldown_replica_id());
     }
 }
