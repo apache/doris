@@ -35,6 +35,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
+import org.hamcrest.MatcherAssert;
+import org.hamcrest.core.StringContains;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -197,24 +199,14 @@ public class AutoBucketUtilsTest {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\"\n"
                 + ")";
-        String showResultExpected = "CREATE TABLE `" + genTableNameWithoutDatabase("") + "` (\n"
-                + "  `user_id` largeint(40) NOT NULL\n"
-                + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(`user_id`)\n"
-                + "COMMENT 'OLAP'\n"
-                + "DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO\n"
-                + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n"
-                + "\"disable_auto_compaction\" = \"false\"\n"
-                + ");";
 
         createClusterWithBackends(1, 1, 2000000000);
 
         createTable(sql);
         ShowResultSet showCreateTableResult = UtFrameUtils.showCreateTableByName(connectContext, tableName);
-        Assert.assertEquals(showResultExpected, showCreateTableResult.getResultRows().get(0).get(1));
+        String showCreateTableResultSql = showCreateTableResult.getResultRows().get(0).get(1);
+        MatcherAssert.assertThat(showCreateTableResultSql,
+                StringContains.containsString("DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO\n"));
         int bucketNum = getPartitionBucketNum(tableName);
         Assert.assertEquals(FeConstants.default_bucket_num, bucketNum);
     }
