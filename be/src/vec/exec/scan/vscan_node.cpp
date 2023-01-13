@@ -763,7 +763,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
         if (value.data != nullptr) {
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
-                auto val = StringValue(value.data, value.size);
+                auto val = StringRef(value.data, value.size);
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(&val),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
@@ -840,7 +840,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
             auto fn_name = std::string("");
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
-                auto val = StringValue(value.data, value.size);
+                auto val = StringRef(value.data, value.size);
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
                             range, reinterpret_cast<void*>(&val),
@@ -929,7 +929,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
             if (value.data != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
+                    auto val = StringRef(value.data, value.size);
                     RETURN_IF_ERROR(_change_value_range<false>(range, reinterpret_cast<void*>(&val),
                                                                ColumnValueRange<T>::add_value_range,
                                                                fn_name, slot_ref_child));
@@ -1042,7 +1042,7 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
             if (value.data != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
+                    auto val = StringRef(value.data, value.size);
                     RETURN_IF_ERROR(_change_value_range<false>(
                             range, reinterpret_cast<void*>(&val),
                             ColumnValueRange<T>::add_compound_value_range, fn_name,
@@ -1099,7 +1099,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                 using CppType = typename PrimitiveTypeTraits<T>::CppType;
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
+                    auto val = StringRef(value.data, value.size);
                     ColumnValueRange<T>::add_match_value_range(temp_range,
                                                                to_match_type(expr->op()),
                                                                reinterpret_cast<CppType*>(&val));

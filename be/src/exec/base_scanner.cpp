@@ -228,7 +228,7 @@ Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
                         },
                         [&]() -> std::string {
                             // Type of the slot is must be Varchar in _src_tuple.
-                            StringValue* raw_value = _src_tuple->get_string_slot(
+                            StringRef* raw_value = _src_tuple->get_string_slot(
                                     _src_slot_descs_order_by_dest[dest_index]->tuple_offset());
                             std::string raw_string;
                             if (raw_value != nullptr) { //is not null then get raw value
@@ -424,10 +424,10 @@ void BaseScanner::fill_slots_of_columns_from_path(
         auto slot_desc = _src_slot_descs.at(i + start);
         _src_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
-        auto* str_slot = reinterpret_cast<StringValue*>(slot);
+        auto* str_slot = reinterpret_cast<StringRef*>(slot);
         const std::string& column_from_path = columns_from_path[i];
-        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
-        str_slot->len = column_from_path.size();
+        str_slot->data = column_from_path.c_str();
+        str_slot->size = column_from_path.size();
     }
 }
 

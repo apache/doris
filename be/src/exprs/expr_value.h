@@ -23,8 +23,8 @@
 #include "runtime/collection_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
 #include "runtime/types.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -43,7 +43,7 @@ struct ExprValue {
     float float_val;
     double double_val;
     std::string string_data;
-    StringValue string_val;
+    StringRef string_val;
     DateTimeValue datetime_val;
     doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val;
     doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_val;
@@ -78,11 +78,11 @@ struct ExprValue {
     // c'tor for string values
     ExprValue(const std::string& str)
             : string_data(str),
-              string_val(const_cast<char*>(string_data.data()), string_data.size()) {}
+              string_val(string_data) {}
 
     // Set string value to copy of str
-    void set_string_val(const StringValue& str) {
-        string_data = std::string(str.ptr, str.len);
+    void set_string_val(const StringRef& str) {
+        string_data = std::string(str.data, str.size);
         sync_string_val();
     }
 
@@ -95,8 +95,8 @@ struct ExprValue {
     // string_data. If not called after mutating string_data,
     // string_val->ptr may point at garbage.
     void sync_string_val() {
-        string_val.ptr = const_cast<char*>(string_data.data());
-        string_val.len = string_data.size();
+        string_val.data = string_data.data();
+        string_val.size = string_data.size();
     }
 
     // Sets the value for type to '0' and returns a pointer to the data

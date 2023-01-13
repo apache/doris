@@ -31,9 +31,9 @@
 #include "io/file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -130,15 +130,18 @@ Status ParquetReaderWrap::size(int64_t* size) {
     }
 }
 
+// TODO: NEED TO REWRITE COMPLETELY. the way writing now is WRONG.
+// StringRef shouldn't managing exclusive memory cause it will break RAII.
+// besides, accessing object which is essentially const by non-const object
+// is UB!
 inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                                          const uint8_t* value, int32_t len) {
     tuple->set_not_null(slot_desc->null_indicator_offset());
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
-    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-    str_slot->ptr = reinterpret_cast<char*>(mem_pool->allocate(len));
-    memcpy(str_slot->ptr, value, len);
-    str_slot->len = len;
-    return;
+    StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+    str_slot->data = reinterpret_cast<char*>(mem_pool->allocate(len));
+    memcpy(const_cast<char*>(str_slot->data), value, len); // !
+    str_slot->size = len;
 }
 
 inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc) {

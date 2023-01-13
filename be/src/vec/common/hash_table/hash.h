@@ -100,7 +100,7 @@ struct DefaultHash<doris::vectorized::Int128I> {
 };
 
 template <>
-struct DefaultHash<StringRef> : public StringRefHash {};
+struct DefaultHash<doris::StringRef> : public doris::StringRefHash {};
 
 template <typename T>
 struct HashCRC32;

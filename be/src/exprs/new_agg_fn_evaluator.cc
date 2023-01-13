@@ -30,8 +30,8 @@
 #include "exprs/expr_context.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
 #include "udf/udf_internal.h"
+#include "vec/common/string_ref.h"
 
 using namespace doris;
 using namespace doris_udf;
@@ -255,8 +255,8 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
     case TYPE_OBJECT:
     case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
-        *reinterpret_cast<StringValue*>(slot) =
-                StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
+        //
+        *reinterpret_cast<StringRef*>(slot) = *reinterpret_cast<const StringVal*>(src);
         return;
     case TYPE_DATE:
     case TYPE_DATETIME:
@@ -353,7 +353,7 @@ inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescripto
     case TYPE_OBJECT:
     case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
-        reinterpret_cast<const StringValue*>(slot)->to_string_val(
+        reinterpret_cast<const StringRef*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
 

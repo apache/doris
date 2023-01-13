@@ -37,7 +37,7 @@
 namespace doris::vectorized {
 
 // Define in the namespace and avoid defining global macros,
-// because it maybe conflict with other libs
+// because it maybe conflicts with other libs
 static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
@@ -134,7 +134,7 @@ inline void write_string_binary(const StringRef& s, BufferWritable& buf) {
 }
 
 inline void write_string_binary(const char* s, BufferWritable& buf) {
-    write_string_binary(StringRef {s}, buf);
+    write_string_binary(StringRef{std::string(s)}, buf);
 }
 
 inline void write_json_binary(JsonbField s, BufferWritable& buf) {

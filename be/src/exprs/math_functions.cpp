@@ -680,7 +680,7 @@ LEAST_FNS();
     }
 
 #define LEAST_NONNUMERIC_FNS()                                     \
-    LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
+    LEAST_NONNUMERIC_FN(string_val, StringVal, StringRef);         \
     LEAST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     LEAST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
@@ -723,7 +723,7 @@ GREATEST_FNS();
     }
 
 #define GREATEST_NONNUMERIC_FNS()                                     \
-    GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
+    GREATEST_NONNUMERIC_FN(string_val, StringVal, StringRef);       \
     GREATEST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 

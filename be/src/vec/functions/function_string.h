@@ -66,6 +66,7 @@
 
 namespace doris::vectorized {
 
+//TODO: these three functions could be merged.
 inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
@@ -86,10 +87,10 @@ inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index)
     return char_len;
 }
 
-inline size_t get_char_len(const StringValue& str, size_t end_pos) {
+inline size_t get_char_len(const StringRef& str, size_t end_pos) {
     size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+    for (size_t i = 0, char_size = 0; i < std::min(str.size, end_pos); i += char_size) {
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         ++char_len;
     }
     return char_len;
@@ -1809,7 +1810,7 @@ public:
             auto param = parameter_col->get_data_at(i);
             auto res = extract_url(source, param);
 
-            col_res->insert_data(res.ptr, res.len);
+            col_res->insert_data(res.data, res.size);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -1817,11 +1818,11 @@ public:
     }
 
 private:
-    StringValue extract_url(StringRef url, StringRef parameter) {
+    StringRef extract_url(StringRef url, StringRef parameter) {
         if (url.size == 0 || parameter.size == 0) {
-            return StringValue("", 0);
+            return StringRef("", 0);
         }
-        return UrlParser::extract_url(StringValue(url), StringValue(parameter));
+        return UrlParser::extract_url(url, parameter);
     }
 };
 
@@ -1875,18 +1876,18 @@ public:
             }
 
             auto part = part_col->get_data_at(i);
-            StringValue p(const_cast<char*>(part.data), part.size);
+            StringRef p(const_cast<char*>(part.data), part.size);
             UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
-            StringValue url_key;
+            StringRef url_key;
             if (has_key) {
                 auto key = key_col->get_data_at(i);
-                url_key = StringValue(const_cast<char*>(key.data), key.size);
+                url_key = StringRef(const_cast<char*>(key.data), key.size);
             }
 
             auto source = url_col->get_data_at(i);
-            StringValue url_val(const_cast<char*>(source.data), source.size);
+            StringRef url_val(const_cast<char*>(source.data), source.size);
 
-            StringValue parse_res;
+            StringRef parse_res;
             bool success = false;
             if (has_key) {
                 success = UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res);
@@ -1908,7 +1909,7 @@ public:
                 }
             }
 
-            StringOP::push_value_string(std::string_view(parse_res.ptr, parse_res.len), i,
+            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
                                         res_chars, res_offsets);
         }
         block.get_by_position(result).column =
@@ -2136,10 +2137,10 @@ private:
         if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
             return 0;
         }
-        StringValue substr_sv = StringValue::from_string_val(substr);
+        StringRef substr_sv = StringRef(substr);
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
-        StringValue adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
+        StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
                                  str.len - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {

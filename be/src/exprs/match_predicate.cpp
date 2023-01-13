@@ -25,7 +25,7 @@
 #include "exec/olap_utils.h"
 #include "exprs/string_functions.h"
 #include "olap/schema.h"
-#include "runtime/string_value.hpp"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -49,10 +49,10 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     if (is_string_type(column_desc->type()) ||
         (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
          is_string_type(column_desc->get_sub_field(0)->type_info()->type()))) {
-        StringValue match_value;
+        StringRef match_value;
         int32_t length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
-        match_value.replace(buffer, length);
+        match_value.replace(buffer, length);//is it safe?
         s = iterator->read_from_inverted_index(column_desc->name(), &match_value,
                                                inverted_index_query_type, num_rows, &roaring);
     } else if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&

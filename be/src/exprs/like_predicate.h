@@ -44,7 +44,7 @@ struct LikePredicateState {
     /// separately.
     LikePredicateFunction function;
 
-    /// Holds the string the StringValue points to and is set any time StringValue is
+    /// Holds the string the StringRef points to and is set any time StringRef is
     /// used.
     std::string search_string;
 
@@ -52,7 +52,7 @@ struct LikePredicateState {
     /// constant string or has a constant string at the beginning or end of the pattern.
     /// This will be set in order to check for that pattern in the corresponding part of
     /// the string.
-    StringValue search_string_sv;
+    StringRef search_string_sv;
 
     /// Used for LIKE predicates if the pattern is a constant argument and has a constant
     /// string in the middle of it. This will be use in order to check for the substring
@@ -66,7 +66,7 @@ struct LikePredicateState {
 
     void set_search_string(const std::string& search_string_arg) {
         search_string = search_string_arg;
-        search_string_sv = StringValue(search_string);
+        search_string_sv = StringRef(search_string);
         substring_pattern.set_pattern(&search_string_sv);
     }
 };

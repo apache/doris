@@ -558,8 +558,8 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_STRING: {
-            // StringRef->StringValue
-            StringValue data = StringValue(const_cast<char*>(value.data), value.size);
+            // StringRef->StringRef
+            StringRef data = StringRef(value.data, value.size);
             insert(reinterpret_cast<const void*>(&data));
             break;
         }
@@ -861,7 +861,7 @@ public:
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
                 auto val_ptr = pool->add(new std::string(string_val_ref));
-                StringValue string_val(const_cast<char*>(val_ptr->c_str()), val_ptr->length());
+                StringRef string_val(val_ptr->c_str(), val_ptr->length());
                 set->insert(&string_val);
             });
             break;
@@ -994,8 +994,8 @@ public:
             auto& max_val_ref = minmax_filter->max_val().stringval();
             auto min_val_ptr = _pool->add(new std::string(min_val_ref));
             auto max_val_ptr = _pool->add(new std::string(max_val_ref));
-            StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
-            StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
+            StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
+            StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
             return _context.minmax_func->assign(&min_val, &max_val);
         }
         default:
@@ -1028,12 +1028,12 @@ public:
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
-                StringValue* min_value = static_cast<StringValue*>(_context.minmax_func->get_min());
-                StringValue* max_value = static_cast<StringValue*>(_context.minmax_func->get_max());
-                auto min_val_ptr = _pool->add(new std::string(min_value->ptr));
-                auto max_val_ptr = _pool->add(new std::string(max_value->ptr));
-                StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
-                StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
+                StringRef* min_value = static_cast<StringRef*>(_context.minmax_func->get_min());
+                StringRef* max_value = static_cast<StringRef*>(_context.minmax_func->get_max());
+                auto min_val_ptr = _pool->add(new std::string(min_value->data));
+                auto max_val_ptr = _pool->add(new std::string(max_value->data));
+                StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
+                StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
                 _context.minmax_func->assign(&min_val, &max_val);
             }
             default:
@@ -1616,8 +1616,8 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        batch_copy<StringValue>(filter, it, [](PColumnValue* column, const StringValue* value) {
-            column->set_stringval(std::string(value->ptr, value->len));
+        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
+            column->set_stringval(std::string(value->data, value->size));
         });
         return;
     }
@@ -1725,12 +1725,12 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        const StringValue* min_string_value = reinterpret_cast<const StringValue*>(min_data);
+        const StringRef* min_string_value = reinterpret_cast<const StringRef*>(min_data);
         filter->mutable_min_val()->set_stringval(
-                std::string(min_string_value->ptr, min_string_value->len));
-        const StringValue* max_string_value = reinterpret_cast<const StringValue*>(max_data);
+                std::string(min_string_value->data, min_string_value->size));
+        const StringRef* max_string_value = reinterpret_cast<const StringRef*>(max_data);
         filter->mutable_max_val()->set_stringval(
-                std::string(max_string_value->ptr, max_string_value->len));
+                std::string(max_string_value->data, max_string_value->size));
         break;
     }
     default: {

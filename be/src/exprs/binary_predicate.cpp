@@ -21,7 +21,7 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -396,8 +396,8 @@ DATETIME_BINARY_PRED_FNS()
         if (v2.is_null) {                                                \
             return BooleanVal::null();                                   \
         }                                                                \
-        StringValue pv1 = StringValue::from_string_val(v1);              \
-        StringValue pv2 = StringValue::from_string_val(v2);              \
+        StringRef pv1 = StringRef(v1);                                   \
+        StringRef pv2 = StringRef(v2);                                   \
         return BooleanVal(pv1 OP pv2);                                   \
     }
 

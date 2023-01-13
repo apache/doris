@@ -855,7 +855,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                 auto item_offset = offset + i;
                 const auto& data_ref = item_type_desc.type != TYPE_ARRAY
                                                ? item_column->get_data_at(item_offset)
-                                               : StringRef();
+                                               : StringRef{};
                 if (item_type_desc.is_date_type()) {
                     // In CollectionValue, date type data is stored as either uint24_t or uint64_t.
                     DateTimeValue datetime_value;
@@ -888,35 +888,39 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     } else if (type_desc.type == TYPE_OBJECT) {
         auto bitmap_value = (BitmapValue*)(data_ref.data);
         auto size = bitmap_value->getSizeInBytes();
-
+        
         // serialize the content of string
-        auto string_slot = reinterpret_cast<StringValue*>(dst);
-        string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-        bitmap_value->write(string_slot->ptr);
-        string_slot->len = size;
+        // TODO: NEED TO REWRITE COMPLETELY. the way writing now is WRONG.
+        // StringRef shouldn't managing exclusive memory cause it will break RAII.
+        // besides, accessing object which is essentially const by non-const object
+        // is UB!
+        auto string_slot = reinterpret_cast<StringRef*>(dst);
+        string_slot->data = reinterpret_cast<char*>(pool->allocate(size));
+        bitmap_value->write(const_cast<char*>(string_slot->data)); //!
+        string_slot->size = size;
     } else if (type_desc.type == TYPE_HLL) {
         auto hll_value = (HyperLogLog*)(data_ref.data);
         auto size = hll_value->max_serialized_size();
-        auto string_slot = reinterpret_cast<StringValue*>(dst);
-        string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-        size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
-        string_slot->len = actual_size;
+        auto string_slot = reinterpret_cast<StringRef*>(dst);
+        string_slot->data = reinterpret_cast<char*>(pool->allocate(size));
+        size_t actual_size = hll_value->serialize((uint8_t*)string_slot->data);
+        string_slot->size = actual_size;
     } else if (type_desc.is_string_type()) { // TYPE_OBJECT and TYPE_HLL must be handled before.
         memcpy(dst, (const void*)(&data_ref), sizeof(data_ref));
         // Copy the content of string
         if (padding_char && type_desc.type == TYPE_CHAR) {
             // serialize the content of string
-            auto string_slot = reinterpret_cast<StringValue*>(dst);
-            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(type_desc.len));
-            string_slot->len = type_desc.len;
-            memset(string_slot->ptr, 0, type_desc.len);
-            memcpy(string_slot->ptr, data_ref.data, data_ref.size);
+            auto string_slot = reinterpret_cast<StringRef*>(dst);
+            string_slot->data = reinterpret_cast<char*>(pool->allocate(type_desc.len));
+            string_slot->size = type_desc.len;
+            memset(const_cast<char*>(string_slot->data), 0, type_desc.len); //!
+            memcpy(const_cast<char*>(string_slot->data), data_ref.data, data_ref.size); //!
         } else {
             auto str_ptr = pool->allocate(data_ref.size);
             memcpy(str_ptr, data_ref.data, data_ref.size);
-            auto string_slot = reinterpret_cast<StringValue*>(dst);
-            string_slot->ptr = reinterpret_cast<char*>(str_ptr);
-            string_slot->len = data_ref.size;
+            auto string_slot = reinterpret_cast<StringRef*>(dst);
+            string_slot->data = reinterpret_cast<char*>(str_ptr);
+            string_slot->size = data_ref.size;
         }
     } else {
         memcpy(dst, data_ref.data, data_ref.size);

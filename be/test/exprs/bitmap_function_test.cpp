@@ -310,7 +310,7 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     date_time_value.to_datetime_val(&datetime2);
     test_bitmap_intersect<DateTimeVal, DateTimeValue>(ctx, datetime1, datetime2);
 
-    test_bitmap_intersect<StringVal, StringValue>(ctx, StringVal("20191211"),
+    test_bitmap_intersect<StringVal, StringRef>(ctx, StringVal("20191211"),
                                                   StringVal("20191212"));
 }
 

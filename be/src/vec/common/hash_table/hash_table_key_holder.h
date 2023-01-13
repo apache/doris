@@ -99,7 +99,7 @@ struct ArenaKeyHolder {
 
 } // namespace doris::vectorized
 
-inline StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::ArenaKeyHolder& holder) {
+inline doris::StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::ArenaKeyHolder& holder) {
     return holder.key;
 }
 
@@ -125,7 +125,7 @@ struct SerializedKeyHolder {
 
 } // namespace doris::vectorized
 
-inline StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::SerializedKeyHolder& holder) {
+inline doris::StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::SerializedKeyHolder& holder) {
     return holder.key;
 }
 

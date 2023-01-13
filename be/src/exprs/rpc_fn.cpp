@@ -151,20 +151,20 @@ Status RPCFn::call_internal(ExprContext* context, TupleRow* row, PFunctionCallRe
         case TYPE_STRING:
         case TYPE_CHAR: {
             ptype->set_id(PGenericType::STRING);
-            StringValue value = *reinterpret_cast<StringValue*>(src_slot);
-            arg->add_string_value(value.ptr, value.len);
+            StringRef value = *reinterpret_cast<StringRef*>(src_slot);
+            arg->add_string_value(value.data, value.size);
             break;
         }
         case TYPE_HLL: {
             ptype->set_id(PGenericType::HLL);
-            StringValue value = *reinterpret_cast<StringValue*>(src_slot);
-            arg->add_string_value(value.ptr, value.len);
+            StringRef value = *reinterpret_cast<StringRef*>(src_slot);
+            arg->add_string_value(value.data, value.size);
             break;
         }
         case TYPE_OBJECT: {
             ptype->set_id(PGenericType::BITMAP);
-            StringValue value = *reinterpret_cast<StringValue*>(src_slot);
-            arg->add_string_value(value.ptr, value.len);
+            StringRef value = *reinterpret_cast<StringRef*>(src_slot);
+            arg->add_string_value(value.data, value.size);
             break;
         }
         case TYPE_DECIMALV2: {

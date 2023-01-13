@@ -31,21 +31,15 @@
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 #include "runtime/type_limit.h"
 #include "uint24.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-// for string value
 template <>
-struct std::hash<doris::StringValue> {
-    uint64_t operator()(const doris::StringValue& rhs) const { return hash_value(rhs); }
-};
-
-template <>
-struct std::equal_to<doris::StringValue> {
-    bool operator()(const doris::StringValue& lhs, const doris::StringValue& rhs) const {
+struct std::equal_to<doris::StringRef> {
+    bool operator()(const doris::StringRef& lhs, const doris::StringRef& rhs) const {
         return lhs == rhs;
     }
 };
@@ -123,7 +117,7 @@ public:
 
             if constexpr (is_string_type(Type)) {
                 for (auto& value : *values) {
-                    StringValue sv = {value.data(), int(value.size())};
+                    StringRef sv = {value.data(), size_t(value.size())};
                     if constexpr (Type == TYPE_CHAR) {
                         _temp_datas.push_back("");
                         _temp_datas.back().resize(std::max(char_length, value.size()));
@@ -346,8 +340,8 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             for (auto value : *_values) {
-                if constexpr (std::is_same_v<T, StringValue>) {
-                    if (bf->test_bytes(value.ptr, value.len)) {
+                if constexpr (std::is_same_v<T, StringRef>) {
+                    if (bf->test_bytes(value.data, value.size)) {
                         return true;
                     }
                 } else if constexpr (Type == TYPE_DATE) {
@@ -388,7 +382,7 @@ private:
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
@@ -427,7 +421,7 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<
@@ -467,7 +461,7 @@ private:
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
@@ -503,7 +497,7 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<

@@ -24,9 +24,9 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
