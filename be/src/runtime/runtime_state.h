@@ -43,7 +43,6 @@ class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
 class ResultBufferMgr;
-class DiskIoMgrs;
 class TmpFileMgr;
 class BufferedBlockMgr;
 class BufferedBlockMgr2;

@@ -43,7 +43,6 @@
 #include "exprs/operators.h"
 #include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/table_function/dummy_table_functions.h"
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
@@ -51,7 +50,6 @@
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "runtime/block_spill_manager.h"
-#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
@@ -187,20 +185,6 @@ void Daemon::tcmalloc_gc_thread() {
         }
     }
 #endif
-}
-
-void Daemon::buffer_pool_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
-        ExecEnv* env = ExecEnv::GetInstance();
-        // ExecEnv may not have been created yet or this may be the catalogd or statestored,
-        // which don't have ExecEnvs.
-        if (env != nullptr) {
-            BufferPool* buffer_pool = env->buffer_pool();
-            if (buffer_pool != nullptr) {
-                buffer_pool->Maintenance();
-            }
-        }
-    }
 }
 
 void Daemon::memory_maintenance_thread() {
@@ -414,7 +398,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     QuantileStateFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
-    DummyTableFunctions::init();
     MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
@@ -430,10 +413,6 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
             &_tcmalloc_gc_thread);
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
-            &_buffer_pool_gc_thread);
     CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
@@ -468,9 +447,6 @@ void Daemon::stop() {
 
     if (_tcmalloc_gc_thread) {
         _tcmalloc_gc_thread->join();
-    }
-    if (_buffer_pool_gc_thread) {
-        _buffer_pool_gc_thread->join();
     }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();

@@ -168,7 +168,29 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
 		"jdbc.driver_class" = "org.postgresql.Driver"
 	);
-	```	
+	```
+
+	**clickhouse**
+
+	```sql
+	-- 1.2.0+ Version
+	CREATE RESOURCE clickhouse_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="default",
+		"password"="123456",
+		"jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+		"driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+		"driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+	)
+	CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+	
+	-- 1.2.0 Version
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+		...
+	)
+	```
 
 ### Keywords
 
