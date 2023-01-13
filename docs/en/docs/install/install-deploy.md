@@ -226,7 +226,7 @@ See the `lower_case_table_names` section in [Variables](../../advanced/variables
 
 * BE webserver_port configuration
 
-	If the BE componet is installed in hadoop cluster, you need to change the configuration `webserver_port=8040`  in be.conf to avoid port conflicts.
+	If the BE component is installed in hadoop cluster, you need to change configuration `webserver_port=8040` to avoid port used.
 
 * Set JAVA_HOME environment variable
 
