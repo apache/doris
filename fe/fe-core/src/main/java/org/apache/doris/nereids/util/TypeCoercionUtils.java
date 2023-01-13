@@ -380,7 +380,7 @@ public class TypeCoercionUtils {
                     type = promoted;
                 }
                 if (type.equals(dataType)) {
-                    Literal promoted = DataType.promoteNumberLiteral(((Literal) input).getValue(), dataType);
+                    Literal promoted = DataType.promoteLiteral(((Literal) input).getValue(), dataType);
                     if (promoted != null) {
                         return promoted;
                     }
