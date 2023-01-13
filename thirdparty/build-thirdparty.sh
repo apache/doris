@@ -1579,7 +1579,6 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
     build_gettext
 fi
 
-build_clucene
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1636,5 +1635,6 @@ build_libbacktrace
 build_sse2neon
 build_xxhash
 build_concurrentqueue
+build_clucene
 
 echo "Finished to build all thirdparties"
