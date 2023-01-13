@@ -26,7 +26,6 @@ import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -42,7 +41,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -84,7 +82,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /*
  * MaterializedViewHandler is responsible for ADD/DROP materialized view.
@@ -1171,13 +1168,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
             throws UserException {
-        List<TableIf> olapTables = addMVClause.getTableRefs().stream().map(TableRef::getTable)
-                .collect(Collectors.toList());
+        Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
         try {
-            olapTables.forEach(TableIf::writeLock);
+            olapTables.values().forEach(Table::writeLock);
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
-            olapTables.forEach(TableIf::writeUnlock);
+            olapTables.values().forEach(Table::writeUnlock);
         }
     }
 }

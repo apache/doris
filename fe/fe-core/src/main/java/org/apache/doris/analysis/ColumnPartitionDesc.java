@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -28,7 +27,6 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -48,7 +46,7 @@ public class ColumnPartitionDesc extends PartitionDesc {
         for (SlotRef column : columns) {
             column.analyze(analyzer);
         }
-        OlapTable olapTable = matchTable(stmt.getTableRefs());
+        OlapTable olapTable = matchTable(stmt.getOlapTables());
         PartitionDesc partitionDesc = olapTable.getPartitionInfo().toPartitionDesc(olapTable);
         type = partitionDesc.getType();
         partitionColNames = toMVPartitionColumnNames(olapTable.getName(), partitionDesc.getPartitionColNames(),
@@ -56,17 +54,15 @@ public class ColumnPartitionDesc extends PartitionDesc {
         singlePartitionDescs = partitionDesc.getSinglePartitionDescs();
     }
 
-    private OlapTable matchTable(List<TableRef> tableRefs) throws AnalysisException {
+    private OlapTable matchTable(Map<String, OlapTable> olapTables) throws AnalysisException {
         OlapTable matched = null;
         for (SlotRef column : columns) {
-            Optional<TableIf> olapTable = tableRefs.stream()
-                    .filter(tableRef -> tableRef.getTable().getName().equals(column.getTableName().getTbl()))
-                    .findFirst().map(TableRef::getTable);
-            if (olapTable.isPresent()) {
-                if (matched != null && !matched.getName().equals(olapTable.get().getName())) {
+            OlapTable olapTable = olapTables.get(column.getTableName().getTbl());
+            if (olapTable != null) {
+                if (matched != null && !matched.getName().equals(olapTable.getName())) {
                     throw new AnalysisException("The partition columns must be in the same table.");
                 } else if (matched == null) {
-                    matched = (OlapTable) olapTable.get();
+                    matched = olapTable;
                 }
             }
         }
