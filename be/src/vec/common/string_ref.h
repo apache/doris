@@ -151,6 +151,7 @@ struct StringRef {
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
 
     explicit operator std::string() const { return to_string(); }
+    operator std::string_view() const { return std::string_view {data, size}; }
 
     StringRef substring(int start_pos, int new_len) const {
         return StringRef(data + start_pos, (new_len < 0) ? (size - start_pos) : new_len);

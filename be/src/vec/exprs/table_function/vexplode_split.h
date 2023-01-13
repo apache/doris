@@ -37,10 +37,13 @@ public:
     virtual Status get_value_length(int64_t* length) override;
 
 private:
-    using ExplodeSplitTableFunction::process;
+    std::vector<std::string_view> _backup;
 
     ColumnPtr _text_column;
-    ColumnPtr _delimiter_column;
+    const uint8_t* _test_null_map = nullptr;
+    const ColumnString* _real_text_column = nullptr;
+
+    StringRef _delimiter = {};
 };
 
 } // namespace doris::vectorized
