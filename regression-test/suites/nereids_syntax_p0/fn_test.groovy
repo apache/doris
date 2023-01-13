@@ -21,7 +21,6 @@ suite("nereids_function") {
 
     // ddl begin
     sql "drop table if exists t"
-    sql "drop table if exists tarray"
 
     sql """
         CREATE TABLE IF NOT EXISTS `t` (
@@ -52,12 +51,6 @@ suite("nereids_function") {
             `kdtmv2s1` datetimev2(0) null,
             `kdtmv2s2` datetimev2(4) null,
             `kdtmv2s3` datetimev2(6) null
-        ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
-        properties("replication_num" = "1")
-    """
-    sql """
-    CREATE TABLE IF NOT EXISTS `tarray` (
             `kabool` array<boolean> null,
             `katint` array<tinyint> null,
             `kasint` array<smallint> null,
@@ -81,7 +74,7 @@ suite("nereids_function") {
     """
 
     sql """
-    insert into t1 values
+    insert into t values
     (0, 1, 1989, 1001, 11011902, 123.123, true, 1989-03-21, 1989-03-21 13:00:00, wangjuoo4, 0.1, 6.333, string12345, 170141183460469231731687303715884105727),
     (0, 2, 1986, 1001, 11011903, 1243.5, false, 1901-12-31, 1989-03-21 13:00:00, wangynnsf, 20.268, 789.25, string12345, -170141183460469231731687303715884105727),
     (0, 3, 1989, 1002, 11011905, 24453.325, false, 2012-03-14, 2000-01-01 00:00:00, yunlj8@nk, 78945, 3654.0, string12345, 0),
@@ -103,7 +96,7 @@ suite("nereids_function") {
     
     // function table begin
     // usage: write the new function in the list and construct answer.
-    def scalar_function = [
+    Map<String, List<List<String>>> scalar_function = [
         'abs' : [['double', 'double'], ['float', 'float'], ['largeint', 'largeint'], ['largeint', 'bigint'], ['integer', 'smallint'], ['bigint', 'integer'], ['smallint', 'tinyint'], ['decimalv2', 'decimalv2']],
         'acos' : [['double', 'double']],
         'aes_decrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']],
@@ -371,16 +364,39 @@ suite("nereids_function") {
         'years_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
         'years_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
     ]
+
+    Map<String, List<List<String>>> agg_function = [: ]
+    Map<String, List<List<String>>> array_scalar_function = [: ]
+    Map<String, List<List<String>>> array_agg_function = [: ]
     // function table end
 
     // test begin
     def typeToColumn = [
-        
+        'tinyint' : ['ktint'],
+        'smallint' : ['ksint'],
+        'integer' : ['kint'],
+        'bigint' : ['kbint'],
+        'largeint' : ['klint'],
+        'float' : ['kfloat'],
+        'double' : ['kdbl'],
+        'decimal' : ['kdcml'],
+        'decimalv3_32' : ['kdcmlv3s1'],
+        'decimalv3_64' : ['kdcmlv3s2'],
+        'decimalv3_128' : ['kdcmlv3s3'],
+        'char' : ['kchr'],
+        'varchar' : ['kvchr'],
+        'string' : ['kstr'],
+        'date' : ['kdt'],
+        'datetime' : ['kdtm'],
+        'datev2' : ['kdtv2'],
+        'datetimev2' : ['kdtmv2']
     ]
 
-    def args = "arg1, arg2, arg3, ..."
-    def fn_str = "fn(${args})"
+    // key is string, value is array
+    scalar_function.each { k, v ->
+            v.substr(1, v.size).each {
 
-    def sql1 = "select ${fn_str} from t"
+            }
+    }
     // test end
 }
