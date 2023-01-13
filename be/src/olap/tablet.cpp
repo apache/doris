@@ -1821,15 +1821,9 @@ Status Tablet::_follow_cooldowned_data() {
     TabletMetaPB remote_tablet_meta_pb;
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     int64_t max_version = -1;
-    for (const auto& it : _rs_version_map) {
-        auto& rs = it.second;
-        for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
-            if (rs->end_version() == rowset_meta_pb.end_version()) {
-                if (max_version < rs->end_version()) {
-                    max_version = rs->end_version();
-                }
-                break;
-            }
+    for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+        if (max_version < rs->end_version()) {
+            max_version = rs->end_version();
         }
     }
 
@@ -1854,10 +1848,6 @@ Status Tablet::_follow_cooldowned_data() {
                 to_delete.push_back(rs);
             }
         }
-    }
-
-    {
-        std::unique_lock meta_wlock(_meta_lock);
         if (tablet_state() != TABLET_SHUTDOWN) {
             modify_rowsets(to_add, to_delete);
             save_meta();
