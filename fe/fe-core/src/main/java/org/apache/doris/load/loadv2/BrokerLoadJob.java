@@ -314,6 +314,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
+        summaryProfile.addInfoString(ProfileManager.JOB_ID, String.valueOf(this.id));
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, this.queryId);
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
         summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(finishTimestamp));

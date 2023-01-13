@@ -58,6 +58,8 @@ public class ProfileManager {
     private static volatile ProfileManager INSTANCE = null;
     // private static final int ARRAY_SIZE = 100;
     // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
+    // just use for load profile and export profile
+    public static final String JOB_ID = "Job ID";
     public static final String QUERY_ID = "Query ID";
     public static final String START_TIME = "Start Time";
     public static final String END_TIME = "End Time";
@@ -148,25 +150,28 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
+        String jobId = element.infoStrings.get(ProfileManager.JOB_ID);
         String queryId = element.infoStrings.get(ProfileManager.QUERY_ID);
+        // if this is a query profile, the jobId will be "N/A"
+        String key = "N/A".equals(jobId) ? queryId : jobId;
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
-        if (Strings.isNullOrEmpty(queryId)) {
+        if (Strings.isNullOrEmpty(key)) {
             LOG.warn("the key or value of Map is null, "
-                    + "may be forget to insert 'QUERY_ID' column into infoStrings");
+                    + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
         }
 
         // a profile may be updated multiple times in queryIdToProfileMap,
         // and only needs to be inserted into the queryIdDeque for the first time.
-        queryIdToProfileMap.put(queryId, element);
+        queryIdToProfileMap.put(key, element);
         writeLock.lock();
         try {
-            if (!queryIdDeque.contains(queryId)) {
+            if (!queryIdDeque.contains(key)) {
                 if (queryIdDeque.size() >= Config.max_query_profile_num) {
                     queryIdToProfileMap.remove(queryIdDeque.getFirst());
                     queryIdDeque.removeFirst();
                 }
-                queryIdDeque.addLast(queryId);
+                queryIdDeque.addLast(key);
             }
         } finally {
             writeLock.unlock();
