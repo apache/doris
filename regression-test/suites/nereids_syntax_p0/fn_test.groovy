@@ -96,7 +96,7 @@ suite("nereids_function") {
     
     // function table begin
     // usage: write the new function in the list and construct answer.
-    Map<String, List<List<String>>> scalar_function = [
+    def scalar_function = [
         'abs' : [['double', 'double'], ['float', 'float'], ['largeint', 'largeint'], ['largeint', 'bigint'], ['integer', 'smallint'], ['bigint', 'integer'], ['smallint', 'tinyint'], ['decimalv2', 'decimalv2']],
         'acos' : [['double', 'double']],
         'aes_decrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']],
@@ -365,9 +365,9 @@ suite("nereids_function") {
         'years_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
     ]
 
-    Map<String, List<List<String>>> agg_function = [: ]
-    Map<String, List<List<String>>> array_scalar_function = [: ]
-    Map<String, List<List<String>>> array_agg_function = [: ]
+    def agg_function = [: ]
+    def array_scalar_function = [: ]
+    def array_agg_function = [: ]
     // function table end
 
     // test begin
