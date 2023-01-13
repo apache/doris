@@ -363,10 +363,8 @@ public:
         writer.finalize(&file_size, &index_size);
         file_writer->close();
 
-        io::SegmentCachePathPolicy cache_policy;
-        cache_policy.set_cache_path(segment_cache_path(seg_id));
-        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                             cache_policy);
+        io::FileReaderOptions reader_options(FileCachePolicy::NO_CACHE,
+                                             io::SegmentCachePathPolicy());
         Segment::open(fs, path, seg_id, {}, &_tablet_schema, reader_options, res);
     }
 
