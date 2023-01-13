@@ -1116,6 +1116,11 @@ public class SingleNodePlanner {
             return createConstantSelectPlan(selectStmt, analyzer);
         }
 
+        if (analyzer.enableStarJoinReorder()) {
+            LOG.debug("use old reorder logical in select stmt");
+            selectStmt.reorderTable(analyzer);
+        }
+
         // Slot materialization:
         // We need to mark all slots as materialized that are needed during the execution
         // of selectStmt, and we need to do that prior to creating plans for the TableRefs
