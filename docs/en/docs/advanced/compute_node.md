@@ -1,7 +1,7 @@
 --- 
 {
     "title": "Compute Node",
-    "language": "zh-CN"
+    "language": "en"
 }
 --- 
   
@@ -101,7 +101,7 @@ If the number of compute nodes is less than `backend_num_for_federation`, the mi
 If the compute node is greater than `backend_num_for_federation`, the federated query task will only be scheduled on the compute node.
 
 ### some restrictions
-- The calculation node currently only supports the query syntax of Hive MetaStore table corresponding to [MultiCatalog](https://doris.apache.org/docs/dev/ecosystem/external-table/multi-catalog/), and the calculation of the normal appearance is still on the hybrid node.
+- The calculation node currently only supports the query for Hive MetaStore of MultiCatalog and the others are still on the hybrid node.
 - Compute nodes are controlled by configuration items, so do not configure mixed type nodes, modify the configuration to compute nodes.
   
 ## Unfinished business
