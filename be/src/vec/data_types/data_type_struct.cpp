@@ -232,6 +232,49 @@ String DataTypeStruct::get_name_by_position(size_t i) const {
     return names[i - 1];
 }
 
+int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                          int be_exec_version) const {
+    auto ptr = column.convert_to_full_column_if_const();
+    const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+    DCHECK(elems.size() == struct_column.tuple_size());
+
+    int64_t bytes = 0;
+    for (size_t i = 0; i < elems.size(); ++i) {
+        bytes += elems[i]->get_uncompressed_serialized_bytes(struct_column.get_column(i),
+                                                             be_exec_version);
+    }
+    return bytes;
+}
+
+char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    auto ptr = column.convert_to_full_column_if_const();
+    const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+    DCHECK(elems.size() == struct_column.tuple_size());
+
+    for (size_t i = 0; i < elems.size(); ++i) {
+        buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+    }
+    return buf;
+}
+
+const char* DataTypeStruct::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
+    auto* struct_column = assert_cast<ColumnStruct*>(column);
+    DCHECK(elems.size() == struct_column->tuple_size());
+
+    for (size_t i = 0; i < elems.size(); ++i) {
+        buf = elems[i]->deserialize(buf, &struct_column->get_column(i), be_exec_version);
+    }
+    return buf;
+}
+
+void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    for (size_t i = 0; i < elems.size(); ++i) {
+        elems[i]->to_pb_column_meta(col_meta->add_children());
+    }
+}
+
 bool DataTypeStruct::text_can_contain_only_valid_utf8() const {
     return std::all_of(elems.begin(), elems.end(),
                        [](auto&& elem) { return elem->text_can_contain_only_valid_utf8(); });

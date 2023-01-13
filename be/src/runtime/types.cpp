@@ -150,7 +150,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
 }
 
 void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
-    DCHECK(!is_complex_type() || type == TYPE_ARRAY)
+    DCHECK(!is_complex_type() || type == TYPE_ARRAY || type == TYPE_STRUCT)
             << "Don't support complex type now, type=" << type;
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
@@ -170,8 +170,18 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
+    } else if (type == TYPE_STRUCT) {
+        node->set_type(TTypeNodeType::STRUCT);
+        DCHECK_EQ(field_names.size(), contains_nulls.size());
+        for (size_t i = 0; i < field_names.size(); ++i) {
+            auto field = node->add_struct_fields();
+            field->set_name(field_names[i]);
+            field->set_contains_null(contains_nulls[i]);
+        }
+        for (const TypeDescriptor& child : children) {
+            child.to_protobuf(ptype);
+        }
     }
-    // TODO(xy): support struct
 }
 
 TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNode>& types, int* idx)
@@ -213,7 +223,20 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         break;
     }
-    // TODO(xy): support struct
+    case TTypeNodeType::STRUCT: {
+        type = TYPE_STRUCT;
+        size_t children_size = node.struct_fields_size();
+        for (size_t i = 0; i < children_size; ++i) {
+            const auto& field = node.struct_fields(i);
+            field_names.push_back(field.name());
+            contains_nulls.push_back(field.contains_null());
+        }
+        for (size_t i = 0; i < children_size; ++i) {
+            ++(*idx);
+            children.push_back(TypeDescriptor(types, idx));
+        }
+        break;
+    }
     default:
         DCHECK(false) << node.type();
     }
