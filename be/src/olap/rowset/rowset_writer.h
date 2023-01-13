@@ -69,7 +69,7 @@ public:
     virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
-    virtual Status flush_single_memtable(const vectorized::Block* block) {
+    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
 

@@ -485,7 +485,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     } else {
         _collect_vskiplist_results<true>();
         vectorized::Block block = _output_mutable_block.to_block();
-        RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
+        RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
         _flush_size = block.allocated_bytes();
     }
     return Status::OK();

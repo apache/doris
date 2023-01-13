@@ -1508,7 +1508,9 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      *    The larger the nice value, the more preferentially obtained query resources
      * 4. Regularly increase the priority of the remaining tasks in the queue to avoid starvation for large queries
      *********************************/
-    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
+    // after merge #15604, we no long support thread token to non-vec olap scan node,
+    // so keep thread_token as null
+    ThreadPoolToken* thread_token = nullptr;
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
     _total_assign_num = 0;
