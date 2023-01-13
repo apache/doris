@@ -227,14 +227,16 @@ void CmdlineAction::handle(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         return;
     }
-    char buf[1024];
 
-    if (fscanf(fp, "%1023s ", buf) != 1) {
-        return;
+    std::string str;
+    char buf[1024];
+    if (fscanf(fp, "%1023s ", buf) == 1) {
+        str = buf;
+    } else {
+        str = "Unable to read file: /proc/self/cmdline";
     }
 
     fclose(fp);
-    std::string str = buf;
 
     HttpChannel::send_reply(req, str);
 }

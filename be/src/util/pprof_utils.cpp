@@ -67,12 +67,14 @@ Status PprofUtils::get_self_cmdline(std::string* cmd) {
     }
     char buf[1024];
 
+    Status res = Status::OK();
+
     if (fscanf(fp, "%1023s ", buf) != 1) {
-        return Status::InternalError("get_self_cmdline read buffer failed");
+        res = Status::InternalError("get_self_cmdline read buffer failed");
     }
     fclose(fp);
     *cmd = buf;
-    return Status::OK();
+    return res;
 }
 
 Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool is_file,

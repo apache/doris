@@ -104,6 +104,7 @@ BfdParser* BfdParser::create() {
     char prog_name[1024];
 
     if (fscanf(file, "%1023s ", prog_name) != 1) {
+        fclose(file);
         return nullptr;
     }
 
