@@ -104,284 +104,283 @@ suite("nereids_function") {
     // function table begin
     // usage: write the new function in the list and construct answer.
     def scalar_function = [
-        'abs' : [['double', 'double'], ['float', 'float'], ['largeint', 'largeint'], ['largeint', 'bigint'], ['integer', 'smallint'], ['bigint', 'integer'], ['smallint', 'tinyint'], ['decimalv2', 'decimalv2']]
-        'acos' : [['double', 'double']]
-        'aes_decrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']]
-        'aes_encrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']]
-        'append_trailing_char_if_absent' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']]
-        'ascii' : [['integer', 'varchar'], ['integer', 'string']]
-        'asin' : [['double', 'double']]
-        'atan' : [['double', 'double']]
-        'bin' : [['varchar', 'bigint']]
-        'bit_length' : [['integer', 'varchar'], ['integer', 'string']]
-        'bitmap_and' : [['bitmap', 'bitmap', 'bitmap']]
-        'bitmap_and_count' : [['bigint', 'bitmap', 'bitmap']]
-        'bitmap_and_not' : [['bitmap', 'bitmap', 'bitmap']]
-        'bitmap_and_not_count' : [['bigint', 'bitmap', 'bitmap']]
-        'bitmap_contains' : [['boolean', 'bitmap', 'bigint']]
-        'bitmap_count' : [['bigint', 'bitmap']]
-        'bitmap_empty' : [['bitmap', '']]
-        'bitmap_from_string' : [['bitmap', 'varchar'], ['bitmap', 'string']]
-        'bitmap_has_all' : [['boolean', 'bitmap', 'bitmap']]
-        'bitmap_has_any' : [['boolean', 'bitmap', 'bitmap']]
-        'bitmap_hash' : [['bitmap', 'varchar'], ['bitmap', 'string']]
-        'bitmap_hash64' : [['bitmap', 'varchar'], ['bitmap', 'string']]
-        'bitmap_max' : [['bigint', 'bitmap']]
-        'bitmap_min' : [['bigint', 'bitmap']]
-        'bitmap_not' : [['bitmap', 'bitmap', 'bitmap']]
-        'bitmap_or' : [['bitmap', 'bitmap', 'bitmap']]
-        'bitmap_or_count' : [['bigint', 'bitmap', 'bitmap']]
-        'bitmap_subset_in_range' : [['bitmap', 'bitmap', 'bigint', 'bigint']]
-        'bitmap_subset_limit' : [['bitmap', 'bitmap', 'bigint', 'bigint']]
-        'bitmap_to_string' : [['string', 'bitmap']]
-        'bitmap_xor' : [['bitmap', 'bitmap', 'bitmap']]
-        'bitmap_xor_count' : [['bigint', 'bitmap', 'bitmap']]
-        'cbrt' : [['double', 'double']]
-        'ceil' : [['double', 'double']]
-        'ceiling' : [['bigint', 'double']]
-        'character_length' : [['integer', 'varchar'], ['integer', 'string']]
-        'coalesce' : [['boolean', 'boolean'], ['tinyint', 'tinyint'], ['smallint', 'smallint'], ['integer', 'integer'], ['bigint', 'bigint'], ['largeint', 'largeint'], ['float', 'float'], ['double', 'double'], ['datetime', 'datetime'], ['date', 'date'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['decimalv2', 'decimalv2'], ['bitmap', 'bitmap'], ['varchar', 'varchar'], ['string', 'string']]
-        'concat' : [['varchar', 'varchar'], ['string', 'string']]
-        'connection_id' : [['varchar', '']]
-        'conv' : [['varchar', 'bigint', 'tinyint', 'tinyint'], ['varchar', 'varchar', 'tinyint', 'tinyint'], ['varchar', 'string', 'tinyint', 'tinyint']]
-        'convert_to' : [['varchar', 'varchar', 'varchar']]
-        'convert_tz' : [['datetime', 'datetime', 'varchar', 'varchar'], ['datetimev2', 'datetimev2', 'varchar', 'varchar'], ['datev2', 'datev2', 'varchar', 'varchar']]
-        'cos' : [['double', 'double']]
-        'current_date' : [['date', '']]
-        'current_time' : [['time', '']]
-        'current_timestamp' : [['datetime', ''], ['datetimev2', 'integer']]
-        'current_user' : [['bigint', '']]
-        'curtime' : [['time', '']]
-        'database' : [['varchar', '']]
-        'date' : [['date', 'datetime'], ['datev2', 'datetimev2']]
-        'date_diff' : [['integer', 'datetime', 'datetime'], ['integer', 'datetimev2', 'datetimev2'], ['integer', 'datetimev2', 'datev2'], ['integer', 'datev2', 'datetimev2'], ['integer', 'datev2', 'datev2'], ['integer', 'datetimev2', 'datetime'], ['integer', 'datev2', 'datetime']]
-        'date_format' : [['varchar', 'datetime', 'varchar'], ['varchar', 'date', 'varchar'], ['varchar', 'datetimev2', 'varchar'], ['varchar', 'datev2', 'varchar']]
-        'date_trunc' : [['datetime', 'datetime', 'varchar'], ['datetimev2', 'datetimev2', 'varchar']]
-        'date_v2' : [['datev2', 'datetimev2']]
-        'day' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'day_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'day_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'day_name' : [['varchar', 'datetime'], ['varchar', 'datetimev2'], ['varchar', 'datev2']]
-        'day_of_month' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'day_of_week' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'day_of_year' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'days_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
-        'days_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
-        'days_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
-        'dceil' : [['bigint', 'double']]
-        'degrees' : [['double', 'double']]
-        'dexp' : [['double', 'double']]
-        'dfloor' : [['bigint', 'double']]
-        'digital_masking' : [['varchar', 'bigint']]
-        'dlog1' : [['double', 'double']]
-        'dlog10' : [['double', 'double']]
-        'domain' : [['string', 'string']]
-        'domain_without_www' : [['string', 'string']]
-        'dpow' : [['double', 'double', 'double']]
-        'dround' : [['bigint', 'double'], ['double', 'double', 'integer']]
-        'dsqrt' : [['double', 'double']]
-        'e' : [['double', '']]
-        'elt' : [['varchar', 'integer', 'varchar'], ['string', 'integer', 'string']]
-        'ends_with' : [['boolean', 'varchar', 'varchar'], ['boolean', 'string', 'string']]
-        'es_query' : [['boolean', 'varchar', 'varchar']]
-        'exp' : [['double', 'double']]
-        'extract_url_parameter' : [['varchar', 'varchar', 'varchar']]
-        'field' : [['integer', 'tinyint'], ['integer', 'smallint'], ['integer', 'integer'], ['integer', 'bigint'], ['integer', 'largeint'], ['integer', 'float'], ['integer', 'double'], ['integer', 'decimalv2'], ['integer', 'datev2'], ['integer', 'datetimev2'], ['integer', 'varchar'], ['integer', 'string']]
-        'find_in_set' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']]
-        'floor' : [['double', 'double']]
-        'fmod' : [['float', 'float', 'float'], ['double', 'double', 'double']]
-        'fpow' : [['double', 'double', 'double']]
-        'from_base64' : [['varchar', 'varchar'], ['string', 'string']]
-        'from_days' : [['date', 'integer']]
-        'from_unixtime' : [['varchar', 'integer'], ['varchar', 'integer', 'varchar'], ['varchar', 'integer', 'string']]
-        'get_json_double' : [['double', 'varchar', 'varchar'], ['double', 'string', 'string']]
-        'get_json_int' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']]
-        'get_json_string' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']]
-        'greatest' : [['tinyint', 'tinyint'], ['smallint', 'smallint'], ['integer', 'integer'], ['bigint', 'bigint'], ['largeint', 'largeint'], ['float', 'float'], ['double', 'double'], ['decimalv2', 'decimalv2'], ['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['varchar', 'varchar'], ['string', 'string']]
-        'hex' : [['varchar', 'bigint'], ['varchar', 'varchar'], ['string', 'string']]
-        'hll_cardinality' : [['bigint', 'hll']]
-        'hll_empty' : [['hll', '']]
-        'hll_hash' : [['hll', 'varchar'], ['hll', 'string']]
-        'hour' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'hour_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']]
-        'hour_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']]
-        'hours_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']]
-        'hours_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
-        'hours_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']]
-        'initcap' : [['varchar', 'varchar']]
-        'instr' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']]
-        'json_array' : [['varchar', 'varchar']]
-        'json_object' : [['varchar', 'varchar']]
-        'json_quote' : [['varchar', 'varchar']]
-        'jsonb_exists_path' : [['boolean', 'json', 'varchar'], ['boolean', 'json', 'string']]
-        'jsonb_extract' : [['json', 'json', 'varchar'], ['json', 'json', 'string']]
-        'jsonb_extract_bigint' : [['bigint', 'json', 'varchar'], ['bigint', 'json', 'string']]
-        'jsonb_extract_bool' : [['boolean', 'json', 'varchar'], ['boolean', 'json', 'string']]
-        'jsonb_extract_double' : [['double', 'json', 'varchar'], ['double', 'json', 'string']]
-        'jsonb_extract_int' : [['integer', 'json', 'varchar'], ['integer', 'json', 'string']]
-        'jsonb_extract_isnull' : [['boolean', 'json', 'varchar'], ['boolean', 'json', 'string']]
-        'jsonb_extract_string' : [['string', 'json', 'varchar'], ['string', 'json', 'string']]
-        'jsonb_parse' : [['json', 'varchar']]
-        'jsonb_parse_error_to_invalid' : [['json', 'varchar']]
-        'jsonb_parse_error_to_null' : [['json', 'varchar']]
-        'jsonb_parse_error_to_value' : [['json', 'varchar', 'varchar']]
-        'jsonb_parse_notnull' : [['json', 'varchar']]
-        'jsonb_parse_notnull_error_to_invalid' : [['json', 'varchar']]
-        'jsonb_parse_notnull_error_to_value' : [['json', 'varchar', 'varchar']]
-        'jsonb_parse_nullable' : [['json', 'varchar']]
-        'jsonb_parse_nullable_error_to_invalid' : [['json', 'varchar']]
-        'jsonb_parse_nullable_error_to_null' : [['json', 'varchar']]
-        'jsonb_parse_nullable_error_to_value' : [['json', 'varchar', 'varchar']]
-        'jsonb_type' : [['string', 'json', 'string']]
-        'last_day' : [['date', 'datetime'], ['date', 'date'], ['datev2', 'datetimev2'], ['datev2', 'datev2']]
-        'least' : [['tinyint', 'tinyint'], ['smallint', 'smallint'], ['integer', 'integer'], ['bigint', 'bigint'], ['largeint', 'largeint'], ['float', 'float'], ['double', 'double'], ['datetime', 'datetime'], ['decimalv2', 'decimalv2'], ['varchar', 'varchar'], ['string', 'string']]
-        'left' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'length' : [['integer', 'varchar'], ['integer', 'string']]
-        'ln' : [['double', 'double']]
-        'local_time' : [['datetime', ''], ['datetimev2', 'integer']]
-        'local_timestamp' : [['datetime', ''], ['datetimev2', 'integer']]
-        'locate' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string'], ['integer', 'varchar', 'varchar', 'integer'], ['integer', 'string', 'string', 'integer']]
-        'log' : [['double', 'double', 'double']]
-        'log10' : [['double', 'double']]
-        'log2' : [['double', 'double']]
-        'lower' : [['varchar', 'varchar'], ['string', 'string']]
-        'lpad' : [['varchar', 'varchar', 'integer', 'varchar'], ['string', 'string', 'integer', 'string']]
-        'ltrim' : [['varchar', 'varchar'], ['string', 'string']]
-        'make_date' : [['date', 'integer', 'integer']]
-        'mask' : [['varchar', 'varchar'], ['string', 'string']]
-        'mask_first_n' : [['varchar', 'varchar'], ['string', 'string'], ['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'mask_last_n' : [['varchar', 'varchar'], ['string', 'string'], ['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'md5' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'md5_sum' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'minute' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'minute_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']]
-        'minute_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']]
-        'minutes_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']]
-        'minutes_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
-        'minutes_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']]
-        'money_format' : [['varchar', 'bigint'], ['varchar', 'largeint'], ['varchar', 'double'], ['varchar', 'decimalv2']]
-        'month' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'month_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'month_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'month_name' : [['varchar', 'datetime'], ['varchar', 'datetimev2'], ['varchar', 'datev2']]
-        'months_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
-        'months_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
-        'months_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
-        'murmur_hash332' : [['integer', 'varchar'], ['integer', 'string']]
-        'murmur_hash364' : [['bigint', 'varchar'], ['bigint', 'string']]
-        'negative' : [['bigint', 'bigint'], ['double', 'double'], ['decimalv2', 'decimalv2']]
-        'not_null_or_empty' : [['boolean', 'varchar'], ['boolean', 'string']]
-        'now' : [['datetime', ''], ['datetimev2', 'integer']]
-        'null_if' : [['boolean', 'boolean', 'boolean'], ['tinyint', 'tinyint', 'tinyint'], ['smallint', 'smallint', 'smallint'], ['integer', 'integer', 'integer'], ['bigint', 'bigint', 'bigint'], ['largeint', 'largeint', 'largeint'], ['float', 'float', 'float'], ['double', 'double', 'double'], ['datetime', 'datetime', 'datetime'], ['date', 'date', 'date'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datev2', 'datev2', 'datev2'], ['decimalv2', 'decimalv2', 'decimalv2'], ['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']]
-        'null_or_empty' : [['boolean', 'varchar'], ['boolean', 'string']]
-        'nvl' : [['boolean', 'boolean', 'boolean'], ['tinyint', 'tinyint', 'tinyint'], ['smallint', 'smallint', 'smallint'], ['integer', 'integer', 'integer'], ['bigint', 'bigint', 'bigint'], ['largeint', 'largeint', 'largeint'], ['float', 'float', 'float'], ['double', 'double', 'double'], ['date', 'date', 'date'], ['datetime', 'datetime', 'datetime'], ['datetime', 'date', 'datetime'], ['datetime', 'datetime', 'date'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'datev2'], ['decimalv2', 'decimalv2', 'decimalv2'], ['bitmap', 'bitmap', 'bitmap'], ['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']]
-        'parse_url' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']]
-        'pi' : [['double', '']]
-        'pmod' : [['bigint', 'bigint', 'bigint'], ['double', 'double', 'double']]
-        'positive' : [['bigint', 'bigint'], ['double', 'double'], ['decimalv2', 'decimalv2']]
-        'pow' : [['double', 'double', 'double']]
-        'power' : [['double', 'double', 'double']]
-        'protocol' : [['string', 'string']]
-        'quantile_percent' : [['double', 'quantilestate', 'float']]
-        'quarter' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'radians' : [['double', 'double']]
-        'random' : [['double', ''], ['double', 'bigint']]
-        'regexp_extract' : [['varchar', 'varchar', 'varchar', 'bigint'], ['string', 'string', 'string', 'bigint']]
-        'regexp_extract_all' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']]
-        'regexp_replace' : [['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']]
-        'regexp_replace_one' : [['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']]
-        'repeat' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'replace' : [['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']]
-        'right' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'round' : [['double', 'double'], ['double', 'double', 'integer']]
-        'round_bankers' : [['double', 'double'], ['double', 'double', 'integer']]
-        'rpad' : [['varchar', 'varchar', 'integer', 'varchar'], ['string', 'string', 'integer', 'string']]
-        'rtrim' : [['varchar', 'varchar'], ['string', 'string']]
-        'running_difference' : [['smallint', 'tinyint'], ['integer', 'smallint'], ['bigint', 'integer'], ['largeint', 'bigint'], ['largeint', 'largeint'], ['double', 'float'], ['double', 'double'], ['decimalv2', 'decimalv2'], ['decimalv3.defaultdecimal32', 'decimalv3.defaultdecimal32'], ['decimalv3.defaultdecimal64', 'decimalv3.defaultdecimal64'], ['decimalv3.defaultdecimal128', 'decimalv3.defaultdecimal128'], ['integer', 'date'], ['integer', 'datev2'], ['double', 'datetime'], ['double', 'datetimev2']]
-        'second' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'second_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']]
-        'second_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']]
-        'seconds_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']]
-        'seconds_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
-        'seconds_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']]
-        'sign' : [['tinyint', 'double']]
-        'sin' : [['double', 'double']]
-        'sleep' : [['boolean', 'integer']]
-        'sm3' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'sm3sum' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'sm4_decrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']]
-        'sm4_encrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']]
-        'space' : [['varchar', 'integer']]
-        'split_part' : [['varchar', 'varchar', 'varchar', 'integer'], ['string', 'string', 'string', 'integer']]
-        'sqrt' : [['double', 'double']]
-        'st_astext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_aswkt' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_circle' : [['varchar', 'double', 'double', 'double']]
-        'st_contains' : [['boolean', 'varchar', 'varchar']]
-        'st_distance_sphere' : [['double', 'double', 'double', 'double', 'double']]
-        'st_geometryfromtext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_geomfromtext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_linefromtext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_linestringfromtext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_point' : [['varchar', 'double', 'double']]
-        'st_polyfromtext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_polygon' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_polygonfromtext' : [['varchar', 'varchar'], ['varchar', 'string']]
-        'st_x' : [['double', 'varchar'], ['double', 'string']]
-        'st_y' : [['double', 'varchar'], ['double', 'string']]
-        'starts_with' : [['boolean', 'varchar', 'varchar'], ['boolean', 'string', 'string']]
-        'str_left' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'str_right' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']]
-        'str_to_date' : [['datetime', 'varchar', 'varchar'], ['datetime', 'string', 'string']]
-        'sub_bitmap' : [['bitmap', 'bitmap', 'bigint', 'bigint']]
-        'sub_replace' : [['varchar', 'varchar', 'varchar', 'integer'], ['string', 'string', 'string', 'integer'], ['varchar', 'varchar', 'varchar', 'integer', 'integer'], ['string', 'string', 'string', 'integer', 'integer']]
-        'substring' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer'], ['varchar', 'varchar', 'integer', 'integer'], ['string', 'string', 'integer', 'integer']]
-        'substring_index' : [['varchar', 'varchar', 'varchar', 'integer'], ['string', 'string', 'string', 'integer']]
-        'tan' : [['double', 'double']]
-        'time_diff' : [['time', 'datetime', 'datetime'], ['timev2', 'datetimev2', 'datetimev2'], ['timev2', 'datetimev2', 'datev2'], ['timev2', 'datev2', 'datetimev2'], ['timev2', 'datev2', 'datev2'], ['timev2', 'datetimev2', 'datetime'], ['timev2', 'datev2', 'datetime']]
-        'timestamp' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2']]
-        'to_base64' : [['string', 'string']]
-        'to_bitmap' : [['bitmap', 'varchar'], ['bitmap', 'string']]
-        'to_bitmap_with_check' : [['bitmap', 'varchar'], ['bitmap', 'string']]
-        'to_date' : [['date', 'datetime'], ['datev2', 'datetimev2']]
-        'to_date_v2' : [['datev2', 'datetimev2']]
-        'to_days' : [['integer', 'date'], ['integer', 'datev2']]
-        'to_monday' : [['datev2', 'datetimev2'], ['datev2', 'datev2'], ['date', 'datetime'], ['date', 'date']]
-        'to_quantile_state' : [['quantilestate', 'varchar', 'float']]
-        'trim' : [['varchar', 'varchar'], ['string', 'string']]
-        'truncate' : [['double', 'double', 'integer']]
-        'unhex' : [['varchar', 'varchar'], ['string', 'string']]
-        'unix_timestamp' : [['integer', ''], ['integer', 'datetime'], ['integer', 'date'], ['integer', 'datetimev2'], ['integer', 'datev2'], ['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']]
-        'upper' : [['varchar', 'varchar'], ['string', 'string']]
-        'user' : [['varchar', '']]
-        'utc_timestamp' : [['datetime', '']]
-        'uuid' : [['varchar', '']]
-        'version' : [['varchar', '']]
-        'week' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2'], ['integer', 'datetime', 'integer'], ['integer', 'datetimev2', 'integer'], ['integer', 'datev2', 'integer']]
-        'week_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'week_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'week_of_year' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'weekday' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']]
-        'weeks_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
-        'year' : [['integer', 'datev2'], ['integer', 'datetime'], ['integer', 'datetimev2']]
-        'year_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'year_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']]
-        'year_week' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2'], ['integer', 'datetime', 'integer'], ['integer', 'datetimev2', 'integer'], ['integer', 'datev2', 'integer']]
-        'years_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
-        'years_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']]
+        'abs' : [['double', 'double'], ['float', 'float'], ['largeint', 'largeint'], ['largeint', 'bigint'], ['integer', 'smallint'], ['bigint', 'integer'], ['smallint', 'tinyint'], ['decimalv2', 'decimalv2']],
+        'acos' : [['double', 'double']],
+        'aes_decrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']],
+        'aes_encrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']],
+        'append_trailing_char_if_absent' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']],
+        'ascii' : [['integer', 'varchar'], ['integer', 'string']],
+        'asin' : [['double', 'double']],
+        'atan' : [['double', 'double']],
+        'bin' : [['varchar', 'bigint']],
+        'bit_length' : [['integer', 'varchar'], ['integer', 'string']],
+        'bitmap_and' : [['bitmap', 'bitmap', 'bitmap']],
+        'bitmap_and_count' : [['bigint', 'bitmap', 'bitmap']],
+        'bitmap_and_not' : [['bitmap', 'bitmap', 'bitmap']],
+        'bitmap_and_not_count' : [['bigint', 'bitmap', 'bitmap']],
+        'bitmap_contains' : [['boolean', 'bitmap', 'bigint']],
+        'bitmap_count' : [['bigint', 'bitmap']],
+        'bitmap_empty' : [['bitmap', '']],
+        'bitmap_from_string' : [['bitmap', 'varchar'], ['bitmap', 'string']],
+        'bitmap_has_all' : [['boolean', 'bitmap', 'bitmap']],
+        'bitmap_has_any' : [['boolean', 'bitmap', 'bitmap']],
+        'bitmap_hash' : [['bitmap', 'varchar'], ['bitmap', 'string']],
+        'bitmap_hash64' : [['bitmap', 'varchar'], ['bitmap', 'string']],
+        'bitmap_max' : [['bigint', 'bitmap']],
+        'bitmap_min' : [['bigint', 'bitmap']],
+        'bitmap_not' : [['bitmap', 'bitmap', 'bitmap']],
+        'bitmap_or' : [['bitmap', 'bitmap', 'bitmap']],
+        'bitmap_or_count' : [['bigint', 'bitmap', 'bitmap']],
+        'bitmap_subset_in_range' : [['bitmap', 'bitmap', 'bigint', 'bigint']],
+        'bitmap_subset_limit' : [['bitmap', 'bitmap', 'bigint', 'bigint']],
+        'bitmap_to_string' : [['string', 'bitmap']],
+        'bitmap_xor' : [['bitmap', 'bitmap', 'bitmap']],
+        'bitmap_xor_count' : [['bigint', 'bitmap', 'bitmap']],
+        'cbrt' : [['double', 'double']],
+        'ceil' : [['double', 'double']],
+        'ceiling' : [['bigint', 'double']],
+        'character_length' : [['integer', 'varchar'], ['integer', 'string']],
+        'coalesce' : [['boolean', 'boolean'], ['tinyint', 'tinyint'], ['smallint', 'smallint'], ['integer', 'integer'], ['bigint', 'bigint'], ['largeint', 'largeint'], ['float', 'float'], ['double', 'double'], ['datetime', 'datetime'], ['date', 'date'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['decimalv2', 'decimalv2'], ['bitmap', 'bitmap'], ['varchar', 'varchar'], ['string', 'string']],
+        'concat' : [['varchar', 'varchar'], ['string', 'string']],
+        'connection_id' : [['varchar', '']],
+        'conv' : [['varchar', 'bigint', 'tinyint', 'tinyint'], ['varchar', 'varchar', 'tinyint', 'tinyint'], ['varchar', 'string', 'tinyint', 'tinyint']],
+        'convert_to' : [['varchar', 'varchar', 'varchar']],
+        'convert_tz' : [['datetime', 'datetime', 'varchar', 'varchar'], ['datetimev2', 'datetimev2', 'varchar', 'varchar'], ['datev2', 'datev2', 'varchar', 'varchar']],
+        'cos' : [['double', 'double']],
+        'current_date' : [['date', '']],
+        'current_time' : [['time', '']],
+        'current_timestamp' : [['datetime', ''], ['datetimev2', 'integer']],
+        'current_user' : [['bigint', '']],
+        'curtime' : [['time', '']],
+        'database' : [['varchar', '']],
+        'date' : [['date', 'datetime'], ['datev2', 'datetimev2']],
+        'date_diff' : [['integer', 'datetime', 'datetime'], ['integer', 'datetimev2', 'datetimev2'], ['integer', 'datetimev2', 'datev2'], ['integer', 'datev2', 'datetimev2'], ['integer', 'datev2', 'datev2'], ['integer', 'datetimev2', 'datetime'], ['integer', 'datev2', 'datetime']],
+        'date_format' : [['varchar', 'datetime', 'varchar'], ['varchar', 'date', 'varchar'], ['varchar', 'datetimev2', 'varchar'], ['varchar', 'datev2', 'varchar']],
+        'date_trunc' : [['datetime', 'datetime', 'varchar'], ['datetimev2', 'datetimev2', 'varchar']],
+        'date_v2' : [['datev2', 'datetimev2']],
+        'day' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'day_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'day_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'day_name' : [['varchar', 'datetime'], ['varchar', 'datetimev2'], ['varchar', 'datev2']],
+        'day_of_month' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'day_of_week' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'day_of_year' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'days_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']],
+        'days_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
+        'days_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']],
+        'dceil' : [['bigint', 'double']],
+        'degrees' : [['double', 'double']],
+        'dexp' : [['double', 'double']],
+        'dfloor' : [['bigint', 'double']],
+        'digital_masking' : [['varchar', 'bigint']],
+        'dlog1' : [['double', 'double']],
+        'dlog10' : [['double', 'double']],
+        'domain' : [['string', 'string']],
+        'domain_without_www' : [['string', 'string']],
+        'dpow' : [['double', 'double', 'double']],
+        'dround' : [['bigint', 'double'], ['double', 'double', 'integer']],
+        'dsqrt' : [['double', 'double']],
+        'e' : [['double', '']],
+        'elt' : [['varchar', 'integer', 'varchar'], ['string', 'integer', 'string']],
+        'ends_with' : [['boolean', 'varchar', 'varchar'], ['boolean', 'string', 'string']],
+        'es_query' : [['boolean', 'varchar', 'varchar']],
+        'exp' : [['double', 'double']],
+        'extract_url_parameter' : [['varchar', 'varchar', 'varchar']],
+        'field' : [['integer', 'tinyint'], ['integer', 'smallint'], ['integer', 'integer'], ['integer', 'bigint'], ['integer', 'largeint'], ['integer', 'float'], ['integer', 'double'], ['integer', 'decimalv2'], ['integer', 'datev2'], ['integer', 'datetimev2'], ['integer', 'varchar'], ['integer', 'string']],
+        'find_in_set' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']],
+        'floor' : [['double', 'double']],
+        'fmod' : [['float', 'float', 'float'], ['double', 'double', 'double']],
+        'fpow' : [['double', 'double', 'double']],
+        'from_base64' : [['varchar', 'varchar'], ['string', 'string']],
+        'from_days' : [['date', 'integer']],
+        'from_unixtime' : [['varchar', 'integer'], ['varchar', 'integer', 'varchar'], ['varchar', 'integer', 'string']],
+        'get_json_double' : [['double', 'varchar', 'varchar'], ['double', 'string', 'string']],
+        'get_json_int' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']],
+        'get_json_string' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']],
+        'greatest' : [['tinyint', 'tinyint'], ['smallint', 'smallint'], ['integer', 'integer'], ['bigint', 'bigint'], ['largeint', 'largeint'], ['float', 'float'], ['double', 'double'], ['decimalv2', 'decimalv2'], ['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['varchar', 'varchar'], ['string', 'string']],
+        'hex' : [['varchar', 'bigint'], ['varchar', 'varchar'], ['string', 'string']],
+        'hll_cardinality' : [['bigint', 'hll']],
+        'hll_empty' : [['hll', '']],
+        'hll_hash' : [['hll', 'varchar'], ['hll', 'string']],
+        'hour' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'hour_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']],
+        'hour_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']],
+        'hours_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']],
+        'hours_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
+        'hours_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']],
+        'initcap' : [['varchar', 'varchar']],
+        'instr' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']],
+        'json_array' : [['varchar', 'varchar']],
+        'json_object' : [['varchar', 'varchar']],
+        'json_quote' : [['varchar', 'varchar']],
+        'jsonb_exists_path' : [['boolean', 'json', 'varchar'], ['boolean', 'json', 'string']],
+        'jsonb_extract' : [['json', 'json', 'varchar'], ['json', 'json', 'string']],
+        'jsonb_extract_bigint' : [['bigint', 'json', 'varchar'], ['bigint', 'json', 'string']],
+        'jsonb_extract_bool' : [['boolean', 'json', 'varchar'], ['boolean', 'json', 'string']],
+        'jsonb_extract_double' : [['double', 'json', 'varchar'], ['double', 'json', 'string']],
+        'jsonb_extract_int' : [['integer', 'json', 'varchar'], ['integer', 'json', 'string']],
+        'jsonb_extract_isnull' : [['boolean', 'json', 'varchar'], ['boolean', 'json', 'string']],
+        'jsonb_extract_string' : [['string', 'json', 'varchar'], ['string', 'json', 'string']],
+        'jsonb_parse' : [['json', 'varchar']],
+        'jsonb_parse_error_to_invalid' : [['json', 'varchar']],
+        'jsonb_parse_error_to_null' : [['json', 'varchar']],
+        'jsonb_parse_error_to_value' : [['json', 'varchar', 'varchar']],
+        'jsonb_parse_notnull' : [['json', 'varchar']],
+        'jsonb_parse_notnull_error_to_invalid' : [['json', 'varchar']],
+        'jsonb_parse_notnull_error_to_value' : [['json', 'varchar', 'varchar']],
+        'jsonb_parse_nullable' : [['json', 'varchar']],
+        'jsonb_parse_nullable_error_to_invalid' : [['json', 'varchar']],
+        'jsonb_parse_nullable_error_to_null' : [['json', 'varchar']],
+        'jsonb_parse_nullable_error_to_value' : [['json', 'varchar', 'varchar']],
+        'jsonb_type' : [['string', 'json', 'string']],
+        'last_day' : [['date', 'datetime'], ['date', 'date'], ['datev2', 'datetimev2'], ['datev2', 'datev2']],
+        'least' : [['tinyint', 'tinyint'], ['smallint', 'smallint'], ['integer', 'integer'], ['bigint', 'bigint'], ['largeint', 'largeint'], ['float', 'float'], ['double', 'double'], ['datetime', 'datetime'], ['decimalv2', 'decimalv2'], ['varchar', 'varchar'], ['string', 'string']],
+        'left' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'length' : [['integer', 'varchar'], ['integer', 'string']],
+        'ln' : [['double', 'double']],
+        'local_time' : [['datetime', ''], ['datetimev2', 'integer']],
+        'local_timestamp' : [['datetime', ''], ['datetimev2', 'integer']],
+        'locate' : [['integer', 'varchar', 'varchar'], ['integer', 'string', 'string'], ['integer', 'varchar', 'varchar', 'integer'], ['integer', 'string', 'string', 'integer']],
+        'log' : [['double', 'double', 'double']],
+        'log10' : [['double', 'double']],
+        'log2' : [['double', 'double']],
+        'lower' : [['varchar', 'varchar'], ['string', 'string']],
+        'lpad' : [['varchar', 'varchar', 'integer', 'varchar'], ['string', 'string', 'integer', 'string']],
+        'ltrim' : [['varchar', 'varchar'], ['string', 'string']],
+        'make_date' : [['date', 'integer', 'integer']],
+        'mask' : [['varchar', 'varchar'], ['string', 'string']],
+        'mask_first_n' : [['varchar', 'varchar'], ['string', 'string'], ['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'mask_last_n' : [['varchar', 'varchar'], ['string', 'string'], ['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'md5' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'md5_sum' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'minute' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'minute_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']],
+        'minute_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']],
+        'minutes_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']],
+        'minutes_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
+        'minutes_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']],
+        'money_format' : [['varchar', 'bigint'], ['varchar', 'largeint'], ['varchar', 'double'], ['varchar', 'decimalv2']],
+        'month' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'month_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'month_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'month_name' : [['varchar', 'datetime'], ['varchar', 'datetimev2'], ['varchar', 'datev2']],
+        'months_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']],
+        'months_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
+        'months_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']],
+        'murmur_hash332' : [['integer', 'varchar'], ['integer', 'string']],
+        'murmur_hash364' : [['bigint', 'varchar'], ['bigint', 'string']],
+        'negative' : [['bigint', 'bigint'], ['double', 'double'], ['decimalv2', 'decimalv2']],
+        'not_null_or_empty' : [['boolean', 'varchar'], ['boolean', 'string']],
+        'now' : [['datetime', ''], ['datetimev2', 'integer']],
+        'null_if' : [['boolean', 'boolean', 'boolean'], ['tinyint', 'tinyint', 'tinyint'], ['smallint', 'smallint', 'smallint'], ['integer', 'integer', 'integer'], ['bigint', 'bigint', 'bigint'], ['largeint', 'largeint', 'largeint'], ['float', 'float', 'float'], ['double', 'double', 'double'], ['datetime', 'datetime', 'datetime'], ['date', 'date', 'date'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datev2', 'datev2', 'datev2'], ['decimalv2', 'decimalv2', 'decimalv2'], ['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']],
+        'null_or_empty' : [['boolean', 'varchar'], ['boolean', 'string']],
+        'nvl' : [['boolean', 'boolean', 'boolean'], ['tinyint', 'tinyint', 'tinyint'], ['smallint', 'smallint', 'smallint'], ['integer', 'integer', 'integer'], ['bigint', 'bigint', 'bigint'], ['largeint', 'largeint', 'largeint'], ['float', 'float', 'float'], ['double', 'double', 'double'], ['date', 'date', 'date'], ['datetime', 'datetime', 'datetime'], ['datetime', 'date', 'datetime'], ['datetime', 'datetime', 'date'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'datev2'], ['decimalv2', 'decimalv2', 'decimalv2'], ['bitmap', 'bitmap', 'bitmap'], ['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']],
+        'parse_url' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']],
+        'pi' : [['double', '']],
+        'pmod' : [['bigint', 'bigint', 'bigint'], ['double', 'double', 'double']],
+        'positive' : [['bigint', 'bigint'], ['double', 'double'], ['decimalv2', 'decimalv2']],
+        'pow' : [['double', 'double', 'double']],
+        'power' : [['double', 'double', 'double']],
+        'protocol' : [['string', 'string']],
+        'quantile_percent' : [['double', 'quantilestate', 'float']],
+        'quarter' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'radians' : [['double', 'double']],
+        'random' : [['double', ''], ['double', 'bigint']],
+        'regexp_extract' : [['varchar', 'varchar', 'varchar', 'bigint'], ['string', 'string', 'string', 'bigint']],
+        'regexp_extract_all' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string']],
+        'regexp_replace' : [['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']],
+        'regexp_replace_one' : [['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']],
+        'repeat' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'replace' : [['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string']],
+        'right' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'round' : [['double', 'double'], ['double', 'double', 'integer']],
+        'round_bankers' : [['double', 'double'], ['double', 'double', 'integer']],
+        'rpad' : [['varchar', 'varchar', 'integer', 'varchar'], ['string', 'string', 'integer', 'string']],
+        'rtrim' : [['varchar', 'varchar'], ['string', 'string']],
+        'running_difference' : [['smallint', 'tinyint'], ['integer', 'smallint'], ['bigint', 'integer'], ['largeint', 'bigint'], ['largeint', 'largeint'], ['double', 'float'], ['double', 'double'], ['decimalv2', 'decimalv2'], ['decimalv3.defaultdecimal32', 'decimalv3.defaultdecimal32'], ['decimalv3.defaultdecimal64', 'decimalv3.defaultdecimal64'], ['decimalv3.defaultdecimal128', 'decimalv3.defaultdecimal128'], ['integer', 'date'], ['integer', 'datev2'], ['double', 'datetime'], ['double', 'datetimev2']],
+        'second' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'second_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']],
+        'second_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datetimev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datetimev2', 'datev2', 'datev2'], ['datetimev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datetimev2', 'datev2', 'integer', 'datev2']],
+        'seconds_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']],
+        'seconds_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
+        'seconds_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['datetime', 'date', 'integer'], ['datetimev2', 'datev2', 'integer']],
+        'sign' : [['tinyint', 'double']],
+        'sin' : [['double', 'double']],
+        'sleep' : [['boolean', 'integer']],
+        'sm3' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'sm3sum' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'sm4_decrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']],
+        'sm4_encrypt' : [['varchar', 'varchar', 'varchar'], ['string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string'], ['varchar', 'varchar', 'varchar', 'varchar', 'varchar'], ['string', 'string', 'string', 'string', 'string']],
+        'space' : [['varchar', 'integer']],
+        'split_part' : [['varchar', 'varchar', 'varchar', 'integer'], ['string', 'string', 'string', 'integer']],
+        'sqrt' : [['double', 'double']],
+        'st_astext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_aswkt' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_circle' : [['varchar', 'double', 'double', 'double']],
+        'st_contains' : [['boolean', 'varchar', 'varchar']],
+        'st_distance_sphere' : [['double', 'double', 'double', 'double', 'double']],
+        'st_geometryfromtext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_geomfromtext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_linefromtext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_linestringfromtext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_point' : [['varchar', 'double', 'double']],
+        'st_polyfromtext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_polygon' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_polygonfromtext' : [['varchar', 'varchar'], ['varchar', 'string']],
+        'st_x' : [['double', 'varchar'], ['double', 'string']],
+        'st_y' : [['double', 'varchar'], ['double', 'string']],
+        'starts_with' : [['boolean', 'varchar', 'varchar'], ['boolean', 'string', 'string']],
+        'str_left' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'str_right' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer']],
+        'str_to_date' : [['datetime', 'varchar', 'varchar'], ['datetime', 'string', 'string']],
+        'sub_bitmap' : [['bitmap', 'bitmap', 'bigint', 'bigint']],
+        'sub_replace' : [['varchar', 'varchar', 'varchar', 'integer'], ['string', 'string', 'string', 'integer'], ['varchar', 'varchar', 'varchar', 'integer', 'integer'], ['string', 'string', 'string', 'integer', 'integer']],
+        'substring' : [['varchar', 'varchar', 'integer'], ['string', 'string', 'integer'], ['varchar', 'varchar', 'integer', 'integer'], ['string', 'string', 'integer', 'integer']],
+        'substring_index' : [['varchar', 'varchar', 'varchar', 'integer'], ['string', 'string', 'string', 'integer']],
+        'tan' : [['double', 'double']],
+        'time_diff' : [['time', 'datetime', 'datetime'], ['timev2', 'datetimev2', 'datetimev2'], ['timev2', 'datetimev2', 'datev2'], ['timev2', 'datev2', 'datetimev2'], ['timev2', 'datev2', 'datev2'], ['timev2', 'datetimev2', 'datetime'], ['timev2', 'datev2', 'datetime']],
+        'timestamp' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2']],
+        'to_base64' : [['string', 'string']],
+        'to_bitmap' : [['bitmap', 'varchar'], ['bitmap', 'string']],
+        'to_bitmap_with_check' : [['bitmap', 'varchar'], ['bitmap', 'string']],
+        'to_date' : [['date', 'datetime'], ['datev2', 'datetimev2']],
+        'to_date_v2' : [['datev2', 'datetimev2']],
+        'to_days' : [['integer', 'date'], ['integer', 'datev2']],
+        'to_monday' : [['datev2', 'datetimev2'], ['datev2', 'datev2'], ['date', 'datetime'], ['date', 'date']],
+        'to_quantile_state' : [['quantilestate', 'varchar', 'float']],
+        'trim' : [['varchar', 'varchar'], ['string', 'string']],
+        'truncate' : [['double', 'double', 'integer']],
+        'unhex' : [['varchar', 'varchar'], ['string', 'string']],
+        'unix_timestamp' : [['integer', ''], ['integer', 'datetime'], ['integer', 'date'], ['integer', 'datetimev2'], ['integer', 'datev2'], ['integer', 'varchar', 'varchar'], ['integer', 'string', 'string']],
+        'upper' : [['varchar', 'varchar'], ['string', 'string']],
+        'user' : [['varchar', '']],
+        'utc_timestamp' : [['datetime', '']],
+        'uuid' : [['varchar', '']],
+        'version' : [['varchar', '']],
+        'week' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2'], ['integer', 'datetime', 'integer'], ['integer', 'datetimev2', 'integer'], ['integer', 'datev2', 'integer']],
+        'week_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'week_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'week_of_year' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'weekday' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2']],
+        'weeks_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
+        'year' : [['integer', 'datev2'], ['integer', 'datetime'], ['integer', 'datetimev2']],
+        'year_ceil' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'year_floor' : [['datetime', 'datetime'], ['datetimev2', 'datetimev2'], ['datev2', 'datev2'], ['datetime', 'datetime', 'datetime'], ['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'datetimev2'], ['datetimev2', 'datetimev2', 'integer'], ['datev2', 'datev2', 'datev2'], ['datev2', 'datev2', 'integer'], ['datetime', 'datetime', 'integer', 'datetime'], ['datetimev2', 'datetimev2', 'integer', 'datetimev2'], ['datev2', 'datev2', 'integer', 'datev2']],
+        'year_week' : [['integer', 'datetime'], ['integer', 'datetimev2'], ['integer', 'datev2'], ['integer', 'datetime', 'integer'], ['integer', 'datetimev2', 'integer'], ['integer', 'datev2', 'integer']],
+        'years_add' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']],
+        'years_diff' : [['bigint', 'datetime', 'datetime'], ['bigint', 'datetimev2', 'datetimev2'], ['bigint', 'datev2', 'datetimev2'], ['bigint', 'datetimev2', 'datev2'], ['bigint', 'datev2', 'datev2'], ['bigint', 'datev2', 'datetime'], ['bigint', 'datetime', 'datev2'], ['bigint', 'datetimev2', 'datetime'], ['bigint', 'datetime', 'datetimev2']],
         'years_sub' : [['datetime', 'datetime', 'integer'], ['datetimev2', 'datetimev2', 'integer'], ['date', 'date', 'integer'], ['datev2', 'datev2', 'integer']]
-
     ]
     // function table end
 
-    def args = "arg1, arg2, arg3, ..."
-    def fn_str = "fn(arg1, arg2, arg3, ...)"
-
     // test begin
-    sql """
-        select fn_str from t1
-        select fn_str from t2
-        select fn_str from t3
-    """
+    def typeToColumn = [
+        
+    ]
+
+    def args = "arg1, arg2, arg3, ..."
+    def fn_str = "fn(${args})"
+
+    def sql1 = "select ${fn_str} from t"
     // test end
 }
