@@ -59,6 +59,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
+    private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "name")
