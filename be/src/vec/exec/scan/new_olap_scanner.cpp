@@ -93,7 +93,6 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
         }
 
         {
-            std::set<int32_t> exclude_read_column;
             if (_output_tuple_desc->slots().back()->col_name() == BeConsts::ROWID_COL) {
                 // inject ROWID_COL
                 TabletColumn rowid_column;
@@ -346,12 +345,11 @@ Status NewOlapScanner::_init_tablet_reader_params(
 }
 
 Status NewOlapScanner::_init_return_columns() {
-    NewOlapScanNode* olap_parent = (NewOlapScanNode*)_parent;
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
         }
-        if (olap_parent->is_pruned_column(slot->col_unique_id())) {
+        if (slot->invalid()) {
             continue;
         }
         int32_t index = slot->col_unique_id() >= 0

@@ -1053,7 +1053,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
                 break;
             }
             // for Array<Char> or Array<Array<Char>>
-            type_desc = column_desc->type().children[0];
+            type_desc = type_desc.children[0];
         } while (true);
     }
     // shrink char_type suffix zero data

@@ -50,6 +50,12 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     if (slot_desc == nullptr) {
         return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
     }
+    if (slot_desc->invalid()) {
+        // invalid slot should be ignored manually
+        _column_id = -1;
+        _column_name = &slot_desc->col_name();
+        return Status::OK();
+    }
     _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         LOG(INFO) << "VSlotRef - invalid slot id: " << _slot_id << " desc:" << desc.debug_string();
@@ -60,10 +66,6 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    if (context->has_slot_mapping()) {
-        *result_column_id = context->get_real_cid_for_slot(_slot_id);
-        return Status::OK();
-    }
     *result_column_id = _column_id;
     return Status::OK();
 }

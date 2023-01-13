@@ -251,6 +251,10 @@ public class SortInfo {
         TreeNode.collect(Expr.substituteList(orderingExprs, substOrderBy, analyzer, false),
                 Predicates.instanceOf(SlotRef.class), sourceSlots);
         for (SlotRef origSlotRef : sourceSlots) {
+            // if (origSlotRef.isInvalid()) {
+            //     LOG.debug("ignore slot {}", origSlotRef);
+            //     continue;
+            // }
             // Don't rematerialize slots that are already in the sort tuple.
             if (origSlotRef.getDesc().getParent().getId() != sortTupleDesc.getId()) {
                 SlotDescriptor origSlotDesc = origSlotRef.getDesc();
@@ -265,7 +269,6 @@ public class SortInfo {
                 sortTupleExprs.add(origSlotRef);
             }
         }
-
         // backup before substitute orderingExprs
         origOrderingExprs = orderingExprs;
 

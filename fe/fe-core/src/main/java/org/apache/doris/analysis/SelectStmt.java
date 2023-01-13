@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -34,6 +35,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -119,6 +121,7 @@ public class SelectStmt extends QueryStmt {
 
     // Members that need to be reset to origin
     private SelectList originSelectList;
+    boolean isTwoPhaseReadEnabled = false;
 
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
@@ -557,7 +560,6 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-
         whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
@@ -576,7 +578,6 @@ public class SelectStmt extends QueryStmt {
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
-
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -591,15 +592,48 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
+        if (checkEnableTwoPhaseRead()) {
+            // If optimize enabled, we try our best to read less columns from ScanNode,
+            // here we analyze conjunct exprs and ordering exprs before resultExprs,
+            // rest of resultExprs will be marked as `INVALID`, such columns will
+            // be prevent from reading from ScanNode.Those columns will be finally
+            // read by the second fetch phase
+            isTwoPhaseReadEnabled = true;
+            // Expr.analyze(resultExprs, analyzer);
+            Set<SlotRef> resultSlots = Sets.newHashSet();
+            Set<SlotRef> orderingSlots = Sets.newHashSet();
+            Set<SlotRef> conjuntSlots = Sets.newHashSet();
+            TreeNode.collect(resultExprs, Predicates.instanceOf(SlotRef.class), resultSlots);
+            TreeNode.collect(sortInfo.getOrderingExprs(), Predicates.instanceOf(SlotRef.class), orderingSlots);
+            if (whereClause != null) {
+                whereClause.collect(SlotRef.class, conjuntSlots);
+            }
+            LOG.debug("before resultsSlots {}", resultSlots);
+            resultSlots.removeAll(orderingSlots);
+            resultSlots.removeAll(conjuntSlots);
+            // reset slots need to do fetch column
+            for (SlotRef slot : resultSlots) {
+                // invalid slots will be pruned from reading from ScanNode
+                slot.setInvalid();
+                LOG.debug("set slot {} invalid", slot);
+            }
+            LOG.debug("resultsSlots {}", resultSlots);
+            LOG.debug("orderingSlots {}", orderingSlots);
+            LOG.debug("conjuntSlots {}", conjuntSlots);
+        }
+        LOG.debug("opt result Exprs {}", resultExprs);
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
+        LOG.debug("opt result Exprs {}", resultExprs);
 
         if (needToSql) {
             sqlString = toSql();
         }
 
+        LOG.debug("opt result Exprs {}", resultExprs);
         resolveInlineViewRefs(analyzer);
+        LOG.debug("opt result Exprs {}", resultExprs);
 
         if (analyzer.hasEmptySpjResultSet() && aggInfo == null) {
             analyzer.setHasEmptyResultSet();
@@ -613,6 +647,39 @@ public class SelectStmt extends QueryStmt {
         if (hasOutFileClause()) {
             outFileClause.analyze(analyzer, resultExprs, colLabels);
         }
+    }
+
+    // Check whether enable two phase read optimize, if enabled query will be devieded into two phase read:
+    // 1. read conjuncts columns and order by columns along with an extra RowId column from ScanNode
+    // 2. sort and filter data, and get final RowId column, spawn RPC to other BE to fetch final data
+    // 3. final matrialize all data
+    public boolean checkEnableTwoPhaseRead() {
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
+        if (getAggInfo() != null
+                || getHavingPred() != null
+                || getWithClause() != null) {
+            return false;
+        }
+        // single olap table
+        List<TableRef> tblRefs = getTableRefs();
+        if (tblRefs.size() != 1 || !(tblRefs.get(0) instanceof BaseTableRef)) {
+            return false;
+        }
+        TableRef tbl = tblRefs.get(0);
+        if (tbl.getTable().getType() != Table.TableType.OLAP) {
+            return false;
+        }
+        // need enable light schema change
+        OlapTable olapTable = (OlapTable) tbl.getTable();
+        if (!olapTable.getEnableLightSchemaChange()) {
+            return false;
+        }
+        // Only TOPN query at present
+        if (getOrderByElements() == null || !hasLimit()
+                    || getLimit() == 0 || getLimit() > Config.topn_two_phase_limit_threshold) {
+            return false;
+        }
+        return true;
     }
 
     public List<TupleId> getTableRefIds() {

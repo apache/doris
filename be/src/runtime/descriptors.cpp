@@ -64,7 +64,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
           _is_materialized(tdesc.isMaterialized),
-          _is_key(tdesc.is_key) {}
+          _is_key(tdesc.is_key),
+          _is_invalid(tdesc.is_invalid) {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -80,7 +81,8 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
-          _is_key(pdesc.is_key()) {}
+          _is_key(pdesc.is_key()),
+          _is_invalid(false) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
@@ -546,6 +548,9 @@ int RowDescriptor::get_column_id(int slot_id) const {
     int column_id_counter = 0;
     for (const auto tuple_desc : _tuple_desc_map) {
         for (const auto slot : tuple_desc->slots()) {
+            if (slot->invalid()) {
+                continue;
+            }
             if (slot->id() == slot_id) {
                 return column_id_counter;
             }

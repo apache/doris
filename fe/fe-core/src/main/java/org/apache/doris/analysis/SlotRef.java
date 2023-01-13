@@ -122,6 +122,14 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
+    public void setInvalid() {
+        this.desc.setInvalid();
+    }
+
+    public boolean isInvalid() {
+        return this.desc.isInvalid();
+    }
+
     public Column getColumn() {
         if (desc == null) {
             return null;
@@ -296,6 +304,11 @@ public class SlotRef extends Expr {
     @Override
     public void markAgg() {
         desc.setIsAgg(true);
+    }
+
+    @Override
+    public String toString() {
+        return debugString();
     }
 
     @Override

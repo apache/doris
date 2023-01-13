@@ -52,6 +52,7 @@ struct TSlotDescriptor {
   10: required bool isMaterialized
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
+  13: optional bool is_invalid = false
 }
 
 struct TTupleDescriptor {

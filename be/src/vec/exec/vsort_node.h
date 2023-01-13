@@ -61,10 +61,6 @@ protected:
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
-    // used to refill block with ColumnConst when contains rowid column,
-    // since some column missed
-    void _rebuild_block(Block* block);
-
     // Number of rows to skip.
     int64_t _offset;
 

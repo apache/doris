@@ -110,6 +110,7 @@ Status VExchangeNode::second_phase_fetch_data(RuntimeState* state, Block* final_
     MutableBlock materialized_block(_row_descriptor.tuple_descriptors(), final_block->rows());
     // fetch will sort block by sequence of ROWID_COL
     RETURN_IF_ERROR(id_fetcher.fetch(row_id_col.column, &materialized_block));
+    // Notice swap may change the structure of final_block
     final_block->swap(materialized_block.to_block());
     LOG(INFO) << "fetch_id finished, cost(ms):" << watch.elapsed_time() / 1000 / 1000;
     return Status::OK();
@@ -124,6 +125,12 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                                                      state->batch_size(), _limit, _offset));
         _is_ready = true;
         return Status::OK();
+    }
+    if (_use_two_phase_read) {
+        // Block structure may be changed by calling second_phase_fetch_data() before.
+        // So we should clear block before _stream_recvr->get_next, since
+        // blocks in VSortedRunMerger may not compatible with this block.
+        block->clear();
     }
     auto status = _stream_recvr->get_next(block, eos);
     if (block != nullptr) {

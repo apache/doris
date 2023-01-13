@@ -166,11 +166,6 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
-    virtual std::unique_ptr<vectorized::Block> _allocate_block(const TupleDescriptor* desc,
-                                                               size_t sz) {
-        return std::unique_ptr<vectorized::Block>(new vectorized::Block(desc->slots(), sz));
-    }
-
 protected:
     RuntimeState* _state;
     // For load scan node, there should be both input and output tuple descriptor.

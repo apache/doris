@@ -55,7 +55,8 @@ Status ScannerContext::init() {
     // So use _output_tuple_desc;
     int64_t free_blocks_memory_usage = 0;
     for (int i = 0; i < pre_alloc_block_count; ++i) {
-        auto block = _parent->_allocate_block(_output_tuple_desc, real_block_size).release();
+        auto block = new vectorized::Block(_output_tuple_desc->slots(), real_block_size,
+                                           true /*ignore invalid slots*/);
         free_blocks_memory_usage += block->allocated_bytes();
         _free_blocks.emplace_back(block);
     }
@@ -93,7 +94,8 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
     *get_free_block = false;
 
     COUNTER_UPDATE(_parent->_newly_create_free_blocks_num, 1);
-    return _parent->_allocate_block(_real_tuple_desc, _state->batch_size()).release();
+    return new vectorized::Block(_real_tuple_desc->slots(), _state->batch_size(),
+                                 true /*ignore invalid slots*/);
 }
 
 void ScannerContext::return_free_block(vectorized::Block* block) {

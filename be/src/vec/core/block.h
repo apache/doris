@@ -74,7 +74,8 @@ public:
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
     Block(const PBlock& pblock);
-    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size);
+    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
+          bool ignore_invalid_slot = false);
 
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
@@ -391,7 +392,8 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0);
+    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
+                 bool igore_invalid_slot = false);
 
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}

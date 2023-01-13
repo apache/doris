@@ -54,8 +54,12 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
     initialize_index_by_name();
 }
 
-Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
+             bool ignore_invalid_slot) {
     for (const auto slot_desc : slots) {
+        if (ignore_invalid_slot && slot_desc->invalid()) {
+            continue;
+        }
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
@@ -919,9 +923,13 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     }
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size) {
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
+                           bool ignore_invalid_slot) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
+            if (ignore_invalid_slot && slot_desc->invalid()) {
+                continue;
+            }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
             if (reserve_size != 0) {
