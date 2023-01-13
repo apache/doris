@@ -26,60 +26,24 @@ suite("nereids_function") {
 
     sql """
         CREATE TABLE IF NOT EXISTS `t1` (
-            `k0` boolean null comment "",
-            `k1` tinyint(4) null comment "",
-            `k2` smallint(6) null comment "",
-            `k3` int(11) null comment "",
-            `k4` bigint(20) null comment "",
-            `k5` decimal(9, 3) null comment "",
-            `k6` char(5) null comment "",
-            `k7` varchar(20) null comment "",
-            `k8` double max null comment "",
-            `k9` float sum null comment "",
-            `k10` date null comment "",
-            `k11` datetime null comment "",
-            `k12` string replace null comment "",
-            `k13` largeint(40) replace null comment ""
-        ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
-        properties("replication_num" = "1")
-    """
-    sql """
-        CREATE TABLE IF NOT EXISTS `t2` (
-            `k0` boolean null comment "",
-            `k1` tinyint(4) null comment "",
-            `k2` smallint(6) null comment "",
-            `k3` int(11) null comment "",
-            `k4` bigint(20) null comment "",
-            `k5` decimal(9, 3) null comment "",
-            `k6` char(5) null comment "",
-            `k7` varchar(20) null comment "",
-            `k8` double max null comment "",
-            `k9` float sum null comment "",
-            `k10` date null comment "",
-            `k11` datetime null comment "",
-            `k12` string replace_if_not_null null comment "",
-            `k13` largeint(40) replace null comment ""
-        ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
-        properties("replication_num" = "1")
-    """
-    sql """
-        CREATE TABLE IF NOT EXISTS `t3` (
-            `k0` boolean null comment "",
-            `k1` tinyint(4) null comment "",
-            `k2` smallint(6) null comment "",
-            `k3` int(11) null comment "",
-            `k4` bigint(20) null comment "",
-            `k5` decimal(9, 3) null comment "",
-            `k6` char(5) null comment "",
-            `k7` varchar(20) null comment "",
-            `k8` double max null comment "",
-            `k9` float sum null comment "",
-            `k10` date null comment "",
-            `k11` datetime null comment "",
-            `k12` string replace null comment "",
-            `k13` largeint(40) replace null comment ""
+            `kbool` boolean null comment "",
+            `ktint` tinyint(4) null comment "",
+            `ksint` smallint(6) null comment "",
+            `kint` int(11) null comment "",
+            `kbint` bigint(20) null comment "",
+            `klint` largeint(40) replace null comment ""
+            `kfl` float sum null comment "",
+            `kdbl` double max null comment "",
+            `kdcml` decimal(9, 3) null comment "",
+            `kchr` char(5) null comment "",
+            `kvhr` varchar(20) null comment "",
+            `kstr` string replace null comment "",
+            `kdt` date null comment "",
+            `kdtv2` datev2 null comment "",
+            `kdtm` datetime null comment "",
+            `kdtmv2` datetimev2 null comment "",
+            `kabool` array<boolean> null comment "",
+            `ka`
         ) engine=olap
         DISTRIBUTED BY HASH(`k1`) BUCKETS 5
         properties("replication_num" = "1")
@@ -104,8 +68,6 @@ suite("nereids_function") {
     (1, 15, 1992, 3021, 11011920, 0.00, true, 9999-12-12, 2015-04-02 00:00:00, , 3.141592653, 20.456, string12345, 701411834604692317),
     (null, null, null, null, null, null, null, null, null, null, null, null, null, null)
     """
-    sql "insert into t2 select * from t1 where k1 <= 3"
-    sql "insert into t3 select * from t1"
     // ddl end
     
     // function table begin
