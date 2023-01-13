@@ -165,7 +165,7 @@ protected:
         // just use to create s3 filesystem, otherwise won't use cache
         S3Conf s3_conf;
         std::shared_ptr<io::S3FileSystem> fs =
-                std::make_shared<io::S3FileSystem>(std::move(s3_conf), resource_id);
+                io::S3FileSystem::create(std::move(s3_conf), resource_id);
         rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);

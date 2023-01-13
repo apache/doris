@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -52,12 +53,14 @@ public abstract class DataType implements AbstractDataType {
     protected static final NereidsParser PARSER = new NereidsParser();
 
     // use class and supplier here to avoid class load deadlock.
-    private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
-            = ImmutableMap.<Class<? extends NumericType>, Supplier<DataType>>builder()
+    private static final Map<Class<? extends PrimitiveType>, Supplier<DataType>> PROMOTION_MAP
+            = ImmutableMap.<Class<? extends PrimitiveType>, Supplier<DataType>>builder()
             .put(TinyIntType.class, () -> SmallIntType.INSTANCE)
             .put(SmallIntType.class, () -> IntegerType.INSTANCE)
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
             .put(FloatType.class, () -> DoubleType.INSTANCE)
+            .put(VarcharType.class, () -> StringType.INSTANCE)
+            .put(CharType.class, () -> StringType.INSTANCE)
             .build();
 
     @Developing("This map is just use to search which itemType of the ArrayType is implicit castable for temporary."
@@ -86,11 +89,7 @@ public abstract class DataType implements AbstractDataType {
     /**
      * create a specific Literal for a given dataType
      */
-    public static Literal promoteNumberLiteral(Object value, DataType dataType) {
-        if (! (value instanceof Number)) {
-            return null;
-        }
-
+    public static Literal promoteLiteral(Object value, DataType dataType) {
         if (dataType.equals(SmallIntType.INSTANCE)) {
             return new SmallIntLiteral(((Number) value).shortValue());
         } else if (dataType.equals(IntegerType.INSTANCE)) {
@@ -99,6 +98,8 @@ public abstract class DataType implements AbstractDataType {
             return new BigIntLiteral(((Number) value).longValue());
         } else if (dataType.equals(DoubleType.INSTANCE)) {
             return new DoubleLiteral(((Number) value).doubleValue());
+        } else if (dataType.equals(StringType.INSTANCE)) {
+            return new StringLiteral((String) value);
         }
         return null;
     }

@@ -61,6 +61,11 @@ private:
     void _clean_oldest();
 };
 
+std::shared_ptr<HdfsFileSystem> HdfsFileSystem::create(const THdfsParams& hdfs_params,
+                                                       const std::string& path) {
+    return std::shared_ptr<HdfsFileSystem>(new HdfsFileSystem(hdfs_params, path));
+}
+
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
         : RemoteFileSystem(path, "", FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
