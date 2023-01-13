@@ -201,7 +201,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         for (Partition partition : partitions) {
-            partitionSizeArray.add(partition.getDataSize());
+            if (partition.getVisibleVersion() >= 2) {
+                partitionSizeArray.add(partition.getDataSize());
+            }
         }
 
         // * 5 for uncompressed data
