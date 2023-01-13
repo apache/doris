@@ -92,6 +92,7 @@ void ExchangeSinkBuffer::close() {
             delete pair.second;
         }
     }
+    _instance_to_request.clear();
 }
 
 bool ExchangeSinkBuffer::can_write() const {
