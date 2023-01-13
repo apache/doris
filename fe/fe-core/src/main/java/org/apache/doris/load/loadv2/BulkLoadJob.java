@@ -31,6 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -74,6 +75,8 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // input params
     protected BrokerDesc brokerDesc;
+    // queryId of OriginStatement
+    protected String queryId;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyze when the log is replayed
@@ -97,6 +100,7 @@ public abstract class BulkLoadJob extends LoadJob {
             OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
         super(jobType, dbId, label);
         this.originStmt = originStmt;
+        this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
         this.authorizationInfo = gatherAuthInfo();
         this.userInfo = userInfo;
 

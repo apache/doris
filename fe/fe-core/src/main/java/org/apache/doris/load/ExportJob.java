@@ -51,6 +51,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.DataPartition;
@@ -116,6 +117,7 @@ public class ExportJob implements Writable {
     }
 
     private long id;
+    private String queryId;
     private String label;
     private long dbId;
     private long tableId;
@@ -175,6 +177,7 @@ public class ExportJob implements Writable {
 
     public ExportJob() {
         this.id = -1;
+        this.queryId = "";
         this.dbId = -1;
         this.tableId = -1;
         this.state = JobState.PENDING;
@@ -201,7 +204,7 @@ public class ExportJob implements Writable {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
-
+        this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
@@ -727,6 +730,10 @@ public class ExportJob implements Writable {
 
     public String getLabel() {
         return label;
+    }
+
+    public String getQueryId() {
+        return queryId;
     }
 
     @Override
