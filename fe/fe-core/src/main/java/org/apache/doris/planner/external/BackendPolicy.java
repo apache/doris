@@ -75,8 +75,4 @@ public class BackendPolicy {
     public int numBackends() {
         return backends.size();
     }
-
-    public List<Backend> getBackends() {
-        return backends;
-    }
 }

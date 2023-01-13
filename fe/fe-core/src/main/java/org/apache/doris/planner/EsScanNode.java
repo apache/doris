@@ -37,7 +37,6 @@ import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
-import org.apache.doris.planner.external.BackendPolicy;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -191,9 +190,7 @@ public class EsScanNode extends ScanNode {
     private void assignBackends() throws UserException {
         backendMap = HashMultimap.create();
         backendList = Lists.newArrayList();
-        BackendPolicy policy = new BackendPolicy();
-        policy.init();
-        for (Backend be : policy.getBackends()) {
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
                 backendMap.put(be.getHost(), be);
                 backendList.add(be);
