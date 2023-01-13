@@ -400,7 +400,9 @@ suite("nereids_fn") {
             def args = String.join(',', types)
             def fn = '${fn_name}(${args})'
             def scalar_sql = 'select ${fn} from t order by ${args}'
-            qt_order scalar_sql
+            test {
+                sql scalar_sql
+            }
         }
     }
     // test end
