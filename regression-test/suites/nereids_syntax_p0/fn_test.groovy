@@ -50,7 +50,7 @@ suite("nereids_fn") {
             `kdtm` datetime null,
             `kdtmv2s1` datetimev2(0) null,
             `kdtmv2s2` datetimev2(4) null,
-            `kdtmv2s3` datetimev2(6) null
+            `kdtmv2s3` datetimev2(6) null,
             `kabool` array<boolean> null,
             `katint` array<tinyint> null,
             `kasint` array<smallint> null,
