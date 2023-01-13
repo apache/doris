@@ -302,8 +302,7 @@ Status ScalarColumnWriter::init() {
 
     if (_opts.inverted_index) {
         RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
-                get_field(), &_inverted_index_builder, _opts.meta->unique_id(),
-                _file_writer->path().filename().native(),
+                get_field(), &_inverted_index_builder, _file_writer->path().filename().native(),
                 _file_writer->path().parent_path().native(), _opts.inverted_index,
                 _file_writer->fs()));
     }
@@ -566,7 +565,7 @@ Status ArrayColumnWriter::init() {
         auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
-                    get_field(), &_inverted_index_builder, _opts.meta->unique_id(),
+                    get_field(), &_inverted_index_builder,
                     writer->_file_writer->path().filename().native(),
                     writer->_file_writer->path().parent_path().native(), _opts.inverted_index,
                     writer->_file_writer->fs()));
