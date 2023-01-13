@@ -398,8 +398,8 @@ suite("nereids_fn") {
                 typeToColumn[it][0]
             }
             def args = String.join(',', types)
-            def fn = '${fn_name}(${args})'
-            def scalar_sql = 'select ${fn} from t order by ${args}'
+            def fn = "${fn_name}(${args})"
+            def scalar_sql = "select ${fn} from t order by ${args}"
             test {
                 sql scalar_sql
             }
