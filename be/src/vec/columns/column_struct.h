@@ -79,8 +79,6 @@ private:
     template <bool positive>
     struct Less;
 
-    ColumnStruct(Columns&& columns);
-    ColumnStruct(TupleColumns&& tuple_columns);
     explicit ColumnStruct(MutableColumns&& mutable_columns);
     ColumnStruct(const ColumnStruct&) = default;
 
@@ -89,14 +87,14 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnStruct>;
-    static Ptr create(Columns& columns);
-    static Ptr create(MutableColumns& columns);
-    static Ptr create(TupleColumns& columns);
+    static Ptr create(const Columns& columns);
+    static Ptr create(const TupleColumns& columns);
     static Ptr create(Columns&& arg) { return create(arg); }
 
-    template <typename... Args>
-    static MutablePtr create(Args&&... args) {
-        return Base::create(std::forward<Args>(args)...);
+    template <typename Arg,
+              typename = typename std::enable_if<std::is_rvalue_reference<Arg&&>::value>::type>
+    static MutablePtr create(Arg&& arg) {
+        return Base::create(std::forward<Arg>(arg));
     }
 
     std::string get_name() const override;
@@ -131,9 +129,7 @@ public:
     // void update_hash_fast(SipHash & hash) const override;
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
-        LOG(FATAL) << "insert_indices_from not implemented";
-    }
+                             const int* indices_end) override;
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
