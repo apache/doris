@@ -64,7 +64,14 @@ public:
 private:
     static CppType convert(const std::string& condition) {
         CppType value = 0;
-        std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        // because std::from_chars can't compile on macOS
+        if constexpr (std::is_same_v<CppType, double>) {
+            value = std::stod(condition, nullptr);
+        } else if constexpr (std::is_same_v<CppType, float>) {
+            value = std::stof(condition, nullptr);
+        } else {
+            std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        }
         return value;
     }
 };
@@ -162,6 +169,12 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_FLOAT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_FLOAT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_DOUBLE: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
