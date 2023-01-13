@@ -29,22 +29,22 @@ suite("nereids_fn") {
             `ksint` smallint(6) null,
             `kint` int(11) null,
             `kbint` bigint(20) null,
-            `klint` largeint(40) replace null,
-            `kfloat` float sum null,
-            `kdbl` double max null,
+            `klint` largeint(40) null,
+            `kfloat` float null,
+            `kdbl` double null,
             `kdcmls1` decimal(9, 3) null,
             `kdcmls2` decimal(15, 5) null,
-            `kdcmls3` decimal(30, 15) null,
+            `kdcmls3` decimal(27, 9) null,
             `kdcmlv3s1` decimalv3(9, 3) null,
             `kdcmlv3s2` decimalv3(15, 5) null,
-            `kdcmlv3s3` decimalv3(30, 20) null,
+            `kdcmlv3s3` decimalv3(27, 9) null,
             `kchrs1` char(5) null,
             `kchrs2` char(20) null,
             `kchrs3` char(50) null,
             `kvhrs1` varchar(10) null,
             `kvhrs2` varchar(20) null,
             `kvhrs3` varchar(50) null,
-            `kstr` string replace null,
+            `kstr` string null,
             `kdt` date null,
             `kdtv2` datev2 null,
             `kdtm` datetime null,
@@ -66,8 +66,7 @@ suite("nereids_fn") {
             `kachr` array<char> null,
             `kavchr` array<varchar> null,
             `kastr` array<string> null,
-            `kadcml` array<decimal> null,
-            `kadcmlv3` array<decimalv3> null
+            `kadcml` array<decimal> null
         ) engine=olap
         DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
