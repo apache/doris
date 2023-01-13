@@ -216,6 +216,8 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
+    virtual Status try_close() { return Status::OK(); }
+
     bool is_closed() const { return _is_closed; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
@@ -225,7 +227,7 @@ public:
     const RowDescriptor& row_desc();
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
-    std::string debug_string() const;
+    virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
