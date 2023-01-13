@@ -101,6 +101,8 @@ public:
         std::swap(data, new_data);
     }
 
+    void initialize_index_by_name();
+
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
@@ -366,7 +368,6 @@ public:
 
 private:
     void erase_impl(size_t position);
-    void initialize_index_by_name();
     bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
                              const IColumn* column_with_type_and_name, int row);
     void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,

@@ -24,6 +24,7 @@
 #include "olap/iterators.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
+#include "rapidjson/document.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
@@ -33,7 +34,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             IOContext* io_ctx)
+                             IOContext* io_ctx, bool schema_evolution)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -41,7 +42,8 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _schema_evolution(schema_evolution) {
     _init_profile();
 }
 
@@ -167,8 +169,55 @@ Status ParquetReader::_open_file() {
     return Status::OK();
 }
 
+/*
+ * To support schema evolution, Iceberg write the column id to column name map to
+ * parquet file key_value_metadata.
+ * This function is to compare the table schema from FE (_col_id_name_map) with
+ * the schema in key_value_metadata for the current parquet file and generate two maps
+ * for future use:
+ * 1. table column name to parquet column name.
+ * 2. parquet column name to table column name.
+ * For example, parquet file has a column 'col1',
+ * after this file was written, iceberg changed the column name to 'col1_new'.
+ * The two maps would contain:
+ * 1. col1_new -> col1
+ * 2. col1 -> col1_new
+ */
+Status ParquetReader::_gen_col_name_maps(
+        const std::unordered_map<int, std::string>& _col_id_name_map) {
+    std::vector<tparquet::KeyValue> key_values = _t_metadata->key_value_metadata;
+    std::string schema;
+    for (int i = 0; i < key_values.size(); ++i) {
+        tparquet::KeyValue kv = key_values[i];
+        if (kv.key == "iceberg.schema") {
+            schema = kv.value;
+            rapidjson::Document json;
+            json.Parse(schema.c_str());
+
+            if (json.HasMember("fields")) {
+                rapidjson::Value& fields = json["fields"];
+                if (fields.IsArray()) {
+                    for (int j = 0; j < fields.Size(); j++) {
+                        rapidjson::Value& e = fields[j];
+                        rapidjson::Value& id = e["id"];
+                        rapidjson::Value& name = e["name"];
+                        auto iter = _col_id_name_map.find(id.GetInt());
+                        if (iter != _col_id_name_map.end()) {
+                            _table_col_to_file_col.emplace(iter->second, name.GetString());
+                            _file_col_to_table_col.emplace(name.GetString(), iter->second);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    return Status::OK();
+}
+
 Status ParquetReader::init_reader(
         const std::vector<std::string>& column_names,
+        const std::unordered_map<int, std::string>& _col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         VExprContext* vconjunct_ctx, bool filter_groups) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
@@ -180,8 +229,18 @@ Status ParquetReader::init_reader(
         return Status::EndOfFile("Empty Parquet File");
     }
     auto schema_desc = _file_metadata->schema();
+    if (_schema_evolution) {
+        _gen_col_name_maps(_col_id_name_map);
+    }
     for (int i = 0; i < schema_desc.size(); ++i) {
-        _map_column.emplace(schema_desc.get_column(i)->name, i);
+        if (_schema_evolution) {
+            auto iter = _file_col_to_table_col.find(schema_desc.get_column(i)->name);
+            if (iter != _file_col_to_table_col.end()) {
+                _map_column.emplace(iter->second, i);
+            }
+        } else {
+            _map_column.emplace(schema_desc.get_column(i)->name, i);
+        }
     }
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
@@ -199,7 +258,14 @@ Status ParquetReader::set_fill_columns(
     std::unordered_map<std::string, uint32_t> predicate_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
-            predicate_columns.emplace(slot_ref->expr_name(), slot_ref->column_id());
+            auto expr_name = slot_ref->expr_name();
+            if (_schema_evolution) {
+                auto iter = _table_col_to_file_col.find(expr_name);
+                if (iter != _table_col_to_file_col.end()) {
+                    expr_name = iter->second;
+                }
+            }
+            predicate_columns.emplace(expr_name, slot_ref->column_id());
             if (slot_ref->column_id() == 0) {
                 _lazy_read_ctx.resize_first_column = false;
             }
@@ -357,6 +423,18 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 }
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    // To support iceberg schema evolution. We change the column name in block to
+    // make it match with the column name in parquet file before reading data. and
+    // Set the name back to table column name before return this block.
+    // TODO: refactor this logic, maybe move them to iceberg_reader or scanner.
+    for (int i = 0; i < block->columns(); i++) {
+        ColumnWithTypeAndName& col = block->get_by_position(i);
+        auto iter = _table_col_to_file_col.find(col.name);
+        if (iter != _table_col_to_file_col.end()) {
+            col.name = iter->second;
+        }
+    }
+    block->initialize_index_by_name();
     if (_current_group_reader == nullptr || _row_group_eof) {
         if (_read_row_groups.size() > 0) {
             RETURN_IF_ERROR(_next_row_group_reader());
@@ -384,6 +462,15 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
             *eof = false;
         }
     }
+    // Set the name back to table column name before return this block.
+    for (int i = 0; i < block->columns(); i++) {
+        ColumnWithTypeAndName& col = block->get_by_position(i);
+        auto iter = _file_col_to_table_col.find(col.name);
+        if (iter != _file_col_to_table_col.end()) {
+            col.name = iter->second;
+        }
+    }
+    block->initialize_index_by_name();
     return Status::OK();
 }
 
@@ -620,7 +707,9 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         if (!statistic.__isset.max || !statistic.__isset.min) {
             continue;
         }
-        const FieldSchema* col_schema = schema_desc.get_column(col_name);
+        auto real_col_name =
+                _schema_evolution ? _table_col_to_file_col.find(col_name)->second : col_name;
+        const FieldSchema* col_schema = schema_desc.get_column(real_col_name);
         // Min-max of statistic is plain-encoded value
         *filter_group = determine_filter_min_max(slot_iter->second, col_schema, statistic.min,
                                                  statistic.max);

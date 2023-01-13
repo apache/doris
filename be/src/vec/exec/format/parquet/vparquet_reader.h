@@ -57,7 +57,7 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  IOContext* io_ctx);
+                  IOContext* io_ctx, bool schema_evolution = false);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   IOContext* io_ctx);
@@ -66,13 +66,9 @@ public:
     // for test
     void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
-    Status init_reader(const std::vector<std::string>& column_names, bool filter_groups = true) {
-        // without predicate
-        return init_reader(column_names, nullptr, nullptr, filter_groups);
-    }
-
     Status init_reader(
             const std::vector<std::string>& column_names,
+            const std::unordered_map<int, std::string>& _col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             VExprContext* vconjunct_ctx, bool filter_groups = true);
 
@@ -152,6 +148,7 @@ private:
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
+    Status _gen_col_name_maps(const std::unordered_map<int, std::string>& _col_id_name_map);
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
@@ -165,6 +162,10 @@ private:
     bool _row_group_eof = true;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
+    // file column name to table column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _file_col_to_table_col;
+    // table column name to file column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
@@ -189,7 +190,7 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
-
     IOContext* _io_ctx;
+    bool _schema_evolution = false;
 };
 } // namespace doris::vectorized

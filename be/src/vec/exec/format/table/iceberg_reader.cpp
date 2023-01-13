@@ -114,6 +114,7 @@ Status IcebergTableReader::_position_delete(
     std::vector<std::string> delete_file_col_names;
     std::vector<TypeDescriptor> delete_file_col_types;
     std::vector<DeleteRows*> delete_rows_array;
+    std::unordered_map<int, std::string> col_id_to_name;
     int64_t num_delete_rows = 0;
     std::vector<DeleteFile*> erase_data;
     for (auto& delete_file : delete_files) {
@@ -138,8 +139,8 @@ Status IcebergTableReader::_position_delete(
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;
             }
-            create_status =
-                    delete_reader.init_reader(delete_file_col_names, nullptr, nullptr, false);
+            create_status = delete_reader.init_reader(delete_file_col_names, col_id_to_name,
+                                                      nullptr, nullptr, false);
             if (!create_status.ok()) {
                 return nullptr;
             }
