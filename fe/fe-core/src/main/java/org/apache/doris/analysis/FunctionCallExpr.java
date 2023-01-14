@@ -1329,7 +1329,7 @@ public class FunctionCallExpr extends Expr {
                             && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                         continue;
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
-                            argTypes[i].isDateType() && args[ix].isDateType())
+                            argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
                             && (!fn.getReturnType().isDecimalV3()
                             || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                         uncheckedCastChild(args[ix], i);
