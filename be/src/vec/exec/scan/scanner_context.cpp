@@ -181,22 +181,37 @@ Status ScannerContext::_close_and_clear_scanners() {
         std::stringstream scanner_rows_read;
         scanner_statistics << "[";
         scanner_rows_read << "[";
+        bool is_first_scanner_statistics = true;
+        bool is_first_scanner_rows_read = true;
         for (auto finished_scanner_time : _finished_scanner_runtime) {
-            scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS)
-                               << ", ";
+            if (!is_first_scanner_statistics) {
+                scanner_statistics << ", ";
+            }
+            scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS);
+            is_first_scanner_statistics = false;
         }
         for (auto finished_scanner_rows : _finished_scanner_rows_read) {
+            if (!is_first_scanner_rows_read) {
+                scanner_rows_read << ", ";
+            }
             scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
+            is_first_scanner_rows_read = false;
         }
         // Only unfinished scanners here
         for (auto scanner : _scanners) {
             // Scanners are in ObjPool in ScanNode,
             // so no need to delete them here.
             // Add per scanner running time before close them
-            scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS)
-                               << ", ";
-            scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT)
-                              << ", ";
+            if (!is_first_scanner_statistics) {
+                scanner_statistics << ", ";
+            }
+            scanner_statistics << PrettyPrinter::print(scanner->get_time_cost_ns(), TUnit::TIME_NS);
+            is_first_scanner_statistics = false;
+            if (!is_first_scanner_rows_read) {
+                scanner_rows_read << ", ";
+            }
+            scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT);
+            is_first_scanner_rows_read = false;
         }
         scanner_statistics << "]";
         scanner_rows_read << "]";
