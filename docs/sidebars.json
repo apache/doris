@@ -195,7 +195,6 @@
                         "lakehouse/multi-catalog/faq"
                     ]
                 },
-            "items": [
                 {
                     "type": "category",
                     "label": "External Table",
@@ -207,6 +206,7 @@
                         "lakehouse/external-table/hive"
                     ]
                 }
+            ]
         },
         {
             "type": "category",
