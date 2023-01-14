@@ -2185,7 +2185,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     }
 
     if (!sc_sorting && !sc_directly && sc_params.alter_tablet_type == AlterTabletType::ROLLUP) {
-        res = Status::Error<SCHEMA_SCHEMA_INVALID>(
+        res = Status::InternalError(
                 "Don't support to add materialized view by linked schema change");
         return process_alter_exit();
     }
