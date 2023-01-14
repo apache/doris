@@ -672,6 +672,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             break;
         }
         case TYPE_ARRAY: {
+            // Todo: fix array<datetimev2>
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
