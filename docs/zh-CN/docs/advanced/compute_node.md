@@ -27,6 +27,7 @@ under the License.
 # 计算节点
 
 <version since="1.2.1">
+</version>
 
 ## 需求场景
 目前Doris是一个典型Share-Nothing的架构, 通过绑定数据和计算资源在同一个节点获得非常高的性能表现. 而随着Doris计算引擎性能持续提高, 越来越多的用户也开始选择使用Doris直接查询数据湖数据. 
