@@ -869,6 +869,20 @@ Whether you want to change the previously created catalog to automatic refresh o
 
 Not supported temporarily.
 
+## Time Travel
+
+### Iceberg
+
+Each write to the iceberg table produces a new snapshot, whereas the read operation only reads the latest version of the snapshot.
+The iceberg table can use `FOR TIME AS OF`和`FOR VERSION AS OF` clause to read the historical version data according to the snapshot ID or the time when the snapshot was created.
+
+`SELECT * FROM db.tbl FOR TIME AS OF "2022-10-07 17:20:37";`
+
+`SELECT * FROM db.tbl FOR VERSION AS OF 868895038966572;`
+
+To get the snapshot ID and timestamp of iceberg can use [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceber_meta.md) table-valued-function.
+
+
 ## FAQ
 
 ### Iceberg
