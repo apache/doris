@@ -36,6 +36,7 @@ import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.cooldown.CooldownJob;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -576,6 +577,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_JOB_V2: {
                 data = AlterJobV2.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_PUSH_COOLDOWN_CONF: {
+                data = CooldownJob.read(in);
                 isRead = true;
                 break;
             }
