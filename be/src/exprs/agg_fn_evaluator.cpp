@@ -309,8 +309,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_OBJECT:
     case TYPE_STRING:
     case TYPE_QUANTILE_STATE:
-        reinterpret_cast<const StringRef*>(slot)->to_string_val(
-                reinterpret_cast<StringVal*>(dst));
+        reinterpret_cast<const StringRef*>(slot)->to_string_val(reinterpret_cast<StringVal*>(dst));
         return;
 
     case TYPE_DATE:
@@ -381,8 +380,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_OBJECT:
     case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
-        *reinterpret_cast<StringRef*>(slot) =
-                StringRef(*reinterpret_cast<const StringVal*>(src));
+        *reinterpret_cast<StringRef*>(slot) = StringRef(*reinterpret_cast<const StringVal*>(src));
         return;
 
     case TYPE_DATE:

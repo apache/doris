@@ -41,7 +41,6 @@ namespace doris::vectorized {
 struct LikeSearchState {
     char escape_char;
 
-    // what this did?
     /// Holds the string the StringRef points to and is set any time StringRef is
     /// used.
     std::string search_string;
@@ -98,8 +97,8 @@ struct LikeSearchState {
     }
 };
 
-using LikeFn = std::function<doris::Status(LikeSearchState*, const ColumnString&,
-                                           const StringRef&, ColumnUInt8::Container&)>;
+using LikeFn = std::function<doris::Status(LikeSearchState*, const ColumnString&, const StringRef&,
+                                           ColumnUInt8::Container&)>;
 
 using LikePredicateFn = std::function<doris::Status(
         LikeSearchState*, const PredicateColumnType<TYPE_STRING>&, const StringRef&,
@@ -141,8 +140,7 @@ protected:
                              ColumnUInt8::Container& result, LikeSearchState* search_state);
 
     static Status constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
-                                          const StringRef& pattern,
-                                          ColumnUInt8::Container& result);
+                                          const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,
                                         const StringRef& pattern, ColumnUInt8::Container& result);
@@ -163,37 +161,37 @@ protected:
     static Status constant_regex_fn_predicate(LikeSearchState* state,
                                               const PredicateColumnType<TYPE_STRING>& val,
                                               const StringRef& pattern,
-                                              ColumnUInt8::Container& result, uint16_t* sel,
+                                              ColumnUInt8::Container& result, const uint16_t* sel,
                                               size_t sz);
 
     static Status regexp_fn_predicate(LikeSearchState* state,
                                       const PredicateColumnType<TYPE_STRING>& val,
                                       const StringRef& pattern, ColumnUInt8::Container& result,
-                                      uint16_t* sel, size_t sz);
+                                      const uint16_t* sel, size_t sz);
 
     static Status constant_starts_with_fn_predicate(LikeSearchState* state,
                                                     const PredicateColumnType<TYPE_STRING>& val,
                                                     const StringRef& pattern,
-                                                    ColumnUInt8::Container& result, uint16_t* sel,
-                                                    size_t sz);
+                                                    ColumnUInt8::Container& result,
+                                                    const uint16_t* sel, size_t sz);
 
     static Status constant_ends_with_fn_predicate(LikeSearchState* state,
                                                   const PredicateColumnType<TYPE_STRING>& val,
                                                   const StringRef& pattern,
-                                                  ColumnUInt8::Container& result, uint16_t* sel,
-                                                  size_t sz);
+                                                  ColumnUInt8::Container& result,
+                                                  const uint16_t* sel, size_t sz);
 
     static Status constant_equals_fn_predicate(LikeSearchState* state,
                                                const PredicateColumnType<TYPE_STRING>& val,
                                                const StringRef& pattern,
-                                               ColumnUInt8::Container& result, uint16_t* sel,
+                                               ColumnUInt8::Container& result, const uint16_t* sel,
                                                size_t sz);
 
     static Status constant_substring_fn_predicate(LikeSearchState* state,
                                                   const PredicateColumnType<TYPE_STRING>& val,
                                                   const StringRef& pattern,
-                                                  ColumnUInt8::Container& result, uint16_t* sel,
-                                                  size_t sz);
+                                                  ColumnUInt8::Container& result,
+                                                  const uint16_t* sel, size_t sz);
 
     static Status constant_starts_with_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                  const StringRef& pattern, unsigned char* result);
@@ -231,8 +229,8 @@ public:
     friend struct LikeSearchState;
 
 private:
-    static Status like_fn(LikeSearchState* state, const ColumnString& val,
-                          const StringRef& pattern, ColumnUInt8::Container& result);
+    static Status like_fn(LikeSearchState* state, const ColumnString& val, const StringRef& pattern,
+                          ColumnUInt8::Container& result);
 
     static Status like_fn_predicate(LikeSearchState* state,
                                     const PredicateColumnType<TYPE_STRING>& val,

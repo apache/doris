@@ -471,7 +471,7 @@ IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& su
     StringSearch search(&substr_sv);
     // Input start_pos.val starts from 1.
     StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos.val - 1],
-                             str.len - index[start_pos.val - 1]);
+                           str.len - index[start_pos.val - 1]);
     int32_t match_pos = search.search(&adjusted_str);
     if (match_pos >= 0) {
         // Hive returns the position in the original string starting from 1.
@@ -840,8 +840,7 @@ StringVal StringFunctions::parse_url_key(FunctionContext* ctx, const StringVal& 
     }
 
     StringRef result;
-    if (!UrlParser::parse_url_key(StringRef(url), url_part,
-                                  StringRef(key), &result)) {
+    if (!UrlParser::parse_url_key(StringRef(url), url_part, StringRef(key), &result)) {
         // url is malformed, or url_part is invalid.
         if (url_part == UrlParser::INVALID) {
             std::stringstream ss;

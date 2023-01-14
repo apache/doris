@@ -256,9 +256,9 @@ static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     return Status::OK();
 }
 
-ScrollParser::ScrollParser(bool doc_value_mode) : _scroll_id(""), _size(0), _line_index(0) {}
+ScrollParser::ScrollParser(bool doc_value_mode) : _size(0), _line_index(0) {}
 
-ScrollParser::~ScrollParser() {}
+ScrollParser::~ScrollParser() = default;
 
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     // rely on `_size !=0 ` to determine whether scroll ends
@@ -294,7 +294,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     return Status::OK();
 }
 
-int ScrollParser::get_size() {
+int ScrollParser::get_size() const {
     return _size;
 }
 
@@ -355,7 +355,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 RETURN_LIMIT_EXCEEDED(nullptr, details, len);
             }
             memcpy(buffer, _id.data(), len);
-            reinterpret_cast<StringRef*>(slot)->data = buffer;//what this did?
+            reinterpret_cast<StringRef*>(slot)->data = buffer;
             reinterpret_cast<StringRef*>(slot)->size = len;
             continue;
         }

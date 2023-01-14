@@ -79,8 +79,8 @@ template <typename TMapped>
 struct StringHashMapCell<doris::StringRef, TMapped>
         : public HashMapCellWithSavedHash<doris::StringRef, TMapped, StringHashTableHash,
                                           HashTableNoState> {
-    using Base =
-            HashMapCellWithSavedHash<doris::StringRef, TMapped, StringHashTableHash, HashTableNoState>;
+    using Base = HashMapCellWithSavedHash<doris::StringRef, TMapped, StringHashTableHash,
+                                          HashTableNoState>;
     using value_type = typename Base::value_type;
     using Base::Base;
     static constexpr bool need_zero_value_storage = false;
@@ -114,8 +114,8 @@ struct StringHashMapSubMaps {
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
     using T3 = HashMapTable<StringKey24, StringHashMapCell<StringKey24, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
-    using Ts = HashMapTable<doris::StringRef, StringHashMapCell<doris::StringRef, TMapped>, StringHashTableHash,
-                            StringHashTableGrower<>, Allocator>;
+    using Ts = HashMapTable<doris::StringRef, StringHashMapCell<doris::StringRef, TMapped>,
+                            StringHashTableHash, StringHashTableGrower<>, Allocator>;
 };
 
 template <typename TMapped, typename Allocator = HashTableAllocator>

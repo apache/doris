@@ -20,8 +20,8 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "vec/common/string_ref.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {

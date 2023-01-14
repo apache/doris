@@ -422,7 +422,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
 
         if (pool != nullptr) {
             dest->data = reinterpret_cast<char*>(pool->allocate(dest->size));
-            //memcpy(dest->data, src->data, dest->size);
+            memcpy(const_cast<char*>(dest->data), src->data, dest->size);
         } else {
             dest->data = src->data;
         }
@@ -512,7 +512,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         StringRef* dest = reinterpret_cast<StringRef*>(dst);
         dest->size = src->size;
         dest->data = reinterpret_cast<char*>(*buf);
-        //memcpy(dest->data, src->data, dest->size);
+        memcpy(const_cast<char*>(dest->data), src->data, dest->size);
         *buf += dest->size;
         break;
     }

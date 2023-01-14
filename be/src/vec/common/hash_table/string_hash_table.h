@@ -109,7 +109,9 @@ public:
 
     void clear_has_zero() {
         _has_zero = false;
-        if (!std::is_trivially_destructible_v<Cell>) zero_value()->~Cell();
+        if (!std::is_trivially_destructible_v<Cell>) {
+            zero_value()->~Cell();
+        }
     }
 
     Cell* zero_value() { return std::launder(reinterpret_cast<Cell*>(&zero_value_storage)); }
@@ -127,8 +129,9 @@ public:
             const auto& key = key_holder_get_key(key_holder);
             set_has_zero(key);
             inserted = true;
-        } else
+        } else {
             inserted = false;
+        }
         it = zero_value();
     }
 
@@ -252,7 +255,7 @@ protected:
         friend class StringHashTable;
 
     public:
-        iterator_base() {}
+        iterator_base() = default;
         iterator_base(Container* container_, bool end = false) : container(container_) {
             if (end) {
                 sub_table_index = 4;
@@ -375,8 +378,6 @@ protected:
                 }
                 }
             }
-            while (need_switch_to_next)
-                ;
 
             return static_cast<Derived&>(*this);
         }

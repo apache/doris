@@ -52,7 +52,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         StringRef match_value;
         int32_t length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
-        match_value.replace(buffer, length);//is it safe?
+        match_value.replace(buffer, length); //is it safe?
         s = iterator->read_from_inverted_index(column_desc->name(), &match_value,
                                                inverted_index_query_type, num_rows, &roaring);
     } else if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&

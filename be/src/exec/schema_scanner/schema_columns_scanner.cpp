@@ -234,6 +234,9 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         } else {
             void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
             StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+            // todo: we may change all of StringRef in similar usage
+            // to Slice someday to distinguish different purposes of use.
+            // or just merge them.
             std::string catalog_name = _db_result.catalogs[_db_index - 1];
             str_slot->data = (char*)pool->allocate(catalog_name.size());
             str_slot->size = catalog_name.size();
@@ -255,7 +258,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         str_slot->data = (char*)pool->allocate(_table_result.tables[_table_index - 1].length());
         str_slot->size = _table_result.tables[_table_index - 1].length();
-        memcpy(const_cast<char*>(str_slot->data), _table_result.tables[_table_index - 1].c_str(), str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data), _table_result.tables[_table_index - 1].c_str(),
+               str_slot->size);
     }
     // COLUMN_NAME
     {
@@ -264,8 +268,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         str_slot->data = (char*)pool->allocate(
                 _desc_result.columns[_column_index].columnDesc.columnName.length());
         str_slot->size = _desc_result.columns[_column_index].columnDesc.columnName.length();
-        memcpy(const_cast<char*>(str_slot->data), _desc_result.columns[_column_index].columnDesc.columnName.c_str(),
-               str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data),
+               _desc_result.columns[_column_index].columnDesc.columnName.c_str(), str_slot->size);
     }
     // ORDINAL_POSITION
     {
@@ -383,7 +387,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             str_slot->size = _desc_result.columns[_column_index].columnDesc.columnKey.length();
             str_slot->data = (char*)pool->allocate(
                     _desc_result.columns[_column_index].columnDesc.columnKey.length());
-            memcpy(const_cast<char*>(str_slot->data), _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
+            memcpy(const_cast<char*>(str_slot->data),
+                   _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
                    str_slot->size);
         } else {
             str_slot->size = strlen("") + 1;
@@ -411,9 +416,11 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[19]->tuple_offset());
         StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        str_slot->data = (char*)pool->allocate(_desc_result.columns[_column_index].comment.length());
+        str_slot->data =
+                (char*)pool->allocate(_desc_result.columns[_column_index].comment.length());
         str_slot->size = _desc_result.columns[_column_index].comment.length();
-        memcpy(const_cast<char*>(str_slot->data), _desc_result.columns[_column_index].comment.c_str(), str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data),
+               _desc_result.columns[_column_index].comment.c_str(), str_slot->size);
     }
     // COLUMN_SIZE
     {

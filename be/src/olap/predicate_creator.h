@@ -117,7 +117,7 @@ public:
 
 private:
     static StringRef convert(const TabletColumn& column, const std::string& condition,
-                               MemPool* pool) {
+                             MemPool* pool) {
         size_t length = condition.length();
         if constexpr (Type == TYPE_CHAR) {
             length = std::max(static_cast<size_t>(column.length()), length);

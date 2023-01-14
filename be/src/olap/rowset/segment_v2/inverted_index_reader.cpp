@@ -32,8 +32,8 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
-#include "runtime/string_value.h"
 #include "util/time.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -110,7 +110,7 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
                                   InvertedIndexQueryType query_type,
                                   InvertedIndexParserType analyser_type,
                                   roaring::Roaring* bit_map) {
-    std::string search_str = reinterpret_cast<const StringValue*>(query_value)->to_string();
+    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << column_name
                << " begin to load the fulltext index from clucene, query_str=" << search_str;
     std::unique_ptr<lucene::search::Query> query;
@@ -210,9 +210,9 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
                                             InvertedIndexQueryType query_type,
                                             InvertedIndexParserType analyser_type,
                                             roaring::Roaring* bit_map) {
-    const StringValue* search_query = reinterpret_cast<const StringValue*>(query_value);
-    auto act_len = strnlen(search_query->ptr, search_query->len);
-    std::string search_str(search_query->ptr, act_len);
+    const StringRef* search_query = reinterpret_cast<const StringRef*>(query_value);
+    auto act_len = strnlen(search_query->data, search_query->size);
+    std::string search_str(search_query->data, act_len);
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());

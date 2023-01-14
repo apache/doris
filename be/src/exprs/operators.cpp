@@ -106,7 +106,7 @@ void Operators::init() {}
     BINARY_PREDICATE_NUMERIC_FN(NAME, large_int_val, LargeIntVal, OP);                           \
     BINARY_PREDICATE_NUMERIC_FN(NAME, float_val, FloatVal, OP);                                  \
     BINARY_PREDICATE_NUMERIC_FN(NAME, double_val, DoubleVal, OP);                                \
-    BINARY_PREDICATE_NONNUMERIC_FN(NAME, string_val, string_val, StringVal, StringRef, OP);    \
+    BINARY_PREDICATE_NONNUMERIC_FN(NAME, string_val, string_val, StringVal, StringRef, OP);      \
     BINARY_PREDICATE_NONNUMERIC_FN(NAME, datetime_val, datetime_val, DateTimeVal, DateTimeValue, \
                                    OP);
 

@@ -76,9 +76,7 @@ struct ExprValue {
     ExprValue(int64_t i, int32_t f) : decimalv2_val(i, f) {}
 
     // c'tor for string values
-    ExprValue(const std::string& str)
-            : string_data(str),
-              string_val(string_data) {}
+    ExprValue(const std::string& str) : string_data(str), string_val(string_data) {}
 
     // Set string value to copy of str
     void set_string_val(const StringRef& str) {

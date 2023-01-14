@@ -122,19 +122,26 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
             p1 += 64;
             p2 += 64;
             size -= 64;
-        } else
+        } else {
             return false;
+        }
     }
 
     switch (size / 16) {
     case 3:
-        if (!compareSSE2(p1 + 32, p2 + 32)) return false;
+        if (!compareSSE2(p1 + 32, p2 + 32)) {
+            return false;
+        }
         [[fallthrough]];
     case 2:
-        if (!compareSSE2(p1 + 16, p2 + 16)) return false;
+        if (!compareSSE2(p1 + 16, p2 + 16)) {
+            return false;
+        }
         [[fallthrough]];
     case 1:
-        if (!compareSSE2(p1, p2)) return false;
+        if (!compareSSE2(p1, p2)) {
+            return false;
+        }
     }
 
     return compareSSE2(p1 + size - 16, p2 + size - 16);
@@ -172,8 +179,12 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
     while (len-- > 0) {
         u1 = (unsigned char)*s1++;
         u2 = (unsigned char)*s2++;
-        if (u1 != u2) return u1 - u2;
-        if (u1 == '\0') return n1 - n2;
+        if (u1 != u2) {
+            return u1 - u2;
+        }
+        if (u1 == '\0') {
+            return n1 - n2;
+        }
     }
 
     return n1 - n2;
@@ -188,7 +199,7 @@ struct StringRef {
     // TODO: opening member accessing really damages.
     const char* data = nullptr;
     size_t size = 0;
-    
+
     StringRef() = default;
     StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
     StringRef(const unsigned char* data_, size_t size_)
@@ -198,10 +209,8 @@ struct StringRef {
     StringRef(const StringVal& src) : StringRef(src.ptr, src.len) {}
     explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
 
-    static StringRef from_string_val(const StringVal &src) {
-        return StringRef(src);
-    }
-    
+    static StringRef from_string_val(const StringVal& src) { return StringRef(src); }
+
     std::string to_string() const { return std::string(data, size); }
     std::string debug_string() const { return to_string(); }
     std::string_view to_string_view() const { return std::string_view(data, size); }
@@ -209,12 +218,12 @@ struct StringRef {
 
     // this is just for show, e.g. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
-    
+
     // TODO: this function is dangerous!
     StringVal to_string_val() const {
         return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
     }
-    
+
     void to_string_val(StringVal* sv) const {
         *sv = StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
     }
@@ -230,7 +239,7 @@ struct StringRef {
 
     // Trims leading and trailing spaces.
     StringRef trim() const;
-    
+
     // support for type_limit
     static constexpr char MIN_CHAR = 0x00;
     static constexpr char MAX_CHAR = 0xFF;
@@ -305,10 +314,6 @@ struct StringRef {
     struct Comparator {
         bool operator()(const StringRef& a, const StringRef& b) const { return a.compare(b) < 0; }
     };
-    
-//    struct HashOfStringRef {
-//        size_t operator()(const StringRef& v) const { return HashUtil::hash(v.data, v.size, 0); }
-//    };
 }; // class StringRef
 
 // This function must be called 'hash_value' to be picked up by boost.
@@ -317,8 +322,6 @@ inline std::size_t hash_value(const StringRef& v) {
 }
 
 using StringRefs = std::vector<StringRef>;
-
-
 
 /** Hash functions.
   * You can use either CityHash64,
@@ -385,7 +388,9 @@ struct CRC32Hash {
         const char* pos = x.data;
         size_t size = x.size;
 
-        if (size == 0) return 0;
+        if (size == 0) {
+            return 0;
+        }
 
         if (size < 8) {
             return hash_less_than8(x.data, x.size);
@@ -422,8 +427,6 @@ struct CRC32Hash {
 struct StringRefHash : StringRefHash64 {};
 
 #endif // end of hash functions
-
-
 
 inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
     return os << str.to_string();

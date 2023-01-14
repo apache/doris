@@ -116,13 +116,14 @@ public:
             auto values = ((HybridSetType*)hybrid_set.get())->get_inner_set();
 
             if constexpr (is_string_type(Type)) {
-                for (auto& value : *values) {
-                    StringRef sv = {value.data(), size_t(value.size())};
+                // values' type is "phmap::flat_hash_set<std::string>"
+                for (const std::string& value : *values) {
+                    StringRef sv = value;
                     if constexpr (Type == TYPE_CHAR) {
                         _temp_datas.push_back("");
                         _temp_datas.back().resize(std::max(char_length, value.size()));
                         memcpy(_temp_datas.back().data(), value.data(), value.size());
-                        sv = {_temp_datas.back().data(), int(_temp_datas.back().size())};
+                        sv = _temp_datas.back();
                     }
                     _values->insert(sv);
                 }

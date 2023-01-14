@@ -231,8 +231,8 @@ Status VBrokerScanner::_line_to_src_tuple(const Slice& line) {
             continue;
         }
         _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset()); //what this did?
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+        Slice* str_slot = reinterpret_cast<Slice*>(slot);
         str_slot->data = value.data;
         str_slot->size = value.size;
     }

@@ -48,10 +48,11 @@ public:
                           bool* flags) const override;
 
     std::string get_search_str() const override {
-        if constexpr (std::is_same_v<PatternType, StringRef>)
+        if constexpr (std::is_same_v<PatternType, StringRef>) {
             return std::string(reinterpret_cast<const char*>(pattern.data), pattern.size);
-        else if constexpr (std::is_same_v<PatternType, StringVal>)
+        } else if constexpr (std::is_same_v<PatternType, StringVal>) {
             return std::string(reinterpret_cast<const char*>(pattern.ptr), pattern.len);
+        }
         DCHECK(false);
     }
     bool is_opposite() const { return _opposite; }

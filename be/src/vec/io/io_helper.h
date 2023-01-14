@@ -134,7 +134,7 @@ inline void write_string_binary(const StringRef& s, BufferWritable& buf) {
 }
 
 inline void write_string_binary(const char* s, BufferWritable& buf) {
-    write_string_binary(StringRef{std::string(s)}, buf);
+    write_string_binary(StringRef {std::string(s)}, buf);
 }
 
 inline void write_json_binary(JsonbField s, BufferWritable& buf) {

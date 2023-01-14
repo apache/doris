@@ -23,6 +23,7 @@
 #include <type_traits>
 
 #include "parallel_hashmap/phmap_utils.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 

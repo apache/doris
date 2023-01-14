@@ -2141,7 +2141,7 @@ private:
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
         StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
-                                 str.len - index[start_pos - 1]);
+                               str.len - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.

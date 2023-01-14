@@ -855,7 +855,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                 auto item_offset = offset + i;
                 const auto& data_ref = item_type_desc.type != TYPE_ARRAY
                                                ? item_column->get_data_at(item_offset)
-                                               : StringRef{};
+                                               : StringRef {};
                 if (item_type_desc.is_date_type()) {
                     // In CollectionValue, date type data is stored as either uint24_t or uint64_t.
                     DateTimeValue datetime_value;
@@ -888,7 +888,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     } else if (type_desc.type == TYPE_OBJECT) {
         auto bitmap_value = (BitmapValue*)(data_ref.data);
         auto size = bitmap_value->getSizeInBytes();
-        
+
         // serialize the content of string
         // TODO: NEED TO REWRITE COMPLETELY. the way writing now is WRONG.
         // StringRef shouldn't managing exclusive memory cause it will break RAII.
@@ -913,7 +913,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
             auto string_slot = reinterpret_cast<StringRef*>(dst);
             string_slot->data = reinterpret_cast<char*>(pool->allocate(type_desc.len));
             string_slot->size = type_desc.len;
-            memset(const_cast<char*>(string_slot->data), 0, type_desc.len); //!
+            memset(const_cast<char*>(string_slot->data), 0, type_desc.len);             //!
             memcpy(const_cast<char*>(string_slot->data), data_ref.data, data_ref.size); //!
         } else {
             auto str_ptr = pool->allocate(data_ref.size);

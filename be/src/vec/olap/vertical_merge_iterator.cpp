@@ -605,8 +605,7 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources) {
-    return std::make_shared<VerticalMaskMergeIterator>(inputs, ori_return_cols,
-                                                       row_sources);
+    return std::make_shared<VerticalMaskMergeIterator>(inputs, ori_return_cols, row_sources);
 }
 
 } // namespace vectorized
