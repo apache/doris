@@ -853,27 +853,27 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 tablet->set_partition_id(tablet_meta_info.partition_id);
             } else {
                 switch (tablet_meta_info.meta_type) {
-                case TTabletMetaType::PARTITIONID:
+                case TTabletMetaType::PARTITIONID: // FIXME(plat1ko): deprecate?
                     tablet->set_partition_id(tablet_meta_info.partition_id);
                     break;
                 case TTabletMetaType::INMEMORY:
-                    // FIXME: the semantics INMEMORY is misused
-                    if (tablet_meta_info.storage_policy_id == 0) {
+                    if (tablet_meta_info.__isset.storage_policy_id) {
+                        LOG(INFO) << "set tablet storage_policy_id="
+                                  << tablet_meta_info.storage_policy_id;
+                        tablet->tablet_meta()->set_storage_policy_id(
+                                tablet_meta_info.storage_policy_id);
+                    }
+                    if (tablet_meta_info.__isset.is_in_memory) {
                         tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
                         // The field is_in_memory should not be in the tablet_schema.
                         // it should be in the tablet_meta.
-                        for (auto rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                        for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
                             rowset_meta->tablet_schema()->set_is_in_memory(
                                     tablet_meta_info.is_in_memory);
                         }
                         tablet->get_max_version_schema(wrlock)->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
-                    } else {
-                        LOG(INFO) << "set tablet storage_policy_id="
-                                  << tablet_meta_info.storage_policy_id;
-                        tablet->tablet_meta()->set_storage_policy_id(
-                                tablet_meta_info.storage_policy_id);
                     }
                     break;
                 }

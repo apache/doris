@@ -250,7 +250,7 @@ private:
 
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
-    int64_t _storage_policy_id = 0; // 0 means no storage policy
+    int64_t _storage_policy_id = 0; // <= 0 means no storage policy
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
