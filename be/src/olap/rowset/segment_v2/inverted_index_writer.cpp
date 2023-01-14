@@ -19,6 +19,7 @@
 
 #include <CLucene.h>
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
+#include <CLucene/util/bkd/bkd_writer.h>
 
 #include <memory>
 
@@ -45,6 +46,9 @@ namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
+const int32_t MAX_LEAF_COUNT = 1024;
+const float MAXMBSortInHeap = 512.0 * 8;
+const int DIMS = 1;
 const std::string empty_value;
 
 template <FieldType field_type>
@@ -62,6 +66,7 @@ public:
               _index_meta(index_meta) {
         _parser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
+        _value_key_coder = get_key_coder(field_type);
         _field_name = std::wstring(field_name.begin(), field_name.end());
     };
 
@@ -72,12 +77,14 @@ public:
             if constexpr (field_is_slice_type(field_type)) {
                 return init_fulltext_index();
             } else if constexpr (field_is_numeric_type(field_type)) {
-                return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                return init_bkd_index();
             }
-            return Status::InternalError("field type not supported");
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "Field type not supported");
         } catch (const CLuceneError& e) {
             LOG(WARNING) << "Inverted index writer init error occurred: " << e.what();
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "Inverted index writer init error occurred");
         }
     }
 
@@ -103,6 +110,17 @@ public:
             _char_string_reader = nullptr;
         }
     };
+
+    Status init_bkd_index() {
+        size_t value_length = sizeof(CppType);
+        // NOTE: initialize with 0, set to max_row_id when finished.
+        int32_t max_doc = 0;
+        int32_t total_point_count = std::numeric_limits<std::int32_t>::max();
+        _bkd_writer = std::make_shared<lucene::util::bkd::bkd_writer>(
+                max_doc, DIMS, DIMS, value_length, MAX_LEAF_COUNT, MAXMBSortInHeap,
+                total_point_count, true, config::max_depth_in_bkd_tree);
+        return Status::OK();
+    }
 
     Status init_fulltext_index() {
         bool create = true;
@@ -177,11 +195,8 @@ public:
 
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-            //NOTE:if parser is english analyzer, just construct token stream to analyzer for efficiency.
             new_char_token_stream(field_value_data, field_value_size, _field);
         } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-            //NOTE:if parser is chinese analyzer, need to do utf8->unicode->wide_char
-            //that's inefficient, need to do performance test.
             auto stringReader = _CLNEW lucene::util::SimpleInputStreamReader(
                     new lucene::util::AStringReader(field_value_data, field_value_size),
                     lucene::util::SimpleInputStreamReader::UTF8);
@@ -219,7 +234,7 @@ public:
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+            add_numeric_values(values, count);
         }
         return Status::OK();
     }
@@ -251,10 +266,44 @@ public:
                 _index_writer->addDocument(_doc);
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
-            //TODO
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+            auto p = reinterpret_cast<const CppType*>(item_data_ptr);
+            for (int i = 0; i < count; ++i) {
+                for (size_t j = 0; j < values->length(); ++j) {
+                    if (values->is_null_at(j)) {
+                        // bkd do not index null values, so we do nothing here.
+                    } else {
+                        std::string new_value;
+                        size_t value_length = sizeof(CppType);
+
+                        _value_key_coder->full_encode_ascending(p, &new_value);
+                        _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+                    }
+                    p++;
+                }
+                _row_ids_seen_for_bkd++;
+                _rid++;
+            }
         }
         return Status::OK();
+    }
+
+    void add_numeric_values(const void* values, size_t count) {
+        auto p = reinterpret_cast<const CppType*>(values);
+        for (size_t i = 0; i < count; ++i) {
+            add_value(*p);
+            p++;
+            _row_ids_seen_for_bkd++;
+        }
+    }
+
+    void add_value(const CppType& value) {
+        std::string new_value;
+        size_t value_length = sizeof(CppType);
+
+        _value_key_coder->full_encode_ascending(&value, &new_value);
+        _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+
+        _rid++;
     }
 
     uint64_t size() const override {
@@ -263,13 +312,42 @@ public:
     }
 
     Status finish() override {
+        lucene::store::Directory* dir = nullptr;
+        lucene::store::IndexOutput* data_out = nullptr;
+        lucene::store::IndexOutput* index_out = nullptr;
+        lucene::store::IndexOutput* meta_out = nullptr;
         try {
-            if constexpr (field_is_slice_type(field_type)) {
+            if constexpr (field_is_numeric_type(field_type)) {
+                auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
+                        _directory + "/" + _segment_file_name, _index_meta->index_id());
+                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                _bkd_writer->max_doc_ = _rid;
+                _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
+                data_out = dir->createOutput(
+                        InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name().c_str());
+                meta_out = dir->createOutput(
+                        InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name().c_str());
+                index_out = dir->createOutput(
+                        InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str());
+                if (data_out != nullptr && meta_out != nullptr && index_out != nullptr) {
+                    _bkd_writer->meta_finish(meta_out, _bkd_writer->finish(data_out, index_out),
+                                             field_type);
+                }
+                FINALIZE_OUTPUT(meta_out)
+                FINALIZE_OUTPUT(data_out)
+                FINALIZE_OUTPUT(index_out)
+                FINALIZE_OUTPUT(dir)
+            } else if constexpr (field_is_slice_type(field_type)) {
                 close();
             }
         } catch (CLuceneError& e) {
+            FINALLY_FINALIZE_OUTPUT(meta_out)
+            FINALLY_FINALIZE_OUTPUT(data_out)
+            FINALLY_FINALIZE_OUTPUT(index_out)
+            FINALLY_FINALIZE_OUTPUT(dir)
             LOG(WARNING) << "Inverted index writer finish error occurred: " << e.what();
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "Inverted index writer finish error occurred");
         }
 
         return Status::OK();
@@ -277,6 +355,8 @@ public:
 
 private:
     rowid_t _rid = 0;
+    uint32_t _row_ids_seen_for_bkd = 0;
+    roaring::Roaring _null_bitmap;
     uint64_t _reverted_index_size;
 
     lucene::document::Document* _doc {};
@@ -284,9 +364,11 @@ private:
     lucene::index::IndexWriter* _index_writer {};
     lucene::analysis::Analyzer* _analyzer {};
     lucene::util::SStringReader<char>* _char_string_reader {};
+    std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer;
     std::string _segment_file_name;
     std::string _directory;
     io::FileSystemSPtr _fs;
+    const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;
     std::wstring _field_name;
