@@ -69,7 +69,6 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
     CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
     CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
-
     // Both PUSH and REALTIME_PUSH type use _push_workers
     CREATE_AND_START_POOL(PUSH, _push_workers);
     CREATE_AND_START_POOL(PUBLISH_VERSION, _publish_version_workers);
