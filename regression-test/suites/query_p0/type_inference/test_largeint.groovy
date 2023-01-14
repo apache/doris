@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_largeint") {
-    def tbName = "test_demo"
+    def tbName = "test_largeint"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName}
