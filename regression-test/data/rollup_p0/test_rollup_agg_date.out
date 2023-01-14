@@ -11,8 +11,8 @@ test_rollup_agg_date	AGG_KEYS	datek1	DATEV2	Yes	true	\N		true
 		datetimev4	DATETIMEV2(3)	Yes	false	\N	MAX	true
 								
 rollup_date	AGG_KEYS	datek1	DATEV2	Yes	true	\N		true
-		datetimek1	DATETIMEV2(0)	Yes	true	\N		true
 		datetimek2	DATETIMEV2(3)	Yes	true	\N		true
+		datetimek1	DATETIMEV2(0)	Yes	true	\N		true
 		datetimek3	DATETIMEV2(6)	Yes	true	\N		true
 		datev1	DATEV2	No	false	\N	MAX	true
 		datetimev1	DATETIMEV2(0)	No	false	\N	MAX	true

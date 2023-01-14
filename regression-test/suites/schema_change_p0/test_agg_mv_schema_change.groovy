@@ -79,7 +79,7 @@ suite ("test_agg_mv_schema_change") {
         //add materialized view
         def result = "null"
         def mvName = "mv1"
-        sql "create materialized view ${mvName} as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex, cost;"
+        sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
         while (!result.contains("FINISHED")){
             result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
             result = result.toString()
