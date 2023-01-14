@@ -1549,15 +1549,21 @@ build_concurrentqueue() {
 
 #clucene
 build_clucene() {
-    if [[ -z ${USE_AVX2} ]]; then
-        USE_AVX2=1
+    if [[ "$(uname -m)" == 'x86_64' ]]; then
+        USE_AVX2="${USE_AVX2:-1}"
+    else
+        USE_AVX2="${USE_AVX2:-0}"
     fi
+
     if [[ -z ${BUILD_TYPE} ]]; then
         BUILD_TYPE=Release
     fi
+
     check_if_source_exist "${CLUCENE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
     rm -rf CMakeCache.txt CMakeFiles/
 
     ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
