@@ -54,6 +54,7 @@ public:
     friend class VScanner;
     friend class NewOlapScanner;
     friend class VFileScanner;
+    friend class NewJdbcScanner;
     friend class ScannerContext;
     friend class doris::pipeline::ScanOperator;
 

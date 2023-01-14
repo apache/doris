@@ -157,17 +157,18 @@ public class JdbcClient {
             stmt = conn.createStatement();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
                     rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
                             + "where schema_owner='" + jdbcUser + "';");
                     break;
-                case JdbcResource.CLICKHOUSE:
-                    rs = stmt.executeQuery("SHOW DATABASES");
+                case JdbcResource.ORACLE:
+                    rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
                     break;
                 default:
-                    throw  new JdbcClientException("Not supported jdbc type");
+                    throw new JdbcClientException("Not supported jdbc type");
             }
 
             while (rs.next()) {
@@ -196,8 +197,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(dbName, null, null, types);
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = databaseMetaData.getTables(null, dbName, null, types);
-                    break;
+                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
@@ -226,8 +226,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = databaseMetaData.getTables(null, dbName, null, types);
-                    break;
+                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
@@ -297,8 +296,7 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = databaseMetaData.getColumns(null, dbName, tableName, null);
-                    break;
+                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
@@ -334,6 +332,8 @@ public class JdbcClient {
                 return postgresqlTypeToDoris(fieldSchema);
             case JdbcResource.CLICKHOUSE:
                 return clickhouseTypeToDoris(fieldSchema);
+            case JdbcResource.ORACLE:
+                return oracleTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -561,6 +561,61 @@ public class JdbcClient {
                 return Type.UNSUPPORTED;
         }
         // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
+    }
+
+    public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String oracleType = fieldSchema.getDataTypeName();
+        if (oracleType.startsWith("INTERVAL")) {
+            oracleType = oracleType.substring(0, 8);
+        }
+        switch (oracleType) {
+            case "NUMBER":
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale == 0) {
+                    if (precision < 3) {
+                        return Type.TINYINT;
+                    } else if (precision < 5) {
+                        return Type.SMALLINT;
+                    } else if (precision < 10) {
+                        return Type.INT;
+                    } else if (precision < 19) {
+                        return Type.BIGINT;
+                    } else if (precision < 39) {
+                        return Type.LARGEINT;
+                    }
+                    return ScalarType.createStringType();
+                }
+                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                        return ScalarType.createStringType();
+                    }
+                    return ScalarType.createDecimalType(precision, scale);
+                } else {
+                    return ScalarType.createStringType();
+                }
+            case "FLOAT":
+                return Type.DOUBLE;
+            case "DATE":
+                return ScalarType.getDefaultDateType(Type.DATETIME);
+            case "VARCHAR2":
+            case "NVARCHAR2":
+            case "CHAR":
+            case "NCHAR":
+            case "LONG":
+            case "RAW":
+            case "LONG RAW":
+            case "INTERVAL":
+                return ScalarType.createStringType();
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "BFILE":
+            case "BINARY_FLOAT":
+            case "BINARY_DOUBLE":
+            default:
+                return Type.UNSUPPORTED;
+        }
     }
 
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {

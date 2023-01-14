@@ -598,10 +598,6 @@ public class SelectStmt extends QueryStmt {
         if (needToSql) {
             sqlString = toSql();
         }
-        if (analyzer.enableStarJoinReorder()) {
-            LOG.debug("use old reorder logical in select stmt");
-            reorderTable(analyzer);
-        }
 
         resolveInlineViewRefs(analyzer);
 
@@ -793,7 +789,7 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    protected void reorderTable(Analyzer analyzer) throws AnalysisException {
+    public void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
         ArrayList<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
         // New pair of table ref and row count

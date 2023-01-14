@@ -28,6 +28,9 @@
 
 namespace doris {
 namespace vectorized {
+
+class NewJdbcScanner;
+
 struct JdbcConnectorParam {
     std::string driver_path;
     std::string driver_class;
@@ -45,6 +48,8 @@ struct JdbcConnectorParam {
 class JdbcConnector : public TableConnector {
 public:
     JdbcConnector(const JdbcConnectorParam& param);
+
+    JdbcConnector(NewJdbcScanner* jdbc_scanner, const JdbcConnectorParam& param);
 
     ~JdbcConnector() override;
 
@@ -84,6 +89,7 @@ private:
     Status _cast_string_to_array(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                  int rows);
 
+    NewJdbcScanner* _jdbc_scanner;
     const JdbcConnectorParam& _conn_param;
     //java.sql.Types: https://docs.oracle.com/javase/7/docs/api/constant-values.html#java.sql.Types.INTEGER
     std::map<int, PrimitiveType> _arr_jdbc_map {

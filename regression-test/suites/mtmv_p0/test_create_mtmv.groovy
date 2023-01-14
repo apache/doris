@@ -78,7 +78,7 @@ suite("test_create_mtmv") {
         state = show_task_result.last().get(index)
         println "The state of ${query} is ${state}"
         Thread.sleep(1000);
-    } while (state.equals('PENDING'))
+    } while (state.equals('PENDING') || state.equals('RUNNING'))
 
     assertEquals('SUCCESS', state)
     order_qt_select "SELECT * FROM ${mvName}"

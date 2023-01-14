@@ -198,6 +198,25 @@ enum ReaderType {
     READER_CHECKSUM = 4,
 };
 
+constexpr bool field_is_slice_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+           field_type == OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool field_is_numeric_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
+}
+
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
 

@@ -823,6 +823,18 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
+        DCHECK(request.__isset.alter_tablet_type);
+        switch (request.alter_tablet_type) {
+        case TAlterTabletType::SCHEMA_CHANGE:
+            sc_params.alter_tablet_type = AlterTabletType::SCHEMA_CHANGE;
+            break;
+        case TAlterTabletType::ROLLUP:
+            sc_params.alter_tablet_type = AlterTabletType::ROLLUP;
+            break;
+        case TAlterTabletType::MIGRATION:
+            sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
+            break;
+        }
         if (request.__isset.materialized_view_params) {
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
@@ -1021,6 +1033,12 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     if (!res) {
         LOG(WARNING) << "failed to parse the request. res=" << res;
+        return process_alter_exit();
+    }
+
+    if (!sc_sorting && !sc_directly && sc_params.alter_tablet_type == AlterTabletType::ROLLUP) {
+        res = Status::Error<SCHEMA_SCHEMA_INVALID>(
+                "Don't support to add materialized view by linked schema change");
         return process_alter_exit();
     }
 
