@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris On JDBC",
+    "title": "JDBC 外表",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# JDBC External Table Of Doris
+# JDBC 外表
+
+<version deprecated="1.2.2">
+
+推荐使用 [JDBC Catalog](../multi-catalog/jdbc) 访问 JDBC 外表。
+
+</version>
 
 <version since="1.2.0">
 
@@ -260,70 +266,4 @@ PROPERTIES (
 
 ## Q&A
 
-1. 除了MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse是否能够支持更多的数据库
-
-   目前Doris只适配了MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse.关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
-
-2. 读写mysql外表的emoji表情出现乱码
-
-    Doris进行jdbc外表连接时，由于mysql之中默认的utf8编码为utf8mb3，无法表示需要4字节编码的emoji表情。这里需要在建立mysql外表时设置对应列的编码为utf8mb4,设置服务器编码为utf8mb4,JDBC Url中的characterEncoding不配置.（该属性不支持utf8mb4,配置了非utf8mb4将导致无法写入表情，因此要留空，不配置）
-
-3. 读mysql外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
-
-   这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数zeroDateTimeBehavior控制该行为.
-   可选参数为:EXCEPTION,CONVERT_TO_NULL,ROUND, 分别为异常报错，转为NULL值，转为"0001-01-01 00:00:00";
-   可在url中添加:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull" 
-
-4. 读取mysql外表或其他外表时，出现加载类失败
-   
-   如以下异常：
-   failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
-   这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
-
-5. 读取mysql问题出现通信链路异常
-   
-   如果出现如下报错：
-   ```
-    ERROR 1105 (HY000): errCode = 2, detailMessage = PoolInitializationException: Failed to initialize pool: Communications link failure
-    
-    The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
-    CAUSED BY: CommunicationsException: Communications link failure
-    
-    The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
-    CAUSED BY: SSLHandshakeExcepti
-   ```
-   可查看be的be.out日志
-   如果包含以下信息：
-   ```
-   WARN: Establishing SSL connection without server's identity verification is not recommended. 
-   According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. 
-   For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. 
-   You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
-   ```
-   可在创建resource的jdbc_url把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
-
-```
-可全局修改配置项
-
-修改mysql目录下的my.ini文件（linux系统为etc目录下的my.cnf文件）
-[client]
-default-character-set=utf8mb4
-
-[mysql]
-设置mysql默认字符集
-default-character-set=utf8mb4
-
-[mysqld]
-设置mysql字符集服务器
-character-set-server=utf8mb4
-collation-server=utf8mb4_unicode_ci
-init_connect='SET NAMES utf8mb4
-
-修改对应表与列的类型
-ALTER TABLE table_name MODIFY  colum_name  VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-ALTER TABLE table_name CHARSET=utf8mb4;
-
-SET NAMES utf8mb4
-
-```
+请参考 [JDBC Catalog](../multi-catalog/jdbc) 中的 常见问题一节。

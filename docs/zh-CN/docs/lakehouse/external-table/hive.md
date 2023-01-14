@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris On Hive",
+    "title": "Hive 外表",
     "language": "zh-CN"
 }
 ---
@@ -24,9 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Hive External Table of Doris
+# Hive 外表
 
-<version deprecated="1.2.0" comment="请使用 Multi-Catalog 功能访问 Hive">
+<version deprecated="1.2.0">
+
+推荐使用 [Hive Catalog](../multi-catalog/hive) 访问 Hive。
+ 
+</version>
 
 Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能力，外部表省去了繁琐的数据导入工作，并借助 Doris 本身的 OLAP 的能力来解决 Hive 表的数据分析问题：
 
@@ -36,8 +40,6 @@ Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能�
 4. 支持 访问数据存储在腾讯 CHDFS 上的 Hive 数据源
  
 本文档主要介绍该功能的使用方式和注意事项等。
-
-</version>
 
 ## 名词解释
 

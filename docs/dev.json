@@ -83,10 +83,6 @@
     "message": "生态扩展",
     "description": "The label for category Ecosystem in sidebar docs"
   },
-  "sidebar.docs.category.Expansion table": {
-    "message": "扩展表",
-    "description": "The label for category Expansion table in sidebar docs"
-  },
   "sidebar.docs.category.Doris Manager": {
     "message": "Doris Manager",
     "description": "The label for category Doris Manager in sidebar docs"
@@ -290,5 +286,17 @@
   "sidebar.docs.category.Benchmark": {
     "message": "性能测试",
     "description": "The label for category Benchmark in sidebar docs"
+  },
+  "sidebar.docs.category.Lakehouse": {
+    "message": "数据湖分析",
+    "description": "The label for category Lakehouse in sidebar docs"
+  }
+  "sidebar.docs.category.Lakehouse.Multi Catalog": {
+    "message": "多源数据目录",
+    "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
+  },
+  "sidebar.docs.category.Lakehouse.External Table": {
+    "message": "外部表",
+    "description": "The label for category Lakehouse.External Table in sidebar docs"
   }
 }

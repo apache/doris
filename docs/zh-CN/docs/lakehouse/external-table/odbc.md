@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris On ODBC",
+    "title": "ODBC 外表",
     "language": "zh-CN"
 }
 ---
@@ -24,9 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ODBC External Table Of Doris
+# ODBC 外表
 
-<version deprecated="1.2.0" comment="请使用 JDBC 外表功能">
+<version deprecated="1.2.0">
+
+请使用 [JDBC Catalog](../multi-catalog/jdbc) 功能访问外表。
+
+</version>
 
 ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(ODBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
 
@@ -35,8 +39,6 @@ ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 3. 通过insert into将Doris执行的查询结果写入外部的数据源
 
 本文档主要介绍该功能的实现原理、使用方式等。
-
-</version>
 
 ## 名词解释
 
