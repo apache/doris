@@ -63,6 +63,7 @@ class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                       const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
 
     ~Segment();
