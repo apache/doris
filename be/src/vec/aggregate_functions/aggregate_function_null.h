@@ -363,7 +363,7 @@ public:
 
         if (number_of_arguments > MAX_ARGS) {
             LOG(FATAL) << fmt::format(
-                    "Maximum number of arguments for aggregate function with Nullable types is {}",
+                    "Max number of arguments for aggregate function with Nullable types is {}",
                     size_t(MAX_ARGS));
         }
 
@@ -401,7 +401,7 @@ public:
     }
 
 private:
-    enum { MAX_ARGS = 8 };
+    static const size_t MAX_ARGS = 100000;
     size_t number_of_arguments = 0;
     std::array<char, MAX_ARGS>
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
