@@ -378,17 +378,17 @@ suite("nereids_fn") {
         'largeint' : ['klint'],
         'float' : ['kfloat'],
         'double' : ['kdbl'],
-        'decimalv2' : ['kdcml'],
+        'decimalv2' : ['kdcmls1'],
         'decimalv3_32' : ['kdcmlv3s1', 'kdcmlv3s2', 'kdcmlv3s3'],
         'decimalv3_64' : ['kdcmlv3s2'],
         'decimalv3_128' : ['kdcmlv3s3'],
-        'char' : ['kchr'],
-        'varchar' : ['kvchr'],
+        'char' : ['kchr1'],
+        'varchar' : ['kvchr1'],
         'string' : ['kstr'],
         'date' : ['kdt'],
         'datetime' : ['kdtm'],
         'datev2' : ['kdtv2'],
-        'datetimev2' : ['kdtmv2']
+        'datetimev2' : ['kdtmv2s1']
     ]
 
     // key is string, value is array
