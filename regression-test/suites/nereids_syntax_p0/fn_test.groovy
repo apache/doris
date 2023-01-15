@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
 suite("nereids_fn") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
