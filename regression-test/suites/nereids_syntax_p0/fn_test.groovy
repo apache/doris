@@ -410,7 +410,7 @@ suite("nereids_fn") {
                     sql scalar_sql
                 }
             } catch (Exception e) {
-                logger.log(e.getMessage())
+                logger.info(e.getMessage())
             }
         }
     }
