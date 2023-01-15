@@ -301,6 +301,7 @@ public class StmtExecutor implements ProfileWriter {
 
     private Map<String, String> getSummaryInfo() {
         Map<String, String> infos = Maps.newLinkedHashMap();
+        infos.put(ProfileManager.JOB_ID, "N/A");
         infos.put(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
         infos.put(ProfileManager.QUERY_TYPE, queryType);
         infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
