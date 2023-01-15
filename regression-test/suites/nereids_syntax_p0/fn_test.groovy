@@ -405,6 +405,7 @@ suite("nereids_fn") {
                     typeToColumn[it][0]
                 }
             } catch (Exception ignored) {
+                logger.warn "${fn_name} with argument ${it} is not test, because framework does not support yet"
                 return
             }
             def args = String.join(',', types)
