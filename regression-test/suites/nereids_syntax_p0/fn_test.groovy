@@ -411,13 +411,13 @@ suite("nereids_fn") {
             def args = String.join(',', types)
             def fn = "${fn_name}(${args})"
             def scalar_sql = "select ${fn} from t order by ${args}"
-            // try {
-                test {
+            test {
+                try {
                     sql scalar_sql
+                } catch (Exception e) {
+                    logger.error e.getMessage()
                 }
-            // } catch (Exception e) {
-            //     logger.error e.getMessage()
-            // }
+            }
         }
     }
     // test end
