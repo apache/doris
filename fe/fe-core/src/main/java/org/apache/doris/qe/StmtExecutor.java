@@ -446,7 +446,6 @@ public class StmtExecutor implements ProfileWriter {
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
-            LOG.warn("fuck, query_timeout,{}",context.getSessionVariable().getQueryTimeoutS());
 
             if (!context.isTxnModel()) {
                 Span queryAnalysisSpan =
