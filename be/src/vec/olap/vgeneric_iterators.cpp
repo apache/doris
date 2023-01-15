@@ -137,7 +137,6 @@ void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
-    DCHECK(start >= 0);
 
     for (size_t i = 0; i < _num_columns; ++i) {
         auto& s_col = src.get_by_position(i);
@@ -158,7 +157,6 @@ void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
         return;
     }
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
-    DCHECK(start >= 0);
 
     const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
     for (size_t i = 0; i < _cur_batch_num; ++i) {

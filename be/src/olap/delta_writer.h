@@ -48,8 +48,8 @@ struct WriteRequest {
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
     bool is_high_priority = false;
-    POlapTableSchemaParam ptable_schema_param;
-    int64_t index_id;
+    POlapTableSchemaParam ptable_schema_param = {};
+    int64_t index_id = 0;
 };
 
 // Writer for a particular (load, index, tablet).

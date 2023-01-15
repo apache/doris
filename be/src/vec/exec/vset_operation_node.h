@@ -178,7 +178,6 @@ struct HashTableProbe {
 
     Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
 
         KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
 
