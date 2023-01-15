@@ -100,14 +100,15 @@ public abstract class BulkLoadJob extends LoadJob {
             OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
         super(jobType, dbId, label);
         this.originStmt = originStmt;
-        this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
         this.authorizationInfo = gatherAuthInfo();
         this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
+            this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
+            this.queryId = "N/A";
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }

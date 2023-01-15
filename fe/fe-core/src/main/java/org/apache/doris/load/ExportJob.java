@@ -204,11 +204,11 @@ public class ExportJob implements Writable {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
-        this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
         this.label = this.properties.get(ExportStmt.LABEL);
+        this.queryId = ConnectContext.get() != null ? DebugUtil.printId(ConnectContext.get().queryId()) : "N/A";
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
