@@ -400,6 +400,7 @@ suite("nereids_fn") {
     scalar_function.each { fn_name, v ->
         v.each {
             def types = it.subList(1, it.size()).collect {
+                println typeToColumn[it].toString()
                 typeToColumn[it][0]
             }
             def args = String.join(',', types)
@@ -410,7 +411,7 @@ suite("nereids_fn") {
                     sql scalar_sql
                 }
             } catch (Exception e) {
-                logger.info(e.getMessage())
+                logger.error(e.getMessage())
             }
         }
     }
