@@ -396,6 +396,8 @@ suite("nereids_fn") {
         'datetimev2' : ['kdtmv2s1']
     ]
 
+    def isError = false
+
     // key is string, value is array
     scalar_function.each { fn_name, v ->
         v.each {
@@ -415,8 +417,12 @@ suite("nereids_fn") {
                 sql scalar_sql
             } catch (Exception e) {
                 logger.error e.getMessage()
+                isError = true
             }
         }
+    }
+    if (isError) {
+        throw new IllegalStateException("TestError, please check log")
     }
     // test end
 }
