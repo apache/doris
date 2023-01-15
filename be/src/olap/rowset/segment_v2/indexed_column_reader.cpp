@@ -124,7 +124,7 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
 }
 
 Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
-    DCHECK(idx >= 0 && idx <= _reader->num_values());
+    DCHECK(idx <= _reader->num_values());
 
     if (!_reader->support_ordinal_seek()) {
         return Status::NotSupported("no ordinal index");
