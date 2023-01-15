@@ -482,7 +482,6 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
 }
 
 Status VMysqlResultWriter::append_block(Block& input_block) {
-    LOG(WARNING) << "VMysqlResultWriter::append_block block=" << input_block.dump_data();
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
