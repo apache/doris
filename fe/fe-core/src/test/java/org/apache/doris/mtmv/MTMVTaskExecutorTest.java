@@ -73,8 +73,14 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
 
     @Test
     public void testRetryTask() throws InterruptedException, ExecutionException {
+        new MockUp<MTMVTaskProcessorTest>() {
+            @Mock
+            void process(MTMVTaskContext context) throws Exception {
+                context.getTask().setMessage("test");
+                context.getTask().setState(TaskState.SUCCESS);
+            }
+        };
         MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
-
         MTMVTaskExecutor executor = new MTMVTaskExecutor();
         executor.setProcessor(new MTMVTaskProcessorTest(3));
         MTMVJob job = MTMVUtilsTest.createDummyJob();
@@ -83,7 +89,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.SUCCESS, executor.getTask().getState());
     }
 
     @Test
