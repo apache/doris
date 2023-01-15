@@ -446,6 +446,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
+            LOG.warn("fuck, query_timeout,{}",context.getSessionVariable().getQueryTimeoutS());
 
             if (!context.isTxnModel()) {
                 Span queryAnalysisSpan =
@@ -647,6 +648,16 @@ public class StmtExecutor implements ProfileWriter {
         SessionVariable sessionVariable = context.getSessionVariable();
         if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) parsedStmt;
+            Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
+            if (optHints != null) {
+                sessionVariable.setIsSingleSetVar(true);
+                for (String key : optHints.keySet()) {
+                    VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
+                }
+            }
+        }
+        if (parsedStmt != null && parsedStmt instanceof InsertStmt) {
+            SelectStmt selectStmt = (SelectStmt)((InsertStmt) parsedStmt).getQueryStmt();
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
                 sessionVariable.setIsSingleSetVar(true);

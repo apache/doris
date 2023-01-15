@@ -34,6 +34,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 
@@ -218,6 +219,7 @@ public class MTMVTaskProcessor {
         stmts = parse(ctx, originStmt);
         parsedStmt = stmts.get(0);
         try {
+            parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
             executor.execute();

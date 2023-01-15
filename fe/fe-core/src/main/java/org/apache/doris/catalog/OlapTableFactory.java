@@ -24,13 +24,19 @@ import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 
-public class OlapTableFactory {
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.Vector;
 
+public class OlapTableFactory {
+    private static final Logger LOG = LogManager.getLogger(OlapTableFactory.class);
     public static class BuildParams {
         public long tableId;
         public String tableName;
@@ -48,6 +54,7 @@ public class OlapTableFactory {
         public MVRefreshInfo.BuildMode buildMode;
         public MVRefreshInfo mvRefreshInfo;
         public QueryStmt queryStmt;
+        public String originQueryStmt;
     }
 
     private BuildParams params;
@@ -158,9 +165,41 @@ public class OlapTableFactory {
             return withIndexes(new TableIndexes(createOlapTableStmt.getIndexes()));
         } else {
             CreateMultiTableMaterializedViewStmt createMVStmt = (CreateMultiTableMaterializedViewStmt) stmt;
+            MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
+            String orignalStmt = "";
+            if (createMVStmt.getOrigStmt() != null) {
+                orignalStmt = createMVStmt.getOrigStmt().originStmt;
+            }
+            materializedViewParams.originQueryStmt = getMvStmtQueryString(orignalStmt);
+            LOG.info("create mtmv, original_query:{}, stmt:{}", materializedViewParams.originQueryStmt, orignalStmt);
+            if (orignalStmt.length() <= 0) {
+                LOG.warn("create mtmv fail, cause get query fail , sql:{}", orignalStmt);
+                throw new IllegalArgumentException("create mtmv fail cause get query fail, sql:"+orignalStmt);
+            }
             return withBuildMode(createMVStmt.getBuildMode())
                     .withRefreshInfo(createMVStmt.getRefreshInfo())
                     .withQueryStmt(createMVStmt.getQueryStmt());
+        }
+    }
+
+    public String getMvStmtQueryString(String str){
+        String regex="AS[\\s\\n]+select[\\s\\n]+";
+		Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+		Matcher matcher = pattern.matcher(str);
+        int startPos = -1;
+        int endPos = -1;
+		while(matcher.find()) {
+			startPos = matcher.start();
+            endPos =  matcher.end();
+            break;
+		}
+        if(startPos>=0){
+            String ret =  "select " + str.substring(endPos);
+            Pattern patternNew = Pattern.compile(";+$"); 
+            Matcher matcherNew = patternNew.matcher(ret);      
+            return matcherNew.replaceAll("");      
+        }else{
+            return "";
         }
     }
 }
