@@ -400,7 +400,7 @@ suite("nereids_fn") {
     scalar_function.each { fn_name, v ->
         v.each {
             def types = it.subList(1, it.size()).collect {
-                println typeToColumn[it].toString()
+                println it + " " + typeToColumn[it].toString()
                 typeToColumn[it][0]
             }
             def args = String.join(',', types)
