@@ -290,7 +290,7 @@
   "sidebar.docs.category.Lakehouse": {
     "message": "数据湖分析",
     "description": "The label for category Lakehouse in sidebar docs"
-  }
+  },
   "sidebar.docs.category.Lakehouse.Multi Catalog": {
     "message": "多源数据目录",
     "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
