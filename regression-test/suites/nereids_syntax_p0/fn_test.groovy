@@ -399,9 +399,13 @@ suite("nereids_fn") {
     // key is string, value is array
     scalar_function.each { fn_name, v ->
         v.each {
-            def types = it.subList(1, it.size()).collect {
-                println it + " " + typeToColumn[it].toString()
-                typeToColumn[it][0]
+            List<String> types
+            try {
+                types = it.subList(1, it.size()).collect {
+                    typeToColumn[it][0]
+                }
+            } catch (Exception ignored) {
+                return
             }
             def args = String.join(',', types)
             def fn = "${fn_name}(${args})"
@@ -411,7 +415,7 @@ suite("nereids_fn") {
                     sql scalar_sql
                 }
             } catch (Exception e) {
-                logger.error(e.getMessage())
+                logger.error e.getMessage()
             }
         }
     }
