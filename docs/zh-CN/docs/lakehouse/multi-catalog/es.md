@@ -59,6 +59,7 @@ CREATE CATALOG es PROPERTIES (
 `keyword_sniff` | 否 | true | 是否对 ES 中字符串分词类型 text.fields 进行探测，通过 keyword 进行查询。设置为 false 会按照分词后的内容匹配 |
 `nodes_discovery` | 否 | true | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点 |
 `ssl` | 否 | false | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有 |
+`mapping_es_id` | 否 | false | 是否映射 ES 索引中的 `_id` 字段 |
 
 > 1. 认证方式目前仅支持 Http Basic 认证，并且需要确保该用户有访问: `/_cluster/state/、_nodes/http` 等路径和 index 的读权限; 集群未开启安全认证，用户名和密码不需要设置。
 > 
@@ -344,9 +345,9 @@ strict_date_optional_time||epoch_millis
 
 ### 获取ES元数据字段 `_id`
 
-> 仅 ES 外表适用。ES Catalog 会在后续支持。
+导入文档在不指定 `_id` 的情况下，ES会给每个文档分配一个全局唯一的 `_id` 即主键, 用户也可以在导入时为文档指定一个含有特殊业务意义的 `_id`;
 
-导入文档在不指定`_id`的情况下ES会给每个文档分配一个全局唯一的`_id`即主键, 用户也可以在导入时为文档指定一个含有特殊业务意义的`_id`; 如果需要在Doris On ES中获取该字段值，建表时可以增加类型为`varchar`的`_id`字段：
+如果需要在 ES 外表中获取该字段值，建表时可以增加类型为`varchar`的`_id`字段：
 
 ```
 CREATE EXTERNAL TABLE `doe` (
@@ -361,10 +362,12 @@ PROPERTIES (
 }
 ```
 
+如果需要在 ES Catalog 中获取该字段值，请设置 `"mapping_es_id" = "true"`
+
 注意:
 
-1. `_id`字段的过滤条件仅支持`=`和`in`两种
-2. `_id`字段只能是`varchar`类型
+1. `_id` 字段的过滤条件仅支持`=`和`in`两种
+2. `_id` 字段必须为 `varchar` 类型
 
 ## 常见问题
 

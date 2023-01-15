@@ -9,7 +9,7 @@
   },
   "sidebar.docs.category.Doris Introduction": {
     "message": "Doris 介绍",
-    "description": "The label for category Doris Architecture in sidebar docs"
+    "description": "The label for category Doris Introduction in sidebar docs"
   },
   "sidebar.docs.category.Install And Deploy": {
     "message": "安装部署",
@@ -73,7 +73,7 @@
   },
   "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
-    "description": "The label for category Date Cache in sidebar docs"
+    "description": "The label for category Data Cache in sidebar docs"
   },
   "sidebar.docs.category.Best Practice": {
     "message": "最佳实践",
