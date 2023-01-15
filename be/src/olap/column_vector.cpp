@@ -239,7 +239,6 @@ void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, s
 }
 
 void ArrayColumnVectorBatch::get_offset_by_length(size_t start_idx, size_t size) {
-    DCHECK(start_idx >= 0);
     DCHECK(start_idx + size < _offsets->capacity());
 
     for (size_t i = start_idx; i < start_idx + size; ++i) {

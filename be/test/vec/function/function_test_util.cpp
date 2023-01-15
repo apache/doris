@@ -51,7 +51,7 @@ uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_forma
 size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
                                ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type) {
     doris_udf::FunctionContext::TypeDesc& desc = ut_desc.type_desc;
-    if (index < 0 || index >= input_types.size()) {
+    if (index >= input_types.size()) {
         return -1;
     }
 

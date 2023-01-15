@@ -536,27 +536,25 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
 
     // read item
     size_t item_size = ordinals[*n] - ordinals[0];
-    if (item_size >= 0) {
-        bool item_has_null = false;
-        ColumnVectorBatch* item_vector_batch = array_batch->elements();
+    bool item_has_null = false;
+    ColumnVectorBatch* item_vector_batch = array_batch->elements();
 
-        bool rebuild_array_from0 = false;
-        if (item_vector_batch->capacity() < array_batch->item_offset(dst->current_offset() + *n)) {
-            item_vector_batch->resize(array_batch->item_offset(dst->current_offset() + *n));
-            rebuild_array_from0 = true;
-        }
-
-        ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
-        ColumnBlockView item_view =
-                ColumnBlockView(&item_block, array_batch->item_offset(dst->current_offset()));
-        size_t real_read = item_size;
-        RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view, &item_has_null));
-        DCHECK(item_size == real_read);
-
-        size_t rebuild_start_offset = rebuild_array_from0 ? 0 : dst->current_offset();
-        size_t rebuild_size = rebuild_array_from0 ? dst->current_offset() + *n : *n;
-        array_batch->prepare_for_read(rebuild_start_offset, rebuild_size, item_has_null);
+    bool rebuild_array_from0 = false;
+    if (item_vector_batch->capacity() < array_batch->item_offset(dst->current_offset() + *n)) {
+        item_vector_batch->resize(array_batch->item_offset(dst->current_offset() + *n));
+        rebuild_array_from0 = true;
     }
+
+    ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
+    ColumnBlockView item_view =
+            ColumnBlockView(&item_block, array_batch->item_offset(dst->current_offset()));
+    size_t real_read = item_size;
+    RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view, &item_has_null));
+    DCHECK(item_size == real_read);
+
+    size_t rebuild_start_offset = rebuild_array_from0 ? 0 : dst->current_offset();
+    size_t rebuild_size = rebuild_array_from0 ? dst->current_offset() + *n : *n;
+    array_batch->prepare_for_read(rebuild_start_offset, rebuild_size, item_has_null);
 
     dst->advance(*n);
     return Status::OK();

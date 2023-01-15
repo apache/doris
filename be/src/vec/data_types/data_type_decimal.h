@@ -128,7 +128,7 @@ public:
             LOG(FATAL) << fmt::format("Precision {} is out of bounds", precision);
         }
 
-        if (UNLIKELY(scale < 0 || static_cast<UInt32>(scale) > max_precision())) {
+        if (UNLIKELY(static_cast<UInt32>(scale) > max_precision())) {
             LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
         }
     }
