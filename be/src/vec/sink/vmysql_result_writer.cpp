@@ -213,15 +213,15 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     buf_ret = _buffer.push_string(", ", 2);
                 }
                 const auto& data = column_struct.get_column_ptr(j);
-                if (data->is_null_at(j)) {
+                if (data->is_null_at(i)) {
                     buf_ret = _buffer.push_string("NULL", strlen("NULL"));
                 } else {
                     if (WhichDataType(remove_nullable(sub_types[j])).is_string()) {
                         buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, sub_types[j], _buffer);
+                        buf_ret = _add_one_cell(data, i, sub_types[j], _buffer);
                         buf_ret = _buffer.push_string("'", 1);
                     } else {
-                        buf_ret = _add_one_cell(data, j, sub_types[j], _buffer);
+                        buf_ret = _add_one_cell(data, i, sub_types[j], _buffer);
                     }
                 }
                 begin = false;
@@ -482,6 +482,7 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
 }
 
 Status VMysqlResultWriter::append_block(Block& input_block) {
+    LOG(WARNING) << "VMysqlResultWriter::append_block block=" << input_block.dump_data();
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
