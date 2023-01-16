@@ -314,14 +314,16 @@ public class IntLiteral extends LiteralExpr {
                 return res;
             }
             return this;
-        }
-        //int like 20200101 can be cast to date(2020,01,01)
-        if (targetType.isDateLike()) {
-            DateLiteral res = new DateLiteral("" + value, targetType);
-            res.setType(targetType);
-            return res;
-        }
-        if (targetType.isStringType()) {
+        } else if (targetType.isDateLike()) {
+            try {
+                //int like 20200101 can be cast to date(2020,01,01)
+                DateLiteral res = new DateLiteral("" + value, targetType);
+                res.setType(targetType);
+                return res;
+            } catch (AnalysisException e) {
+                //invalid date format. leave it to BE to cast it as NULL
+            }
+        } else if (targetType.isStringType()) {
             StringLiteral res = new StringLiteral("" + value);
             res.setType(targetType);
             return res;
