@@ -239,7 +239,7 @@ Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
         return Status::OK();
     }
     vectorized::MutableColumnPtr column_ptr =
-            std::move(*block->get_by_name(slot_desc->col_name()).column).mutate();
+            std::move(*block->get_by_name(slot_desc->col_name()).column).assume_mutable();
     vectorized::IColumn* col_ptr = column_ptr.get();
 
     if (data == nullptr) {
