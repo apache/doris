@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
@@ -445,7 +446,7 @@ public class CastExpr extends Expr {
         out.writeBoolean(isImplicit);
         if (targetTypeDef.getType() instanceof ScalarType) {
             ScalarType scalarType = (ScalarType) targetTypeDef.getType();
-            scalarType.write(out);
+            TypeUtils.writeScalaType(scalarType, out);
         } else {
             throw new IOException("Can not write type " + targetTypeDef.getType());
         }
@@ -464,7 +465,7 @@ public class CastExpr extends Expr {
     @Override
     public void readFields(DataInput in) throws IOException {
         isImplicit = in.readBoolean();
-        ScalarType scalarType = ScalarType.read(in);
+        ScalarType scalarType = TypeUtils.readScalaType(in);
         targetTypeDef = new TypeDef(scalarType);
         int counter = in.readInt();
         for (int i = 0; i < counter; i++) {
