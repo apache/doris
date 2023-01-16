@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import org.apache.logging.log4j.LogManager;
@@ -52,7 +53,8 @@ public class GlobalPrivEntry extends PrivEntry {
 
     public static GlobalPrivEntry create(String host, String user, boolean isDomain, byte[] password, PrivBitSet privs)
             throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
+                CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
         return new GlobalPrivEntry(hostPattern, host, userPattern, user, isDomain, password, privs);
     }

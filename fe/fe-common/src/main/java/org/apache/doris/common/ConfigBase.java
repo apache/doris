@@ -296,25 +296,25 @@ public class ConfigBase {
         throw new IllegalArgumentException("type mismatch");
     }
 
-    public static synchronized void setMutableConfig(String key, String value) throws DdlException {
+    public static synchronized void setMutableConfig(String key, String value) throws ConfigException {
         Field field = confFields.get(key);
         if (field == null) {
             if (ldapConfFields.containsKey(key)) {
                 field = ldapConfFields.get(key);
             } else {
-                throw new DdlException("Config '" + key + "' does not exist");
+                throw new ConfigException("Config '" + key + "' does not exist");
             }
         }
 
         ConfField anno = field.getAnnotation(ConfField.class);
         if (!anno.mutable()) {
-            throw new DdlException("Config '" + key + "' is not mutable");
+            throw new ConfigException("Config '" + key + "' is not mutable");
         }
 
         try {
             anno.callback().newInstance().handle(field, value);
         } catch (Exception e) {
-            throw new DdlException("Failed to set config '" + key + "'. err: " + e.getMessage());
+            throw new ConfigException("Failed to set config '" + key + "'. err: " + e.getMessage());
         }
 
         LOG.info("set config {} to {}", key, value);

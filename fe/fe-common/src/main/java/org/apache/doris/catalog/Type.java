@@ -17,11 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LargeIntLiteral;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -32,13 +27,19 @@ import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.common.primitives.Longs;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Abstract class describing an Impala data type (scalar/complex type).
@@ -174,6 +175,33 @@ public abstract class Type {
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
     }
+
+    public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
+            org.joda.time.LocalDate.class);
+    public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
+            org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
+    public static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
+            new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
+                    .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
+                    .put(PrimitiveType.TINYINT, Sets.newHashSet(Byte.class, byte.class))
+                    .put(PrimitiveType.SMALLINT, Sets.newHashSet(Short.class, short.class))
+                    .put(PrimitiveType.INT, Sets.newHashSet(Integer.class, int.class))
+                    .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
+                    .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
+                    .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
+                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
+                    .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
+                    .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
         return integerTypes;
@@ -578,42 +606,6 @@ public abstract class Type {
     }
 
     /**
-     * Returns true if expr is StringLiteral and can parse to valid type, false
-     * otherwise.
-     * This function only support LargeInt and BigInt now.
-     */
-    public static boolean canParseTo(Expr expr, PrimitiveType type) {
-        if (expr instanceof StringLiteral) {
-            if (type == PrimitiveType.BIGINT) {
-                return canParseToBigInt((StringLiteral) expr);
-            } else if (type == PrimitiveType.LARGEINT) {
-                return canParseToLargeInt((StringLiteral) expr);
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if expr can parse to valid BigInt, false otherwise.
-     */
-    private static boolean canParseToBigInt(StringLiteral expr) {
-        String value = ((StringLiteral) expr).getValue();
-        return Longs.tryParse(value) != null;
-    }
-
-    /**
-     * Returns true if expr can parse to valid LargeInt, false otherwise.
-     */
-    private static boolean canParseToLargeInt(Expr expr) {
-        try {
-            new LargeIntLiteral(((StringLiteral) expr).getValue());
-        } catch (AnalysisException e) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
      * Returns true if this type exceeds the MAX_NESTING_DEPTH, false otherwise.
      */
     public boolean exceedsMaxNestingDepth() {
@@ -884,7 +876,7 @@ public abstract class Type {
      * For schema change, convert data type to string,
      * get the size of string representation
      */
-    public int getColumnStringRepSize() throws DdlException {
+    public int getColumnStringRepSize() throws TypeException {
         if (isScalarType(PrimitiveType.FLOAT)) {
             return 24; // see be/src/gutil/strings/numbers.h kFloatToBufferSize
         }
@@ -906,7 +898,7 @@ public abstract class Type {
             case STRING:
                 return 2147483647; // defined by be/src/olap/olap_define.h, OLAP_STRING_MAX_LENGTH
             default:
-                throw new DdlException("Can not change " + t.getPrimitiveType() + " to char/varchar/string");
+                throw new TypeException("Can not change " + t.getPrimitiveType() + " to char/varchar/string");
         }
     }
 
