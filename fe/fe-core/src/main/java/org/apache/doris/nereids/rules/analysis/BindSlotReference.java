@@ -642,7 +642,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     t2.k is not exactly matched, since t2.k's full name is larger than order_k
                      */
                     List<Slot> exactMatch = bounded.stream()
-                            .filter( bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
+                            .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
                         return exactMatch.get(0);
