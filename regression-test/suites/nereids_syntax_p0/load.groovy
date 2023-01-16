@@ -181,11 +181,4 @@ suite("load") {
         (1309892, 1, 1303, 1432, 15, 19920517, "3-MEDIUM", 0, 24, 2959704, 5119906, 7, 2752524, 73992, 0, 19920619, "TRUCK"),
         (1310179, 6, 1312, 1455, 29, 19921110, "3-MEDIUM", 0, 15, 1705830, 20506457, 10, 1535247, 68233, 8, 19930114, "FOB");
     """
-
-    streamLoad {
-        table "t"
-        db regression_test_nereids_syntax_p0
-        set 'column_separator', ','
-        file "t.dat"
-    }
 }
