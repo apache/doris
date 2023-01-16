@@ -2070,10 +2070,11 @@ public class SingleNodePlanner {
             // Also assign conjuncts from On clause. All remaining unassigned conjuncts
             // that can be evaluated by this join are assigned in createSelectPlan().
             ojConjuncts = analyzer.getUnassignedOjConjuncts(innerRef);
-        } else if (innerRef.getJoinOp().isAntiJoinNullAware()) {
-            ojConjuncts = analyzer.getUnassignedAntiJoinNullAwareConjuncts(innerRef);
-        } else if (innerRef.getJoinOp().isSemiOrAntiJoinNoNullAware()) {
-            ojConjuncts = analyzer.getUnassignedSemiAntiJoinNoNullAwareConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isAntiJoin()) {
+            ojConjuncts = analyzer.getUnassignedAntiJoinConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isSemiJoin()) {
+            final List<TupleId> tupleIds = innerRef.getAllTupleIds();
+            ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {
