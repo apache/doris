@@ -114,6 +114,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
             return Status::InvalidArgument("Invalid Length");
         }
         ReadBuffer field_rb(rb.position(), field_len);
+
         size_t len = 0;
         auto start_rb = field_rb.position();
         while (!field_rb.eof() && *start_rb != ':') {
@@ -122,11 +123,12 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         }
         ReadBuffer field(field_rb.position() + len + 1, field_rb.count() - len - 1);
 
-        if (field.count() < 2 || *field.position() != '"' || *field.end() != '"') {
-            field_rbs.push_back(field);
+        if (field.count() >= 2 && ((*field.position() == '"' && *(field.end() - 1) == '"') ||
+                                   (*field.position() == '\'' && *(field.end() - 1) == '\''))) {
+            ReadBuffer field_no_quote(field.position() + 1, field.count() - 2);
+            field_rbs.push_back(field_no_quote);
         } else {
-            ReadBuffer field_has_quote(field.position() + 1, field.count() - 2);
-            field_rbs.push_back(field_has_quote);
+            field_rbs.push_back(field);
         }
 
         rb.position() += field_len + 1;
