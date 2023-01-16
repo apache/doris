@@ -181,9 +181,11 @@ Status EnginePublishVersionTask::finish() {
         }
     }
 
-    LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
-              << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
+    VLOG_CRITICAL << "finish to publish version on transaction."
+                  << "transaction_id=" << transaction_id
+                  << ", cost(us): " << watch.get_elapse_time_us()
+                  << ", error_tablet_size=" << _error_tablet_ids->size()
+                  << ", res=" << res.to_string();
     return res;
 }
 
