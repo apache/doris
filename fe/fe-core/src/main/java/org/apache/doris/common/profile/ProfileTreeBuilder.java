@@ -57,6 +57,7 @@ public class ProfileTreeBuilder {
     private static final String PROFILE_NAME_DATA_BUFFER_SENDER = "DataBufferSender";
     private static final String PROFILE_NAME_VDATA_BUFFER_SENDER = "VDataBufferSender";
     private static final String PROFILE_NAME_OLAP_TABLE_SINK = "OlapTableSink";
+    private static final String PROFILE_NAME_EXPORT_SINK = "ExportSink";
     private static final String PROFILE_NAME_BLOCK_MGR = "BlockMgr";
     private static final String PROFILE_NAME_BUFFER_POOL = "Buffer pool";
     private static final String PROFILE_NAME_EXCHANGE_NODE = "EXCHANGE_NODE";
@@ -216,14 +217,15 @@ public class ProfileTreeBuilder {
                     || profile.getName().startsWith(PROFILE_NAME_VDATA_STREAM_SENDER)
                     || profile.getName().startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)
                     || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
+                    || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)
+                    || profile.getName().startsWith(PROFILE_NAME_EXPORT_SINK)) {
                 senderNode = buildTreeNode(profile, null, fragmentId, instanceId);
                 if (instanceId == null) {
                     senderNodes.add(senderNode);
                 }
             } else if (profile.getName().startsWith(PROFILE_NAME_BLOCK_MGR)
                     || profile.getName().startsWith(PROFILE_NAME_BUFFER_POOL)) {
-                // skip BlockMgr nad Buffer pool profile
+                // skip BlockMgr and Buffer pool profile
                 continue;
             } else {
                 // This should be an ExecNode profile
@@ -280,6 +282,7 @@ public class ProfileTreeBuilder {
             extractName = finalSenderName != null ? finalSenderName : m.group(1);
             extractId = finalSenderName != null ? FINAL_SENDER_ID : m.group(2);
         }
+        LOG.debug("Profile name: {}, extractName : {}, extractId: {}", name, extractName, extractId);
         Counter activeCounter = profile.getCounterTotalTime();
         ExecNodeNode node = new ExecNodeNode(extractName, extractId);
         node.setActiveTime(RuntimeProfile.printCounter(activeCounter.getValue(), activeCounter.getType()));
@@ -328,6 +331,8 @@ public class ProfileTreeBuilder {
             return PROFILE_NAME_DATA_BUFFER_SENDER;
         } else if (name.startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
             return PROFILE_NAME_OLAP_TABLE_SINK;
+        } else if (name.startsWith(PROFILE_NAME_EXPORT_SINK)) {
+            return PROFILE_NAME_EXPORT_SINK;
         } else if (name.startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)) {
             return PROFILE_NAME_VDATA_BUFFER_SENDER;
         } else {

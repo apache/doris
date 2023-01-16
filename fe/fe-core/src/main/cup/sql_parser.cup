@@ -3802,6 +3802,10 @@ show_param ::=
     {:
         RESULT = new ShowLoadProfileStmt(loadIdPath);
     :}
+    | KW_EXPORT KW_PROFILE STRING_LITERAL:exportIdPath
+    {:
+        RESULT = new ShowExportProfileStmt(exportIdPath);
+    :}
     | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowEncryptKeysStmt(dbName, parser.wild);

@@ -136,7 +136,8 @@ public class ExportExportingTask extends MasterTask {
 
             RuntimeProfile queryProfile = coord.getQueryProfile();
             if (queryProfile != null) {
-                queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
+                queryProfile.getCounterTotalTime().setValue(
+                        TimeUtils.getEstimatedTime(job.getStartTimeMs() * 1000000));
             }
             coord.endProfile();
             fragmentProfiles.add(coord.getQueryProfile());
@@ -162,7 +163,7 @@ public class ExportExportingTask extends MasterTask {
         }
 
         if (job.updateState(ExportJob.JobState.FINISHED)) {
-            LOG.warn("export job success. job: {}", job);
+            LOG.info("export job success. job: {}", job);
             registerProfile();
             // release snapshot
             Status releaseSnapshotStatus = job.releaseSnapshotPaths();

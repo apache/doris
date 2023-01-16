@@ -52,6 +52,7 @@ import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowExportProfileStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
@@ -355,6 +356,8 @@ public class ShowExecutor {
             handleShowQueryProfile();
         } else if (stmt instanceof ShowLoadProfileStmt) {
             handleShowLoadProfile();
+        } else if (stmt instanceof ShowExportProfileStmt) {
+            handleShowExportProfile();
         } else if (stmt instanceof ShowDataSkewStmt) {
             handleShowDataSkew();
         } else if (stmt instanceof ShowSyncJobStmt) {
@@ -1972,10 +1975,11 @@ public class ShowExecutor {
         ShowQueryProfileStmt.PathType pathType = showStmt.getPathType();
         List<List<String>> rows = Lists.newArrayList();
         switch (pathType) {
-            case QUERY_IDS:
+            case QUERY_IDS: {
                 rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.QUERY);
                 break;
-            case FRAGMETNS: {
+            }
+            case FRAGMENTS: {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId(),
                         showStmt.getQueryId());
                 if (treeRoot == null) {
@@ -2027,9 +2031,10 @@ public class ShowExecutor {
         ShowLoadProfileStmt.PathType pathType = showStmt.getPathType();
         List<List<String>> rows = Lists.newArrayList();
         switch (pathType) {
-            case JOB_IDS:
+            case JOB_IDS: {
                 rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.LOAD);
                 break;
+            }
             case TASK_IDS: {
                 rows = ProfileManager.getInstance().getLoadJobTaskList(showStmt.getJobId());
                 break;
@@ -2058,6 +2063,55 @@ public class ShowExecutor {
                 if (treeRoot == null) {
                     throw new AnalysisException("Failed to get instance tree for instance: "
                             + showStmt.getInstanceId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            default:
+                break;
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowExportProfile() throws AnalysisException {
+        ShowExportProfileStmt showStmt = (ShowExportProfileStmt) stmt;
+        ShowExportProfileStmt.PathType pathType = showStmt.getPathType();
+        List<List<String>> rows = Lists.newArrayList();
+        switch (pathType) {
+            case JOB_IDS: {
+                rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.EXPORT);
+                break;
+            }
+            case TASK_IDS: {
+                rows = ProfileManager.getInstance().getLoadJobTaskList(showStmt.getJobId());
+                break;
+            }
+            case INSTANCES: {
+                // For export profile, there should be only one fragment in each execution profile
+                // And the fragment id is 0.
+                List<Triple<String, String, Long>> instanceList
+                        = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
+                        showStmt.getTaskId(), "0");
+                if (instanceList == null) {
+                    throw new AnalysisException("Failed to get instance list for task: " + showStmt.getTaskId());
+                }
+                for (Triple<String, String, Long> triple : instanceList) {
+                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
+                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                    rows.add(row);
+                }
+                break;
+            }
+            case SINGLE_INSTANCE: {
+                // For export profile, there should be only one fragment in each execution profile.
+                // And the fragment id is 0.
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
+                        showStmt.getTaskId(), "0", showStmt.getInstanceId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get instance tree for instance: "
+                        + showStmt.getInstanceId());
                 }
                 List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
                 rows.add(row);

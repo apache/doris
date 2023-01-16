@@ -27,6 +27,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -43,6 +45,7 @@ import java.util.regex.Pattern;
  * Each ExecutionProfile node corresponds to a ProfileTreeBuilder
  */
 public class MultiProfileTreeBuilder {
+    private static final Logger LOG = LogManager.getLogger(MultiProfileTreeBuilder.class);
     public static final String PROFILE_NAME_EXECUTION = "Execution Profile";
     private static final Set<String> PROFILE_ROOT_NAMES;
     private static final String EXECUTION_ID_PATTERN_STR = "^Execution Profile (.*)";
@@ -56,6 +59,7 @@ public class MultiProfileTreeBuilder {
         PROFILE_ROOT_NAMES = Sets.newHashSet();
         PROFILE_ROOT_NAMES.add("Query");
         PROFILE_ROOT_NAMES.add("BrokerLoadJob");
+        PROFILE_ROOT_NAMES.add("ExportJob");
         EXECUTION_ID_PATTERN = Pattern.compile(EXECUTION_ID_PATTERN_STR);
     }
 
@@ -108,6 +112,8 @@ public class MultiProfileTreeBuilder {
             Counter activeCounter = entry.getValue().getCounterTotalTime();
             row.add(entry.getKey());
             row.add(RuntimeProfile.printCounter(activeCounter.getValue(), activeCounter.getType()));
+            LOG.debug("Active counter, value: {}, type: {}",
+                    activeCounter.getValue(), activeCounter.getType().name());
             rows.add(row);
         }
         return rows;
