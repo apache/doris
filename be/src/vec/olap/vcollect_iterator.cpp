@@ -375,7 +375,11 @@ Status VCollectIterator::topn_next(Block* block) {
 
 bool VCollectIterator::BlockRowposComparator::operator()(const size_t& lpos,
                                                          const size_t& rpos) const {
-    return _mutable_block->compare_at(lpos, rpos, _compare_columns, *_mutable_block, 0);
+    bool ret = _mutable_block->compare_at(lpos, rpos, _compare_columns, *_mutable_block, 0);
+    if (_is_reverse) {
+        ret = !ret;
+    }
+    return ret;
 }
 
 VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
