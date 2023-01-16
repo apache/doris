@@ -143,13 +143,6 @@ public class FileSystemManager {
     private static final String FS_BOS_IMPL = "fs.bos.impl";
     private static final String FS_BOS_MULTIPART_UPLOADS_BLOCK_SIZE = "fs.bos.multipart.uploads.block.size";
 
-    // arguments for jfs
-/*    private static final String FS_JFS_IMPL = "fs.jfs.impl";
-    private static final String JUICE_META = "juicefs.meta";
-    private static final String FS_ABSTRACTFILESYSTEM_JFS_IMPL = "fs.AbstractFileSystem.jfs.impl";
-    private static final String JUICEFS_ACCESS_LOG = "juicefs.access-log";*/
-
-
     // arguments for afs
     private static final String HADOOP_JOB_GROUP_NAME = "hadoop.job.group.name";
     private static final String HADOOP_JOB_UGI = "hadoop.job.ugi";
@@ -814,6 +807,16 @@ public class FileSystemManager {
         }
     }
 
+    /**
+     * visible for test
+     *
+     * file system handle is cached, the identity is for all juicefs.
+     * @param path
+     * @param properties
+     * @return
+     * @throws URISyntaxException
+     * @throws Exception
+     */
     public BrokerFileSystem getJuiceFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         String host = JFS_SCHEME;
@@ -928,8 +931,6 @@ public class FileSystemManager {
         } finally {
             fileSystem.getLock().unlock();
         }
-
-
     }
 
     private BrokerFileSystem getAfsFileSystem(String path, Map<String, String> properties) {
