@@ -108,7 +108,7 @@ public class PatternMatcher {
      * The following characters are not permitted:
      *   <([{^=$!|]})?*+>
      */
-    private static String convertMysqlPattern(String mysqlPattern) throws AnalysisException {
+    private static String convertMysqlPattern(String mysqlPattern) throws PatternMatcherException {
         String newMysqlPattern = mysqlPattern;
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < newMysqlPattern.length(); ++i) {
@@ -184,14 +184,14 @@ public class PatternMatcher {
         return sb.toString();
     }
 
-    private static void checkPermittedCharactor(char c) throws AnalysisException {
+    private static void checkPermittedCharactor(char c) throws PatternMatcherException {
         if (FORBIDDEN_CHARS.contains(c)) {
-            throw new AnalysisException("Forbidden charactor: '" + c + "'");
+            throw new PatternMatcherException("Forbidden charactor: '" + c + "'");
         }
     }
 
     public static PatternMatcher createMysqlPattern(String mysqlPattern, boolean caseSensitive)
-            throws AnalysisException {
+            throws PatternMatcherException {
         PatternMatcher matcher;
 
         // Match nothing
@@ -205,7 +205,7 @@ public class PatternMatcher {
                 matcher = new PatternMatcher(Pattern.compile(javaPattern, Pattern.CASE_INSENSITIVE));
             }
         } catch (Exception e) {
-            throw new AnalysisException("Bad pattern in SQL: " + e.getMessage());
+            throw new PatternMatcherException("Bad pattern in SQL: " + e.getMessage());
         }
         return matcher;
     }

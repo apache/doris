@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql;
+package org.apache.doris.catalog;
 
 // MySQL column type
 // TYPE codes are defined in the file 'mysql/include/mysql_com.h' enum enum_field_types

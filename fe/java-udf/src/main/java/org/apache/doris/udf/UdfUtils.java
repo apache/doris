@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -129,9 +128,9 @@ public class UdfUtils {
                 return Sets.newHashSet(JavaUdfDataType.CHAR);
             } else if (c == String.class) {
                 return Sets.newHashSet(JavaUdfDataType.STRING);
-            } else if (CreateFunctionStmt.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
+            } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
                 return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
-            } else if (CreateFunctionStmt.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
+            } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
                 return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
             } else if (c == BigInteger.class) {
                 return Sets.newHashSet(JavaUdfDataType.LARGEINT);

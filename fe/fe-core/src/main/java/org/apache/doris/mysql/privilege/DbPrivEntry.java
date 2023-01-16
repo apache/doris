@@ -22,6 +22,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
@@ -55,7 +56,8 @@ public class DbPrivEntry extends CatalogPrivEntry {
             String user, String host,
             String ctl, String db,
             boolean isDomain, PrivBitSet privs) throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
+                CaseSensibility.HOST.getCaseSensibility());
 
         PatternMatcher ctlPattern = PatternMatcher.createFlatPattern(
                 ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));

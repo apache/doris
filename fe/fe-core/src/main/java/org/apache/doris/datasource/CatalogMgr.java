@@ -38,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -346,7 +347,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (showStmt.getCatalogName() == null) {
                 PatternMatcher matcher = null;
                 if (showStmt.getPattern() != null) {
-                    matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                    matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                             CaseSensibility.CATALOG.getCaseSensibility());
                 }
 

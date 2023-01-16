@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -99,7 +100,7 @@ public class CreateTableTest {
     }
 
     @Test
-    public void testNormal() throws DdlException {
+    public void testNormal() throws DdlException, ConfigException {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl1\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
@@ -241,7 +242,7 @@ public class CreateTableTest {
     }
 
     @Test
-    public void testAbnormal() throws DdlException {
+    public void testAbnormal() throws DdlException, ConfigException {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Floating point type should not be used in distribution column",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"

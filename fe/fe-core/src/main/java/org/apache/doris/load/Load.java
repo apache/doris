@@ -73,6 +73,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -1738,7 +1739,8 @@ public class Load {
             LOG.debug("begin to get load job info, size: {}", loadJobs.size());
             PatternMatcher matcher = null;
             if (labelValue != null && !accurateMatch) {
-                matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                matcher = PatternMatcherWrapper.createMysqlPattern(labelValue,
+                        CaseSensibility.LABEL.getCaseSensibility());
             }
 
             for (LoadJob loadJob : loadJobs) {

@@ -18,10 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -34,9 +30,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
@@ -115,7 +108,7 @@ public class ScalarType extends Type {
     @SerializedName(value = "lenStr")
     private String lenStr;
 
-    protected ScalarType(PrimitiveType type) {
+    public ScalarType(PrimitiveType type) {
         this.type = type;
     }
 
@@ -639,12 +632,6 @@ public class ScalarType extends Type {
 
     @Override
     public void toThrift(TTypeDesc container) {
-        if (type.isDecimalV3Type() || type.isDateV2Type()) {
-            Preconditions.checkArgument((Config.enable_vectorized_load && ConnectContext.get() == null)
-                            || (VectorizedUtil.isVectorized() && ConnectContext.get() != null),
-                    "Please make sure vectorized load and vectorized query engine are enabled to use data type: "
-                            + type);
-        }
         TTypeNode node = new TTypeNode();
         container.types.add(node);
         node.setType(TTypeNodeType.SCALAR);
@@ -1158,15 +1145,5 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
-    }
-
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static ScalarType read(DataInput input) throws IOException {
-        String json = Text.readString(input);
-        return GsonUtils.GSON.fromJson(json, ScalarType.class);
     }
 }

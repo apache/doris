@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.mysql.MysqlColType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;

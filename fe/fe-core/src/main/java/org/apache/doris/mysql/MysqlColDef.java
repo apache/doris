@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.MysqlColType;
 
 // MySQL protocol field used to describe result field info
 public class MysqlColDef {

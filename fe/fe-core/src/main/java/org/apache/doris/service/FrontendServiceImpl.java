@@ -41,6 +41,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
@@ -179,7 +180,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
                         CaseSensibility.DATABASE.getCaseSensibility());
-            } catch (AnalysisException e) {
+            } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
         }
@@ -233,7 +234,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
                         CaseSensibility.TABLE.getCaseSensibility());
-            } catch (AnalysisException e) {
+            } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
         }
@@ -281,7 +282,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
                         CaseSensibility.TABLE.getCaseSensibility());
-            } catch (AnalysisException e) {
+            } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
         }
