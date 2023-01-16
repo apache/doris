@@ -97,6 +97,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Collectors;
 
 public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
@@ -143,8 +144,6 @@ public class ReportHandler extends Daemon {
         Map<TTaskType, Set<Long>> tasks = null;
         Map<String, TDisk> disks = null;
         Map<Long, TTablet> tablets = null;
-        List<TStoragePolicy> storagePolicies = new ArrayList<>();
-        List<TStorageResource> storageResources = new ArrayList<>();
         long reportVersion = -1;
 
         ReportType reportType = ReportType.UNKNOWN;
@@ -174,16 +173,8 @@ public class ReportHandler extends Daemon {
             backend.setTabletMaxCompactionScore(request.getTabletMaxCompactionScore());
         }
 
-        if (request.isSetStoragePolicy()) {
-            storagePolicies.addAll(request.getStoragePolicy());
-        }
-
-        if (request.isSetResource()) {
-            storageResources.addAll(request.getResource());
-        }
-
         ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion,
-                storagePolicies, storageResources);
+                request.getStoragePolicy(), request.getResource());
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -255,7 +246,7 @@ public class ReportHandler extends Daemon {
             if (disks != null) {
                 ReportHandler.diskReport(beId, disks);
             }
-            if (!storagePolicies.isEmpty() || !storageResources.isEmpty()) {
+            if (Config.enable_storage_policy && storagePolicies != null && storageResources != null) {
                 storagePolicyReport(beId, storagePolicies, storageResources);
             }
 
@@ -283,7 +274,7 @@ public class ReportHandler extends Daemon {
     private static void storagePolicyReport(long backendId,
                                             List<TStoragePolicy> storagePoliciesInBe,
                                             List<TStorageResource> storageResourcesInBe) {
-        LOG.info("backend[{}] reports policies {} . report resources: {}",
+        LOG.info("backend[{}] reports policies {}, report resources: {}",
                 backendId, storagePoliciesInBe, storageResourcesInBe);
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
         List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
@@ -299,8 +290,13 @@ public class ReportHandler extends Daemon {
         if (policyToPush.isEmpty() && resourceToPush.isEmpty() && policyToDrop.isEmpty()) {
             return;
         }
-        LOG.info("after diff policy, policyToPush {}, policyToDrop {}, and resourceToPush {}", policyToPush,
-                policyToDrop, resourceToPush);
+        LOG.info("after diff policy, policyToPush {}, policyToDrop {}, and resourceToPush {}",
+                policyToPush.stream()
+                        .map(p -> "StoragePolicy(name=" + p.getPolicyName() + " id=" + p.getId() + " version="
+                                + p.getVersion()).collect(Collectors.toList()),
+                policyToDrop, resourceToPush.stream()
+                        .map(r -> "Resource(name=" + r.getName() + " id=" + r.getId() + " version="
+                                + r.getVersion()).collect(Collectors.toList()));
         // send push rpc
         handlePushStoragePolicy(backendId, policyToPush, resourceToPush, policyToDrop);
     }
@@ -310,6 +306,9 @@ public class ReportHandler extends Daemon {
                                               List<Long> policyToDrop) {
         // fe - be
         for (Policy policy : policiesInFe) {
+            if (policy.getId() <= 0) {
+                continue; // ignore policy with invalid id
+            }
             boolean beHasIt = false;
             for (TStoragePolicy tStoragePolicy : storagePoliciesInBe) {
                 if (policy.getId() == tStoragePolicy.getId()) {
@@ -353,6 +352,9 @@ public class ReportHandler extends Daemon {
                                    List<Resource> resourceToPush) {
         // fe - be
         for (Resource resource : resourcesInFe) {
+            if (resource.getId() <= 0) {
+                continue; // ignore resource with invalid id
+            }
             boolean beHasIt = false;
             for (TStorageResource tStorageResource : storageResourcesInBe) {
                 if (resource.getId() == tStorageResource.getId()) {

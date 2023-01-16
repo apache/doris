@@ -84,6 +84,11 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    // for Gson fromJson
+    // TODO(plat1ko): other Resource subclass also MUST define default ctor, otherwise when reloading object from json
+    //  some not serialized field (i.e. `lock`) will be `null`.
+    public S3Resource() {}
+
     public S3Resource(String name) {
         super(name, ResourceType.S3);
         properties = Maps.newHashMap();
@@ -192,6 +197,9 @@ public class S3Resource extends Resource {
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
+        result.addRow(Lists.newArrayList(name, lowerCaseType, "id", String.valueOf(id)));
+        readLock();
+        result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
@@ -201,6 +209,7 @@ public class S3Resource extends Resource {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
             }
         }
+        readUnlock();
     }
 
     public Map<String, String> getS3HadoopProperties() {

@@ -52,7 +52,7 @@ public class PushStoragePolicyTask extends AgentTask {
 
     public TPushStoragePolicyReq toThrift() {
         TPushStoragePolicyReq ret = new TPushStoragePolicyReq();
-        List<TStoragePolicy> tsp = new ArrayList<>();
+        List<TStoragePolicy> tStoragePolicies = new ArrayList<>();
         storagePolicy.forEach(p -> {
             TStoragePolicy item = new TStoragePolicy();
             p.readLock();
@@ -74,9 +74,9 @@ public class PushStoragePolicyTask extends AgentTask {
             item.setCooldownTtl(coolDownTtl);
             p.readUnlock();
         });
-        ret.setStoragePolicy(tsp);
+        ret.setStoragePolicy(tStoragePolicies);
 
-        List<TStorageResource> tsr = new ArrayList<>();
+        List<TStorageResource> tStorageResources = new ArrayList<>();
         resource.forEach(r -> {
             TStorageResource item = new TStorageResource();
             r.readLock();
@@ -103,11 +103,9 @@ public class PushStoragePolicyTask extends AgentTask {
             r.readUnlock();
             item.setS3StorageParam(s3Info);
         });
-        ret.setResource(tsr);
+        ret.setResource(tStorageResources);
 
         ret.setDroppedStoragePolicy(droppedStoragePolicy);
-
-        LOG.info("TPushStoragePolicyReq toThrift : {}", ret);
         return ret;
     }
 }

@@ -106,6 +106,7 @@ public class StoragePolicy extends Policy {
 
     private Map<String, String> props;
 
+    // for Gson fromJson
     public StoragePolicy() {
         super(PolicyTypeEnum.STORAGE);
     }
@@ -318,6 +319,7 @@ public class StoragePolicy extends Policy {
     }
 
     public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
+        this.toString();
         // some check
         long cooldownTtlMs = -1;
         String cooldownTtl = properties.get(COOLDOWN_TTL);
