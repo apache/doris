@@ -619,7 +619,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             dbProperties = DatabaseProperty.read(in);
         }
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_116) {
             transactionQuotaSize = in.readLong();
         }
     }
