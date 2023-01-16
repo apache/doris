@@ -1566,9 +1566,17 @@ build_clucene() {
     cd "${BUILD_DIR}"
     rm -rf CMakeCache.txt CMakeFiles/
 
-    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
-        -DBUILD_SHARED_LIBRARIES=OFF -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
-        -DUSE_STAT64=0 -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
+    ${CMAKE_CMD} -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DBUILD_STATIC_LIBRARIES=ON \
+        -DBUILD_SHARED_LIBRARIES=OFF \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" \
+        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
+        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
+        -DUSE_STAT64=0 \
+        -DUSE_AVX2="${USE_AVX2}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DBUILD_CONTRIBS_LIB=ON ..
     ${BUILD_SYSTEM} -j "${PARALLEL}"
     ${BUILD_SYSTEM} install
 
