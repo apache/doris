@@ -591,7 +591,7 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
-        if (checkEnableTwoPhaseRead()) {
+        if (checkEnableTwoPhaseRead(analyzer)) {
             // If optimize enabled, we try our best to read less columns from ScanNode,
             // here we analyze conjunct exprs and ordering exprs before resultExprs,
             // rest of resultExprs will be marked as `INVALID`, such columns will
@@ -646,11 +646,15 @@ public class SelectStmt extends QueryStmt {
     // 1. read conjuncts columns and order by columns along with an extra RowId column from ScanNode
     // 2. sort and filter data, and get final RowId column, spawn RPC to other BE to fetch final data
     // 3. final matrialize all data
-    public boolean checkEnableTwoPhaseRead() {
+    public boolean checkEnableTwoPhaseRead(Analyzer analyzer) {
         // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null) {
+            return false;
+        }
+        // If select stmt has inline view or this is an inline view query stmt analyze call
+        if (hasInlineView() || analyzer.isInlineViewAnalyzer()) {
             return false;
         }
         // single olap table
@@ -662,6 +666,7 @@ public class SelectStmt extends QueryStmt {
         if (tbl.getTable().getType() != Table.TableType.OLAP) {
             return false;
         }
+        LOG.debug("table ref {}", tbl);
         // need enable light schema change
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.getEnableLightSchemaChange()) {

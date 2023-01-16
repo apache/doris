@@ -263,7 +263,7 @@ public class OriginalPlanner extends Planner {
                 isBlockQuery = false;
                 LOG.debug("this isn't block query");
             }
-            if (selectStmt.checkEnableTwoPhaseRead()) {
+            if (selectStmt.checkEnableTwoPhaseRead(analyzer)) {
                 injectRowIdColumnSlot();
             }
         }

@@ -551,6 +551,10 @@ public class Analyzer {
         isInlineView = inlineView;
     }
 
+    public boolean isInlineViewAnalyzer() {
+        return isInlineView;
+    }
+
     public void setExplicitViewAlias(String alias) {
         explicitViewAlias = alias;
     }
