@@ -42,6 +42,13 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.key_ranges.clear();
 }
 
+bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+    if (_iterator != nullptr) {
+        return _iterator->update_profile(profile);
+    }
+    return false;
+}
+
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIterator*>* out_iters) {
     RETURN_NOT_OK(_rowset->load());
