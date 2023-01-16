@@ -597,7 +597,7 @@ public class SelectStmt extends QueryStmt {
             // rest of resultExprs will be marked as `INVALID`, such columns will
             // be prevent from reading from ScanNode.Those columns will be finally
             // read by the second fetch phase
-            LOG.info("two phase read optimize enabled");
+            LOG.debug("two phase read optimize enabled");
             // Expr.analyze(resultExprs, analyzer);
             Set<SlotRef> resultSlots = Sets.newHashSet();
             Set<SlotRef> orderingSlots = Sets.newHashSet();
@@ -647,10 +647,26 @@ public class SelectStmt extends QueryStmt {
     // 2. sort and filter data, and get final RowId column, spawn RPC to other BE to fetch final data
     // 3. final matrialize all data
     public boolean checkEnableTwoPhaseRead(Analyzer analyzer) {
+        // only vectorized mode and session opt variable enabled
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
+                || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
+            return false;
+        }
+        if (!evaluateOrderBy) {
+            // Need evaluate orderby, if sort node was eliminated then this optmization
+            // could be useless
+            return false;
+        }
         // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null) {
+            return false;
+        }
+        if (!analyzer.isRootAnalyzer()) {
+            // ensure no sub query
             return false;
         }
         // If select stmt has inline view or this is an inline view query stmt analyze call
@@ -667,7 +683,8 @@ public class SelectStmt extends QueryStmt {
             return false;
         }
         LOG.debug("table ref {}", tbl);
-        // need enable light schema change
+        // Need enable light schema change, since opt rely on
+        // column_unique_id of each slot
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.getEnableLightSchemaChange()) {
             return false;
@@ -676,6 +693,15 @@ public class SelectStmt extends QueryStmt {
         if (getOrderByElements() == null || !hasLimit()
                     || getLimit() == 0 || getLimit() > Config.topn_two_phase_limit_threshold) {
             return false;
+        }
+        // Check order by exprs are all slot refs
+        // Rethink? implement more generic to support all exprs
+        LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+        LOG.debug("getOrderByElements {}", getOrderByElements());
+        for (OrderByElement orderby : getOrderByElements()) {
+            if (!(orderby.getExpr() instanceof SlotRef)) {
+                return false;
+            }
         }
         return true;
     }

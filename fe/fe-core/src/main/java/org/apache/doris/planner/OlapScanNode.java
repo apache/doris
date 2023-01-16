@@ -152,7 +152,6 @@ public class OlapScanNode extends ScanNode {
     private long totalBytes = 0;
 
     private SortInfo sortInfo = null;
-    private List<Expr> orderingExprs;
 
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
@@ -846,10 +845,6 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    public void setOrderingExprs(List<Expr> orderingExprs) {
-        this.orderingExprs = orderingExprs;
-    }
-
     private void computeTabletInfo() throws UserException {
         /**
          * The tablet info could be computed only once.
@@ -1059,10 +1054,6 @@ public class OlapScanNode extends ScanNode {
 
         if (pushDownAggNoGroupingOp != null) {
             msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
-        }
-
-        if (orderingExprs != null) {
-            msg.olap_scan_node.setOrderingExprs(Expr.treesToThrift(orderingExprs));
         }
     }
 

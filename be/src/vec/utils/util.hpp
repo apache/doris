@@ -35,11 +35,11 @@ public:
     }
 
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
-            const RowDescriptor& row_desc, bool ignore_invalid_slot = false) {
+            const RowDescriptor& row_desc, bool ignore_trivial_slot = false) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_invalid_slot && slot_desc->invalid()) {
+                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
                     continue;
                 }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
@@ -50,11 +50,11 @@ public:
     }
 
     static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
-                                                     bool ignore_invalid_slot = false) {
+                                                     bool ignore_trivial_slot = false) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_invalid_slot && slot_desc->invalid()) {
+                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
                     continue;
                 }
                 columns_with_type_and_name.emplace_back(

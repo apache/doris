@@ -69,8 +69,9 @@ public class SlotDescriptor {
     private boolean isMultiRef;
     // used for load to get more information of varchar and decimal
     private Type originType;
-    // invalid slot will be prevent from read
-    private boolean isInvalid = false;
+    // If set to false, then such slots will be ignored during
+    // materialize them.Used to optmize to read less data and less memory usage
+    private boolean needMaterialize = true;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
         this.id = id;
@@ -111,11 +112,11 @@ public class SlotDescriptor {
     }
 
     public void setInvalid() {
-        this.isInvalid = true;
+        this.needMaterialize = false;
     }
 
     public boolean isInvalid() {
-        return this.isInvalid;
+        return !this.needMaterialize;
     }
 
     public void setIsAgg(boolean agg) {
@@ -317,7 +318,7 @@ public class SlotDescriptor {
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(),
                 (originType != null ? originType.toThrift() : type.toThrift()), -1, byteOffset, nullIndicatorByte,
                 nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
-        tSlotDescriptor.setIsInvalid(isInvalid);
+        tSlotDescriptor.setNeedMaterialize(needMaterialize);
         if (column != null) {
             LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
             tSlotDescriptor.setColUniqueId(column.getUniqueId());

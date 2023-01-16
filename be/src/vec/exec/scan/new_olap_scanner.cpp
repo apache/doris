@@ -349,7 +349,7 @@ Status NewOlapScanner::_init_return_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        if (slot->invalid()) {
+        if (!slot->need_materialize()) {
             continue;
         }
         int32_t index = slot->col_unique_id() >= 0

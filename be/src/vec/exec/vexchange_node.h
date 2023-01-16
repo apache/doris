@@ -50,7 +50,7 @@ public:
     void set_num_senders(int num_senders) { _num_senders = num_senders; }
 
     // final materializtion, used only in topn node
-    Status second_phase_fetch_data(RuntimeState* state, Block* final_block);
+    Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
 
 private:
     int _num_senders;

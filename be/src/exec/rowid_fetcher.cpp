@@ -97,7 +97,7 @@ static Status MergeRPCResults(const std::vector<PMultiGetResponse>& rsps,
 
 Status RowIDFetcher::fetch(const vectorized::ColumnPtr& row_ids,
                            vectorized::MutableBlock* res_block) {
-    assert(!_stubs.empty());
+    CHECK(!_stubs.empty());
     res_block->clear_column_data();
     vectorized::MutableBlock mblock({_tuple_desc}, row_ids->size());
     PMultiGetRequest mget_req = init_fetch_request(assert_cast<const vectorized::ColumnString&>(

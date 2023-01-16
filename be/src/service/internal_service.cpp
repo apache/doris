@@ -979,7 +979,6 @@ static Status read_by_rowids(
             continue;
         }
         const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-        // const TabletSchemaSPtr tablet_schema = tablet->tablet_schema();
         VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
                    << ", version:" << tablet_schema->schema_version()
                    << ", cost(us):" << watch.elapsed_time() / 1000;
@@ -1061,8 +1060,8 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
     VLOG_DEBUG << "dump block:" << block.dump_data(0, 10)
                << ", be_exec_version:" << request->be_exec_version();
 
-    [[unused]] size_t compressed_size = 0;
-    [[unused]] size_t uncompressed_size = 0;
+    [[maybe_unused]] size_t compressed_size = 0;
+    [[maybe_unused]] size_t uncompressed_size = 0;
     int be_exec_version = request->has_be_exec_version() ? request->be_exec_version() : 0;
     RETURN_IF_ERROR(block.serialize(be_exec_version, response->mutable_block(), &uncompressed_size,
                                     &compressed_size, segment_v2::CompressionTypePB::LZ4));

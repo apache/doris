@@ -118,7 +118,7 @@ public:
     int32_t col_unique_id() const { return _col_unique_id; }
 
     bool is_key() const { return _is_key; }
-    bool invalid() const { return _is_invalid; }
+    bool need_materialize() const { return _need_materialize; }
 
 private:
     friend class DescriptorTbl;
@@ -153,7 +153,7 @@ private:
     const bool _is_materialized;
 
     const bool _is_key;
-    const bool _is_invalid;
+    const bool _need_materialize;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

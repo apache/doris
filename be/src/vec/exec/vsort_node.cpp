@@ -37,7 +37,6 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
-    _use_topn_opt = tnode.sort_node.use_topn_opt;
     const auto& row_desc = child(0)->row_desc();
     // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
     // To do heap sorting, each income block will be filtered by heap-top row. There will be some

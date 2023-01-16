@@ -52,7 +52,9 @@ struct TSlotDescriptor {
   10: required bool isMaterialized
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
-  13: optional bool is_invalid = false
+  // If set to false, then such slots will be ignored during
+  // materialize them.Used to optmize to read less data and less memory usage
+  13: optional bool need_materialize = true
 }
 
 struct TTupleDescriptor {

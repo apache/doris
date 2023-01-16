@@ -55,9 +55,9 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
 }
 
 Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
-             bool ignore_invalid_slot) {
+             bool ignore_trivial_slot) {
     for (const auto slot_desc : slots) {
-        if (ignore_invalid_slot && slot_desc->invalid()) {
+        if (ignore_trivial_slot && !slot_desc->need_materialize()) {
             continue;
         }
         auto column_ptr = slot_desc->get_empty_mutable_column();
@@ -924,10 +924,10 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
 }
 
 MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
-                           bool ignore_invalid_slot) {
+                           bool ignore_trivial_slot) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
-            if (ignore_invalid_slot && slot_desc->invalid()) {
+            if (ignore_trivial_slot && !slot_desc->need_materialize()) {
                 continue;
             }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());

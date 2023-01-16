@@ -50,10 +50,10 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     if (slot_desc == nullptr) {
         return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
     }
-    if (slot_desc->invalid()) {
-        // invalid slot should be ignored manually
+    _column_name = &slot_desc->col_name();
+    if (!slot_desc->need_materialize()) {
+        // slot should be ignored manually
         _column_id = -1;
-        _column_name = &slot_desc->col_name();
         return Status::OK();
     }
     _column_id = desc.get_column_id(_slot_id);
@@ -61,7 +61,6 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
         LOG(INFO) << "VSlotRef - invalid slot id: " << _slot_id << " desc:" << desc.debug_string();
         return Status::InternalError("VSlotRef - invalid slot id {}", _slot_id);
     }
-    _column_name = &slot_desc->col_name();
     return Status::OK();
 }
 
