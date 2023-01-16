@@ -72,7 +72,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 
 OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                     size_t batch_size, const std::string& ctz)
+                     size_t batch_size, const std::string& ctz, IOContext* io_ctx)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -80,19 +80,22 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
-          _column_names(column_names) {
+          _column_names(column_names),
+          _io_ctx(io_ctx) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     _init_profile();
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<std::string>& column_names, const std::string& ctz)
+                     const std::vector<std::string>& column_names, const std::string& ctz,
+                     IOContext* io_ctx)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
           _ctz(ctz),
           _column_names(column_names),
-          _file_system(nullptr) {}
+          _file_system(nullptr),
+          _io_ctx(io_ctx) {}
 
 OrcReader::~OrcReader() {
     close();
@@ -153,8 +156,9 @@ Status OrcReader::init_reader(
         file_description.start_offset = _scan_range.start_offset;
         file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &inner_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &inner_reader, _io_ctx));
 
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
@@ -210,8 +214,9 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
         file_description.start_offset = _scan_range.start_offset;
         file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &inner_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &inner_reader, _io_ctx));
 
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }

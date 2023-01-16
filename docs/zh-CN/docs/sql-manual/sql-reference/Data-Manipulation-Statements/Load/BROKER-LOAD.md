@@ -67,8 +67,8 @@ WITH BROKER broker_name
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
-  [PRECEDING FILTER predicate]
   [SET (column_mapping)]
+  [PRECEDING FILTER predicate]
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
@@ -109,13 +109,13 @@ WITH BROKER broker_name
 
     指定从导入文件路径中抽取的列。
 
-  - `PRECEDING FILTER predicate`
-
-    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
-
   - `SET (column_mapping)`
 
     指定列的转换函数。
+
+  - `PRECEDING FILTER predicate`
+
+    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
   - `WHERE predicate`
 
@@ -312,10 +312,10 @@ WITH BROKER broker_name
        DATA INFILE("hdfs://host:port/input/file")
        INTO TABLE `my_table`
        (k1, k2, k3)
-       PRECEDING FILTER k1 = 1
        SET (
            k2 = k2 + 1
        )
+       PRECEDING FILTER k1 = 1
        WHERE k1 > k2
    )
    WITH BROKER hdfs

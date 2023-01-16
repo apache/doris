@@ -106,10 +106,7 @@ void BaseCompaction::_filter_input_rowset() {
 }
 
 Status BaseCompaction::pick_rowsets_to_compact() {
-    _input_rowsets.clear();
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    _tablet->pick_candidate_rowsets_to_base_compaction(&_input_rowsets, rdlock);
-    std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
+    _input_rowsets = _tablet->pick_candidate_rowsets_to_base_compaction();
     RETURN_NOT_OK(check_version_continuity(_input_rowsets));
     RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
     _filter_input_rowset();

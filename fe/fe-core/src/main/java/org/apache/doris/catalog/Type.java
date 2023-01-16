@@ -368,6 +368,10 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
     }
 
+    public boolean isDateOrDateTime() {
+        return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME);
+    }
+
     public boolean isDatetime() {
         return isScalarType(PrimitiveType.DATETIME);
     }
@@ -782,7 +786,7 @@ public abstract class Type {
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
                         || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetPrecision());
+                            && scalarType.isSetScale());
                     type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {
@@ -1673,6 +1677,7 @@ public abstract class Type {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case DATETIMEV2:
                 return Type.BIGINT;
             case LARGEINT:
                 return Type.LARGEINT;
@@ -1684,8 +1689,6 @@ public abstract class Type {
             case STRING:
             case HLL:
                 return Type.DOUBLE;
-            case DATETIMEV2:
-                return Type.DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return Type.DEFAULT_TIMEV2;
             case DECIMALV2:

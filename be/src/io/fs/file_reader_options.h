@@ -17,21 +17,19 @@
 
 #pragma once
 
-#include <string>
-
-#include "common/status.h"
+#include "io/cache/block/block_file_cache.h"
 
 namespace doris {
 namespace io {
 
-enum class FileCacheType : uint8_t {
+enum class FileCachePolicy : uint8_t {
     NO_CACHE,
     SUB_FILE_CACHE,
     WHOLE_FILE_CACHE,
     FILE_BLOCK_CACHE,
 };
 
-FileCacheType cache_type_from_string(const std::string& type);
+FileCachePolicy cache_type_from_string(const std::string& type);
 
 // CachePathPolicy it to define which cache path should be used
 // for the local cache of the given file(path).
@@ -46,26 +44,34 @@ public:
 class NoCachePathPolicy : public CachePathPolicy {
 public:
     NoCachePathPolicy() = default;
-    std::string get_cache_path(const std::string& path) const override { return path; }
+    std::string get_cache_path(const std::string& path) const override { return ""; }
 };
 
 class SegmentCachePathPolicy : public CachePathPolicy {
 public:
     SegmentCachePathPolicy() = default;
-    std::string get_cache_path(const std::string& path) const override {
-        // the segment file path is {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
-        // cache path is: {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}/
-        return path.substr(0, path.size() - 4) + "/";
-    }
+
+    void set_cache_path(const std::string& cache_path) { _cache_path = cache_path; }
+
+    std::string get_cache_path(const std::string& path) const override { return _cache_path; }
+
+private:
+    std::string _cache_path;
+};
+
+class FileBlockCachePathPolicy : public CachePathPolicy {
+public:
+    FileBlockCachePathPolicy() = default;
+    std::string get_cache_path(const std::string& path) const override { return path; }
 };
 
 class FileReaderOptions {
 public:
-    FileReaderOptions(FileCacheType cache_type_, const CachePathPolicy& path_policy_)
+    FileReaderOptions(FileCachePolicy cache_type_, const CachePathPolicy& path_policy_)
             : cache_type(cache_type_), path_policy(path_policy_) {}
 
-    FileCacheType cache_type;
-    CachePathPolicy path_policy;
+    FileCachePolicy cache_type;
+    const CachePathPolicy& path_policy;
 };
 
 } // namespace io

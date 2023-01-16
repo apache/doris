@@ -611,6 +611,12 @@ void FragmentMgr::remove_pipeline_context(
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
+    VLOG_ROW << "exec_plan_fragment params is "
+             << apache::thrift::ThriftDebugString(params).c_str();
+    // sometimes TExecPlanFragmentParams debug string is too long and glog
+    // will truncate the log line, so print query options seperately for debuggin purpose
+    VLOG_ROW << "query options is "
+             << apache::thrift::ThriftDebugString(params.query_options).c_str();
     START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
@@ -794,11 +800,15 @@ void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
     // the thread token will be set if
     // 1. the cpu_limit is set, or
     // 2. the limit is very small ( < 1024)
+    // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
+    // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
     int concurrency = 1;
     bool is_serial = false;
+    bool need_token = false;
     if (params.query_options.__isset.resource_limit &&
         params.query_options.resource_limit.__isset.cpu_limit) {
         concurrency = params.query_options.resource_limit.cpu_limit;
+        need_token = true;
     } else {
         concurrency = config::doris_scanner_thread_pool_thread_num;
     }
@@ -816,11 +826,14 @@ void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
             if (node.limit > 0 && node.limit < 1024) {
                 concurrency = 1;
                 is_serial = true;
+                need_token = true;
                 break;
             }
         }
     }
-    fragments_ctx->set_thread_token(concurrency, is_serial);
+    if (need_token) {
+        fragments_ctx->set_thread_token(concurrency, is_serial);
+    }
 #endif
 }
 

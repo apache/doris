@@ -179,21 +179,39 @@
         },
         {
             "type": "category",
-            "label": "Ecosystem",
+            "label": "Lakehouse",
             "items": [
                 {
                     "type": "category",
-                    "label": "Expansion table",
+                    "label": "Multi Catalog",
                     "items": [
-                        "ecosystem/external-table/multi-catalog",
-                        "ecosystem/external-table/doris-on-es",
-                        "ecosystem/external-table/hudi-external-table",
-                        "ecosystem/external-table/iceberg-of-doris",
-                        "ecosystem/external-table/odbc-of-doris",
-                        "ecosystem/external-table/jdbc-of-doris",
-                        "ecosystem/external-table/hive-of-doris"
+                        "lakehouse/multi-catalog/multi-catalog",
+                        "lakehouse/multi-catalog/hive",
+                        "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/hudi",
+                        "lakehouse/multi-catalog/es",
+                        "lakehouse/multi-catalog/jdbc",
+                        "lakehouse/multi-catalog/dlf",
+                        "lakehouse/multi-catalog/faq"
                     ]
                 },
+                {
+                    "type": "category",
+                    "label": "External Table",
+                    "items": [
+                        "lakehouse/external-table/file",
+                        "lakehouse/external-table/es",
+                        "lakehouse/external-table/jdbc",
+                        "lakehouse/external-table/odbc",
+                        "lakehouse/external-table/hive"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Ecosystem",
+            "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
@@ -202,6 +220,7 @@
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
+                "ecosystem/hive-bitmap-udf",
                 {
                     "type": "category",
                     "label": "Doris Manager",
@@ -643,7 +662,8 @@
                                 "sql-manual/sql-functions/table-functions/numbers",
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
                                 "sql-manual/sql-functions/table-functions/s3",
-                                "sql-manual/sql-functions/table-functions/hdfs"
+                                "sql-manual/sql-functions/table-functions/hdfs",
+                                "sql-manual/sql-functions/table-functions/iceberg_meta"
                             ]
                         },
                         {
@@ -668,7 +688,8 @@
                             ]
                         },
                         "sql-manual/sql-functions/cast",
-                        "sql-manual/sql-functions/digital-masking"
+                        "sql-manual/sql-functions/digital-masking",
+                        "sql-manual/sql-functions/width-bucket"
                     ]
                 },
                 {

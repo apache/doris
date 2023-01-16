@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
-import org.apache.doris.nereids.trees.expressions.functions.ForbiddenMetricTypeArguments;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -88,11 +87,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private void checkMetricTypeIsUsedCorrectly(Plan plan) {
         if (plan instanceof LogicalAggregate) {
             if (((LogicalAggregate<?>) plan).getGroupByExpressions().stream()
-                    .anyMatch(expression -> expression.getDataType().isOnlyMetricType())
-                    || ((LogicalAggregate<?>) plan).getAggregateFunctions().stream()
-                    .filter(aggregateFunction -> aggregateFunction instanceof ForbiddenMetricTypeArguments).anyMatch(
-                                aggregateFunction -> aggregateFunction.getArgumentsTypes().stream()
-                                    .anyMatch(dataType -> dataType.isOnlyMetricType()))) {
+                    .anyMatch(expression -> expression.getDataType().isOnlyMetricType())) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         } else if (plan instanceof LogicalSort) {

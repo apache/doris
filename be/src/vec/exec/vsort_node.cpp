@@ -19,7 +19,6 @@
 
 #include "common/config.h"
 #include "pipeline/pipeline.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "vec/common/sort/heap_sorter.h"
@@ -76,10 +75,10 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else if (_limit > 0 && row_desc.has_varlen_slots() &&
                _limit + _offset < TopNSorter::TOPN_SORT_THRESHOLD) {
         _sorter.reset(new TopNSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc));
+                                     _nulls_first, row_desc, state, _runtime_profile.get()));
     } else {
         _sorter.reset(new FullSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
-                                     _nulls_first, row_desc));
+                                     _nulls_first, row_desc, state, _runtime_profile.get()));
     }
 
     _sorter->init_profile(_runtime_profile.get());
@@ -177,6 +176,9 @@ Status VSortNode::open(RuntimeState* state) {
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
+    if (*eos) {
+        _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");
+    }
     return Status::OK();
 }
 

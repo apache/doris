@@ -28,11 +28,11 @@ under the License.
 
 ### Name
 
-ALTER TABLE  COLUMN
+ALTER TABLE COLUMN
 
 ### Description
 
-该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
+该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
 
 语法：
 

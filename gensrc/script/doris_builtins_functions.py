@@ -2290,10 +2290,8 @@ visible_functions = [
     [['ifnull', 'nvl'], 'DATETIME', ['DATETIME', 'DATETIME'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DATETIME', ['DATE', 'DATETIME'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DATETIME', ['DATETIME', 'DATE'], '', '', '', 'vec', 'CUSTOM'],
-    [['ifnull', 'nvl'], 'DATEV2', ['DATE', 'DATE'], '', '', '', 'vec', 'CUSTOM'],
+    [['ifnull', 'nvl'], 'DATEV2', ['DATEV2', 'DATEV2'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], '', '', '', 'vec', 'CUSTOM'],
-    [['ifnull', 'nvl'], 'DATETIMEV2', ['DATEV2', 'DATETIMEV2'], '', '', '', 'vec', 'CUSTOM'],
-    [['ifnull', 'nvl'], 'DATETIMEV2', ['DATETIMEV2', 'DATEV2'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DECIMAL32', ['DECIMAL32', 'DECIMAL32'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DECIMAL64', ['DECIMAL64', 'DECIMAL64'], '', '', '', 'vec', 'CUSTOM'],
@@ -2488,6 +2486,19 @@ visible_functions = [
 
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
+
+    # width_bucket
+    [['width_bucket'], 'BIGINT', ['TINYINT','TINYINT','TINYINT','TINYINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['SMALLINT','SMALLINT','SMALLINT','SMALLINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['INT','INT','INT','INT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['BIGINT','BIGINT','BIGINT','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['FLOAT','FLOAT','FLOAT','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['DOUBLE','DOUBLE','DOUBLE','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['DECIMALV2','DECIMALV2','DECIMALV2','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['DATE','DATE','DATE','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['DATEV2','DATEV2','DATEV2','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['DATETIME','DATETIME','DATETIME','BIGINT'], '', '', '', 'vec', ''],
+    [['width_bucket'], 'BIGINT', ['DATETIMEV2','DATETIMEV2','DATETIMEV2','BIGINT'], '', '', '', 'vec', ''],
 
     # runningdifference
     [['running_difference'], 'SMALLINT', ['TINYINT'], '', '', '', 'vec', ''],

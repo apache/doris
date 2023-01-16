@@ -123,10 +123,6 @@ Status ZipFile::extract_file(const std::string& target_path) {
     size_t size = 0;
     do {
         size = unzReadCurrentFile(_zip_file, (voidp)file_data.get(), file_size);
-        if (size < 0) {
-            return Status::IOError("unzip file {} failed", file_name);
-        }
-
         RETURN_IF_ERROR(wfile->append(Slice(file_data.get(), size)));
     } while (size > 0);
 

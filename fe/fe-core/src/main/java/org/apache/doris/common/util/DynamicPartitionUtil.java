@@ -729,7 +729,7 @@ public class DynamicPartitionUtil {
     }
 
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
-            String time, String format) {
+            String time, String format) throws AnalysisException {
         ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
         Date date = null;
         Timestamp timestamp = null;
@@ -740,8 +740,7 @@ public class DynamicPartitionUtil {
             date = simpleDateFormat.parse(time);
         } catch (ParseException e) {
             LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
-            return getFormattedTimeWithoutMinuteSecond(
-                    ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+            throw new AnalysisException("Parse dynamic partition periods error. Error=" + e.getMessage());
         }
         timestamp = new Timestamp(date.getTime());
         return getFormattedTimeWithoutMinuteSecond(

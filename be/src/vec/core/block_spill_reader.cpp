@@ -20,34 +20,49 @@
 #include "io/file_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
+#include "runtime/block_spill_manager.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace vectorized {
+void BlockSpillReader::_init_profile() {
+    read_time_ = ADD_TIMER(profile_, "ReadTime");
+    deserialize_time_ = ADD_TIMER(profile_, "DeserializeTime");
+}
+
 Status BlockSpillReader::open() {
-    std::unique_ptr<io::FileSystem> file_system;
+    std::shared_ptr<io::FileSystem> file_system;
     FileSystemProperties system_properties;
     system_properties.system_type = TFileType::FILE_LOCAL;
 
     FileDescription file_description;
     file_description.path = file_path_;
 
+    IOContext io_ctx;
     RETURN_IF_ERROR(FileFactory::create_file_reader(nullptr, system_properties, file_description,
-                                                    &file_system, &file_reader_));
+                                                    &file_system, &file_reader_, &io_ctx));
+    if (delete_after_read_) {
+        unlink(file_path_.c_str());
+    }
 
     size_t file_size = file_reader_->size();
 
-    std::unique_ptr<char[]> buff(new char[sizeof(size_t)]);
-    Slice result(buff.get(), sizeof(size_t));
+    Slice result((char*)&block_count_, sizeof(size_t));
 
     // read block count
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, {}, &bytes_read));
-    block_count_ = *((size_t*)result.data);
+
+    // read max sub block size
+    result.data = (char*)&max_sub_block_size_;
+    RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, {}, &bytes_read));
+
+    size_t buff_size = std::max(block_count_ * sizeof(size_t), max_sub_block_size_);
+    read_buff_.reset(new char[buff_size]);
 
     // read block start offsets
-    size_t read_offset = file_size - (block_count_ + 1) * sizeof(size_t);
-    buff.reset(new char[block_count_ * sizeof(size_t)]);
-    result.data = buff.get();
+    size_t read_offset = file_size - (block_count_ + 2) * sizeof(size_t);
+    result.data = read_buff_.get();
     result.size = block_count_ * sizeof(size_t);
 
     RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, {}, &bytes_read));
@@ -57,41 +72,65 @@ Status BlockSpillReader::open() {
     for (size_t i = 0; i < block_count_; ++i) {
         block_start_offsets_[i] = *(size_t*)(result.data + i * sizeof(size_t));
     }
-    block_start_offsets_[block_count_] = file_size - (block_count_ + 1) * sizeof(size_t);
+    block_start_offsets_[block_count_] = file_size - (block_count_ + 2) * sizeof(size_t);
 
     return Status::OK();
 }
 
-Status BlockSpillReader::read(Block& block, bool& eof) {
+// The returned block is owned by BlockSpillReader and is
+// destroyed when reading next block.
+Status BlockSpillReader::read(Block** block) {
     DCHECK(file_reader_);
 
-    eof = false;
+    current_block_.reset();
+    *block = nullptr;
 
     if (read_block_index_ >= block_count_) {
-        eof = true;
         return Status::OK();
     }
 
     size_t bytes_to_read =
             block_start_offsets_[read_block_index_ + 1] - block_start_offsets_[read_block_index_];
-    std::unique_ptr<char[]> buff(new char[bytes_to_read]);
-    Slice result(buff.get(), bytes_to_read);
+    Slice result(read_buff_.get(), bytes_to_read);
 
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader_->read_at(block_start_offsets_[read_block_index_], result, {},
-                                          &bytes_read));
+
+    {
+        SCOPED_TIMER(read_time_);
+        RETURN_IF_ERROR(file_reader_->read_at(block_start_offsets_[read_block_index_], result, {},
+                                              &bytes_read));
+    }
     DCHECK(bytes_read == bytes_to_read);
 
     PBlock pb_block;
-    if (!pb_block.ParseFromArray(result.data, result.size)) {
-        return Status::InternalError("Failed to read spilled block");
+    Block* new_block = nullptr;
+    {
+        SCOPED_TIMER(deserialize_time_);
+        if (!pb_block.ParseFromArray(result.data, result.size)) {
+            return Status::InternalError("Failed to read spilled block");
+        }
+        new_block = new Block(pb_block);
     }
-    block = Block(pb_block);
 
-    if (++read_block_index_ >= block_count_) {
-        eof = true;
+    current_block_.reset(new_block);
+    *block = new_block;
+
+    ++read_block_index_;
+
+    return Status::OK();
+}
+
+Status BlockSpillReader::close() {
+    if (!file_reader_) {
+        return Status::OK();
+    }
+    ExecEnv::GetInstance()->block_spill_mgr()->remove(stream_id_);
+    file_reader_.reset();
+    if (delete_after_read_) {
+        FileUtils::remove(file_path_);
     }
     return Status::OK();
 }
+
 } // namespace vectorized
 } // namespace doris

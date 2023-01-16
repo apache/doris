@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import java.util.List;
 
@@ -30,14 +31,23 @@ import java.util.List;
  * of arguments that may result in loss of precision - e.g. decimal to float.
  */
 public interface ExplicitlyCastableSignature extends ComputeSignature {
+
+    /** isExplicitlyCastable */
     static boolean isExplicitlyCastable(AbstractDataType signatureType, AbstractDataType realType) {
-        // TODO: copy canCastTo method to DataType
-        return Type.canCastTo(realType.toCatalogDataType(), signatureType.toCatalogDataType());
+        if (signatureType instanceof AnyDataType || signatureType.isAssignableFrom(realType)) {
+            return true;
+        }
+        try {
+            // TODO: copy canCastTo method to DataType
+            return Type.canCastTo(realType.toCatalogDataType(), signatureType.toCatalogDataType());
+        } catch (Throwable t) {
+            // the signatureType maybe AbstractDataType and can not cast to catalog data type.
+            return false;
+        }
     }
 
     @Override
     default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-
         return SearchSignature.from(signatures, getArguments())
                 // first round, use identical strategy to find signature
                 .orElseSearch(IdenticalSignature::isIdentical)

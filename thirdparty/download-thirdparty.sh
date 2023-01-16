@@ -286,6 +286,15 @@ fi
 cd -
 echo "Finished patching ${CYRUS_SASL_SOURCE}"
 
+#patch sqltypes.h, change TCAHR to TWCHAR to avoid conflict with clucene TCAHR
+cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
+if [[ ! -f ${PATCHED_MARK} ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/sqltypes.h.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ODBC_SOURCE}"
+
 # rocksdb patch to fix compile error
 if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
     cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"

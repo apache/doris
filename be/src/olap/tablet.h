@@ -225,12 +225,8 @@ public:
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candidate_rowsets_to_cumulative_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets,
-            std::shared_lock<std::shared_mutex>& /* meta lock*/);
-    void pick_candidate_rowsets_to_base_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets,
-            std::shared_lock<std::shared_mutex>& /* meta lock*/);
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -383,6 +379,10 @@ private:
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status _cooldown_data();
+    Status _follow_cooldowned_data();
+    Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
+    Status _write_remote_tablet_meta(io::FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

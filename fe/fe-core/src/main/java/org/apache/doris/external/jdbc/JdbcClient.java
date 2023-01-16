@@ -45,6 +45,7 @@ import java.util.List;
 @Getter
 public class JdbcClient {
     private static final Logger LOG = LogManager.getLogger(JdbcClient.class);
+
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     private String dbType;
@@ -63,9 +64,9 @@ public class JdbcClient {
         this.jdbcUser = user;
         this.jdbcPasswd = password;
         this.jdbcUrl = jdbcUrl;
+        this.dbType = parseDbType(jdbcUrl);
         this.driverUrl = driverUrl;
         this.driverClass = driverClass;
-        this.dbType = JdbcResource.parseDbType(jdbcUrl);
 
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
@@ -156,14 +157,18 @@ public class JdbcClient {
             stmt = conn.createStatement();
             switch (dbType) {
                 case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
                     rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
                             + "where schema_owner='" + jdbcUser + "';");
                     break;
+                case JdbcResource.ORACLE:
+                    rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
+                    break;
                 default:
-                    throw  new JdbcClientException("Not supported jdbc type");
+                    throw new JdbcClientException("Not supported jdbc type");
             }
 
             while (rs.next()) {
@@ -192,6 +197,8 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(dbName, null, null, types);
                     break;
                 case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.CLICKHOUSE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -219,6 +226,8 @@ public class JdbcClient {
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
                 case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.CLICKHOUSE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -287,6 +296,8 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.CLICKHOUSE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -319,6 +330,10 @@ public class JdbcClient {
                 return mysqlTypeToDoris(fieldSchema);
             case JdbcResource.POSTGRESQL:
                 return postgresqlTypeToDoris(fieldSchema);
+            case JdbcResource.CLICKHOUSE:
+                return clickhouseTypeToDoris(fieldSchema);
+            case JdbcResource.ORACLE:
+                return oracleTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -485,6 +500,124 @@ public class JdbcClient {
         }
     }
 
+    public Type clickhouseTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String ckType = fieldSchema.getDataTypeName();
+        if (ckType.startsWith("LowCardinality")) {
+            ckType = ckType.substring(15, ckType.length() - 1);
+            if (ckType.startsWith("Nullable")) {
+                ckType = ckType.substring(9, ckType.length() - 1);
+            }
+        } else if (ckType.startsWith("Nullable")) {
+            ckType = ckType.substring(9, ckType.length() - 1);
+        }
+        if (ckType.startsWith("Decimal")) {
+            String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
+            int precision = Integer.parseInt(accuracy[0]);
+            int scale = Integer.parseInt(accuracy[1]);
+            if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createDecimalType(precision, scale);
+            } else {
+                return ScalarType.createStringType();
+            }
+        } else if ("String".contains(ckType) || ckType.startsWith("Enum")
+                || ckType.startsWith("IPv") || "UUID".contains(ckType)
+                || ckType.startsWith("FixedString")) {
+            return ScalarType.createStringType();
+        } else if (ckType.startsWith("DateTime")) {
+            return ScalarType.getDefaultDateType(Type.DATETIME);
+        }
+        switch (ckType) {
+            case "Bool":
+                return Type.BOOLEAN;
+            case "Int8":
+                return Type.TINYINT;
+            case "Int16":
+            case "UInt8":
+                return Type.SMALLINT;
+            case "Int32":
+            case "UInt16":
+                return Type.INT;
+            case "Int64":
+            case "UInt32":
+                return Type.BIGINT;
+            case "Int128":
+            case "UInt64":
+                return Type.LARGEINT;
+            case "Int256":
+            case "UInt128":
+            case "UInt256":
+                return ScalarType.createStringType();
+            case "Float32":
+                return Type.FLOAT;
+            case "Float64":
+                return Type.DOUBLE;
+            case "Date":
+            case "Date32":
+                return ScalarType.getDefaultDateType(Type.DATE);
+            default:
+                return Type.UNSUPPORTED;
+        }
+        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
+    }
+
+    public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String oracleType = fieldSchema.getDataTypeName();
+        if (oracleType.startsWith("INTERVAL")) {
+            oracleType = oracleType.substring(0, 8);
+        }
+        switch (oracleType) {
+            case "NUMBER":
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale == 0) {
+                    if (precision < 3) {
+                        return Type.TINYINT;
+                    } else if (precision < 5) {
+                        return Type.SMALLINT;
+                    } else if (precision < 10) {
+                        return Type.INT;
+                    } else if (precision < 19) {
+                        return Type.BIGINT;
+                    } else if (precision < 39) {
+                        return Type.LARGEINT;
+                    }
+                    return ScalarType.createStringType();
+                }
+                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                        return ScalarType.createStringType();
+                    }
+                    return ScalarType.createDecimalType(precision, scale);
+                } else {
+                    return ScalarType.createStringType();
+                }
+            case "FLOAT":
+                return Type.DOUBLE;
+            case "DATE":
+                return ScalarType.getDefaultDateType(Type.DATETIME);
+            case "VARCHAR2":
+            case "NVARCHAR2":
+            case "CHAR":
+            case "NCHAR":
+            case "LONG":
+            case "RAW":
+            case "LONG RAW":
+            case "INTERVAL":
+                return ScalarType.createStringType();
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "BFILE":
+            case "BINARY_FLOAT":
+            case "BINARY_DOUBLE":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
@@ -495,5 +628,21 @@ public class JdbcClient {
                     true, null, -1));
         }
         return dorisTableSchema;
+    }
+
+    private String parseDbType(String url) {
+        if (url.startsWith(JdbcResource.JDBC_MYSQL) || url.startsWith(JdbcResource.JDBC_MARIADB)) {
+            return JdbcResource.MYSQL;
+        } else if (url.startsWith(JdbcResource.JDBC_POSTGRESQL)) {
+            return JdbcResource.POSTGRESQL;
+        } else if (url.startsWith(JdbcResource.JDBC_ORACLE)) {
+            return JdbcResource.ORACLE;
+        } else if (url.startsWith(JdbcResource.JDBC_CLICKHOUSE)) {
+            return JdbcResource.CLICKHOUSE;
+        }
+        // else if (url.startsWith("jdbc:sqlserver")) {
+        //     return SQLSERVER;
+        // }
+        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
 }

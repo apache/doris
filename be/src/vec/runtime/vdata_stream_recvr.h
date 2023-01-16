@@ -97,7 +97,7 @@ public:
 private:
     class SenderQueue;
     class PipSenderQueue;
-    friend struct ReceiveQueueSortCursorImpl;
+    friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr;

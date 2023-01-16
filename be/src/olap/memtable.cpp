@@ -296,13 +296,16 @@ void MemTable::shrink_memtable_by_agg() {
     _collect_vskiplist_results<false>();
 }
 
-bool MemTable::is_flush() const {
+bool MemTable::need_flush() const {
     return memory_usage() >= config::write_buffer_size;
 }
 
-bool MemTable::need_to_agg() {
-    return _keys_type == KeysType::DUP_KEYS ? is_flush()
-                                            : memory_usage() >= config::memtable_max_buffer_size;
+bool MemTable::need_agg() const {
+    if (_keys_type == KeysType::AGG_KEYS) {
+        return memory_usage() >= config::write_buffer_size_for_agg;
+    }
+
+    return false;
 }
 
 Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
@@ -356,8 +359,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
-    RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
-    _flush_size = block.allocated_bytes();
+    RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 

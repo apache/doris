@@ -130,7 +130,7 @@ BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=1
+BUILD_JAVA_UDF=0
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -145,6 +145,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
+    BUILD_JAVA_UDF=1
     CLEAN=0
 else
     while true; do
@@ -153,10 +154,12 @@ else
             BUILD_FE=1
             BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --be)
             BUILD_BE=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --broker)
@@ -573,6 +576,7 @@ EOF
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
+    cp -r -p "${DORIS_THIRDPARTY}/installed/share/dict" "${DORIS_OUTPUT}/be/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

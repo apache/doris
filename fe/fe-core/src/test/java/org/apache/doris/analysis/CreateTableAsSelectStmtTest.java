@@ -426,7 +426,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("test_default_timestamp");
         Assertions.assertEquals("CREATE TABLE `test_default_timestamp` (\n"
                         + "  `userId` varchar(65533) NOT NULL,\n"
-                        + "  `date` datetime NULL DEFAULT CURRENT_TIMESTAMP\n"
+                        + "  `date` " + (Config.enable_date_conversion ? "datetimev2(0)" : "datetime")
+                        + " NULL DEFAULT CURRENT_TIMESTAMP\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"

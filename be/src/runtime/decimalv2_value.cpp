@@ -243,7 +243,6 @@ static std::pair<double, double> quadratic_equation_naive(__uint128_t a, __uint1
     __uint128_t dis = b * b - 4 * a * c;
     // assert(dis >= 0);
     // not handling complex root
-    if (dis < 0) return std::make_pair(0, 0);
     double sqrtdis = std::sqrt(static_cast<double>(dis));
     double a_r = static_cast<double>(a);
     double b_r = static_cast<double>(b);

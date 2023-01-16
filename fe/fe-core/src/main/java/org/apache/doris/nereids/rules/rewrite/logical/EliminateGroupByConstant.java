@@ -59,7 +59,7 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
                     lit = expression;
                 }
             }
-            if (slotGroupByExprs.isEmpty() && lit != null) {
+            if (slotGroupByExprs.isEmpty() && lit != null && aggregate.getAggregateFunctions().isEmpty()) {
                 slotGroupByExprs.add(lit);
             }
             return aggregate.withGroupByAndOutput(ImmutableList.copyOf(slotGroupByExprs), outputExprs);

@@ -75,7 +75,9 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnOrigin()
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
+                .printlnExploration()
                 .matchesExploration(
                         logicalJoin(
                                 logicalProject(
@@ -103,20 +105,9 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnOrigin()
-                .printlnExploration()
-                .matchesExploration(
-                        logicalJoin(
-                                logicalProject(
-                                        logicalJoin(
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                                        ).when(join -> join.getHashJoinConjuncts().size() == 1)
-                                ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
-                                logicalProject(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
-                                ).when(project -> project.getProjects().size() == 1)
-                        ).when(join -> join.getHashJoinConjuncts().size() == 2)
-                );
+                .checkMemo(memo -> {
+                    Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
+                });
     }
 
     @Test
@@ -156,22 +147,10 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnOrigin()
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
-                .matchesExploration(
-                        logicalJoin(
-                                logicalProject(
-                                        logicalJoin(
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                                        ).when(join -> join.getOtherJoinConjuncts().size() == 1
-                                                && join.getHashJoinConjuncts().size() == 1)
-                                ),
-                                logicalProject(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
-                                )
-                        ).when(join -> join.getOtherJoinConjuncts().size() == 2
-                                && join.getHashJoinConjuncts().size() == 2)
-                )
-                .printlnExploration();
+                .checkMemo(memo -> {
+                    Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
+                });
     }
 }

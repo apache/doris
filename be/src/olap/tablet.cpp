@@ -75,6 +75,7 @@ using std::nothrow;
 using std::sort;
 using std::string;
 using std::vector;
+using io::FileSystemSPtr;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
@@ -1125,25 +1126,36 @@ TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
-void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        std::vector<RowsetSharedPtr>* candidate_rowsets,
-        std::shared_lock<std::shared_mutex>& /* meta lock*/) {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
-        return;
+        return candidate_rowsets;
     }
-    _cumulative_compaction_policy->pick_candidate_rowsets(_rs_version_map, _cumulative_point,
-                                                          candidate_rowsets);
-}
-
-void Tablet::pick_candidate_rowsets_to_base_compaction(
-        vector<RowsetSharedPtr>* candidate_rowsets,
-        std::shared_lock<std::shared_mutex>& /* meta lock*/) {
-    for (auto& it : _rs_version_map) {
-        // Do compaction on local rowsets only.
-        if (it.first.first < _cumulative_point && it.second->is_local()) {
-            candidate_rowsets->push_back(it.second);
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            if (version.first >= _cumulative_point && rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
         }
     }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            // Do compaction on local rowsets only.
+            if (version.first < _cumulative_point && rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
 }
 
 // For http compaction action
@@ -1173,7 +1185,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
 
         delete_flags.reserve(rowsets.size());
         for (auto& rs : rowsets) {
-            delete_flags.push_back(version_for_delete_predicate(rs->version()));
+            delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
         }
         // get snapshot version path json_doc
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
@@ -1427,6 +1439,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
+    tablet_info->__set_is_cooldown(!_tablet_meta->storage_policy().empty());
+    if (tablet_info->is_cooldown) {
+        tablet_info->__set_cooldown_replica_id(_tablet_meta->cooldown_replica_id());
+    }
 }
 
 // should use this method to get a copy of current tablet meta
@@ -1587,6 +1603,8 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.rowset_state = VISIBLE;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
+        context.oldest_write_timestamp = UnixSeconds();
+        context.newest_write_timestamp = UnixSeconds();
         res = create_rowset_writer(context, &rs_writer);
 
         if (!res.ok()) {
@@ -1672,11 +1690,22 @@ Status Tablet::cooldown() {
         LOG(WARNING) << "Failed to own cumu_compaction_lock. tablet=" << tablet_id();
         return Status::Error<TRY_LOCK_FAILED>();
     }
+
+    if (_tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
+        RETURN_IF_ERROR(_cooldown_data());
+    } else {
+        RETURN_IF_ERROR(_follow_cooldowned_data());
+    }
+    return Status::OK();
+}
+
+Status Tablet::_cooldown_data() {
     auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::Error<UNINITIALIZED>();
     }
     DCHECK(dest_fs->type() == io::FileSystemType::S3);
+
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
         LOG(WARNING) << "Cannot pick cooldown rowset in tablet " << tablet_id();
@@ -1706,27 +1735,125 @@ Status Tablet::cooldown() {
     new_rowset_meta->set_resource_id(dest_fs->resource_id());
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
+
+    // write remote tablet meta
+    TabletMetaPB remote_tablet_meta_pb;
+    _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
+    new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
+    // upload rowset_meta to remote fs.
+    RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, remote_tablet_meta_pb));
+
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
 
     std::vector to_add {std::move(new_rowset)};
     std::vector to_delete {std::move(old_rowset)};
 
-    bool has_shutdown = false;
     {
         std::unique_lock meta_wlock(_meta_lock);
-        has_shutdown = tablet_state() == TABLET_SHUTDOWN;
-        if (!has_shutdown) {
+        if (tablet_state() != TABLET_SHUTDOWN) {
             modify_rowsets(to_add, to_delete);
-            _self_owned_remote_rowsets.insert(to_add.front());
             save_meta();
         }
     }
-    if (has_shutdown) {
-        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
-                                    to_add.front()->num_segments());
-        return Status::Aborted("tablet {} has shutdown", tablet_id());
+    return Status::OK();
+}
+
+Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb) {
+    std::string remote_meta_path =
+            BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->cooldown_replica_id());
+    bool exist = false;
+    RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
+    if (exist) {
+        IOContext io_ctx;
+        io::FileReaderSPtr tablet_meta_reader;
+        RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
+        if (tablet_meta_reader == nullptr) {
+            return Status::InternalError("tablet_meta_reader is null");
+        }
+        auto file_size = tablet_meta_reader->size();
+        size_t bytes_read;
+        uint8_t* buf = new uint8_t[file_size];
+        Slice slice(buf, file_size);
+        Status st = tablet_meta_reader->read_at(0, slice, io_ctx, &bytes_read);
+        if (!st.ok()) {
+            tablet_meta_reader->close();
+            return st;
+        }
+        tablet_meta_reader->close();
+        if (!tablet_meta_pb->ParseFromString(slice.to_string())) {
+            LOG(WARNING) << "parse tablet meta failed";
+            return Status::InternalError("parse tablet meta failed");
+        }
     }
+    LOG(INFO) << "No tablet meta file founded, init needed. tablet_id: " << tablet_id();
+    return Status::InternalError("No tablet meta file founded, init needed.");
+}
+
+Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb) {
+    std::string remote_meta_path =
+            BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->replica_id());
+    io::FileWriterPtr tablet_meta_writer;
+    RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
+    if (tablet_meta_writer == nullptr) {
+        return Status::InternalError("tablet_meta_writer is null");
+    }
+    string value;
+    tablet_meta_pb.SerializeToString(&value);
+    uint8_t* buf = new uint8_t[value.size()];
+    memcpy(buf, value.c_str(), value.size());
+    Slice slice(buf, value.size());
+    Status st = tablet_meta_writer->appendv(&slice, 1);
+    if (!st.ok()) {
+        tablet_meta_writer->close();
+        return st;
+    }
+    tablet_meta_writer->close();
+    return Status::OK();
+}
+
+Status Tablet::_follow_cooldowned_data() {
+    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
+    if (!dest_fs) {
+        return Status::InternalError("storage_policy doesn't exist: " + storage_policy());
+    }
+    DCHECK(dest_fs->type() == io::FileSystemType::S3);
+    TabletMetaPB remote_tablet_meta_pb;
+    RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
+    int64_t max_version = -1;
+    for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+        if (max_version < rowset_meta_pb.end_version()) {
+            max_version = rowset_meta_pb.end_version();
+        }
+    }
+
+    std::vector<RowsetSharedPtr> to_add;
+    std::vector<RowsetSharedPtr> to_delete;
+    for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+        if (rowset_meta_pb.end_version() > max_version) {
+            continue;
+        }
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+        rowset_meta->init_from_pb(rowset_meta_pb);
+        RowsetSharedPtr new_rowset;
+        RowsetFactory::create_rowset(_schema, _tablet_path, rowset_meta, &new_rowset);
+        to_add.push_back(new_rowset);
+    }
+
+    {
+        std::shared_lock meta_rlock(_meta_lock);
+        for (const auto& it : _rs_version_map) {
+            auto& rs = it.second;
+            if (rs->end_version() <= max_version) {
+                to_delete.push_back(rs);
+            }
+        }
+        if (tablet_state() != TABLET_SHUTDOWN) {
+            modify_rowsets(to_add, to_delete);
+            save_meta();
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1883,8 +2010,8 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
             return s;
         }
         loc.rowset_id = rs.first->rowset_id();
-        if (version >= 0 && _tablet_meta->delete_bitmap().contains_agg(
-                                    {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+        if (_tablet_meta->delete_bitmap().contains_agg({loc.rowset_id, loc.segment_id, version},
+                                                       loc.row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all rowsets, util we find an existing key.
             if (_schema->has_sequence_col()) {

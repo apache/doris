@@ -54,6 +54,20 @@ suite("test_nereids_set_operation") {
         );
     """
 
+    sql """ drop table if exists test_table;"""
+    sql """
+        CREATE TABLE `test_table`
+        (
+            `day` date
+        ) ENGINE = OLAP DUPLICATE KEY(`day`)
+        DISTRIBUTED BY HASH(`day`) BUCKETS 4
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into test_table values('2020-05-25');"""
+
     sql """
         INSERT INTO setOperationTable VALUES
             (1, 1, 1, 3, 'a', 'b'),
@@ -139,8 +153,7 @@ suite("test_nereids_set_operation") {
             select * from (select k1, k2 from setOperationTableNotNullable union all select k1, k5 from setOperationTable) t;
     """
 
-    order_qt_select21 """
-            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
+    order_qt_select21 """            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
     """
 
     order_qt_select24 """select * from (select 1 a, 2 b 
@@ -242,4 +255,26 @@ suite("test_nereids_set_operation") {
     INTERSECT
     SELECT k1 FROM setOperationTable WHERE k2 > 0)
     """
+
+    order_qt_select43 """
+        SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all 
+            select k1, k5 from setOperationTable) t;
+    """
+
+    order_qt_select44 """
+    select k1, k3 from setOperationTableNotNullable order by k3 union all 
+            select k1, k5 from setOperationTable
+    """
+
+    order_qt_select45 """
+    (select k1, k3 from setOperationTableNotNullable order by k3) union all 
+            (select k1, k5 from setOperationTable)
+    """
+
+    order_qt_select46 """
+    (with cte AS (select k1, k3 from setOperationTableNotNullable) select * from cte order by k3) union all 
+            (select k1, k5 from setOperationTable)
+    """
+
+    qt_union43 """select '2020-05-25' day from test_table union all select day from test_table;"""
 }

@@ -66,15 +66,15 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
     private static class FunctionReplacer extends DefaultExpressionRewriter<Boolean> {
         public static final FunctionReplacer INSTANCE = new FunctionReplacer();
 
-        public Expression replace(Expression expression, boolean isAlwaysNullable) {
-            return expression.accept(INSTANCE, isAlwaysNullable);
+        public Expression replace(Expression expression, boolean alwaysNullable) {
+            return expression.accept(INSTANCE, alwaysNullable);
         }
 
         @Override
         public Expression visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction,
-                Boolean isAlwaysNullable) {
+                Boolean alwaysNullable) {
             return nullableAggregateFunction.isDistinct() ? nullableAggregateFunction
-                    : nullableAggregateFunction.withAlwaysNullable(isAlwaysNullable);
+                    : nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
         }
     }
 }

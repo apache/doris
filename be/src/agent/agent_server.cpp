@@ -69,6 +69,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
     CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
     CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
+
     // Both PUSH and REALTIME_PUSH type use _push_workers
     CREATE_AND_START_POOL(PUSH, _push_workers);
     CREATE_AND_START_POOL(PUBLISH_VERSION, _publish_version_workers);
@@ -84,6 +85,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_POOL(RELEASE_SNAPSHOT, _release_snapshot_workers);
     CREATE_AND_START_POOL(MOVE, _move_dir_workers);
     CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
+    CREATE_AND_START_THREAD(PUSH_COOLDOWN_CONF, _push_cooldown_conf_workers);
 
     CREATE_AND_START_THREAD(REPORT_TASK, _report_task_workers);
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
@@ -180,6 +182,15 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             } else {
                 ret_st = Status::InvalidArgument(
                         "task(signature={}) has wrong request member = alter_tablet_req",
+                        signature);
+            }
+            break;
+        case TTaskType::PUSH_COOLDOWN_CONF:
+            if (task.__isset.push_cooldown_conf) {
+                _push_cooldown_conf_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = push_cooldown_conf",
                         signature);
             }
             break;

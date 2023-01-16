@@ -56,6 +56,13 @@ inline const std::string& client_id(const TNetworkAddress& addr) {
     }
 #endif
 
+std::shared_ptr<BrokerFileSystem> BrokerFileSystem::create(
+        const TNetworkAddress& broker_addr, const std::map<std::string, std::string>& broker_prop,
+        size_t file_size) {
+    return std::shared_ptr<BrokerFileSystem>(
+            new BrokerFileSystem(broker_addr, broker_prop, file_size));
+}
+
 BrokerFileSystem::BrokerFileSystem(const TNetworkAddress& broker_addr,
                                    const std::map<std::string, std::string>& broker_prop,
                                    size_t file_size)
@@ -77,7 +84,8 @@ Status BrokerFileSystem::connect() {
     return status;
 }
 
-Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader,
+                                   IOContext* /*io_ctx*/) {
     CHECK_BROKER_CLIENT(_client);
     TBrokerOpenReaderRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);
@@ -117,7 +125,9 @@ Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
         _file_size = response->size;
     }
     fd = response->fd;
-    *reader = std::make_shared<BrokerFileReader>(_broker_addr, path, _file_size, fd, this);
+    *reader = std::make_shared<BrokerFileReader>(
+            _broker_addr, path, _file_size, fd,
+            std::static_pointer_cast<BrokerFileSystem>(shared_from_this()));
     return Status::OK();
 }
 

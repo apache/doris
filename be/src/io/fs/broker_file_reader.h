@@ -22,6 +22,7 @@
 
 #include <atomic>
 
+#include "io/fs/broker_file_system.h"
 #include "io/fs/file_reader.h"
 #include "runtime/client_cache.h"
 namespace doris {
@@ -32,7 +33,7 @@ class BrokerFileSystem;
 class BrokerFileReader : public FileReader {
 public:
     BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path, size_t file_size,
-                     TBrokerFD fd, BrokerFileSystem* fs);
+                     TBrokerFD fd, std::shared_ptr<BrokerFileSystem> fs);
 
     ~BrokerFileReader() override;
 
@@ -47,6 +48,8 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
+    FileSystemSPtr fs() const override { return _fs; }
+
 private:
     const Path& _path;
     size_t _file_size;
@@ -54,6 +57,7 @@ private:
     const TNetworkAddress& _broker_addr;
     TBrokerFD _fd;
 
+    std::shared_ptr<BrokerFileSystem> _fs;
     std::atomic<bool> _closed = false;
     std::shared_ptr<BrokerServiceConnection> _client;
 };

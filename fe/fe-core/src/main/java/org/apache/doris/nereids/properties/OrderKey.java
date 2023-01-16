@@ -65,9 +65,13 @@ public class OrderKey {
         return nullFirst;
     }
 
+    public String toSql() {
+        return expr.toSql() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
+    }
+
     @Override
     public String toString() {
-        return expr.toString();
+        return expr.toString() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
     }
 
     @Override

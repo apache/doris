@@ -76,6 +76,8 @@ public class OperationType {
 
     //schema change for add and drop columns
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    // set cooldown conf in replica
+    public static final short OP_PUSH_COOLDOWN_CONF = 129;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -256,6 +258,12 @@ public class OperationType {
     public static final short OP_ALTER_MTMV_TASK = 342;
 
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    public static final short OP_DROP_EXTERNAL_DB = 351;
+    public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    public static final short OP_CREATE_EXTERNAL_DB = 353;
+    public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
 

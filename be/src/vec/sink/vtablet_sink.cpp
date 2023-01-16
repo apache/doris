@@ -27,7 +27,6 @@
 #include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
@@ -176,6 +175,12 @@ VNodeChannel::VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, 
 }
 
 VNodeChannel::~VNodeChannel() {
+    if (_open_closure != nullptr) {
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
+    }
     if (_add_block_closure != nullptr) {
         delete _add_block_closure;
         _add_block_closure = nullptr;

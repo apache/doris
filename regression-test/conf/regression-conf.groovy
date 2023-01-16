@@ -73,6 +73,7 @@ sk=""
 enableJdbcTest=false
 mysql_57_port=3316
 pg_14_port=5442
+oracle_11_port=1521
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.

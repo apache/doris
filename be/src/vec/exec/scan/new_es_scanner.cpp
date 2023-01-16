@@ -26,8 +26,8 @@ namespace doris::vectorized {
 NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit,
                            TupleId tuple_id, const std::map<std::string, std::string>& properties,
                            const std::map<std::string, std::string>& docvalue_context,
-                           bool doc_value_mode)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                           bool doc_value_mode, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _is_init(false),
           _es_eof(false),
           _properties(properties),

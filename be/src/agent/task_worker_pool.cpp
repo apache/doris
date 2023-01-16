@@ -204,6 +204,10 @@ void TaskWorkerPool::start() {
         cb = std::bind<void>(&TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback,
                              this);
         break;
+    case TaskWorkerType::PUSH_COOLDOWN_CONF:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
+        break;
     default:
         // pass
         break;
@@ -265,16 +269,16 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-    set<int64_t>& signature_set = _s_task_signatures[task_type];
+    std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+    std::set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
 }
 
 void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t signature) {
     size_t queue_size;
     {
-        lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-        set<int64_t>& signature_set = _s_task_signatures[task_type];
+        std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+        std::set<int64_t>& signature_set = _s_task_signatures[task_type];
         signature_set.erase(signature);
         queue_size = signature_set.size();
     }
@@ -314,7 +318,7 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
                                               std::deque<TAgentTaskRequest>& tasks,
                                               TPriority::type priority) {
     int32_t index = -1;
-    deque<TAgentTaskRequest>::size_type task_count = tasks.size();
+    std::deque<TAgentTaskRequest>::size_type task_count = tasks.size();
     for (uint32_t i = 0; i < task_count; ++i) {
         TAgentTaskRequest task = tasks[i];
         if (priority == TPriority::HIGH) {
@@ -1116,7 +1120,7 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
         {
-            lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+            std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
         _handle_report(request, ReportType::TASK);
@@ -1160,7 +1164,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
-        map<string, TDisk> disks;
+        std::map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
@@ -1630,7 +1634,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
             // update storage policy mgr.
             StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
             for (const auto& iter : result.result_entrys) {
-                shared_ptr<StoragePolicy> policy_ptr = make_shared<StoragePolicy>();
+                auto policy_ptr = std::make_shared<StoragePolicy>();
                 policy_ptr->storage_policy_name = iter.policy_name;
                 policy_ptr->cooldown_datetime = iter.cooldown_datetime;
                 policy_ptr->cooldown_ttl = iter.cooldown_ttl;
@@ -1670,7 +1674,7 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
         }
 
         StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
-        shared_ptr<StoragePolicy> policy_ptr = make_shared<StoragePolicy>();
+        auto policy_ptr = std::make_shared<StoragePolicy>();
         policy_ptr->storage_policy_name = get_storage_policy_req.policy_name;
         policy_ptr->cooldown_datetime = get_storage_policy_req.cooldown_datetime;
         policy_ptr->cooldown_ttl = get_storage_policy_req.cooldown_ttl;
@@ -1689,6 +1693,46 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
         LOG(INFO) << "get storage update policy task. policy=" << *policy_ptr;
 
         spm->update(get_storage_policy_req.policy_name, policy_ptr);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TPushCooldownConfReq push_cooldown_conf_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+
+            agent_task_req = _tasks.front();
+            push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
+            _tasks.pop_front();
+        }
+        for (auto cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
+            int64_t tablet_id = cooldown_conf.tablet_id;
+            TabletSharedPtr tablet =
+                    StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+            if (tablet.get() == nullptr) {
+                std::stringstream ss;
+                ss << "failed to get tablet. tablet_id=" << tablet_id;
+                LOG(WARNING) << ss.str();
+                continue;
+            }
+            if (cooldown_conf.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
+                tablet->tablet_meta()->set_cooldown_replica_id_and_term(
+                        cooldown_conf.cooldown_replica_id, cooldown_conf.cooldown_term);
+                LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id
+                          << ", cooldown_conf: " << cooldown_conf.cooldown_replica_id << "("
+                          << cooldown_conf.cooldown_term << ")";
+            } else {
+                LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
+                             << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term()
+                             << " -> " << cooldown_conf.cooldown_term;
+            }
+        }
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }

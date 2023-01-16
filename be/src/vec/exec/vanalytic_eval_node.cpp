@@ -18,7 +18,6 @@
 #include "vec/exec/vanalytic_eval_node.h"
 
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 

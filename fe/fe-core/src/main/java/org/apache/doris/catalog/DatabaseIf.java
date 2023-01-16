@@ -181,6 +181,16 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
+    default T getTableOrMetaException(long tableId, List<TableIf.TableType> tableTypes)
+            throws MetaNotFoundException {
+        T table = getTableOrMetaException(tableId);
+        if (!tableTypes.contains(table.getType())) {
+            throw new MetaNotFoundException(
+                    "Tye type of " + tableId + " doesn't match, expected data tables=" + tableTypes);
+        }
+        return table;
+    }
+
     default T getTableOrDdlException(String tableName) throws DdlException {
         return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }

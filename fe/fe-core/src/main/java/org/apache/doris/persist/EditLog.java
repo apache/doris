@@ -41,6 +41,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.cooldown.CooldownJob;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -744,6 +745,10 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_PUSH_COOLDOWN_CONF:
+                    CooldownJob cooldownJob = (CooldownJob) journal.getData();
+                    env.getCooldownHandler().replayCooldownJob(cooldownJob);
+                    break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
@@ -954,6 +959,36 @@ public class EditLog {
                     env.getCatalogMgr().replayDropExternalTable(log);
                     break;
                 }
+                case OperationType.OP_CREATE_EXTERNAL_TABLE: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayCreateExternalTable(log);
+                    break;
+                }
+                case OperationType.OP_DROP_EXTERNAL_DB: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayDropExternalDatabase(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_EXTERNAL_DB: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayCreateExternalDatabase(log);
+                    break;
+                }
+                case OperationType.OP_ADD_EXTERNAL_PARTITIONS: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayAddExternalPartitions(log);
+                    break;
+                }
+                case OperationType.OP_DROP_EXTERNAL_PARTITIONS: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayDropExternalPartitions(log);
+                    break;
+                }
+                case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayRefreshExternalPartitions(log);
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1044,6 +1079,7 @@ public class EditLog {
         totalTimeTransactions += (end - start);
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+            MetricRepo.COUNTER_EDIT_LOG_CURRENT.increase(1L);
         }
 
         if (LOG.isDebugEnabled()) {
@@ -1066,8 +1102,15 @@ public class EditLog {
     /**
      * Return the size of the current EditLog
      */
-    synchronized long getEditLogSize() throws IOException {
+    public synchronized long getEditLogSize() throws IOException {
         return editStream.length();
+    }
+
+    /**
+     * Return the number of the current EditLog
+     */
+    public synchronized long getEditLogNum() throws IOException {
+        return journal.getJournalNum();
     }
 
     public synchronized long getTxId() {
@@ -1497,6 +1540,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
     }
 
+    public void logCooldownJob(CooldownJob cooldownJob) {
+        logEdit(OperationType.OP_PUSH_COOLDOWN_CONF, cooldownJob);
+    }
+
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
         logEdit(OperationType.OP_BATCH_ADD_ROLLUP, batchAlterJobV2);
     }
@@ -1631,6 +1678,30 @@ public class EditLog {
 
     public void logDropExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_DROP_EXTERNAL_TABLE, log);
+    }
+
+    public void logCreateExternalTable(ExternalObjectLog log) {
+        logEdit(OperationType.OP_CREATE_EXTERNAL_TABLE, log);
+    }
+
+    public void logDropExternalDatabase(ExternalObjectLog log) {
+        logEdit(OperationType.OP_DROP_EXTERNAL_DB, log);
+    }
+
+    public void logCreateExternalDatabase(ExternalObjectLog log) {
+        logEdit(OperationType.OP_CREATE_EXTERNAL_DB, log);
+    }
+
+    public void logAddExternalPartitions(ExternalObjectLog log) {
+        logEdit(OperationType.OP_ADD_EXTERNAL_PARTITIONS, log);
+    }
+
+    public void logDropExternalPartitions(ExternalObjectLog log) {
+        logEdit(OperationType.OP_DROP_EXTERNAL_PARTITIONS, log);
+    }
+
+    public void logInvalidateExternalPartitions(ExternalObjectLog log) {
+        logEdit(OperationType.OP_REFRESH_EXTERNAL_PARTITIONS, log);
     }
 
     public Journal getJournal() {

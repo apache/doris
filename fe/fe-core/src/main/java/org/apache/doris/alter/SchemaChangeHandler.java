@@ -1106,18 +1106,20 @@ public class SchemaChangeHandler extends AlterHandler {
             hasPos = true;
         }
 
-        newColumn.setUniqueId(newColumnUniqueId);
+        // newColumn may add to baseIndex or rollups, so we need copy before change UniqueId
+        Column toAddColumn = new Column(newColumn);
+        toAddColumn.setUniqueId(newColumnUniqueId);
         if (hasPos) {
-            modIndexSchema.add(posIndex + 1, newColumn);
-        } else if (newColumn.isKey()) {
+            modIndexSchema.add(posIndex + 1, toAddColumn);
+        } else if (toAddColumn.isKey()) {
             // key
-            modIndexSchema.add(posIndex + 1, newColumn);
+            modIndexSchema.add(posIndex + 1, toAddColumn);
         } else if (lastVisibleIdx != -1 && lastVisibleIdx < modIndexSchema.size() - 1) {
             // has hidden columns
-            modIndexSchema.add(lastVisibleIdx + 1, newColumn);
+            modIndexSchema.add(lastVisibleIdx + 1, toAddColumn);
         } else {
             // value
-            modIndexSchema.add(newColumn);
+            modIndexSchema.add(toAddColumn);
         }
         LOG.debug("newColumn setUniqueId({}), modIndexSchema:{}", newColumnUniqueId, modIndexSchema);
     }
@@ -1484,11 +1486,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 // index state is SHADOW
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
-                TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId, newSchemaHash,
-                        medium);
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
+                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
+                            newSchemaHash, medium, -1, 0);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 

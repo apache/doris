@@ -74,6 +74,10 @@ suite("nereids_function") {
         result([[0L], [1L], [2L], [3L], [4L], [5L], [6L], [7L], [8L], [9L]])
     }
 
+    qt_subquery1 """ select * from numbers("number" = "10") where number = (select number from numbers("number" = "10") where number=1); """
+    qt_subquery2 """ select * from numbers("number" = "10") where number in (select number from numbers("number" = "10") where number>5); """
+    qt_subquery3 """ select a.number from numbers("number" = "10") a where number in (select number from numbers("number" = "10") b where a.number=b.number); """
+
     test {
         sql """select `number` from numbers("number" = -1, 'backend_num' = `1`)"""
         result([])
@@ -93,5 +97,76 @@ suite("nereids_function") {
         sql """select b.number from (select * from numbers(number = 3) a)b"""
         result([[0L], [1L], [2L]])
     }
+
+    test {
+        sql "select from_unixtime(1249488000, 'yyyyMMdd')"
+        result([["20090806"]])
+    }
+
+    test {
+        sql "select convert_to('abc', cast(number as varchar)) from numbers('number'='1')"
+        exception "must be a constant"
+    }
+
+    test {
+        sql """select "1" == "123", "%%" == "%%" """
+        result([[false, true]])
+    }
+    
+    qt_floor """
+        SELECT floor(2.1);
+    """
+
+    qt_ceil """
+        SELECT ceil(2.1);
+    """
+
+    test {
+        sql "select left('abcd', 3), right('abcd', 3)"
+        result([['abc', 'bcd']])
+    }
+    
+    // test window_funnel function
+    sql """ DROP TABLE IF EXISTS window_funnel_test """
+    sql """
+        CREATE TABLE IF NOT EXISTS window_funnel_test (
+            xwho varchar(50) NULL COMMENT 'xwho',
+            xwhen datetimev2(3) COMMENT 'xwhen',
+            xwhat int NULL COMMENT 'xwhat'
+        )
+        DUPLICATE KEY(xwho)
+        DISTRIBUTED BY HASH(xwho) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+
+    sql "INSERT into window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:41:00.111111', 1)"
+    sql "INSERT INTO window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 13:28:02.111111', 2)"
+    sql "INSERT INTO window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 16:15:01.111111', 3)"
+    sql "INSERT INTO window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 19:05:04.111111', 4)"
+
+    qt_window_funnel """
+        select
+            window_funnel(
+                1,
+                'default',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2
+                ) AS level
+        from window_funnel_test t;
+    """
+    qt_window_funnel """
+        select
+            window_funnel(
+                20000,
+                'default',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2
+            ) AS level
+        from window_funnel_test t;
+    """
 }
 

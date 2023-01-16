@@ -50,9 +50,9 @@ import java.util.Set;
 @Getter
 @Setter
 public class EsTable extends Table {
-    private static final Logger LOG = LogManager.getLogger(EsTable.class);
-
     public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Arrays.asList("text"));
+
+    private static final Logger LOG = LogManager.getLogger(EsTable.class);
     // Solr doc_values vs stored_fields performance-smackdown indicate:
     // It is possible to notice that retrieving an high number of fields leads
     // to a sensible worsening of performance if DocValues are used.
@@ -80,16 +80,16 @@ public class EsTable extends Table {
     private EsTablePartitions esTablePartitions;
 
     // Whether to enable docvalues scan optimization for fetching fields more fast, default to true
-    private boolean enableDocValueScan = true;
+    private boolean enableDocValueScan = Boolean.parseBoolean(EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE);
     // Whether to enable sniffing keyword for filtering more reasonable, default to true
-    private boolean enableKeywordSniff = true;
+    private boolean enableKeywordSniff = Boolean.parseBoolean(EsResource.KEYWORD_SNIFF_DEFAULT_VALUE);
     // if the number of fields which value extracted from `doc_value` exceeding this max limitation
     // would downgrade to extract value from `stored_fields`
     private int maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
 
-    private boolean nodesDiscovery = true;
+    private boolean nodesDiscovery = Boolean.parseBoolean(EsResource.NODES_DISCOVERY_DEFAULT_VALUE);
 
-    private boolean httpSslEnabled = false;
+    private boolean httpSslEnabled = Boolean.parseBoolean(EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE);
 
     // tableContext is used for being convenient to persist some configuration parameters uniformly
     private Map<String, String> tableContext = new HashMap<>();
@@ -260,12 +260,10 @@ public class EsTable extends Table {
         indexName = tableContext.get("indexName");
         mappingType = tableContext.get("mappingType");
 
-        enableDocValueScan = Boolean.parseBoolean(tableContext.get("enableDocValueScan"));
-        if (tableContext.containsKey("enableKeywordSniff")) {
-            enableKeywordSniff = Boolean.parseBoolean(tableContext.get("enableKeywordSniff"));
-        } else {
-            enableKeywordSniff = true;
-        }
+        enableDocValueScan = Boolean.parseBoolean(tableContext.getOrDefault("enableDocValueScan",
+                EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
+        enableKeywordSniff = Boolean.parseBoolean(tableContext.getOrDefault("enableKeywordSniff",
+                EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
         if (tableContext.containsKey("maxDocValueFields")) {
             try {
                 maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
@@ -273,16 +271,10 @@ public class EsTable extends Table {
                 maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
             }
         }
-        if (tableContext.containsKey(EsResource.NODES_DISCOVERY)) {
-            nodesDiscovery = Boolean.parseBoolean(tableContext.get(EsResource.NODES_DISCOVERY));
-        } else {
-            nodesDiscovery = true;
-        }
-        if (tableContext.containsKey(EsResource.HTTP_SSL_ENABLED)) {
-            httpSslEnabled = Boolean.parseBoolean(tableContext.get(EsResource.HTTP_SSL_ENABLED));
-        } else {
-            httpSslEnabled = false;
-        }
+        nodesDiscovery = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.NODES_DISCOVERY,
+                EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
+        httpSslEnabled = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.HTTP_SSL_ENABLED,
+                EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
         PartitionType partType = PartitionType.valueOf(Text.readString(in));
         if (partType == PartitionType.UNPARTITIONED) {
             partitionInfo = SinglePartitionInfo.read(in);

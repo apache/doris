@@ -19,9 +19,13 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 
@@ -64,7 +68,18 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default List<AbstractDataType> expectedInputTypes() {
-        return getSignature().argumentsTypes;
+        FunctionSignature signature = getSignature();
+        int arity = arity();
+        if (signature.hasVarArgs && arity > signature.arity) {
+            Builder<AbstractDataType> varTypes = ImmutableList.<AbstractDataType>builder()
+                    .addAll(signature.argumentsTypes);
+            AbstractDataType varType = signature.getVarArgType().get();
+            for (int i = signature.arity; i < arity; ++i) {
+                varTypes.add(varType);
+            }
+            return varTypes.build();
+        }
+        return signature.argumentsTypes;
     }
 
     /**
@@ -73,11 +88,27 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default DataType getDataType() {
-        return getSignature().returnType;
+        return (DataType) getSignature().returnType;
     }
 
     @Override
     default boolean hasVarArguments() {
         return getSignature().hasVarArgs;
+    }
+
+    /** default computeSignature */
+    default FunctionSignature computeSignature(FunctionSignature signature) {
+        // NOTE:
+        // this computed chain only process the common cases.
+        // If you want to add some common cases to here, please separate the process code
+        // to the other methods and add to this chain.
+        // If you want to add some special cases, please override this method in the special
+        // function class, like 'If' function and 'Substring' function.
+        return ComputeSignatureChain.from(this, signature, getArguments())
+                .then(ComputeSignatureHelper::implementAbstractReturnType)
+                .then(ComputeSignatureHelper::normalizeDecimalV2)
+                .then(ComputeSignatureHelper::computePrecision)
+                .then(ComputeSignatureHelper::dynamicComputePropertiesOfArray)
+                .get();
     }
 }

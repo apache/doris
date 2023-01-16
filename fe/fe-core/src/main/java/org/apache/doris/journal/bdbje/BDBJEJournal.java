@@ -135,6 +135,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         DatabaseEntry theData = new DatabaseEntry(buffer.getData());
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
+            MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
         LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
         // Write the key value pair to bdb.
@@ -365,6 +366,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
                 helperNode.first + ":" + helperNode.second, Env.getServingEnv().isElectable());
+    }
+
+    @Override
+    public long getJournalNum() {
+        return currentJournalDB.count();
     }
 
     @Override

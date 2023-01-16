@@ -376,9 +376,10 @@ public class MaterializedViewHandler extends AlterHandler {
             // index state is SHADOW
             MaterializedIndex mvIndex = new MaterializedIndex(mvIndexId, IndexState.SHADOW);
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
-            TabletMeta mvTabletMeta = new TabletMeta(dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium);
             short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
             for (Tablet baseTablet : baseIndex.getTablets()) {
+                TabletMeta mvTabletMeta = new TabletMeta(
+                        dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium, -1, 0);
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = idGeneratorBuffer.getNextId();
 
@@ -524,6 +525,10 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : newMVColumns) {
             if (column.getDataType() == PrimitiveType.ARRAY) {
                 throw new DdlException("The array column[" + column + "] not support to create materialized view");
+            }
+            if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
+                    && (column.getType().isBitmapType() || column.getType().isHllType())) {
+                throw new DdlException("Bitmap/HLL type only support aggregate table");
             }
         }
 

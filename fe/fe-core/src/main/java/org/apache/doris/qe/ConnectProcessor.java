@@ -209,11 +209,14 @@ public class ConnectProcessor {
                 }
             }
             ctx.getAuditEventBuilder().setIsQuery(true);
-            ctx.getQueryDetail().setEventTime(endTime);
-            ctx.getQueryDetail().setEndTime(endTime);
-            ctx.getQueryDetail().setLatency(elapseMs);
-            ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
-            QueryDetailQueue.addOrUpdateQueryDetail(ctx.getQueryDetail());
+            if (ctx.getQueryDetail() != null) {
+                ctx.getQueryDetail().setEventTime(endTime);
+                ctx.getQueryDetail().setEndTime(endTime);
+                ctx.getQueryDetail().setLatency(elapseMs);
+                ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
+                QueryDetailQueue.addOrUpdateQueryDetail(ctx.getQueryDetail());
+                ctx.setQueryDetail(null);
+            }
         } else {
             ctx.getAuditEventBuilder().setIsQuery(false);
         }

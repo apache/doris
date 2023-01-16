@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
+import org.apache.doris.thrift.TPushCooldownConfReq;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
@@ -357,6 +358,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setUpdatePolicy(request);
+                return tAgentTaskRequest;
+            }
+            case PUSH_COOLDOWN_CONF: {
+                PushCooldownConfTask pushCooldownConfTask = (PushCooldownConfTask) task;
+                TPushCooldownConfReq request = pushCooldownConfTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setPushCooldownConf(request);
                 return tAgentTaskRequest;
             }
             default:

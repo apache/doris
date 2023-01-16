@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
 namespace doris {
@@ -67,6 +68,8 @@ public:
     };
 
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
+
+    FileSystemSPtr fs() const override { return nullptr; }
 
 private:
     void _add_file_cache(const Path& data_file);

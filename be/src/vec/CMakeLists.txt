@@ -64,6 +64,7 @@ set(VEC_FILES
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
+  common/hex.cpp
   core/block.cpp
   core/block_spill_reader.cpp
   core/block_spill_writer.cpp
@@ -142,6 +143,7 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/table_function/table_function_factory.cpp
   exprs/table_function/vexplode.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
@@ -229,7 +231,9 @@ set(VEC_FILES
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
   functions/function_running_difference.cpp
+  functions/function_width_bucket.cpp
   functions/match.cpp
+  
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
@@ -240,6 +244,7 @@ set(VEC_FILES
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
+  sink/vmemory_scratch_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
   sink/vodbc_table_sink.cpp
@@ -280,6 +285,8 @@ set(VEC_FILES
   exec/scan/new_jdbc_scan_node.cpp
   exec/scan/new_es_scanner.cpp
   exec/scan/new_es_scan_node.cpp
+  exec/scan/vmeta_scan_node.cpp
+  exec/scan/vmeta_scanner.cpp
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp

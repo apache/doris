@@ -18,15 +18,14 @@
 #pragma once
 
 #include "exec/exec_node.h"
-#include "exprs/expr.h"
-#include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
-class VTableFunctionNode : public ExecNode {
+class VTableFunctionNode final : public ExecNode {
 public:
-    VTableFunctionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    VTableFunctionNode(doris::ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VTableFunctionNode() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;

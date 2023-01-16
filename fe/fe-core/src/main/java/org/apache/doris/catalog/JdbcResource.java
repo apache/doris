@@ -24,7 +24,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.external.jdbc.JdbcClientException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -61,10 +60,18 @@ import java.util.Map;
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
 
+    public static final String JDBC_MYSQL = "jdbc:mysql";
+    public static final String JDBC_MARIADB = "jdbc:mariadb";
+    public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
+    public static final String JDBC_ORACLE = "jdbc:oracle";
+    public static final String JDBC_SQLSERVER = "jdbc:sqlserver";
+    public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
+
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
-    // private static final String ORACLE = "ORACLE";
-    // private static final String SQLSERVER = "SQLSERVER";
+    public static final String ORACLE = "ORACLE";
+    private static final String SQLSERVER = "SQLSERVER";
+    public static final String CLICKHOUSE = "CLICKHOUSE";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -220,21 +227,22 @@ public class JdbcResource extends Resource {
         }
     }
 
-    public static String parseDbType(String url) {
-        if (url.startsWith("jdbc:mysql") || url.startsWith("jdbc:mariadb")) {
+    public static String parseDbType(String url) throws DdlException {
+        if (url.startsWith(JDBC_MYSQL) || url.startsWith(JDBC_MARIADB)) {
             return MYSQL;
-        } else if (url.startsWith("jdbc:postgresql")) {
+        } else if (url.startsWith(JDBC_POSTGRESQL)) {
             return POSTGRESQL;
+        } else if (url.startsWith(JDBC_ORACLE)) {
+            return ORACLE;
+        } else if (url.startsWith(JDBC_SQLSERVER)) {
+            return SQLSERVER;
+        } else if (url.startsWith(JDBC_CLICKHOUSE)) {
+            return CLICKHOUSE;
         }
-        // else if (url.startsWith("jdbc:oracle")) {
-        //     return ORACLE;
-        // }
-        // else if (url.startsWith("jdbc:sqlserver")) {
-        //     return SQLSERVER;
-        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + url);
+        throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
 
-    public static String handleJdbcUrl(String jdbcUrl) {
+    public static String handleJdbcUrl(String jdbcUrl) throws DdlException {
         // delete all space in jdbcUrl
         String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
         String dbType = parseDbType(newJdbcUrl);
@@ -246,6 +254,7 @@ public class JdbcResource extends Resource {
             // it will convert to Doris tinyint, not bit.
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
         return newJdbcUrl;
     }

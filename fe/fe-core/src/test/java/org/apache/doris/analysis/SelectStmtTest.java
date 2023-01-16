@@ -494,12 +494,12 @@ public class SelectStmtTest {
         Assert.assertTrue(dorisAssert
                 .query(sql3)
                 .explainQuery()
-                .contains("`dt` = '2020-09-08 00:00:00'"));
+                .contains(Config.enable_date_conversion ? "`dt` = '2020-09-08'" : "`dt` = '2020-09-08 00:00:00'"));
         String sql4 = "select count() from db1.date_partition_table where dt='2020-09-08'";
         Assert.assertTrue(dorisAssert
                 .query(sql4)
                 .explainQuery()
-                .contains("`dt` = '2020-09-08 00:00:00'"));
+                .contains(Config.enable_date_conversion ? "`dt` = '2020-09-08'" : "`dt` = '2020-09-08 00:00:00'"));
     }
 
     @Test
