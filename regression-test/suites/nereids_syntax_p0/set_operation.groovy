@@ -18,7 +18,6 @@
 suite("test_nereids_set_operation") {
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
 
     sql "DROP TABLE IF EXISTS setOperationTable"
     sql "DROP TABLE IF EXISTS setOperationTableNotNullable"

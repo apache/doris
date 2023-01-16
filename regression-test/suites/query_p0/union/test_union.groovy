@@ -274,7 +274,6 @@ suite("test_union") {
     }
     sql"""drop table ${new_union_table}"""
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_planner=true'
     qt_union35 """select cast("2016-07-01" as date) union (select cast("2016-07-02 1:10:0" as date)) order by 1"""

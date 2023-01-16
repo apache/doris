@@ -16,7 +16,6 @@
 // under the License.
 
 suite("query_on_specific_partition") {
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
 
     sql """

@@ -22,8 +22,7 @@ suite("test_mask_function") {
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_vectorized_engine=true'
-    
+
     sql """
         create table table_mask_test (
         id int not null,

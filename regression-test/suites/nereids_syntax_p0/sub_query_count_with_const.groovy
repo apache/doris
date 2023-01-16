@@ -16,7 +16,6 @@
 // under the License.
 
 suite("sub_query_count_with_const") {
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
