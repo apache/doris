@@ -61,7 +61,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
-        props.putAll(HMSResource.getPropertiesFromDLF());
+        props = HMSResource.getPropertiesFromDLF(props);
+        props = HMSResource.getPropertiesFromGlue(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 

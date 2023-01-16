@@ -167,9 +167,18 @@ echo "using java version ${java_version}" >>"${LOG_DIR}/fe.out"
 echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
 
 # add libs to CLASSPATH
+DORIS_FE_JAR=
 for f in "${DORIS_HOME}/lib"/*.jar; do
+    if [[ "${f}" == *"doris-fe.jar" ]]; then
+        DORIS_FE_JAR="${f}"
+        continue
+    fi
     CLASSPATH="${f}:${CLASSPATH}"
 done
+
+# make sure the doris-fe.jar is at first order, so that some classed
+# with same qualified name can be loaded priority from doris-fe.jar
+CLASSPATH="${DORIS_FE_JAR}:${CLASSPATH}"
 export CLASSPATH="${CLASSPATH}:${DORIS_HOME}/lib:${DORIS_HOME}/conf"
 
 pidfile="${PID_DIR}/fe.pid"

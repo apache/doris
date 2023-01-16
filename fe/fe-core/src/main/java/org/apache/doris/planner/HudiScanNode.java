@@ -59,7 +59,6 @@ import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.mortbay.log.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -200,7 +199,7 @@ public class HudiScanNode extends BrokerScanNode {
         for (FieldSchema fieldSchema : remoteHiveTable.getPartitionKeys()) {
             this.partitionKeys.add(fieldSchema.getName());
         }
-        Log.info("Hudi inputFileFormat is " + inputFormatName + ", basePath is " + this.basePath);
+        LOG.info("Hudi inputFileFormat is " + inputFormatName + ", basePath is " + this.basePath);
     }
 
     private void initParams(Analyzer analyzer) {
@@ -259,7 +258,7 @@ public class HudiScanNode extends BrokerScanNode {
         String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
-        Log.debug("Hudi path's host is " + fsName);
+        LOG.debug("Hudi path's host is " + fsName);
 
         TFileFormatType fileFormatType = null;
         if (this.inputFormatName.toLowerCase().contains("parquet")) {
@@ -285,7 +284,7 @@ public class HudiScanNode extends BrokerScanNode {
             rangeDesc.setReadByColumnDef(true);
 
             curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
-            Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
+            LOG.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
                     + " with hudi split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
 
