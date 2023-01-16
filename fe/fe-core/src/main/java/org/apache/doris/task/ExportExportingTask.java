@@ -137,7 +137,7 @@ public class ExportExportingTask extends MasterTask {
             RuntimeProfile queryProfile = coord.getQueryProfile();
             if (queryProfile != null) {
                 queryProfile.getCounterTotalTime().setValue(
-                        TimeUtils.getEstimatedTime(job.getStartTimeMs() * 1000000));
+                        TimeUtils.getEstimatedTime(job.getStartTimeNs()));
             }
             coord.endProfile();
             fragmentProfiles.add(coord.getQueryProfile());

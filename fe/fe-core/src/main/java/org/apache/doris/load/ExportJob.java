@@ -137,6 +137,7 @@ public class ExportJob implements Writable {
     private volatile boolean enableProfile = false;
     private long createTimeMs;
     private long startTimeMs;
+    private long startTimeNs;
     private long finishTimeMs;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
@@ -607,6 +608,10 @@ public class ExportJob implements Writable {
         return startTimeMs;
     }
 
+    public long getStartTimeNs() {
+        return startTimeNs;
+    }
+
     public long getFinishTimeMs() {
         return finishTimeMs;
     }
@@ -694,6 +699,7 @@ public class ExportJob implements Writable {
                 break;
             case EXPORTING:
                 startTimeMs = System.currentTimeMillis();
+                startTimeNs = System.nanoTime();
                 break;
             case FINISHED:
             case CANCELLED:
