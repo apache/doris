@@ -50,21 +50,21 @@ suite("load") {
             `kdtmv2s2` datetimev2(4) null,
             `kdtmv2s3` datetimev2(6) null,
             `kabool` array<boolean> null,
-            `katint` array<tinyint> null,
-            `kasint` array<smallint> null,
+            `katint` array<tinyint(4)> null,
+            `kasint` array<smallint(6)> null,
             `kaint` array<int> null,
-            `kabint` array<bigint> null,
-            `kalint` array<largeint> null,
+            `kabint` array<bigint(20)> null,
+            `kalint` array<largeint(40)> null,
             `kafloat` array<float> null,
             `kadbl` array<double> null,
             `kadt` array<date> null,
             `kadtm` array<datetime> null,
             `kadtv2` array<datev2> null,
-            `kadtmv2` array<datetimev2> null,
-            `kachr` array<char> null,
-            `kavchr` array<varchar> null,
+            `kadtmv2` array<datetimev2(6)> null,
+            `kachr` array<char(50)> null,
+            `kavchr` array<varchar(50)> null,
             `kastr` array<string> null,
-            `kadcml` array<decimal> null
+            `kadcml` array<decimal(27, 9)> null
         ) engine=olap
         DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
