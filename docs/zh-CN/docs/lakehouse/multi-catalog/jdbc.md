@@ -29,6 +29,8 @@ under the License.
 
 JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
+连接后，Doris 会自动数据源下的 Database 和 Table，以便快速访问这些外部数据。
+
 ## 使用限制
 
 1. 支持 MySQL、PostgreSQL、Oracle、Clickhouse
@@ -67,7 +69,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 	|---|---|
 	| Catalog | Database | 
 	| Database | Schema |
-	| Table | Tablet |
+	| Table | Table |
 
 
 3. Oracle
@@ -255,14 +257,14 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
    可在url中添加: `"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull"`
 
 4. 读取 MySQL 外表或其他外表时，出现加载类失败
-   
+
    如以下异常：
-   
-   	```
+
+	```
    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
-   ```
-  
-   这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
+	```
+
+	这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
 
 5. 读取 MySQL 问题出现通信链路异常
 
