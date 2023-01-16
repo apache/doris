@@ -393,6 +393,44 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+// This iterator is used to read map value column
+class MapFileColumnIterator final : public ColumnIterator {
+public:
+    explicit MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
+                                   ColumnIterator* key_iterator, ColumnIterator* val_iterator);
+
+    ~MapFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status seek_to_first() override {
+        RETURN_IF_ERROR(_key_iterator->seek_to_first());
+        RETURN_IF_ERROR(_val_iterator->seek_to_first());
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override {
+        return _key_iterator->get_current_ordinal();
+    }
+
+private:
+    ColumnReader* _map_reader; // need ?
+    std::unique_ptr<ColumnIterator> _null_iterator;
+    std::unique_ptr<ColumnIterator> _key_iterator; // ArrayFileColumnIterator
+    std::unique_ptr<ColumnIterator> _val_iterator; // ArrayFileColumnIterator
+
+    Status _peek_one_offset(ordinal_t* offset);
+};
+
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
     explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* offset_reader,

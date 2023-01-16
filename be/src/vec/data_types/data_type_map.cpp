@@ -50,9 +50,9 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
     {
         if (i != offset)
             ss << ", ";
-        ss << "'" << key_type->to_string(nested_keys, i);
+        ss << "'" << keys->to_string(nested_keys, i);
         ss << ':';
-        ss << "'" << value_type->to_string(nested_values, i);
+        ss << "'" << values->to_string(nested_values, i);
     }
     ss << "}";
     return ss.str();
@@ -74,9 +74,9 @@ void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size
     {
         if (i != offset)
             ostr.write(", ", 2);
-        key_type->to_string(nested_keys, i, ostr);
+        keys->to_string(nested_keys, i, ostr);
         ostr.write(":", 1);
-        value_type->to_string(nested_values, i, ostr);
+        values->to_string(nested_values, i, ostr);
     }
     ostr.write("}", 1);
 }

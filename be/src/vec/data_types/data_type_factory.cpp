@@ -28,6 +28,10 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     if (col_desc.type() == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_sub_field_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(*col_desc.get_sub_field(0)));
+    } else if (col_desc.type() == OLAP_FIELD_TYPE_MAP) {
+	DCHECK(col_desc.get_sub_field_count() == 2);
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(*col_desc.get_sub_field(0)), create_data_type(*col_desc.get_sub_field(1)));
     } else {
         nested = _create_primitive_data_type(col_desc.type(), col_desc.get_precision(),
                                              col_desc.get_scale());

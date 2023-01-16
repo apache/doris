@@ -466,11 +466,6 @@ public:
 
         // make variable_ptr memory allocate to cell_ptr as MapValue
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto m = (MapValue*)cell_ptr;
-
-	m->set_key_null_signs(reinterpret_cast<bool*>(variable_ptr));
-        m->set_value_null_signs(reinterpret_cast<bool*>(variable_ptr));
-
         return variable_ptr + _length;
     }
 

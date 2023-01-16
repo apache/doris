@@ -88,7 +88,7 @@ public class MapType extends Type {
             return true;
         }
 
-        if (!t.isArrayType()) {
+        if (!t.isMapType()) {
             return false;
         }
 

@@ -441,19 +441,7 @@ public:
     inline bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const MapValue*>(left);
         auto r_value = reinterpret_cast<const MapValue*>(right);
-        if (l_value->size() != r_value->size()) {
-            return false;
-        }
-        uint32_t size = l_value->size();
-        for (size_t i = 0; i < size; ++i) {
-	    if ((l_value->is_key_null_at(i) && r_value->is_key_null_at(i))
-                && (l_value->is_val_null_at(i) && r_value->is_val_null_at(i))) {
-                continue;
-            } else {
-                return false;
-	    }
-        }
-        return true;
+	return l_value->size() == r_value->size();
     }
 
     int cmp(const void* left, const void* right) const override {
@@ -461,16 +449,7 @@ public:
         auto r_value = reinterpret_cast<const MapValue*>(right);
         uint32_t l_size = l_value->size();
         uint32_t r_size = r_value->size();
-        size_t cur = 0;
-        while (cur < l_size && cur < r_size) {
-	    if ((l_value->is_key_null_at(cur) && r_value->is_key_null_at(cur))
-                && (l_value->is_val_null_at(cur) && r_value->is_val_null_at(cur))) {
-                ++cur;
-            } else {
-                return -1;
-	    }
-	}
-        if (l_size < r_size) {
+	if (l_size < r_size) {
             return -1;
         } else if (l_size > r_size) {
             return 1;

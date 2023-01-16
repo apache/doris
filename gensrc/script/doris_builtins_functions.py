@@ -142,6 +142,10 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
+
+    # map element
+    [['element_at', '%element_extract%'], 'INT', ['MAP_STRING_INT', 'STRING'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],

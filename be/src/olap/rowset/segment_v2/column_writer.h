@@ -324,7 +324,6 @@ private:
 class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                             ScalarColumnWriter* offset_writer,
                              ScalarColumnWriter* null_writer,
                              std::unique_ptr<ColumnWriter> key_writer,
                              std::unique_ptr<ColumnWriter> value_writer);
@@ -363,15 +362,9 @@ public:
         }
         return Status::OK();
     }
-    ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
+    ordinal_t get_next_rowid() const override { return _key_writer->get_next_rowid(); }
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* header) override;
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
-    bool has_empty_items() const { return _offset_writer->get_next_rowid() == 0; }
-
-private:
-    std::unique_ptr<ScalarColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _key_writer;
     std::unique_ptr<ColumnWriter> _value_writer;

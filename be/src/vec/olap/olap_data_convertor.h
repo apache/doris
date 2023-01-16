@@ -385,7 +385,7 @@ private:
         Status convert_to_olap() override;
 
     private:
-        Status convert_to_olap(const UInt8* null_map, const ColumnMap* column_map,
+        Status convert_to_olap(const ColumnMap* column_map,
                                const DataTypeMap* data_type_map);
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;

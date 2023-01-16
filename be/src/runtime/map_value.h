@@ -43,24 +43,6 @@ public:
     MapValue(void* k_data, void* v_data, int32_t length)
             : _key_data(k_data), _value_data(v_data), _length(length) {}
 
-    MapValue(void* k_data, void* v_data, int32_t length, bool* _null_signs, bool is_key_null_signs)
-            : _key_data(k_data), _value_data(v_data), _length(length) {
-        if (is_key_null_signs) {
-            _key_null_signs = _null_signs;
-        } else {
-            _val_null_signs = _null_signs;
-        }
-    }
-
-    MapValue(void* k_data, void* v_data, int32_t length, bool* key_null_signs, bool* value_null_signs)
-            : _key_data(k_data), _value_data(v_data), _length(length), _key_null_signs(key_null_signs), _val_null_signs(value_null_signs) {}
-
-
-    void set_key_has_null(bool has_null) { _key_has_null = has_null; }
-    void set_val_has_null(bool has_null) { _val_has_null = has_null; }
-    bool is_key_null_at(int32_t index) const { return this->_key_has_null && this->_key_null_signs[index]; }
-    bool is_val_null_at(int32_t index) const { return this->_val_has_null && this->_val_null_signs[index]; }
-
     void to_map_val(MapVal* val) const;
 
     int32_t size() const { return _length; }
@@ -69,31 +51,23 @@ public:
 
     void shallow_copy(const MapValue* other);
 
-    void copy_null_signs(const MapValue* other);
-
     static MapValue from_map_val(const MapVal& val);
 
     const void* key_data() const { return _key_data; }
     void* mutable_key_data() const { return _key_data; }
     const void* value_data() const { return _value_data; }
     void* mutable_value_data() const { return _value_data; }
-    const bool* key_null_signs() const { return _key_null_signs; }
-    const bool* value_null_signs() const { return _val_null_signs; }
-    void set_key_null_signs(bool* null_signs) { _key_null_signs = null_signs; }
-    void set_value_null_signs(bool* null_signs) { _val_null_signs = null_signs; }
+
     void set_length(int32_t length) { _length = length; }
     void set_key(void* data) { _key_data = data; }
     void set_value(void* data) { _value_data = data; }
 
 private:
-    // child column data
+    // child column data pointer
     void* _key_data;
     void* _value_data;
+    // length for map size
     int32_t _length;
-    bool _key_has_null;
-    bool _val_has_null;
-    bool* _key_null_signs;
-    bool* _val_null_signs;
 
 };//map-value
 } // namespace doris

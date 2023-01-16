@@ -24,26 +24,16 @@ void MapValue::to_map_val(MapVal* val) const {
     val->length = _length;
     val->key = _key_data;
     val->value = _value_data;
-    val->key_null_signs = _key_null_signs;
-    val->value_null_signs = _val_null_signs;
 }
 
 void MapValue::shallow_copy(const MapValue* value) {
     _length = value->_length;
-    _key_null_signs = value->_key_null_signs;
-    _val_null_signs = value->_val_null_signs;
     _key_data = value->_key_data;
     _value_data = value->_value_data;
 }
 
-void MapValue::copy_null_signs(const MapValue* other) {
-    // todo(amory): here need to judge?
-    memcpy(_key_null_signs, other->_key_null_signs, other->size());
-    memcpy(_val_null_signs, other->_val_null_signs, other->size());
-}
-
 MapValue MapValue::from_map_val(const MapVal& val) {
-    return MapValue(val.key, val.value, val.length, val.key_null_signs, val.value_null_signs);
+    return MapValue(val.key, val.value, val.length);
 }
 
 

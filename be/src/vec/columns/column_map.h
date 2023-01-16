@@ -39,6 +39,11 @@ public:
         callback(values);
     }
 
+    void clear() override {
+        keys->clear();
+        values->clear();
+    }
+
     MutableColumnPtr clone_resized(size_t size) const override;
 
     bool can_be_inside_nullable() const override { return true; }
@@ -54,7 +59,7 @@ public:
     void insert_default() override;
 
     void pop_back(size_t n) override;
-
+    bool is_column_map() const override { return true; }
     StringRef serialize_value_into_arena(size_t n, Arena & arena, char const *& begin) const override;
     const char * deserialize_and_insert_from_arena(const char * pos) override;
 

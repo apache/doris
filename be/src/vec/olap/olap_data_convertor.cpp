@@ -741,44 +741,36 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
     assert(column_map);
     assert(data_type_map);
 
-    return convert_to_olap(_nullmap, column_map, data_type_map);
+    return convert_to_olap(column_map, data_type_map);
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
-        const UInt8* null_map, const ColumnMap* column_map,
+        const ColumnMap* column_map,
         const DataTypeMap* data_type_map) {
-    const UInt8* key_null_map = nullptr;
-    const UInt8* value_null_map = nullptr;
 
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
     if (column_map->get_keys().is_nullable()) {
         const auto& key_nullable_column =
                 assert_cast<const ColumnNullable&>(column_map->get_keys());
-        key_null_map = key_nullable_column.get_null_map_data().data();
         key_data = key_nullable_column.get_nested_column_ptr();
     }
 
     if (column_map->get_values().is_nullable()) {
         const auto& val_nullable_column =
                 assert_cast<const ColumnNullable&>(column_map->get_values());
-        value_null_map = val_nullable_column.get_null_map_data().data();
         value_data = val_nullable_column.get_nested_column_ptr();
     }
 
     const auto& offsets = column_map->get_offsets(); // use keys offsets
-    int64_t start_index = _row_pos - 1;
-   // int64_t end_index = _row_pos + _num_rows - 1;
-   // auto start = offsets[start_index];
-   // auto size = offsets[end_index] - start;
 
     ColumnWithTypeAndName key_typed_column = {
-            key_data, remove_nullable(data_type_map->get_keys()),""};
+            key_data, remove_nullable(data_type_map->get_keys()),"map.key"};
     _key_convertor->set_source_column(key_typed_column, _row_pos, _num_rows);
     _key_convertor->convert_to_olap();
 
     ColumnWithTypeAndName value_typed_column = {
-            value_data, remove_nullable(data_type_map->get_values()), ""};
+            value_data, remove_nullable(data_type_map->get_values()), "map.value"};
     _value_convertor->set_source_column(value_typed_column, _row_pos, _num_rows);
     _value_convertor->convert_to_olap();
 
@@ -789,7 +781,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         if (_nullmap && _nullmap[cur_pos]) {
             continue;
         }
-        auto offset = offsets[prev_pos];
         auto single_map_size = offsets[cur_pos] - offsets[prev_pos];
         new (map_value) MapValue(single_map_size);
 
@@ -797,25 +788,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
             continue;
         }
 
-        if (column_map->get_keys().is_nullable()) {
-	    map_value->set_key_has_null(true);
-            map_value->set_key_null_signs(
-                    const_cast<bool*>(reinterpret_cast<const bool*>(key_null_map + offset)));
-        } else {
-            map_value->set_key_has_null(false);
-	}
-        if (column_map->get_values().is_nullable()) {
-	    map_value->set_val_has_null(true);
-            map_value->set_value_null_signs(
-                    const_cast<bool*>(reinterpret_cast<const bool*>(value_null_map + offset)));
-        } else {
-            map_value->set_val_has_null(false);	
-	}
-
         map_value->set_key(
-                const_cast<void*>(_key_convertor->get_data_at(offset - offsets[start_index])));
+                const_cast<void*>(_key_convertor->get_data_at(i)));
         map_value->set_value(
-                const_cast<void*>(_value_convertor->get_data_at(offset - offsets[start_index])));
+                const_cast<void*>(_value_convertor->get_data_at(i)));
     }
 
     return Status::OK();
