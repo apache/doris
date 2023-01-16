@@ -24,42 +24,31 @@ import org.apache.doris.common.DdlException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
-import org.apache.hadoop.hive.metastore.messaging.json.JSONDropTableMessage;
 
 import java.util.List;
 
 /**
- * MetastoreEvent for DROP_TABLE event type
+ * MetastoreEvent for DROP_DATABASE event type
  */
-public class DropTableEvent extends MetastoreTableEvent {
-    private final String tableName;
+public class DropDatabaseEvent extends MetastoreEvent {
 
-    private DropTableEvent(NotificationEvent event,
+    private DropDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
-        Preconditions.checkArgument(MetastoreEventType.DROP_TABLE.equals(getEventType()));
-        Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
-        try {
-            JSONDropTableMessage dropTableMessage =
-                    (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
-                            .getDropTableMessage(event.getMessage());
-            tableName = dropTableMessage.getTable();
-        } catch (Exception e) {
-            throw new MetastoreNotificationException(e);
-        }
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.DROP_DATABASE));
     }
 
-    public static List<MetastoreEvent> getEvents(NotificationEvent event,
+    protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
-        return Lists.newArrayList(new DropTableEvent(event, catalogName));
+        return Lists.newArrayList(new DropDatabaseEvent(event, catalogName));
     }
 
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
-            Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName);
+            infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+            Env.getCurrentEnv().getCatalogMgr()
+                    .dropExternalDatabase(dbName, catalogName);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"));

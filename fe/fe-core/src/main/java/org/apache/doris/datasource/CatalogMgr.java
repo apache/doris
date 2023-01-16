@@ -549,10 +549,47 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    public void refreshExternalTable(String dbName, String tableName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support refresh ExternalCatalog Tables");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
+    }
+
     public void replayRefreshExternalTable(ExternalObjectLog log) {
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+            return;
+        }
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        if (db == null) {
+            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            return;
+        }
         ExternalTable table = db.getTableForReplay(log.getTableId());
+        if (table == null) {
+            LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
+            return;
+        }
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
@@ -586,11 +623,319 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         LOG.debug("ReplayDropExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(), log.getDbId(),
                 log.getTableId());
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+            return;
+        }
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        if (db == null) {
+            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            return;
+        }
         ExternalTable table = db.getTableForReplay(log.getTableId());
-        db.dropTable(table.getName());
+        if (table == null) {
+            LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
+            return;
+        }
+        db.writeLock();
+        try {
+            db.dropTable(table.getName());
+        } finally {
+            db.writeUnlock();
+        }
+
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
+    }
+
+    public boolean externalTableExistInLocal(String dbName, String tableName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog Tables");
+        }
+        return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
+    }
+
+    public void createExternalTable(String dbName, String tableName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support create ExternalCatalog Tables");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table != null) {
+            throw new DdlException("Table " + tableName + " has exist in db " + dbName);
+        }
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableName(tableName);
+        log.setTableId(Env.getCurrentEnv().getNextId());
+        replayCreateExternalTable(log);
+        Env.getCurrentEnv().getEditLog().logCreateExternalTable(log);
+    }
+
+    public void replayCreateExternalTable(ExternalObjectLog log) {
+        LOG.debug("ReplayCreateExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}],tableName:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId(), log.getTableName());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+            return;
+        }
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        if (db == null) {
+            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            return;
+        }
+        db.writeLock();
+        try {
+            db.createTable(log.getTableName(), log.getTableId());
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void dropExternalDatabase(String dbName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support drop ExternalCatalog databases");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setInvalidCache(true);
+        replayDropExternalDatabase(log);
+        Env.getCurrentEnv().getEditLog().logDropExternalDatabase(log);
+    }
+
+    public void replayDropExternalDatabase(ExternalObjectLog log) {
+        writeLock();
+        try {
+            LOG.debug("ReplayDropExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                    log.getDbId(), log.getTableId());
+            ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+            if (catalog == null) {
+                LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+                return;
+            }
+            ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+            if (db == null) {
+                LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+                return;
+            }
+            catalog.dropDatabase(db.getFullName());
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(catalog.getId(), db.getFullName());
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void createExternalDatabase(String dbName, String catalogName) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support create ExternalCatalog databases");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db != null) {
+            throw new DdlException("Database " + dbName + " has exist in catalog " + catalog.getName());
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(Env.getCurrentEnv().getNextId());
+        log.setDbName(dbName);
+        replayCreateExternalDatabase(log);
+        Env.getCurrentEnv().getEditLog().logCreateExternalDatabase(log);
+    }
+
+    public void replayCreateExternalDatabase(ExternalObjectLog log) {
+        writeLock();
+        try {
+            LOG.debug("ReplayCreateExternalDatabase,catalogId:[{}],dbId:[{}],dbName:[{}]", log.getCatalogId(),
+                    log.getDbId(), log.getDbName());
+            ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+            if (catalog == null) {
+                LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+                return;
+            }
+            catalog.createDatabase(log.getDbId(), log.getDbName());
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void addExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames)
+            throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setPartitionNames(partitionNames);
+        replayAddExternalPartitions(log);
+        Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
+    }
+
+    public void replayAddExternalPartitions(ExternalObjectLog log) {
+        LOG.debug("ReplayAddExternalPartitions,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+            return;
+        }
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        if (db == null) {
+            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            return;
+        }
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        if (table == null) {
+            LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
+            return;
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .addPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+    }
+
+    public void dropExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames)
+            throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setPartitionNames(partitionNames);
+        replayDropExternalPartitions(log);
+        Env.getCurrentEnv().getEditLog().logDropExternalPartitions(log);
+    }
+
+    public void replayDropExternalPartitions(ExternalObjectLog log) {
+        LOG.debug("ReplayDropExternalPartitions,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+            return;
+        }
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        if (db == null) {
+            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            return;
+        }
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        if (table == null) {
+            LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
+            return;
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .dropPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+    }
+
+    public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
+            List<String> partitionNames)
+            throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+        }
+
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setPartitionNames(partitionNames);
+        replayRefreshExternalPartitions(log);
+        Env.getCurrentEnv().getEditLog().logInvalidateExternalPartitions(log);
+    }
+
+    public void replayRefreshExternalPartitions(ExternalObjectLog log) {
+        LOG.debug("replayRefreshExternalPartitions,catalogId:[{}],dbId:[{}],tableId:[{}]", log.getCatalogId(),
+                log.getDbId(), log.getTableId());
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
+            return;
+        }
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        if (db == null) {
+            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            return;
+        }
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        if (table == null) {
+            LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
+            return;
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
+                        log.getPartitionNames());
     }
 
     @Override
