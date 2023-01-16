@@ -195,7 +195,6 @@ public:
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
-    std::shared_ptr<MemTracker> mem_tracker_shared() const { return _mem_tracker; }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
@@ -299,8 +298,9 @@ protected:
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
-    /// Account for peak memory used by this node
-    std::shared_ptr<MemTracker> _mem_tracker;
+    // Record this node memory size. it is expected that artificial guarantees are accurate,
+    // which will providea reference for operator memory.
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;

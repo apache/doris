@@ -220,9 +220,8 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_shared<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                                _runtime_profile.get());
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
+                                                _runtime_profile.get(), nullptr, "PeakMemoryUsage");
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
@@ -244,7 +243,6 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
