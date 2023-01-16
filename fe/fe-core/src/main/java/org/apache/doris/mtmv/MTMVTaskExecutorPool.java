@@ -17,7 +17,9 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +41,7 @@ public class MTMVTaskExecutorPool {
         if (task == null) {
             return;
         }
-        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILED) {
+        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILURE) {
             LOG.warn("Task {} is in final status {} ", task.getTaskId(), task.getState());
             return;
         }
@@ -53,20 +55,22 @@ public class MTMVTaskExecutorPool {
                     isSuccess = taskExecutor.executeTask();
                     if (isSuccess) {
                         task.setState(TaskState.SUCCESS);
-                    } else {
-                        task.setState(TaskState.FAILED);
+                        break;
                     }
-                } catch (Exception ex) {
-                    LOG.warn("failed to execute task.", ex);
-                } finally {
-                    task.setFinishTime(MTMVUtils.getNowTimeStamp());
+                } catch (Throwable t) {
+                    LOG.warn("Failed to execute the task, taskId=" + task.getTaskId() + ".", t);
                 }
                 retryTimes--;
-            } while (!isSuccess && retryTimes >= 0);
+            } while (!isSuccess && retryTimes > 0);
             if (!isSuccess) {
-                task.setState(TaskState.FAILED);
+                task.setState(TaskState.FAILURE);
                 task.setErrorCode(-1);
             }
+            task.setFinishTime(MTMVUtils.getNowTimeStamp());
+
+            ChangeMTMVTask changeTask = new ChangeMTMVTask(taskExecutor.getJob().getId(), task, TaskState.RUNNING,
+                    task.getState());
+            Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
         });
         taskExecutor.setFuture(future);
     }
