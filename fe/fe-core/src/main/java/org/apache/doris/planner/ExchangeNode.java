@@ -84,9 +84,10 @@ public class ExchangeNode extends PlanNode {
         if (inputNode.getFragment().isPartitioned()) {
             limit = inputNode.limit;
         }
-        offset = inputNode.offset;
+        if (!(inputNode instanceof ExchangeNode)) {
+            offset = inputNode.offset;
+        }
         computeTupleIds();
-
     }
 
     public boolean isMergingExchange() {
