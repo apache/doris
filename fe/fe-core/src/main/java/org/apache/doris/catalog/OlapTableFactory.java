@@ -182,7 +182,7 @@ public class OlapTableFactory {
     }
 
     public String getMvStmtQueryString(String str) {
-        String regex = "AS[\\s\\n]+select[\\s\\n]+";
+        String regex = "[\\s\\n]+AS[\\s\\n]+";
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(str);
         int startPos = -1;
@@ -193,7 +193,7 @@ public class OlapTableFactory {
             break;
         }
         if (startPos >= 0) {
-            String ret = "select " + str.substring(endPos);
+            String ret = str.substring(endPos);
             Pattern patternNew = Pattern.compile(";+$");
             Matcher matcherNew = patternNew.matcher(ret);
             return matcherNew.replaceAll("");
