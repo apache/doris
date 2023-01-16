@@ -329,13 +329,6 @@ under the License.
             <version>2.8.5-8.1.8</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/io.juicefs/juicefs-hadoop -->
-        <dependency>
-            <groupId>io.juicefs</groupId>
-            <artifactId>juicefs-hadoop</artifactId>
-            <version>1.0.3</version>
-        </dependency>
-
     </dependencies>
     <build>
         <finalName>apache_hdfs_broker</finalName>
