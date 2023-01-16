@@ -37,7 +37,6 @@ std::string NewJdbcScanNode::get_name() {
 Status NewJdbcScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VNewJdbcScanNode::Prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     return Status::OK();
 }
 

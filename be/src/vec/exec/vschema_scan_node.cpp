@@ -122,7 +122,6 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_scanner_param.user) {
         TSetSessionParams param;
@@ -145,7 +144,6 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::prepare");
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());

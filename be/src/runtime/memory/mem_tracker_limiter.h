@@ -46,8 +46,8 @@ public:
         COMPACTION = 3,    // Count the memory consumption of all Base and Cumulative tasks.
         SCHEMA_CHANGE = 4, // Count the memory consumption of all SchemaChange tasks.
         CLONE = 5, // Count the memory consumption of all EngineCloneTask. Note: Memory that does not contain make/release snapshots.
-        BATCHLOAD = 6,  // Count the memory consumption of all EngineBatchLoadTask.
-        CONSISTENCY = 7 // Count the memory consumption of all EngineChecksumTask.
+        EXPERIMENTAL =
+                6 // Experimental memory statistics, usually inaccurate, used for debugging, and expect to add other types in the future.
     };
 
     inline static std::unordered_map<Type, std::shared_ptr<RuntimeProfile::HighWaterMarkCounter>>
@@ -63,14 +63,11 @@ public:
                            std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
                           {Type::CLONE,
                            std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::BATCHLOAD,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::CONSISTENCY,
+                          {Type::EXPERIMENTAL,
                            std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)}};
 
-    inline static const std::string TypeString[] = {"global",     "query",         "load",
-                                                    "compaction", "schema_change", "clone",
-                                                    "batch_load", "consistency"};
+    inline static const std::string TypeString[] = {
+            "global", "query", "load", "compaction", "schema_change", "clone", "experimental"};
 
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
@@ -161,7 +158,7 @@ public:
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "physical memory {}, process memory used {} limit {}, sys mem available {} low "
+                "OS physical memory {}, process memory used {} limit {}, sys mem available {} low "
                 "water mark {}, refresh interval memory growth {} B",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),

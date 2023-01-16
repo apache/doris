@@ -181,7 +181,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
 

@@ -46,7 +46,6 @@ Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
 }
 
 Status NewOlapScanNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
     return Status::OK();
 }
