@@ -74,7 +74,7 @@ suite("load") {
     streamLoad {
         table "fn_test"
         db "regression_test_nereids_function_p0"
-        set 'column_separator', ';'
+        set 'column_separator', '; '
         file "fn_test.dat"
     }
 }
