@@ -33,6 +33,7 @@
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 
@@ -237,8 +238,9 @@ Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
     if (!block->has(slot_desc->col_name())) {
         return Status::OK();
     }
-    vectorized::IColumn* col_ptr = const_cast<vectorized::IColumn*>(
-            block->get_by_name(slot_desc->col_name()).column.get());
+    vectorized::MutableColumnPtr column_ptr =
+            std::move(*block->get_by_name(slot_desc->col_name()).column).mutate();
+    vectorized::IColumn* col_ptr = column_ptr.get();
 
     if (data == nullptr) {
         if (!slot_desc->is_nullable()) {
@@ -263,9 +265,9 @@ Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        StringValue* str_slot = reinterpret_cast<StringValue*>(data);
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->ptr,
-                                                                          str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(data);
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
+                                                                          str_slot->size);
         break;
     }
 
