@@ -37,6 +37,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.Collections;
@@ -214,10 +215,25 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions);
     }
 
+    /**
+     * create a logical scan node based on selected index
+     */
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, long indexId) {
-        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        LogicalProperties newLogicalProperties = new LogicalProperties(
+                Suppliers.ofInstance(getLogicalProperties().getOutput()),
+                Suppliers.ofInstance(
+                        filterSlotsOfSelectedIndex(getLogicalProperties().getNonUserVisibleOutput(), indexId)));
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(newLogicalProperties),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
                 indexId, true, preAgg, manuallySpecifiedPartitions);
+    }
+
+    private List<Slot> filterSlotsOfSelectedIndex(List<Slot> slots, long indexId) {
+        return slots.stream()
+                .filter(slot -> ((SlotReference) slot).getColumn().isPresent() && getTable()
+                        .getIndexIdToMeta().get(indexId).getSchema()
+                        .contains(((SlotReference) slot).getColumn().get())).collect(
+                        Collectors.toList());
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
