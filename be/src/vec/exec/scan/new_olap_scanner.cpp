@@ -33,6 +33,20 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
+static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
+                                          const std::vector<uint32_t>& read_columns) {
+    std::string read_columns_string;
+    read_columns_string += "[";
+    for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
+        if (it != read_columns.cbegin()) {
+            read_columns_string += ", ";
+        }
+        read_columns_string += tablet_schema->columns().at(*it).name();
+    }
+    read_columns_string += "]";
+    return read_columns_string;
+}
+
 Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
                                VExprContext** vconjunct_ctx_ptr,
@@ -106,6 +120,12 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, filter_predicates,
                                                        function_filters));
         }
+    }
+
+    // add read columns in profile
+    if (_state->enable_profile()) {
+        _profile->add_info_string("ReadColumns",
+                                  read_columns_to_string(_tablet_schema, _return_columns));
     }
 
     return Status::OK();
