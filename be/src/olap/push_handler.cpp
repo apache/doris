@@ -24,7 +24,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/parquet_scanner.h"
 #include "olap/row.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -33,6 +32,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
+#include "vec/exec/vparquet_scanner.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -243,12 +243,10 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                 break;
             }
 
-            // 3. Init Row
-            std::unique_ptr<uint8_t[]> tuple_buf(new uint8_t[schema->schema_size()]);
-            ContiguousRow row(schema.get(), tuple_buf.get());
+            // 3. Init Block
+            vectorized::Block block;
 
             // 4. Read data from broker and write into cur_tablet
-            // Convert from raw to delta
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
                 if (reader->mem_pool()->mem_tracker()->consumption() >
@@ -256,7 +254,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     RETURN_NOT_OK(rowset_writer->flush());
                     reader->mem_pool()->free_all();
                 }
-                res = reader->next(&row);
+                res = reader->next(&block);
                 if (!res.ok()) {
                     LOG(WARNING) << "read next row failed."
                                  << " res=" << res << " read_rows=" << num_rows;
@@ -265,12 +263,8 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     if (reader->eof()) {
                         break;
                     }
-                    //if read row but fill tuple fails,
-                    if (!reader->is_fill_tuple()) {
-                        break;
-                    }
-                    if (!(res = rowset_writer->add_row(row))) {
-                        LOG(WARNING) << "fail to attach row to rowset_writer. "
+                    if (!(res = rowset_writer->add_block(&block))) {
+                        LOG(WARNING) << "fail to attach block to rowset_writer. "
                                      << "res=" << res << ", tablet=" << cur_tablet->full_name()
                                      << ", read_rows=" << num_rows;
                         break;
@@ -802,9 +796,6 @@ Status LzoBinaryReader::_next_block() {
 
 Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_scan_range,
                               const TDescriptorTable& t_desc_tbl) {
-    // init schema
-    _schema = schema;
-
     // init runtime state, runtime profile, counter
     TUniqueId dummy_id;
     dummy_id.hi = 0;
@@ -842,9 +833,9 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     BaseScanner* scanner = nullptr;
     switch (t_scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
-                                     t_scan_range.ranges, t_scan_range.broker_addresses,
-                                     _pre_filter_texprs, _counter.get());
+        scanner = new vectorized::VParquetScanner(
+                _runtime_state.get(), _runtime_profile, t_scan_range.params, t_scan_range.ranges,
+                t_scan_range.broker_addresses, _pre_filter_texprs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;
@@ -856,23 +847,6 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
         LOG(WARNING) << "Failed to open scanner, msg: " << status;
         return Status::Error<PUSH_INIT_ERROR>();
     }
-
-    // init tuple
-    auto tuple_id = t_scan_range.params.dest_tuple_id;
-    _tuple_desc = _runtime_state->desc_tbl().get_tuple_descriptor(tuple_id);
-    if (_tuple_desc == nullptr) {
-        std::stringstream ss;
-        LOG(WARNING) << "Failed to get tuple descriptor, tuple_id: " << tuple_id;
-        return Status::Error<PUSH_INIT_ERROR>();
-    }
-
-    int tuple_buffer_size = _tuple_desc->byte_size();
-    void* tuple_buffer = _tuple_buffer_pool->allocate(tuple_buffer_size);
-    if (tuple_buffer == nullptr) {
-        LOG(WARNING) << "Allocate memory for tuple failed";
-        return Status::Error<PUSH_INIT_ERROR>();
-    }
-    _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
 
     _ready = true;
     return Status::OK();
@@ -944,40 +918,11 @@ Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, boo
     return Status::OK();
 }
 
-Status PushBrokerReader::next(ContiguousRow* row) {
-    if (!_ready || row == nullptr) {
+Status PushBrokerReader::next(vectorized::Block* block) {
+    if (!_ready || block == nullptr) {
         return Status::Error<INVALID_ARGUMENT>();
     }
-
-    memset(_tuple, 0, _tuple_desc->num_null_bytes());
-    // Get from scanner
-    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof, &_fill_tuple);
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Scanner get next tuple failed";
-        return Status::Error<PUSH_INPUT_DATA_ERROR>();
-    }
-    if (_eof || !_fill_tuple) {
-        return Status::OK();
-    }
-
-    auto slot_descs = _tuple_desc->slots();
-    // finalize row
-    for (size_t i = 0; i < slot_descs.size(); ++i) {
-        auto cell = row->cell(i);
-        const SlotDescriptor* slot = slot_descs[i];
-        bool is_null = _tuple->is_null(slot->null_indicator_offset());
-        const void* value = _tuple->get_slot(slot->tuple_offset());
-
-        FieldType type = _schema->column(i)->type();
-        Status field_status =
-                fill_field_row(&cell, (const char*)value, is_null, _mem_pool.get(), type);
-        if (field_status != Status::OK()) {
-            LOG(WARNING) << "fill field row failed in spark load, slot index: " << i
-                         << ", type: " << type;
-            return Status::Error<SCHEMA_SCHEMA_FIELD_INVALID>();
-        }
-    }
-
+    _scanner->get_next(block, &_eof);
     return Status::OK();
 }
 
