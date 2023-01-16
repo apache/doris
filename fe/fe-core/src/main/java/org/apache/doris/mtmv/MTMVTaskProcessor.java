@@ -33,8 +33,8 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 

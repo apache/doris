@@ -24,19 +24,18 @@ import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.TableIf.TableType;
+
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.Vector;
 
 public class OlapTableFactory {
     private static final Logger LOG = LogManager.getLogger(OlapTableFactory.class);
+
     public static class BuildParams {
         public long tableId;
         public String tableName;
@@ -174,7 +173,7 @@ public class OlapTableFactory {
             LOG.info("create mtmv, original_query:{}, stmt:{}", materializedViewParams.originQueryStmt, orignalStmt);
             if (orignalStmt.length() <= 0) {
                 LOG.warn("create mtmv fail, cause get query fail , sql:{}", orignalStmt);
-                throw new IllegalArgumentException("create mtmv fail cause get query fail, sql:"+orignalStmt);
+                throw new IllegalArgumentException("create mtmv fail cause get query fail, sql:" + orignalStmt);
             }
             return withBuildMode(createMVStmt.getBuildMode())
                     .withRefreshInfo(createMVStmt.getRefreshInfo())
@@ -182,23 +181,23 @@ public class OlapTableFactory {
         }
     }
 
-    public String getMvStmtQueryString(String str){
-        String regex="AS[\\s\\n]+select[\\s\\n]+";
-		Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
-		Matcher matcher = pattern.matcher(str);
+    public String getMvStmtQueryString(String str) {
+        String regex = "AS[\\s\\n]+select[\\s\\n]+";
+        Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+        Matcher matcher = pattern.matcher(str);
         int startPos = -1;
         int endPos = -1;
-		while(matcher.find()) {
-			startPos = matcher.start();
-            endPos =  matcher.end();
+        while (matcher.find()) {
+            startPos = matcher.start();
+            endPos = matcher.end();
             break;
-		}
-        if(startPos>=0){
-            String ret =  "select " + str.substring(endPos);
-            Pattern patternNew = Pattern.compile(";+$"); 
-            Matcher matcherNew = patternNew.matcher(ret);      
-            return matcherNew.replaceAll("");      
-        }else{
+        }
+        if (startPos >= 0) {
+            String ret = "select " + str.substring(endPos);
+            Pattern patternNew = Pattern.compile(";+$");
+            Matcher matcherNew = patternNew.matcher(ret);
+            return matcherNew.replaceAll("");
+        } else {
             return "";
         }
     }

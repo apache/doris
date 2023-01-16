@@ -645,24 +645,19 @@ public class StmtExecutor implements ProfileWriter {
      */
     private void analyzeVariablesInStmt() throws DdlException {
         SessionVariable sessionVariable = context.getSessionVariable();
+        Map<String, String> optHints = null;
         if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) parsedStmt;
-            Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
-            if (optHints != null) {
-                sessionVariable.setIsSingleSetVar(true);
-                for (String key : optHints.keySet()) {
-                    VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
-                }
-            }
+            optHints = selectStmt.getSelectList().getOptHints();
         }
         if (parsedStmt != null && parsedStmt instanceof InsertStmt) {
-            SelectStmt selectStmt = (SelectStmt)((InsertStmt) parsedStmt).getQueryStmt();
-            Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
-            if (optHints != null) {
-                sessionVariable.setIsSingleSetVar(true);
-                for (String key : optHints.keySet()) {
-                    VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
-                }
+            SelectStmt selectStmt = (SelectStmt) ((InsertStmt) parsedStmt).getQueryStmt();
+            optHints = selectStmt.getSelectList().getOptHints();
+        }
+        if (optHints != null) {
+            sessionVariable.setIsSingleSetVar(true);
+            for (String key : optHints.keySet()) {
+                VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
             }
         }
     }
