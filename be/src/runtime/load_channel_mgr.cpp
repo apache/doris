@@ -75,9 +75,8 @@ LoadChannelMgr::~LoadChannelMgr() {
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
-    _mem_tracker = std::make_unique<MemTracker>("LoadChannelMgr");
-    _mem_tracker_set = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
-                                                           "LoadChannelMgrTrackerSet");
+    _mem_tracker =
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -105,7 +104,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             auto channel_mem_tracker = std::make_unique<MemTracker>(
                     fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
                                 load_id.to_string()),
-                    nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+                    ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
             auto channel_mem_tracker = std::make_unique<MemTracker>(fmt::format(
                     "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));

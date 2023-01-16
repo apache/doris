@@ -120,12 +120,10 @@ public:
         return nullptr;
     }
 
-    void set_orphan_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& orphan_tracker) {
-        _orphan_mem_tracker = orphan_tracker;
-        _orphan_mem_tracker_raw = orphan_tracker.get();
-    }
+    void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
+    MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
@@ -215,6 +213,7 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
+    std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 

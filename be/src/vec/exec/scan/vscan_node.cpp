@@ -75,7 +75,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // init profile for runtime filter
     for (auto& rf_ctx : _runtime_filter_ctxs) {
@@ -85,7 +84,6 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
@@ -96,7 +94,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::alloc_resource");
@@ -125,7 +122,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VScanNode::get_next");
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block, these columns only used in scan node level,
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
