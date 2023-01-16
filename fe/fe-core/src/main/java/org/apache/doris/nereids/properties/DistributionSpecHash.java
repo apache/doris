@@ -189,11 +189,23 @@ public class DistributionSpecHash extends DistributionSpec {
 
         // If the required property is from join and this property is not enforced, we only need to check to contain
         // And more checking is in ChildrenPropertiesRegulator
-        if (requiredHash.shuffleType == shuffleType.JOIN && this.shuffleType != shuffleType.ENFORCED) {
-            return containsSatisfy(requiredHash.getOrderedShuffledColumns());
+        if (requiredHash.shuffleType == ShuffleType.JOIN && this.shuffleType != ShuffleType.ENFORCED) {
+            return joinSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
         return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+    }
+
+    private boolean joinSatisfy(List<ExprId> required) {
+        BitSet containsBit = new BitSet(orderedShuffledColumns.size());
+        for (ExprId exprId : required) {
+            if (exprIdToEquivalenceSet.containsKey(exprId)) {
+                containsBit.set(exprIdToEquivalenceSet.get(exprId));
+            } else {
+                return false;
+            }
+        }
+        return containsBit.nextClearBit(0) >= orderedShuffledColumns.size();
     }
 
     private boolean containsSatisfy(List<ExprId> required) {

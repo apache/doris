@@ -276,6 +276,21 @@ public class DistributionSpecHashTest {
                 join3Map
         );
 
+        Map<ExprId, Integer> join4Map = Maps.newHashMap();
+        join4Map.put(new ExprId(2), 0);
+        join4Map.put(new ExprId(1), 1);
+        join4Map.put(new ExprId(3), 2);
+        DistributionSpecHash join4 = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(2), new ExprId(1), new ExprId(3)),
+                ShuffleType.JOIN,
+                1,
+                Sets.newHashSet(1L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(2)),
+                        Sets.newHashSet(new ExprId(1)),
+                        Sets.newHashSet(new ExprId(3))),
+                join4Map
+        );
+
         DistributionSpecHash natural = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
                 ShuffleType.NATURAL,
@@ -311,6 +326,7 @@ public class DistributionSpecHashTest {
         Assertions.assertFalse(join3.satisfy(join1));
         // other shuffle type with same order
         Assertions.assertTrue(natural.satisfy(join2));
+        Assertions.assertFalse(natural.satisfy(join4));
         Assertions.assertTrue(aggregate.satisfy(join2));
         Assertions.assertTrue(enforce.satisfy(join2));
         // other shuffle type contain all set but order is not same
