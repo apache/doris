@@ -82,7 +82,6 @@ This function will be used as a supplement and enhancement to the previous exter
 > 2. Iceberg currently only supports V1 version, V2 version will be supported soon.
 > 3. Hudi currently only supports Snapshot Query for Copy On Write tables and Read Optimized Query for Merge On Read tables. In the future, Incremental Query and Snapshot Query for Merge On Read tables will be supported soon.
 > 4. Support access to hive tables whose data stored on tencent chdfs, usage is same as common hive table.
-> 5. Support access to hive tables whose data stored on Juicefs, usage is same as common hive table(juicefs-hadoop-x.x.x.jar needs to be placed under fe/lib/ and apache_hdfs_broker/lib/).
 
 The following example is used to create a Catalog named hive to connect the specified Hive MetaStore, and provide the HDFS HA connection properties to access the corresponding files in HDFS.
 
