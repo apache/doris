@@ -245,14 +245,10 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     if (h->_reader) {
         //Store the file length
         h->_length = h->_reader->size();
-        // if (handle->_length == -1)
-        if (h->_reader->size() < 0) {
-            error.set(CL_ERR_IO, "fileStat error");
-        } else {
-            h->_fpos = 0;
-            ret = _CLNEW FSIndexInput(h, buffer_size);
-            return true;
-        }
+        h->_fpos = 0;
+        ret = _CLNEW FSIndexInput(h, buffer_size);
+        return true;
+
     } else {
         int err = errno;
         if (err == ENOENT) {
