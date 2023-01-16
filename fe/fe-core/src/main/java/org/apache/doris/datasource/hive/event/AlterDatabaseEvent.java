@@ -18,26 +18,31 @@
 
 package org.apache.doris.datasource.hive.event;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 
 import java.util.List;
 
 /**
- * An event type which is ignored. Useful for unsupported metastore event types
+ * MetastoreEvent for Alter_DATABASE event type
  */
-public class IgnoredEvent extends MetastoreEvent {
-    private IgnoredEvent(NotificationEvent event, String catalogName) {
+public class AlterDatabaseEvent extends MetastoreEvent {
+
+    private AlterDatabaseEvent(NotificationEvent event,
+            String catalogName) {
         super(event, catalogName);
+        Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ALTER_DATABASE));
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
-        return Lists.newArrayList(new IgnoredEvent(event, catalogName));
+        return Lists.newArrayList(new AlterDatabaseEvent(event, catalogName));
     }
 
     @Override
-    public void process() {
-        infoLog("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
+    protected void process() throws MetastoreNotificationException {
+        // only can change properties,we do nothing
+        infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
     }
 }
