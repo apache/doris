@@ -51,11 +51,6 @@ public class MTMVTaskExecutorPool {
             do {
                 try {
                     isSuccess = taskExecutor.executeTask();
-                    if (isSuccess) {
-                        task.setState(TaskState.SUCCESS);
-                    } else {
-                        task.setState(TaskState.FAILED);
-                    }
                 } catch (Exception ex) {
                     LOG.warn("failed to execute task.", ex);
                 } finally {
@@ -63,7 +58,9 @@ public class MTMVTaskExecutorPool {
                 }
                 retryTimes--;
             } while (!isSuccess && retryTimes >= 0);
-            if (!isSuccess) {
+            if (isSuccess) {
+                task.setState(TaskState.SUCCESS);
+            } else {
                 task.setState(TaskState.FAILED);
                 task.setErrorCode(-1);
             }
