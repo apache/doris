@@ -78,7 +78,8 @@ private:
         for (auto& kv : _load_channels) {
             _mem_usage += kv.second->mem_consumption();
         }
-        THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
+        THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(),
+                                       _mem_tracker.get());
     }
 
 protected:
