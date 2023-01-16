@@ -865,7 +865,7 @@ CONF_Int32(pipeline_executor_size, "0");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
-CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
+CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 // block file cache
 CONF_Bool(enable_file_cache, "false");
