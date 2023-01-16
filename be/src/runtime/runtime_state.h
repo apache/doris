@@ -355,6 +355,13 @@ public:
         return _query_options.partitioned_hash_join_rows_threshold;
     }
 
+    int partitioned_hash_agg_rows_threshold() const {
+        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
+            return 0;
+        }
+        return _query_options.partitioned_hash_agg_rows_threshold;
+    }
+
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
