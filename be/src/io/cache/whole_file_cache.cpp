@@ -19,6 +19,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
+#include "util/async_io.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -35,7 +36,17 @@ WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 WholeFileCache::~WholeFileCache() {}
 
-Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
+Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read) {
+    if (bthread_self() == 0) {
+        return read_at_impl(offset, result, io_ctx, bytes_read);
+    }
+    Status s;
+    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
+    AsyncIO::run_task(task, io::FileSystemType::S3);
+    return s;
+}
+
+Status WholeFileCache::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
                                size_t* bytes_read) {
     if (io_ctx.reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
