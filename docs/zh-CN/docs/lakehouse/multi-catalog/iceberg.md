@@ -1,0 +1,75 @@
+---
+{
+    "title": "Iceberg",
+    "language": "zh-CN"
+}
+---
+
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+
+# Iceberg
+
+## 使用限制
+
+1. 支持 Iceberg V1/V2 表格式。
+2. V2 格式仅支持 Position Delete 方式，不支持 Equality Delete。
+3. 目前仅支持 Hive Metastore 类型的 Catalog。所以使用方式和 Hive Catalog 基本一致。后续版本将支持其他类型的 Catalog。
+
+## 创建 Catalog
+
+和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+## 列类型映射
+
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive) 中 **列类型映射** 一节。
+
+## Time Travel
+
+<version since="dev">
+
+支持读取 Iceberg 表指定的 Snapshot。
+
+</version>
+
+每一次对iceberg表的写操作都会产生一个新的快照。
+
+默认情况下，读取请求只会读取最新版本的快照。
+
+可以使用 `FOR TIME AS OF` 和 `FOR VERSION AS OF` 语句，根据快照 ID 或者快照产生的时间读取历史版本的数据。示例如下：
+
+`SELECT * FROM iceberg_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
+
+`SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
+
+另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceber_meta.md) 表函数查询指定表的 snapshot 信息。

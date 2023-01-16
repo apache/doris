@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris On ES",
+    "title": "Elasticsearch 外表",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris On ES
+# Elasticsearch 外表
+
+<version deprecated="1.2.2">
+
+推荐使用 [ES Catalog](../multi-catalog/es) 功能访问 ES。
+
+</version>
 
 Doris-On-ES将Doris的分布式查询规划能力和ES(Elasticsearch)的全文检索能力相结合，提供更完善的OLAP分析场景解决方案：
 
