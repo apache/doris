@@ -44,6 +44,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
@@ -195,6 +196,9 @@ public class MasterImpl {
                     break;
                 case UPDATE_TABLET_META_INFO:
                     finishUpdateTabletMeta(task, request);
+                    break;
+                case PUSH_COOLDOWN_CONF:
+                    finishPushCooldownConfTask(task);
                     break;
                 default:
                     break;
@@ -597,5 +601,11 @@ public class MasterImpl {
             LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
         }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+    }
+
+    private void finishPushCooldownConfTask(AgentTask task) {
+        PushCooldownConfTask cooldownTask = (PushCooldownConfTask) task;
+        cooldownTask.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUSH_COOLDOWN_CONF, task.getSignature());
     }
 }

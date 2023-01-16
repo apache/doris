@@ -106,8 +106,6 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
         // function class, like 'If' function and 'Substring' function.
         return ComputeSignatureChain.from(this, signature, getArguments())
                 .then(ComputeSignatureHelper::implementAbstractReturnType)
-                .then(ComputeSignatureHelper::upgradeDateOrDateTimeToV2)
-                .then(ComputeSignatureHelper::upgradeDecimalV2ToV3)
                 .then(ComputeSignatureHelper::normalizeDecimalV2)
                 .then(ComputeSignatureHelper::computePrecision)
                 .then(ComputeSignatureHelper::dynamicComputePropertiesOfArray)

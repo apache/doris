@@ -76,6 +76,8 @@ public class OperationType {
 
     //schema change for add and drop columns
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    // set cooldown conf in replica
+    public static final short OP_PUSH_COOLDOWN_CONF = 129;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load

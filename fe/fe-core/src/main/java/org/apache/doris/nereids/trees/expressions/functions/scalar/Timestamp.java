@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -36,8 +37,12 @@ import java.util.List;
  */
 public class Timestamp extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    //When enable_date_conversion is true, we prefer to V2 signature.
+    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
+    public static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE)
+    ) : ImmutableList.of(
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT)
     );

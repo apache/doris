@@ -1975,7 +1975,7 @@ public:
         case BitmapValue::BitmapDataType::EMPTY:
             return other._bitmap._type == BitmapValue::BitmapDataType::EMPTY;
         case BitmapValue::BitmapDataType::SINGLE:
-            return _sv == other._sv;
+            return _end == other._end && _sv == other._sv;
         case BitmapValue::BitmapDataType::BITMAP:
             return *_iter == *(other._iter);
         default:

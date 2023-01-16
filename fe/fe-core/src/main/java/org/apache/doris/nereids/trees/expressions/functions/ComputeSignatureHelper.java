@@ -19,16 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionSignature.TripleFunction;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 
@@ -46,29 +42,6 @@ public class ComputeSignatureHelper {
                 return signature.withReturnType(arguments.get(argumentIndex).getDataType());
             }
             throw new AnalysisException("Not implemented abstract return type: " + signature.returnType);
-        }
-        return signature;
-    }
-
-    /** upgradeDateOrDateTimeToV2 */
-    public static FunctionSignature upgradeDateOrDateTimeToV2(
-            FunctionSignature signature, List<Expression> arguments) {
-        Type type = signature.returnType.toCatalogDataType();
-        if ((type.isDate() || type.isDatetime()) && Config.enable_date_conversion) {
-            Type legacyReturnType = ScalarType.getDefaultDateType(type);
-            signature = signature.withReturnType(DataType.fromCatalogType(legacyReturnType));
-        }
-        return signature;
-    }
-
-    /** upgradeDecimalV2ToV3 */
-    public static FunctionSignature upgradeDecimalV2ToV3(
-            FunctionSignature signature, List<Expression> arguments) {
-        AbstractDataType returnType = signature.returnType;
-        Type type = returnType.toCatalogDataType();
-        if ((type.isDate() || type.isDatetime()) && Config.enable_date_conversion) {
-            Type legacyReturnType = ScalarType.getDefaultDateType(returnType.toCatalogDataType());
-            signature = signature.withReturnType(DataType.fromCatalogType(legacyReturnType));
         }
         return signature;
     }

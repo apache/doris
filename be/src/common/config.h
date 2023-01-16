@@ -265,15 +265,15 @@ CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
 // whether enable vertical compaction
-CONF_mBool(enable_vertical_compaction, "false");
+CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction
-CONF_mBool(enable_ordered_data_compaction, "false");
+CONF_mBool(enable_ordered_data_compaction, "true");
 // In vertical compaction, column number for every group
 CONF_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
 CONF_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
-CONF_mInt64(max_segment_size_in_vertical_compaction, "268435456");
+CONF_mInt64(vertical_compaction_max_segment_size, "268435456");
 
 // In ordered data compaction, min segment size for input rowset
 CONF_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -875,7 +875,13 @@ CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
-
+// inverted index
+CONF_mDouble(inverted_index_ram_buffer_size, "512");
+CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
+// dict path for chinese analyzer
+CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// tree depth for bkd index
+CONF_Int32(max_depth_in_bkd_tree, "32");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

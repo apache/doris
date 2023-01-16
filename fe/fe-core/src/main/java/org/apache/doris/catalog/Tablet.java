@@ -22,8 +22,11 @@ import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -87,6 +90,10 @@ public class Tablet extends MetaObject implements Writable {
     private long checkedVersionHash;
     @SerializedName(value = "isConsistent")
     private boolean isConsistent;
+    @SerializedName(value = "cooldownReplicaId")
+    private long cooldownReplicaId;
+    @SerializedName(value = "cooldownTerm")
+    private long cooldownTerm;
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -134,6 +141,22 @@ public class Tablet extends MetaObject implements Writable {
 
     public boolean isConsistent() {
         return isConsistent;
+    }
+
+    public long getCooldownReplicaId() {
+        return cooldownReplicaId;
+    }
+
+    public void setCooldownReplicaId(long cooldownReplicaId) {
+        this.cooldownReplicaId = cooldownReplicaId;
+    }
+
+    public long getCooldownTerm() {
+        return cooldownTerm;
+    }
+
+    public void setCooldownTerm(long cooldownTerm) {
+        this.cooldownTerm = cooldownTerm;
     }
 
     private boolean deleteRedundantReplica(long backendId, long version) {
@@ -326,18 +349,8 @@ public class Tablet extends MetaObject implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        int replicaCount = replicas.size();
-        out.writeInt(replicaCount);
-        for (int i = 0; i < replicaCount; ++i) {
-            replicas.get(i).write(out);
-        }
-
-        out.writeLong(checkedVersion);
-        out.writeLong(checkedVersionHash);
-        out.writeBoolean(isConsistent);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     @Override
@@ -359,6 +372,11 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public static Tablet read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Tablet.class);
+        }
+
         Tablet tablet = new Tablet();
         tablet.readFields(in);
         return tablet;

@@ -24,6 +24,11 @@
 namespace doris {
 namespace io {
 
+std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, ResourceId resource_id) {
+    return std::shared_ptr<LocalFileSystem>(
+            new LocalFileSystem(std::move(path), std::move(resource_id)));
+}
+
 LocalFileSystem::LocalFileSystem(Path root_path, ResourceId resource_id)
         : FileSystem(std::move(root_path), std::move(resource_id), FileSystemType::LOCAL) {}
 
@@ -42,7 +47,8 @@ Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     if (-1 == fd) {
         return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
     }
-    *writer = std::make_unique<LocalFileWriter>(std::move(fs_path), fd, this);
+    *writer = std::make_unique<LocalFileWriter>(
+            std::move(fs_path), fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
@@ -144,7 +150,7 @@ Status LocalFileSystem::list(const Path& path, std::vector<Path>* files) {
     return Status::OK();
 }
 
-static FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+static FileSystemSPtr local_fs = io::LocalFileSystem::create("");
 
 const FileSystemSPtr& global_local_filesystem() {
     return local_fs;

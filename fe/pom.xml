@@ -933,7 +933,7 @@ under the License.
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
             </dependency>
-             <dependency>
+            <dependency>
                 <groupId>com.aliyun.datalake</groupId>
                 <artifactId>metastore-client-hive2</artifactId>
                 <version>${dlf-metastore-client-hive2.version}</version>

@@ -41,6 +41,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.cooldown.CooldownJob;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -744,6 +745,10 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_PUSH_COOLDOWN_CONF:
+                    CooldownJob cooldownJob = (CooldownJob) journal.getData();
+                    env.getCooldownHandler().replayCooldownJob(cooldownJob);
+                    break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
@@ -1503,6 +1508,10 @@ public class EditLog {
 
     public void logAlterJob(AlterJobV2 alterJob) {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
+    }
+
+    public void logCooldownJob(CooldownJob cooldownJob) {
+        logEdit(OperationType.OP_PUSH_COOLDOWN_CONF, cooldownJob);
     }
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
