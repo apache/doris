@@ -647,21 +647,21 @@ Status StructColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
-Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                           size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
-    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
-    return Status::OK();
-}
-
 Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    auto data_cursor = reinterpret_cast<const void**>(ptr);
-    auto null_map_cursor = data_cursor + _num_sub_column_writers;
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->append(reinterpret_cast<const uint8_t*>(*null_map_cursor),
-                                              *data_cursor, num_rows));
-        data_cursor++;
-        null_map_cursor++;
+    auto results = reinterpret_cast<const uint64_t*>(*ptr);
+    for (size_t i = 0; i < _num_sub_column_writers; ++i) {
+        auto nullmap = *(results + _num_sub_column_writers + i);
+        auto data = *(results + i);
+        RETURN_IF_ERROR(_sub_column_writers[i]->append(reinterpret_cast<const uint8_t*>(nullmap),
+                                                       reinterpret_cast<const void*>(data),
+                                                       num_rows));
+    }
+    if (is_nullable()) {
+        uint8_t null_sign = 0;
+        const uint8_t* null_sign_ptr = &null_sign;
+        for (size_t i = 0; i < num_rows; ++i) {
+            RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, 1));
+        }
     }
     return Status::OK();
 }

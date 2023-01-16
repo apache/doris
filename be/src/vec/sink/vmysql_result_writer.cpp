@@ -211,15 +211,15 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     buf_ret = _buffer.push_string(", ", 2);
                 }
                 const auto& data = column_struct.get_column_ptr(j);
-                if (data->is_null_at(j)) {
+                if (data->is_null_at(i)) {
                     buf_ret = _buffer.push_string("NULL", strlen("NULL"));
                 } else {
                     if (WhichDataType(remove_nullable(sub_types[j])).is_string()) {
                         buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, sub_types[j], _buffer);
+                        buf_ret = _add_one_cell(data, i, sub_types[j], _buffer);
                         buf_ret = _buffer.push_string("'", 1);
                     } else {
-                        buf_ret = _add_one_cell(data, j, sub_types[j], _buffer);
+                        buf_ret = _add_one_cell(data, i, sub_types[j], _buffer);
                     }
                 }
                 begin = false;

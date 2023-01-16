@@ -660,7 +660,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorStruct::set_source_column(
 }
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorStruct::get_data() const {
-    return _results[0];
+    return _results.data();
 }
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorStruct::get_data_at(
@@ -688,10 +688,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
     assert(column_struct);
     assert(data_type_struct);
 
-    size_t data_size = column_struct->tuple_size();
+    size_t fields_num = column_struct->tuple_size();
     size_t data_cursor = 0;
-    size_t null_map_cursor = data_cursor + data_size;
-    for (size_t i = 0; i < data_size; i++) {
+    size_t null_map_cursor = data_cursor + fields_num;
+    for (size_t i = 0; i < fields_num; i++) {
         ColumnPtr sub_column = column_struct->get_column_ptr(i);
         DataTypePtr sub_type = data_type_struct->get_element(i);
         ColumnWithTypeAndName sub_typed_column = {sub_column, sub_type, ""};
