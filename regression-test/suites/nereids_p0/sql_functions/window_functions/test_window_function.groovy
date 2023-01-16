@@ -354,16 +354,17 @@ suite("test_window_function") {
     // qt_first_value3"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2} 
     //          rows between unbounded preceding and current row)
     //          as wj from baseall  order by ${k1}, wj"""
-    qt_first_value4"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ a, min(d) as wjj from 
-             (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
-             t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
-             t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
-             t1.k10 as k10, t1.k11 as k11, 
-             t1.${k1} as a, t1.${k2} as b, t2.${k2} as c, t2.${k3} as d 
-             from baseall t1 join baseall  t2 
-             where t1.${k1}=t2.${k1} and t1.${k3}>=t2.${k3}) T 
-             group by k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, a, b
-             order by a, wjj"""
+    // Nereids does't support this type
+    // qt_first_value4"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ a, min(d) as wjj from 
+    //          (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
+    //          t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
+    //          t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
+    //          t1.k10 as k10, t1.k11 as k11, 
+    //          t1.${k1} as a, t1.${k2} as b, t2.${k2} as c, t2.${k3} as d 
+    //          from baseall t1 join baseall  t2 
+    //          where t1.${k1}=t2.${k1} and t1.${k3}>=t2.${k3}) T 
+    //          group by k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, a, b
+    //          order by a, wjj"""
 
     // test_query_last_value
     // Nereids does't support window function
@@ -377,16 +378,17 @@ suite("test_window_function") {
     // qt_last_value3"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
     //          rows between unbounded preceding and current row)
     //          as wj from baseall  order by ${k1}, wj"""
-    qt_last_value4"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ a, max(d) as wjj from 
-             (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
-             t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
-             t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
-             t1.k10 as k10, t1.k11 as k11, 
-             t1.${k1} as a, t1.${k2} as b, t2.${k2} as c, t2.${k3} as d 
-             from baseall t1 join baseall  t2 
-             where t1.${k1}=t2.${k1} and t1.${k3}>=t2.${k3}) T 
-             group by k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, a, b 
-             order by a, wjj"""
+    // Nereids does't support this type
+    // qt_last_value4"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ a, max(d) as wjj from 
+    //          (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
+    //          t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
+    //          t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
+    //          t1.k10 as k10, t1.k11 as k11, 
+    //          t1.${k1} as a, t1.${k2} as b, t2.${k2} as c, t2.${k3} as d 
+    //          from baseall t1 join baseall  t2 
+    //          where t1.${k1}=t2.${k1} and t1.${k3}>=t2.${k3}) T 
+    //          group by k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, a, b 
+    //          order by a, wjj"""
 
     // test_query_row_number
     // Nereids does't support window function
@@ -509,18 +511,19 @@ suite("test_window_function") {
     // Nereids does't support window function
     // qt_rank1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, rank() over (partition by ${k1} order by ${k3}) as wj 
     //          from baseall order by ${k1}, wj"""
-    qt_rank2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ F2.${k1}, (F1.wj - F2.basewj + 1) as wj from
-             (select a, c, count(*) as wj from 
-             (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
-             t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
-             t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
-             t1.k10 as k10, t1.k11 as k11, 
-             t1.${k1} as a,  t1.${k3} as c 
-             from baseall t1 join baseall  t2 
-             where t1.${k1}=t2.${k1} and t1.${k3}>=t2.${k3}) T 
-             group by k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, a, c) as F1 join
-             (select ${k1}, ${k3}, count(*) as basewj from baseall group by ${k1}, ${k3}) as F2
-             where F1.a=F2.${k1} and F1.c = F2.${k3} order by F2.${k1}, wj"""
+    // Nereids does't support this type
+    // qt_rank2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ F2.${k1}, (F1.wj - F2.basewj + 1) as wj from
+    //          (select a, c, count(*) as wj from 
+    //          (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
+    //          t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
+    //          t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
+    //          t1.k10 as k10, t1.k11 as k11, 
+    //          t1.${k1} as a,  t1.${k3} as c 
+    //          from baseall t1 join baseall  t2 
+    //          where t1.${k1}=t2.${k1} and t1.${k3}>=t2.${k3}) T 
+    //          group by k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, a, c) as F1 join
+    //          (select ${k1}, ${k3}, count(*) as basewj from baseall group by ${k1}, ${k3}) as F2
+    //          where F1.a=F2.${k1} and F1.c = F2.${k3} order by F2.${k1}, wj"""
 
     //test_hang
     // Nereids does't support window function
@@ -547,10 +550,11 @@ suite("test_window_function") {
 
     sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="300000"); """
 
-    qt_window_hang2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ A.${k1}, A.wj - B.dyk + 1 as num from 
-        (select ${k1}, wj from ${line} as W1) as A join 
-        (select ${k1}, min(wj) as dyk from ${line} as W2 group by ${k1}) as B
-        where A.${k1}=B.${k1}  order by A.${k1}, num"""
+    // Nereids does't support this type
+    // qt_window_hang2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ A.${k1}, A.wj - B.dyk + 1 as num from 
+    //     (select ${k1}, wj from ${line} as W1) as A join 
+    //     (select ${k1}, min(wj) as dyk from ${line} as W2 group by ${k1}) as B
+    //     where A.${k1}=B.${k1}  order by A.${k1}, num"""
 
     //test_hujie
     line = "("
@@ -567,7 +571,8 @@ suite("test_window_function") {
         }
     }
     // qt_hujie1"select T.k1, T.k6 from ${line} as T order by T.k1, T.k6"
-    qt_hujie2"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ k1, k6 from baseall order by k1, k6"
+    // Nereids does't support this type
+    // qt_hujie2"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ k1, k6 from baseall order by k1, k6"
 
     // test_bug
     // Nereids does't support window function

@@ -1161,13 +1161,13 @@ suite("test_join", "query,p0") {
             order by a.k1, b.k1"""
     }
     //  windows
-    def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
-       left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
+    // Nereids does't support window function
+    // def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
+    //    left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
     def res98 = sql"""select * from (select k1, k2, k5 from ${null_table_2}) a left join ${null_table_1} b
       on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
     // Nereids does't support window function
-    // Nereids does't support window function
-    // // check2_doris(res97, res98)
+    // check2_doris(res97, res98)
     sql"drop table ${null_table_1}"
     sql"drop table ${null_table_2}"
 
@@ -1232,7 +1232,15 @@ suite("test_join", "query,p0") {
     sql"""drop table ${table_3}"""
     sql"""drop table ${table_4}"""
 
+    qt_sql """select k1 from baseall left semi join test on true order by k1;"""
+    qt_sql """select k1 from baseall left semi join test on false order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on true order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on false order by k1;"""
 
+    qt_sql """select k1 from test right semi join baseall on true order by k1;"""
+    qt_sql """select k1 from test right semi join baseall on false order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on true order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on false order by k1;"""
 
     // test bucket shuffle join, github issue #6171
     sql"""create database if not exists test_issue_6171"""

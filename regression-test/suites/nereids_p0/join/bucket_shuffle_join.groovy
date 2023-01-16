@@ -15,15 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sum") {
+suite("bucket-shuffle-join") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false" 
-    // Nereids does't support window function
-    // qt_select """
-    //               select k1, sum(k5) over 
-    //                   (partition by k1 order by k3 range between current row and unbounded following) as w 
-    //               from test_query_db.test order by k1, w
-    //           """
+    order_qt_test_bucket """
+    select * from test_bucket_shuffle_join where rectime="2021-12-01 00:00:00" and id in (select k1 from test_join where k1 in (1,2))
+    """
 }
-

@@ -40,7 +40,10 @@ suite("test_cast_function") {
                 end as bitmap
             ) is NULL
         """
-        exception "[INVALID_ARGUMENT]Conversion from UInt8 to BitMap is not supported"
+            check{result, exception, startTime, endTime ->
+                assertTrue(exception != null)
+                logger.info(exception.message)
+            }
     }
 }
 

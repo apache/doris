@@ -1,8 +1,11 @@
 -- database: presto; groups: no_from
-SELECT 1
+SELECT * FROM (
+SELECT 1 a
 UNION ALL
-SELECT 2
+SELECT 2 a
 UNION ALL
-SELECT 4*5
+SELECT 4*5 a
 UNION ALL
-SELECT -5
+SELECT -5 a
+) t
+ORDER BY a;

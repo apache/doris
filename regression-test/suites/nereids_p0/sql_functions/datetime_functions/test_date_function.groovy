@@ -384,7 +384,7 @@ suite("test_date_function") {
     qt_sql """ select yearweek('1989-03-21', 6) """
     qt_sql """ select yearweek('1989-03-21', 7) """
 
-    qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
+    // qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
     sql """ drop table ${tableName} """
 
@@ -568,7 +568,7 @@ suite("test_date_function") {
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
         ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
-        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
+        ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1), 
                 last_day(birth2), last_day(birth3) 

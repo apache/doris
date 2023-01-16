@@ -194,4 +194,20 @@ suite("test_bitmap_function") {
     qt_sql """ select bitmap_to_string(sub_bitmap(bitmap_from_string('1'), 0, 3)) value;  """
     qt_sql """ select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('100'), 0, 3)) value;  """
     qt_sql """ select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('20221103'), 0, 20221104)) date_list_bitmap;  """
+
+    sql "drop table if exists d_table;"
+    sql """
+        create table d_table (
+            k1 int null,
+            k2 int not null,
+            k3 bigint null,
+            k4 varchar(100) null
+        )
+        duplicate key (k1,k2,k3)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql "insert into d_table select -4,-4,-4,'d';"
+    try_sql "select bitmap_union(to_bitmap_with_check(k2)) from d_table;"
+    qt_sql "select bitmap_union(to_bitmap(k2)) from d_table;"
 }

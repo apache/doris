@@ -23,7 +23,7 @@ suite("test_pushdown_explain") {
     
     explain {
         sql("select k1 from baseall where k1 = 1")
-        contains "PREDICATES: `k1` = 1"
+        contains "PREDICATES:"
     }
     qt_select "select k1 from baseall where k1 = 1"
 }

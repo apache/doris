@@ -15,15 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sum") {
+suite("test_offset_in_subquery_with_join", "query") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false" 
-    // Nereids does't support window function
-    // qt_select """
-    //               select k1, sum(k5) over 
-    //                   (partition by k1 order by k3 range between current row and unbounded following) as w 
-    //               from test_query_db.test order by k1, w
-    //           """
-}
+    // define a sql table
+    def testTable = "test_offset_in_subquery_with_join"
 
+    sql """
+        drop table if exists ${testTable}
+    """
+
+    sql """
+        create table if not exists ${testTable}(id int) distributed by hash(id) properties('replication_num'='1')
+    """
+
+    sql """
+        insert into ${testTable} values (1), (1);
+    """
+
+    test {
+        sql "select * from $testTable where id in (select id from $testTable order by id limit 1, 1)"
+        result([
+                [1],
+                [1]
+        ])
+    }
+
+}

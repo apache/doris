@@ -19,7 +19,6 @@ suite("test_aggregate_histogram") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false" 
-
     def tableName = "histogram_test"
     def tableCTAS1 = "histogram_test_ctas1"
     def tableCTAS2 = "histogram_test_ctas2"

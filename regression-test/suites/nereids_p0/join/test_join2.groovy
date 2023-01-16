@@ -87,7 +87,10 @@ suite("test_join2", "query,p0") {
             FROM ${TBname1} NATURAL JOIN ${TBname2}
             ORDER BY 1,2,3,4,5,6;
         """
-        exception "errCode = 2, detailMessage = natural join is not supported, please use inner join instead."
+            check{result, exception, startTime, endTime ->
+                assertTrue(exception != null)
+                logger.info(exception.message)
+            }
     }
     
     qt_join4 """

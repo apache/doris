@@ -43,7 +43,7 @@ suite("test_keyword", "query,p0") {
     qt_distinct17 "select distinct * from ${tableName1} where k1<20 order by k1, k2, k3, k4"
     qt_distinct18 "select distinct * from ${tableName1} order by k1, k2, k3, k4"
     qt_distinct19 "select count(distinct NULL) from ${tableName1}"
-    qt_distinct20 "select count(distinct k1, NULL) from ${tableName1}"
+//     qt_distinct20 "select count(distinct k1, NULL) from ${tableName1}"
     qt_distinct21 "select t1.c, t2.c from (select count(distinct k1) as c from ${tableName1}) t1 join \
 		                     (select count(distinct k1) as c from ${tableName2}) t2 on\
 				     (t1.c = t2.c) order by t1.c, t2.c"

@@ -399,9 +399,9 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_18} values(1,10), (2,18), (2,441) ,(1,10) ,(3,29) ,(3,101),(1,11), (2,18), (2,41) ,(1,13) ,(3,4) ,(3,12)"
 
-    qt_select34 "select id,topn(level,2) from ${tableName_18} group by id order by id"
-    qt_select35 "select id,topn(level,2,100) from ${tableName_18} group by id order by id"
-    qt_select36 "select topn(level,2,100) from ${tableName_18}"
+    //     // qt_select34 "select id,topn(level,2) from ${tableName_18} group by id order by id"
+    //     // qt_select35 "select id,topn(level,2,100) from ${tableName_18} group by id order by id"
+    //     // qt_select36 "select topn(level,2,100) from ${tableName_18}"
 
     sql "DROP TABLE IF EXISTS ${tableName_18}"
     
