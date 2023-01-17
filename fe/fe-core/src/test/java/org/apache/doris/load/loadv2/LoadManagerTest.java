@@ -17,22 +17,15 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -46,7 +39,6 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.util.List;
 import java.util.Map;
 
 public class LoadManagerTest {
