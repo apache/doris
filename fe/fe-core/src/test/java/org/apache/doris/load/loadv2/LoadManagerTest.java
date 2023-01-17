@@ -67,50 +67,6 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testCreateHadoopJob(@Injectable LoadStmt stmt, @Injectable LabelName labelName, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable BrokerLoadJob brokerLoadJob) {
-        Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newHashMap();
-        Map<String, List<LoadJob>> labelToLoadJobs = Maps.newHashMap();
-        String label1 = "label1";
-        List<LoadJob> loadJobs = Lists.newArrayList();
-        loadJobs.add(brokerLoadJob);
-        labelToLoadJobs.put(label1, loadJobs);
-        dbIdToLabelToLoadJobs.put(1L, labelToLoadJobs);
-        LoadJobScheduler loadJobScheduler = new LoadJobScheduler();
-        loadManager = new LoadManager(loadJobScheduler);
-        Deencapsulation.setField(loadManager, "dbIdToLabelToLoadJobs", dbIdToLabelToLoadJobs);
-        new Expectations() {
-            {
-                stmt.getLabel();
-                minTimes = 0;
-                result = labelName;
-                labelName.getLabelName();
-                minTimes = 0;
-                result = "label1";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyString);
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-            }
-        };
-
-        try {
-            loadManager.createLoadJobV1FromStmt(stmt, EtlJobType.HADOOP, System.currentTimeMillis());
-            Assert.fail("duplicated label is not be allowed");
-        } catch (LabelAlreadyUsedException e) {
-            // successful
-        } catch (DdlException e) {
-            Assert.fail(e.getMessage());
-        }
-
-    }
-
-    @Test
     public void testSerializationNormal(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
             @Injectable Table table) throws Exception {
         new Expectations() {

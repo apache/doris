@@ -693,21 +693,6 @@ public class QueryPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testDateTypeEquality() throws Exception {
-        // related to Github issue #3309
-        String loadStr = "load label test.app_profile_20200306\n"
-                + "(DATA INFILE('filexxx')INTO TABLE app_profile partition (p_20200306)\n"
-                + "COLUMNS TERMINATED BY '\\t'\n"
-                + "(app_name,package_name,age,gender,level,city,model,brand,hours,use_num,use_time,start_times)\n"
-                + "SET\n"
-                + "(event_date = default_value('2020-03-06'))) \n"
-                + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n";
-        LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
-        Env.getCurrentEnv().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
-                System.currentTimeMillis());
-    }
-
-    @Test
     public void testJoinPredicateTransitivity() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
