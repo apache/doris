@@ -502,9 +502,6 @@ void InvertedIndexVisitor::visit(int rowID) {
     } else {
         hits->add(rowID);
     }
-    if (0) {
-        std::wcout << L"visit docID=" << rowID << std::endl;
-    }
 }
 
 void InvertedIndexVisitor::visit(lucene::util::bkd::bkd_docid_set_iterator* iter,
@@ -524,10 +521,6 @@ void InvertedIndexVisitor::visit(lucene::util::bkd::bkd_docid_set_iterator* iter
 }
 
 void InvertedIndexVisitor::visit(int rowID, std::vector<uint8_t>& packedValue) {
-    if (0) {
-        int x = lucene::util::NumericUtils::sortableBytesToLong(packedValue, 0);
-        std::wcout << L"visit docID=" << rowID << L" x=" << x << std::endl;
-    }
     if (matches(packedValue.data())) {
         if (only_count) {
             num_hits++;
