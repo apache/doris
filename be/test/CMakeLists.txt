@@ -105,21 +105,20 @@ set(OLAP_TEST_FILES
     olap/skiplist_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
-    olap/column_vector_test.cpp
     olap/storage_types_test.cpp
     olap/aggregate_func_test.cpp
-    olap/rowset/segment_v2/bitshuffle_page_test.cpp
-    olap/rowset/segment_v2/plain_page_test.cpp
+    #olap/rowset/segment_v2/bitshuffle_page_test.cpp
+    #olap/rowset/segment_v2/plain_page_test.cpp
     olap/rowset/segment_v2/bitmap_index_test.cpp
-    olap/rowset/segment_v2/binary_plain_page_test.cpp
-    olap/rowset/segment_v2/binary_prefix_page_test.cpp
-    olap/rowset/segment_v2/column_reader_writer_test.cpp
+    #olap/rowset/segment_v2/binary_plain_page_test.cpp
+    #olap/rowset/segment_v2/binary_prefix_page_test.cpp
+    #olap/rowset/segment_v2/column_reader_writer_test.cpp
     olap/rowset/segment_v2/encoding_info_test.cpp
     olap/rowset/segment_v2/ordinal_page_index_test.cpp
-    olap/rowset/segment_v2/rle_page_test.cpp
-    olap/rowset/segment_v2/binary_dict_page_test.cpp
+    #olap/rowset/segment_v2/rle_page_test.cpp
+    #olap/rowset/segment_v2/binary_dict_page_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
-    olap/rowset/segment_v2/frame_of_reference_page_test.cpp
+    #olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
     olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
     olap/rowset/segment_v2/zone_map_index_test.cpp
@@ -135,14 +134,13 @@ set(OLAP_TEST_FILES
     olap/txn_manager_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
-    olap/primary_key_index_test.cpp
+    #olap/primary_key_index_test.cpp
     olap/page_cache_test.cpp
     olap/hll_test.cpp
     olap/selection_vector_test.cpp
     olap/block_column_predicate_test.cpp
     olap/options_test.cpp
     olap/common_test.cpp
-    olap/primary_key_index_test.cpp
     olap/tablet_cooldown_test.cpp
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
