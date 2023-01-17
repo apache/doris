@@ -28,7 +28,6 @@
 #include "exprs/decimalv2_operators.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/hash_functions.h"
-#include "exprs/hll_function.h"
 #include "exprs/is_null_predicate.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"

@@ -57,7 +57,6 @@ add_library(Exprs
   json_functions.cpp
   operators.cpp
   bitmap_function.cpp
-  hll_function.cpp
   quantile_function.cpp
   topn_function.cpp
 )
