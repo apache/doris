@@ -128,7 +128,6 @@ LZ4_MD5SUM="3a1ab1684e14fc1afc66228ce61b2db3"
 
 # bzip
 BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
-BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
 BZIP_NAME=bzip2-1.0.8.tar.gz
 BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
