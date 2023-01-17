@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"

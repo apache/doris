@@ -20,6 +20,7 @@
 #include <array>
 #include <memory>
 
+#include "exprs/bloom_filter_func.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
 #include "gen_cpp/Planner_types.h"
