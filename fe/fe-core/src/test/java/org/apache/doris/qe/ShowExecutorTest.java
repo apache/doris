@@ -28,6 +28,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowExportProfileStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowTableStmt;
@@ -51,6 +52,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.ExecNodeNode;
+import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
@@ -62,6 +68,7 @@ import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.commons.lang3.tuple.Triple;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -71,12 +78,14 @@ import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Function;
 
 public class ShowExecutorTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private ConnectContext ctx;
+    private ProfileManager profileManager = ProfileManager.getInstance();
     private Env env;
     private InternalCatalog catalog;
 
@@ -268,6 +277,48 @@ public class ShowExecutorTest {
                 ConnectContext.get();
                 minTimes = 0;
                 result = ctx;
+            }
+        };
+
+        // mock ProfileManager
+        new MockUp<ProfileTreePrinter>() {
+            @Mock
+            public String printInstanceTree(ProfileTreeNode node) {
+                return "test_result";
+            }
+        };
+        new Expectations(profileManager) {
+            {
+                List<List<String>> queryWithTypeResult = Lists.newArrayList();
+                List<String> queryWithTypeItem = Arrays.asList("1234", "12345678", "test_user", "default:test_d",
+                        "EXPORT TABLE test_t1 TO \"file:///tmp/test_t1\";\n", "EXPORT", "2023-01-17 11:29:00",
+                        "2023-01-17 11:30:00", "1m", "FINISHED", "traceId");
+                queryWithTypeResult.add(queryWithTypeItem);
+
+                profileManager.getQueryWithType((ProfileManager.ProfileType) any);
+                minTimes = 0;
+                result = queryWithTypeResult;
+
+                List<List<String>> loadJobTaskListResult = Lists.newArrayList();
+                List<String> loadJobTaskListItem = Arrays.asList("1234", "1m");
+                loadJobTaskListResult.add(loadJobTaskListItem);
+
+                profileManager.getLoadJobTaskList((String) any);
+                minTimes = 0;
+                result = loadJobTaskListResult;
+
+                List<Triple<String, String, Long>> fragmentInstanceListResult = Lists.newArrayList();
+                Triple<String, String, Long> fragmentInstanceListItem =
+                        Triple.of("test-instance", "127.0.0.1:9060", 60L * DebugUtil.BILLION);
+                fragmentInstanceListResult.add(fragmentInstanceListItem);
+
+                profileManager.getFragmentInstanceList((String) any, (String) any, (String) any);
+                minTimes = 0;
+                result = fragmentInstanceListResult;
+
+                profileManager.getInstanceProfileTree((String) any, (String) any, (String) any, (String) any);
+                minTimes = 0;
+                result = new ExecNodeNode("test_name", "test_id");
             }
         };
     }
@@ -601,6 +652,63 @@ public class ShowExecutorTest {
         ShowResultSet resultSet = executor.execute();
 
         Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowExportProfileStmt() throws AnalysisException {
+        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+        ShowExecutor executor;
+        ShowResultSet resultSet;
+        List<String> row;
+
+        ShowExportProfileStmt stmt1 = new ShowExportProfileStmt("/");
+        try {
+            stmt1.analyze(analyzer);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+        executor = new ShowExecutor(ctx, stmt1);
+        resultSet = executor.execute();
+        Assert.assertTrue(resultSet.getResultRows().size() == 1);
+        row = resultSet.getResultRows().get(0);
+        Assert.assertTrue(row.size() == ProfileManager.PROFILE_HEADERS.size());
+
+        ShowExportProfileStmt stmt2 = new ShowExportProfileStmt("/1234");
+        try {
+            stmt2.analyze(analyzer);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+        executor = new ShowExecutor(ctx, stmt2);
+        resultSet = executor.execute();
+        Assert.assertTrue(resultSet.getResultRows().size() == 1);
+        row = resultSet.getResultRows().get(0);
+        Assert.assertTrue(row.size() == 2);
+
+        ShowExportProfileStmt stmt3 = new ShowExportProfileStmt("/1234/e0f7390f53-b416a2a7999");
+        try {
+            stmt3.analyze(analyzer);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+        executor = new ShowExecutor(ctx, stmt3);
+        resultSet = executor.execute();
+        Assert.assertTrue(resultSet.getResultRows().size() == 1);
+        row = resultSet.getResultRows().get(0);
+        Assert.assertTrue(row.size() == 3);
+
+        ShowExportProfileStmt stmt4 =
+                new ShowExportProfileStmt("/1234/e0f7390f53-b416a2a799/e0f7390f5363-b416a2a79");
+        try {
+            stmt4.analyze(analyzer);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+        executor = new ShowExecutor(ctx, stmt4);
+        resultSet = executor.execute();
+        Assert.assertTrue(resultSet.getResultRows().size() == 1);
+        row = resultSet.getResultRows().get(0);
+        Assert.assertTrue(row.size() == 1);
     }
 
     @Test
