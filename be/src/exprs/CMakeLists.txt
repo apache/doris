@@ -25,13 +25,10 @@ add_library(Exprs
   encryption_functions.cpp
   aggregate_functions.cpp
   anyval_util.cpp
-  arithmetic_expr.cpp
-  cast_expr.cpp
   cast_functions.cpp
   conditional_functions.cpp
   decimalv2_operators.cpp
   time_operators.cpp
-  es_functions.cpp
   hash_functions.cpp
   literal.cpp
   expr.cpp
@@ -52,7 +49,6 @@ add_library(Exprs
   rpc_fn_comm.cpp
   slot_ref.cpp
   string_functions.cpp
-  array_functions.cpp
   timestamp_functions.cpp
   tuple_is_null_predicate.cpp
   udf_builtins.cpp
@@ -60,10 +56,8 @@ add_library(Exprs
   info_func.cpp
   json_functions.cpp
   operators.cpp
-  hll_hash_function.cpp
   bitmap_function.cpp
   hll_function.cpp
   quantile_function.cpp
-  grouping_sets_functions.cpp
   topn_function.cpp
 )

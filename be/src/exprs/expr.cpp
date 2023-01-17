@@ -29,8 +29,6 @@
 #include "common/status.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-#include "exprs/arithmetic_expr.h"
-#include "exprs/cast_expr.h"
 #include "exprs/conditional_functions.h"
 #include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
