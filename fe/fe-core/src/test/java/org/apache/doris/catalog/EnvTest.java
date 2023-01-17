@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.meta.MetaHeader;
 

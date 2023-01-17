@@ -34,7 +34,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.PushTask;
-import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TResourceInfo;
 
