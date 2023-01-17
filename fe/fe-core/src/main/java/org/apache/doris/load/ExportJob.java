@@ -128,12 +128,11 @@ public class ExportJob implements Writable {
     private String lineDelimiter;
     private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
-
     private TableName tableName;
-
     private String sql = "";
-
     private JobState state;
+    // If set to true, the profile of load job with be pushed to ProfileManager
+    private boolean enableProfile = false;
     private long createTimeMs;
     private long startTimeMs;
     private long finishTimeMs;
@@ -238,6 +237,7 @@ public class ExportJob implements Writable {
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             this.sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.enableProfile = var.enableProfile();
         } else {
             this.sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -734,6 +734,10 @@ public class ExportJob implements Writable {
 
     public String getQueryId() {
         return queryId;
+    }
+
+    public boolean getEnableProfile() {
+        return enableProfile;
     }
 
     @Override
