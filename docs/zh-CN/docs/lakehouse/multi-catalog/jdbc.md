@@ -75,7 +75,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 3. Oracle
 
     ```sql
-    CREATE RESOURCE jdbc_oracle PROPERTIES (
+    CREATE CATALOG jdbc_oracle PROPERTIES (
         "type"="jdbc",
         "user"="root",
         "password"="123456",
@@ -97,7 +97,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 4. Clickhouse
 
     ```sql
-    CREATE RESOURCE jdbc_clickhouse PROPERTIES (
+    CREATE CATALOG jdbc_clickhouse PROPERTIES (
         "type"="jdbc",
         "user"="root",
         "password"="123456",
