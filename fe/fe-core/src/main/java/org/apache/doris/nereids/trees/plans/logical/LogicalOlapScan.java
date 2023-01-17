@@ -39,6 +39,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collections;
 import java.util.List;
@@ -229,11 +230,12 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     }
 
     private List<Slot> filterSlotsOfSelectedIndex(List<Slot> slots, long indexId) {
+        ImmutableSet<Column> selectIndexColumns = ImmutableSet.copyOf(
+                getTable().getIndexIdToMeta().get(indexId).getSchema());
         return slots.stream()
-                .filter(slot -> ((SlotReference) slot).getColumn().isPresent() && getTable()
-                        .getIndexIdToMeta().get(indexId).getSchema()
-                        .contains(((SlotReference) slot).getColumn().get())).collect(
-                        Collectors.toList());
+                .filter(slot -> ((SlotReference) slot).getColumn().isPresent()
+                        && selectIndexColumns.contains(((SlotReference) slot).getColumn().get()))
+                .collect(ImmutableList.toImmutableList());
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
