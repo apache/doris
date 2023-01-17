@@ -166,12 +166,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    // Must be vec exec engine
-    if (!request.query_options.__isset.enable_vectorized_engine ||
-        !request.query_options.enable_vectorized_engine) {
-        return Status::InternalError("should set enable_vectorized_engine to true");
-    }
-
     // 1. init _runtime_state
     _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
                                                     _query_ctx->query_globals, _exec_env);

@@ -39,7 +39,6 @@ suite("test_round") {
     sql """ DROP TABLE IF EXISTS `${tableName}` """
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     qt_nereids_round_arg1 "SELECT round(10.12345)"

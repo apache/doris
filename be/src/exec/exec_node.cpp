@@ -403,13 +403,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
-            // in progress of upgrading from 1.1-lts to 1.2-lts
-            error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
-                         "join cannot be executed, you can switch to non-vectorized engine by "
-                         "'set global enable_vectorized_engine = false'";
-            return Status::InternalError(error_msg.str());
-        }
         *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         return Status::OK();
 
