@@ -203,9 +203,6 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
-        // copy the codewords into a temporary buffer first
-        // And then copy the strings corresponding to the codewords to the destination buffer
-        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
         _data_page_decoder.reset(
                 _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
