@@ -194,6 +194,10 @@ Status PipelineTask::finalize() {
     return _sink->finalize(_state);
 }
 
+Status PipelineTask::try_close() {
+    return _source->try_close();
+}
+
 Status PipelineTask::close() {
     int64_t close_ns = 0;
     Status s;
