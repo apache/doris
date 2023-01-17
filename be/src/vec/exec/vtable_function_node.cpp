@@ -129,7 +129,7 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
                                   std::placeholders::_3)),
                 child(0)->get_next_span(), _child_eos);
 
-        push(state, &_child_block, _child_eos);
+        RETURN_IF_ERROR(push(state, &_child_block, _child_eos));
     }
 
     return pull(state, block, eos);
