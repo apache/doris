@@ -177,15 +177,11 @@ public class DdlExecutor {
             if (jobType == EtlJobType.UNKNOWN) {
                 throw new DdlException("Unknown load job type");
             }
-            if (jobType == EtlJobType.HADOOP && Config.disable_hadoop_load) {
+            if (jobType == EtlJobType.HADOOP) {
                 throw new DdlException("Load job by hadoop cluster is disabled."
                         + " Try using broker load. See 'help broker load;'");
             }
-            if (jobType == EtlJobType.HADOOP) {
-                env.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
-            } else {
-                env.getLoadManager().createLoadJobFromStmt(loadStmt);
-            }
+            env.getLoadManager().createLoadJobFromStmt(loadStmt);
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {

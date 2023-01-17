@@ -146,41 +146,4 @@ public class EnvTest {
 
         deleteDir(dir);
     }
-
-    @Test
-    public void testSaveLoadJob() throws Exception {
-        String dir = "testLoadLoadJob";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
-
-        Env env = Env.getCurrentEnv();
-        MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        Field field = env.getClass().getDeclaredField("load");
-        field.setAccessible(true);
-        field.set(env, new Load());
-
-        LoadJob job1 = new LoadJob("label1", 20, 0);
-        env.getLoadInstance().unprotectAddLoadJob(job1, true);
-        long checksum1 = env.saveLoadJob(dos, 0);
-        env.clear();
-        env = null;
-        dos.close();
-
-        env = Env.getCurrentEnv();
-
-        Field field2 = env.getClass().getDeclaredField("load");
-        field2.setAccessible(true);
-        field2.set(env, new Load());
-
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        long checksum2 = env.loadLoadJob(dis, 0);
-        Assert.assertEquals(checksum1, checksum2);
-        LoadJob job2 = env.getLoadInstance().getLoadJob(-1);
-        Assert.assertEquals(job1, job2);
-        dis.close();
-
-        deleteDir(dir);
-    }
 }

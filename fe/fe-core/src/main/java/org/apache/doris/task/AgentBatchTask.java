@@ -219,9 +219,6 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushReq(request);
-                if (pushTask.getPushType() == TPushType.LOAD) {
-                    tAgentTaskRequest.setResourceInfo(pushTask.getResourceInfo());
-                }
                 tAgentTaskRequest.setPriority(pushTask.getPriority());
                 return tAgentTaskRequest;
             }
