@@ -621,6 +621,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_116) {
             transactionQuotaSize = in.readLong();
+        } else {
+            transactionQuotaSize = Config.default_db_max_running_txn_num;
         }
     }
 
