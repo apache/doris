@@ -51,33 +51,28 @@ public class JdbcClient {
     private String dbType;
     private String jdbcUser;
     private String jdbcPasswd;
-    private String jdbcUrl;
-    private String driverUrl;
     private String driverClass;
 
     private URLClassLoader classLoader = null;
 
     private HikariDataSource dataSource = null;
 
-
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
         this.jdbcUser = user;
         this.jdbcPasswd = password;
-        this.jdbcUrl = jdbcUrl;
         this.dbType = parseDbType(jdbcUrl);
-        this.driverUrl = driverUrl;
         this.driverClass = driverClass;
 
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
-            URL[] urls = {new URL(driverUrl)};
+            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             classLoader = URLClassLoader.newInstance(urls, null);
             Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
+            config.setDriverClassName(this.driverClass);
             config.setJdbcUrl(jdbcUrl);
             config.setUsername(jdbcUser);
             config.setPassword(jdbcPasswd);
