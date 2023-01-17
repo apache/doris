@@ -168,5 +168,10 @@ suite("nereids_function") {
             ) AS level
         from window_funnel_test t;
     """
+
+    test {
+        sql "select cast(1.2 as integer);"
+        result([[1]])
+    }
 }
 
