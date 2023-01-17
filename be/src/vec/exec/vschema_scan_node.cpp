@@ -262,10 +262,9 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     block->clear();
 
     for (int i = 0; i < _slot_num; ++i) {
-        int j = _index_map[i];
-        const auto slot_desc = _src_tuple_desc->slots()[j];
-        block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                            slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+        auto dest_slot_desc = _dest_tuple_desc->slots()[i];
+        block->insert(ColumnWithTypeAndName(dest_slot_desc->get_empty_mutable_column(),
+                                            dest_slot_desc->get_data_type_ptr(), dest_slot_desc->col_name()));
     }
 
     do {
