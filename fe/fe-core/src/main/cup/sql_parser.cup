@@ -6177,6 +6177,8 @@ literal ::=
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
   {: RESULT = new PlaceHolderExpr(); :}
+  | MOD 
+  {: RESULT = new PlaceHolderExpr(); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
     // we have an unmatched string literal.

@@ -54,6 +54,7 @@ suite("test_point_query") {
       sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38") """
 
       def stmt = prepareStatement "select * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+      assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
       stmt.setInt(1, 1231)
       stmt.setBigDecimal(2, new BigDecimal("119291.11"))
       stmt.setString(3, "ddd")
@@ -68,11 +69,13 @@ suite("test_point_query") {
       qe_point_select stmt
 
       stmt = prepareStatement "select * from ${tableName} where k1 = 1235 and k2 = ? and k3 = ?"
+      assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
       stmt.setBigDecimal(1, new BigDecimal("991129292901.11138"))
       stmt.setString(2, "dd")
       qe_point_select stmt
 
       def stmt_fn = prepareStatement "select hex(k3), hex(k4) from ${tableName} where k1 = ? and k2 =? and k3 = ?"
+      assertEquals(stmt_fn.class, com.mysql.cj.jdbc.ServerPreparedStatement);
       stmt_fn.setInt(1, 1231)
       stmt_fn.setBigDecimal(2, new BigDecimal("119291.11"))
       stmt_fn.setString(3, "ddd")
@@ -111,5 +114,13 @@ suite("test_point_query") {
         qt_sql """select * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
         qt_sql """select * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
         qt_sql """select  hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
+        // prepared text
+        sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """ 
+        qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
+        qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
+
+        sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %""" 
+        qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
+        qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
     }
 }
