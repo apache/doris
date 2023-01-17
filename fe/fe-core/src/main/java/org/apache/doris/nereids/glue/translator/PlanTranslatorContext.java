@@ -159,6 +159,14 @@ public class PlanTranslatorContext {
             Optional<Column> column = slotReference.getColumn();
             column.ifPresent(slotDescriptor::setColumn);
         }
+
+        slotDescriptor.setNereidsExpressionId(slotReference.getExprId().asInt());
+        String caption = slotReference.toSql();
+        if (caption.startsWith("expr_")) {
+            caption = caption.substring("expr_".length());
+        }
+        slotDescriptor.setNereidsExpressionCaption(caption);
+
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;

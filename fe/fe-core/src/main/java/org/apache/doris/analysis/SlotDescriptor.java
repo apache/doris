@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
@@ -72,6 +73,12 @@ public class SlotDescriptor {
     // If set to false, then such slots will be ignored during
     // materialize them.Used to optmize to read less data and less memory usage
     private boolean needMaterialize = true;
+
+    //used for nereids planner
+    //the corresponding expression ID
+    private int nereidsExpressionId = -1;
+    //nereidsExpressionCaption is column name or expression.tosql()
+    private String nereidsExpressionCaption = "";
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
         this.id = id;
@@ -332,7 +339,7 @@ public class SlotDescriptor {
     }
 
     public String debugString() {
-        String colStr = (column == null ? "null" : column.getName());
+        String colStr = getColumnCaption();
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
@@ -350,7 +357,7 @@ public class SlotDescriptor {
         return new StringBuilder()
                 .append(prefix).append("SlotDescriptor{")
                 .append("id=").append(id)
-                .append(", col=").append(column == null ? "null" : column.getName())
+                .append(", col=").append(getColumnCaption())
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toString())
                 .append(", nullable=").append(isNullable)
@@ -362,4 +369,32 @@ public class SlotDescriptor {
         return parent.getTable() instanceof OlapTable;
     }
 
+
+    public int getNereidsExpressionId() {
+        return nereidsExpressionId;
+    }
+
+    public void setNereidsExpressionId(int nereidsExpressionId) {
+        this.nereidsExpressionId = nereidsExpressionId;
+    }
+
+    public String getNereidsExpressionCaption() {
+        return nereidsExpressionCaption;
+    }
+
+    public void setNereidsExpressionCaption(String nereidsExpressionCaption) {
+        this.nereidsExpressionCaption = nereidsExpressionCaption;
+    }
+
+    public String getColumnCaption() {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            if (nereidsExpressionId == -1) {
+                return nereidsExpressionCaption;
+            } else {
+                return nereidsExpressionCaption + "#" + getNereidsExpressionId();
+            }
+        } else {
+            return getColumn() == null ? "null" : getColumn().getName();
+        }
+    }
 }

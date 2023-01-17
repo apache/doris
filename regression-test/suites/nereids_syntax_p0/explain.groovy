@@ -62,7 +62,7 @@ suite("nereids_explain") {
             when 1>1 then cast(1 as float)
             else 0.0 end;
             """
-        contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=FLOAT, nullable=false}"
+        contains "SlotDescriptor{id=0, col=CASE  WHEN (1 = 1) THEN cast(1 as INT) WHEN (1 > 1) THEN cast(1 as FLOAT) ELSE 0.0 END#0, colUniqueId=null, type=FLOAT, nullable=false}"
     }
 
     def explainStr = sql("select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false").toString()
