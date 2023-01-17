@@ -198,7 +198,6 @@ private:
                           FieldType type);
     bool _ready;
     bool _eof;
-    TupleDescriptor* _tuple_desc;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
     std::unique_ptr<MemPool> _mem_pool;
