@@ -170,6 +170,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -525,11 +526,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitNamedExpression(NamedExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression expression = getExpression(ctx.expression());
-            if (ctx.name != null) {
-                return new UnboundAlias(expression, ctx.name.getText());
-            } else if (ctx.strName != null) {
-                return new UnboundAlias(expression, ctx.strName.getText()
-                        .substring(1, ctx.strName.getText().length() - 1));
+            if (ctx.errorCapturingIdentifier() != null) {
+                return new UnboundAlias(expression, ctx.errorCapturingIdentifier().getText());
+            } else if (ctx.STRING() != null) {
+                return new UnboundAlias(expression, ctx.STRING().getText()
+                        .substring(1, ctx.STRING().getText().length() - 1));
             } else {
                 return expression;
             }
@@ -948,13 +949,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitTypeConstructor(TypeConstructorContext ctx) {
         String value = ctx.STRING().getText();
         value = value.substring(1, value.length() - 1);
-        String type = ctx.identifier().getText().toUpperCase();
+        String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
                 return new DateLiteral(value);
-            case "DATETIME":
             case "TIMESTAMP":
                 return new DateTimeLiteral(value);
+            case "DATEV2":
+                return new DateV2Literal(value);
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
@@ -1015,12 +1017,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         // TODO: add unescapeSQLString.
-        String s = ctx.STRING().stream()
-                .map(ParseTree::getText)
-                .map(str -> str.substring(1, str.length() - 1))
-                .reduce((s1, s2) -> s1 + s2)
-                .map(this::escapeBackSlash)
-                .orElse("");
+        String txt = ctx.STRING().getText();
+        String s = txt.substring(1, txt.length() - 1);
         return new VarcharLiteral(s);
     }
 
