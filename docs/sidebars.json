@@ -199,13 +199,13 @@
                     "type": "category",
                     "label": "External Table",
                     "items": [
-                        "lakehouse/external-table/file",
                         "lakehouse/external-table/es",
                         "lakehouse/external-table/jdbc",
                         "lakehouse/external-table/odbc",
                         "lakehouse/external-table/hive"
                     ]
-                }
+                },
+                "lakehouse/file"
             ]
         },
         {

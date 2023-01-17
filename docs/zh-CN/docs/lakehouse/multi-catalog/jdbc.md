@@ -29,6 +29,8 @@ under the License.
 
 JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
+连接后，Doris 会自动同步数据源下的 Database 和 Table 的元数据，以便快速访问这些外部数据。
+
 ## 使用限制
 
 1. 支持 MySQL、PostgreSQL、Oracle、Clickhouse
@@ -37,74 +39,74 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 1. MySQL
 
-	```sql
-	CREATE CATALOG jdbc_mysql PROPERTIES (
-	    "type"="jdbc",
-	    "user"="root",
-	    "password"="123456",
-	    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-	    "driver_url" = "mysql-connector-java-5.1.47.jar",
-	    "driver_class" = "com.mysql.jdbc.Driver"
-	)
-	```
-	
+    ```sql
+    CREATE CATALOG jdbc_mysql PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+        "driver_url" = "mysql-connector-java-5.1.47.jar",
+        "driver_class" = "com.mysql.jdbc.Driver"
+    )
+    ```
+    
 2. PostgreSQL
 
-	```sql
-	CREATE CATALOG jdbc_postgresql PROPERTIES (
-	    "type"="jdbc",
-	    "user"="root",
-	    "password"="123456",
-	    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-	    "driver_url" = "postgresql-42.5.1.jar",
-	    "driver_class" = "org.postgresql.Driver"
-	);
-	```
-	
-	映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定 Catalog（如示例中 `jdbc_url` 参数中 "demo"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
-	
-	|Doris | PostgreSQL |
-	|---|---|
-	| Catalog | Database | 
-	| Database | Schema |
-	| Table | Tablet |
+    ```sql
+    CREATE CATALOG jdbc_postgresql PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+        "driver_url" = "postgresql-42.5.1.jar",
+        "driver_class" = "org.postgresql.Driver"
+    );
+    ```
+    
+    映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定 Catalog（如示例中 `jdbc_url` 参数中 "demo"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
+    
+    |Doris | PostgreSQL |
+    |---|---|
+    | Catalog | Database | 
+    | Database | Schema |
+    | Table | Table |
 
 
 3. Oracle
 
-	```sql
-	CREATE RESOURCE jdbc_oracle PROPERTIES (
-		"type"="jdbc",
-		"user"="root",
-		"password"="123456",
-		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-		"driver_url" = "ojdbc6.jar",
-		"driver_class" = "oracle.jdbc.driver.OracleDriver"
-	);
-	```
-	
-	映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User（如示例中 `jdbc_url` 参数中 "helowin"）。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
+    ```sql
+    CREATE CATALOG jdbc_oracle PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+        "driver_url" = "ojdbc6.jar",
+        "driver_class" = "oracle.jdbc.driver.OracleDriver"
+    );
+    ```
+    
+    映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User（如示例中 `jdbc_url` 参数中 "helowin"）。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
 
-	|Doris | PostgreSQL |
-	|---|---|
-	| Catalog | Database | 
-	| Database | User |
-	| Table | Table |
-	
-	
+    |Doris | PostgreSQL |
+    |---|---|
+    | Catalog | Database | 
+    | Database | User |
+    | Table | Table |
+    
+    
 4. Clickhouse
 
-	```sql
-	CREATE RESOURCE jdbc_clickhouse PROPERTIES (
-	    "type"="jdbc",
-	    "user"="root",
-	    "password"="123456",
-	    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
-	    "driver_url" = "clickhouse-jdbc-0.3.2-patch11-all.jar",
-	    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
-	);
-	```
-	
+    ```sql
+    CREATE CATALOG jdbc_clickhouse PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+        "driver_url" = "clickhouse-jdbc-0.3.2-patch11-all.jar",
+        "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+    );
+    ```
+    
 ### 参数说明
 
 参数 | 是否必须 | 默认值 | 说明 
@@ -216,77 +218,76 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse 是否能够支持更多的数据库
 
-   目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 
     Doris进行jdbc外表连接时，由于mysql之中默认的utf8编码为utf8mb3，无法表示需要4字节编码的emoji表情。这里需要在建立mysql外表时设置对应列的编码为utf8mb4,设置服务器编码为utf8mb4,JDBC Url中的characterEncoding不配置.（该属性不支持utf8mb4,配置了非utf8mb4将导致无法写入表情，因此要留空，不配置）
 
-	可全局修改配置项
-	
-	```
-	修改mysql目录下的my.ini文件（linux系统为etc目录下的my.cnf文件）
-	[client]
-	default-character-set=utf8mb4
-	
-	[mysql]
-	设置mysql默认字符集
-	default-character-set=utf8mb4
-	
-	[mysqld]
-	设置mysql字符集服务器
-	character-set-server=utf8mb4
-	collation-server=utf8mb4_unicode_ci
-	init_connect='SET NAMES utf8mb4
-	
-	修改对应表与列的类型
-	ALTER TABLE table_name MODIFY  colum_name  VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-	ALTER TABLE table_name CHARSET=utf8mb4;
-	SET NAMES utf8mb4
-	
-	```
+    可全局修改配置项
+    
+    ```
+    修改mysql目录下的my.ini文件（linux系统为etc目录下的my.cnf文件）
+    [client]
+    default-character-set=utf8mb4
+    
+    [mysql]
+    设置mysql默认字符集
+    default-character-set=utf8mb4
+    
+    [mysqld]
+    设置mysql字符集服务器
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+    init_connect='SET NAMES utf8mb4
+    
+    修改对应表与列的类型
+    ALTER TABLE table_name MODIFY  colum_name  VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    ALTER TABLE table_name CHARSET=utf8mb4;
+    SET NAMES utf8mb4
+    ```
 
 3. 读 MySQL 外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
 
-   这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数 `zeroDateTimeBehavior`控制该行为。
-   
-   可选参数为: `EXCEPTION`,`CONVERT_TO_NULL`,`ROUND`, 分别为：异常报错，转为NULL值，转为 "0001-01-01 00:00:00";
-   
-   可在url中添加: `"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull"`
+    这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数 `zeroDateTimeBehavior`控制该行为。
+    
+    可选参数为: `EXCEPTION`,`CONVERT_TO_NULL`,`ROUND`, 分别为：异常报错，转为NULL值，转为 "0001-01-01 00:00:00";
+    
+    可在url中添加: `"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull"`
 
 4. 读取 MySQL 外表或其他外表时，出现加载类失败
-   
-   如以下异常：
-   
-   	```
-   failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
-   ```
-  
-   这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
+
+    如以下异常：
+ 
+    ```
+    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
+    ```
+ 
+    这是因为在创建resource时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
 
 5. 读取 MySQL 问题出现通信链路异常
 
-   如果出现如下报错：
+    如果出现如下报错：
 
-   ```
-	ERROR 1105 (HY000): errCode = 2, detailMessage = PoolInitializationException: Failed to initialize pool: Communications link failure
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = PoolInitializationException: Failed to initialize pool: Communications link failure
     
-	The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
-	CAUSED BY: CommunicationsException: Communications link failure
-	    
-	The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
-	CAUSED BY: SSLHandshakeExcepti
-   ```
-   
-   可查看be的be.out日志
-   
-   如果包含以下信息：
-   
-   ```
-   WARN: Establishing SSL connection without server's identity verification is not recommended. 
-   According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. 
-   For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. 
-   You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
-   ```
+    The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
+    CAUSED BY: CommunicationsException: Communications link failure
+        
+    The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
+    CAUSED BY: SSLHandshakeExcepti
+    ```
+    
+    可查看be的be.out日志
+    
+    如果包含以下信息：
+    
+    ```
+    WARN: Establishing SSL connection without server's identity verification is not recommended. 
+    According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. 
+    For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. 
+    You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
+    ```
 
-   可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
+    可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`

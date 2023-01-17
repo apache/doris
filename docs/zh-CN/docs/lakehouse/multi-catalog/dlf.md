@@ -97,6 +97,6 @@ under the License.
     
     之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
     
-    同 Hive Catalog 已经，支持访问 DLF 中的 Hive/Iceberg/Hudi 的元数据信息。
+    同 Hive Catalog 一样，支持访问 DLF 中的 Hive/Iceberg/Hudi 的元数据信息。
 
 
