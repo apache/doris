@@ -25,6 +25,7 @@
 #include "olap/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
+#include "exec/tablet_info.h"
 
 namespace doris {
 namespace vectorized {
@@ -215,7 +216,7 @@ public:
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
 
     void build_current_tablet_schema(int64_t index_id, int32_t version,
-                                     const POlapTableIndexSchema& index,
+                                     const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
 
     // Merge columns that not exit in current schema, these column is dropped in current schema
