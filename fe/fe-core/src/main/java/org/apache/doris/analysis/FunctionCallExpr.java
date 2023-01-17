@@ -1393,6 +1393,7 @@ public class FunctionCallExpr extends Expr {
         if (this.type.isDecimalV3() || (this.type.isDatetimeV2()
                 && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
             // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change it to a double function
+            // Todo: fix array(datetimev2) input return wrong scale
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
         }
