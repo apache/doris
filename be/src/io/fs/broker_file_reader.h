@@ -59,7 +59,6 @@ private:
 
     std::shared_ptr<BrokerFileSystem> _fs;
     std::atomic<bool> _closed = false;
-    std::shared_ptr<BrokerServiceConnection> _client;
 };
 } // namespace io
 } // namespace doris
