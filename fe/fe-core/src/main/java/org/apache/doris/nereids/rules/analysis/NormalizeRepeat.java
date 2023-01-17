@@ -223,7 +223,6 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
 
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
-        Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
 
         // nullable will be different from grouping set and output expressions,
         // so we can not use the slot in grouping set，but use the equivalent slot in output expressions.
@@ -236,9 +235,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 expression = outputs.get(outputs.indexOf(expression));
             }
             if (groupingSetExpressions.contains(expression)) {
-                boolean isCommonGroupingSetExpression = commonGroupingSetExpressions.contains(expression);
-                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(
-                        isCommonGroupingSetExpression, expression, existsAliasMap.get(expression));
+                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
             } else {
                 pushDownTriplet = Optional.of(
                         NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression)));
@@ -252,10 +249,10 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private Optional<NormalizeToSlotTriplet> toGroupingSetExpressionPushDownTriplet(
-            boolean isCommonGroupingSetExpression, Expression expression, @Nullable Alias existsAlias) {
+            Expression expression, @Nullable Alias existsAlias) {
         NormalizeToSlotTriplet originTriplet = NormalizeToSlotTriplet.toTriplet(expression, existsAlias);
         SlotReference remainSlot = (SlotReference) originTriplet.remainExpr;
-        Slot newSlot = remainSlot.withCommonGroupingSetExpression(isCommonGroupingSetExpression);
+        Slot newSlot = remainSlot.withNullable(true);
         return Optional.of(new NormalizeToSlotTriplet(expression, newSlot, originTriplet.pushedExpr));
     }
 

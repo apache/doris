@@ -186,12 +186,4 @@ public class SlotReference extends Slot {
     public Slot withName(String name) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
-
-    /** withCommonGroupingSetExpression */
-    public Slot withCommonGroupingSetExpression(boolean isCommonGroupingSetExpression) {
-        if (!isCommonGroupingSetExpression) {
-            return withNullable(true);
-        }
-        return this;
-    }
 }
