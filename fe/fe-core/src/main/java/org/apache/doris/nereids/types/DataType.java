@@ -197,6 +197,7 @@ public abstract class DataType implements AbstractDataType {
                 return TinyIntType.INSTANCE;
             case "smallint":
                 return SmallIntType.INSTANCE;
+            case "integer":
             case "int":
                 return IntegerType.INSTANCE;
             case "bigint":
