@@ -713,7 +713,8 @@ public class StmtExecutor implements ProfileWriter {
             analyzer = preparedStmtCtx.analyzer;
             Preconditions.checkState(parsedStmt.isAnalyzed());
             LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
-            if (!preparedStmtCtx.stmt.reAnalyze()) {
+            if (!preparedStmtCtx.stmt.needReAnalyze()) {
+                // Return directly to bypass analyze and plan
                 return;
             }
             // continue analyze
@@ -923,6 +924,7 @@ public class StmtExecutor implements ProfileWriter {
                 analyzer = new Analyzer(context.getEnv(), context);
 
                 if (prepareStmt != null) {
+                    // Re-analyze prepareStmt with a new analyzer
                     prepareStmt.reset();
                     prepareStmt.analyze(analyzer);
                 }
@@ -1753,9 +1755,6 @@ public class StmtExecutor implements ProfileWriter {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
                         exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
         }
-        // if (numColumns > 0) {
-        //     sendFields(selectStmt.getColLabels(), exprToType(selectStmt.getResultExprs()));
-        // }
         context.getState().setOk();
     }
 

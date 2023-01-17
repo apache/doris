@@ -409,6 +409,7 @@ public class OriginalPlanner extends Planner {
             PlanNode node = fragment.getPlanRoot();
             PlanNode parent = null;
 
+            // OlapScanNode is the last node.
             // So, just get the last two node and check if they are SortNode and OlapScan.
             while (node.getChildren().size() != 0) {
                 parent = node;

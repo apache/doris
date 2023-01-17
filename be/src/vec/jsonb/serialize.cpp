@@ -101,9 +101,11 @@ static void deserialize_column(PrimitiveType type, JsonbValue* slot_value, Mutab
             dst->insert(static_cast<JsonbInt128Val*>(slot_value)->val());
             break;
         }
-        case TYPE_FLOAT:
+        case TYPE_FLOAT: {
+            dst->insert(static_cast<JsonbFloatVal*>(slot_value)->val());
+            break;
+        }
         case TYPE_DOUBLE: {
-            assert(slot_value->isDouble());
             dst->insert(static_cast<JsonbDoubleVal*>(slot_value)->val());
             break;
         }

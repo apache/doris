@@ -69,7 +69,7 @@ public class PrepareStmt extends StatementBase {
         this.context = ctx;
     }
 
-    public boolean reAnalyze() {
+    public boolean needReAnalyze() {
         if (schemaVersion == tbl.getBaseSchemaVersion()) {
             return false;
         }

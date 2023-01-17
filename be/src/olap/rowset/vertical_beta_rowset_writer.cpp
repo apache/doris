@@ -53,6 +53,7 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
     if (UNLIKELY(max_rows_per_segment > _context.max_rows_per_segment)) {
         max_rows_per_segment = _context.max_rows_per_segment;
     }
+
     if (_segment_writers.empty()) {
         // it must be key columns
         DCHECK(is_key);

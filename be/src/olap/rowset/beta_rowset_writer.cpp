@@ -461,9 +461,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_append_row_column(
-        vectorized::Block* block, std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
-        vectorized::Block* dst_block) {
+Status BetaRowsetWriter::_append_row_column(vectorized::Block* block,
+                                            vectorized::Block* dst_block) {
     MonotonicStopWatch watch;
     watch.start();
     *dst_block = block->clone_empty();
@@ -480,8 +479,8 @@ Status BetaRowsetWriter::_append_row_column(
                                                            .get());
     vectorized::JsonbSerializeUtil::block_to_jsonb(*_context.tablet_schema, *dst_block, *column,
                                                    _context.tablet_schema->num_columns());
-    VLOG_DEBUG << "serialize , num_rows:" << block->rows()
-               << ", total_byte_size:" << block->allocated_bytes() << ", serialize_cost(us)"
+    VLOG_DEBUG << "serialize , num_rows:" << dst_block->rows()
+               << ", total_byte_size:" << dst_block->allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;
     return Status::OK();
 }
@@ -577,8 +576,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     std::unique_ptr<vectorized::Block> temp;
     if (_context.tablet_schema->store_row_column()) {
         temp.reset(new vectorized::Block);
-        RETURN_IF_ERROR(_append_row_column(const_cast<vectorized::Block*>(block), segment_writer,
-                                           temp.get()));
+        RETURN_IF_ERROR(_append_row_column(const_cast<vectorized::Block*>(block), temp.get()));
         block = temp.get();
     }
     size_t block_size_in_bytes = block->bytes();

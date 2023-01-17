@@ -226,6 +226,7 @@ Status PointQueryExecutor::_output_data() {
                                                                nullptr);
             RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
         }
+        VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {
         _response->set_empty_batch(true);
     }

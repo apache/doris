@@ -260,8 +260,8 @@ message PTabletKeyLookupRequest {
 
 message PTabletKeyLookupResponse {
     required PStatus status = 1;
-    optional bytes row_batch = 5;
-    optional bool empty_batch = 6;
+    optional bytes row_batch = 2;
+    optional bool empty_batch = 3;
 }
 
 //Add message definition to fetch and update cache
