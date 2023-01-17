@@ -383,7 +383,8 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    template <bool forward_index = true>
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
@@ -393,11 +394,16 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
 
         dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
-
         *n = max_fetch;
-        _cur_index += max_fetch;
+        if constexpr (forward_index) {
+            _cur_index += max_fetch;
+        }
 
         return Status::OK();
+    };
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return next_batch<>(n, dst);
     };
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
@@ -426,7 +432,7 @@ public:
         return Status::OK();
     }
 
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
+    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return next_batch<false>(n, dst);
     }
 

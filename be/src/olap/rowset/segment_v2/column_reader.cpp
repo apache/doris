@@ -486,21 +486,17 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
-    const auto* offset_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
-    RETURN_IF_ERROR(
-            ColumnVectorBatch::create(1024, false, offset_type_info, nullptr, &_length_batch));
     return Status::OK();
 }
 
 Status ArrayFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     if (_offset_iterator->get_current_page()->has_remaining()) {
         PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder;
-        ColumnBlock ordinal_block(_length_batch.get(), nullptr);
-        ColumnBlockView ordinal_view(&ordinal_block);
-        size_t i = 1;
-        RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&i, &ordinal_view)); // not null
-        DCHECK(i == 1);
-        *offset = *reinterpret_cast<uint64_t*>(_length_batch->data());
+        vectorized::MutableColumnPtr offset_col = vectorized::ColumnUInt64::create();
+        size_t n = 1;
+        RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
+        DCHECK(offset_col->size() == 1);
+        *offset = offset_col->get_uint(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
