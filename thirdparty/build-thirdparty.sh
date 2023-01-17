@@ -1547,7 +1547,6 @@ build_concurrentqueue() {
     cp ./*.h "${TP_INSTALL_DIR}/include/"
 }
 
-#        -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DZLIB_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
 #clucene
 build_clucene() {
     if [[ -z ${USE_AVX2} ]]; then
@@ -1580,7 +1579,6 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
     build_gettext
 fi
 
-#build_clucene
 build_libunixodbc
 build_openssl
 build_libevent
