@@ -59,7 +59,10 @@ std::vector<std::wstring> FullTextIndexReader::get_analyse_result(
         reader.reset(
                 (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
     } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
-        analyzer = std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
+        auto chinese_analyzer =
+                std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
+        chinese_analyzer->initDict(config::inverted_index_dict_path);
+        analyzer = chinese_analyzer;
         reader.reset(new lucene::util::SimpleInputStreamReader(
                 new lucene::util::AStringReader(value.c_str()),
                 lucene::util::SimpleInputStreamReader::UTF8));
