@@ -37,7 +37,7 @@ public class MVRefreshInfo {
     }
 
     public MVRefreshInfo(RefreshMethod method, MVRefreshTriggerInfo trigger) {
-        this(false, method, trigger);
+        this(trigger == null, method, trigger);
     }
 
     public MVRefreshInfo(boolean neverRefresh, RefreshMethod method, MVRefreshTriggerInfo trigger) {
