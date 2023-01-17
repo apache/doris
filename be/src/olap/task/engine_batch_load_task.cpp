@@ -267,7 +267,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         return Status::InternalError("could not find tablet {}", request.tablet_id);
     }
 
-    PushType type = TPushType::LOAD_V2;
+    PushType type = PUSH_NORMAL_V2;
     int64_t duration_ns = 0;
     PushHandler push_handler;
     if (!request.__isset.transaction_id) {
