@@ -263,6 +263,5 @@ private:
     std::map<int, std::list<IRuntimeFilter*>> _runtime_filters;
 };
 
-using RuntimeFilterSlots = RuntimeFilterSlotsBase<ExprContext>;
 using VRuntimeFilterSlots = RuntimeFilterSlotsBase<vectorized::VExprContext>;
 } // namespace doris
