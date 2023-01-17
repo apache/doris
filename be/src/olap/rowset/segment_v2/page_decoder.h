@@ -92,8 +92,8 @@ public:
     // Same as `next_batch` except for not moving forward the cursor.
     // When read array's ordinals in `ArrayFileColumnIterator`, we want to read one extra ordinal
     // but do not want to move forward the cursor.
-    virtual Status peek_next_batch(size_t* n, ColumnBlockView* dst) {
-        return Status::NotSupported("peek_next_batch");
+    virtual Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("not implement vec op now");
     }
 
     // Return the number of elements in this page.

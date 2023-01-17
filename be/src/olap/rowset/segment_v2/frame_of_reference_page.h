@@ -165,8 +165,8 @@ public:
         return Status::NotSupported("frame page not implement vec op now");
     };
 
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch<false>(n, dst);
+    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("frame page not implement vec op now");
     }
 
     size_t count() const override { return _num_elements; }
