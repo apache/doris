@@ -46,7 +46,6 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_planner=true'
 

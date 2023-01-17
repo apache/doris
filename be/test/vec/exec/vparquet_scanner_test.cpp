@@ -41,7 +41,6 @@ public:
     VParquetScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state.init_mem_trackers();
-        _runtime_state._query_options.enable_vectorized_engine = true;
     }
     ~VParquetScannerTest() {}
     void init();

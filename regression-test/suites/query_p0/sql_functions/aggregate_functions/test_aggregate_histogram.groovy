@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_aggregate_histogram") {
-    sql "set enable_vectorized_engine = true"
-
     def tableName = "histogram_test"
     def tableCTAS1 = "histogram_test_ctas1"
     def tableCTAS2 = "histogram_test_ctas2"

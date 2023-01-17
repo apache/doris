@@ -49,7 +49,6 @@ public:
 
         TUniqueId unique_id;
         TQueryOptions query_options;
-        query_options.__set_enable_vectorized_engine(true);
         TQueryGlobals query_globals;
 
         _runtime_state.init(unique_id, query_options, query_globals, nullptr);
