@@ -75,7 +75,7 @@ public:
     virtual InvertedIndexReaderType type() = 0;
     bool indexExists(io::Path& index_file_path);
 
-    uint32_t get_index_id() { return _index_id; }
+    uint32_t get_index_id() const { return _index_id; }
 
 protected:
     bool _is_match_query(InvertedIndexQueryType query_type);
@@ -103,10 +103,10 @@ public:
     }
 
     InvertedIndexReaderType type() override;
-    std::vector<std::string> get_analyse_result(const std::wstring& field_name,
-                                                const std::wstring& value,
-                                                InvertedIndexQueryType query_type,
-                                                InvertedIndexParserType analyser_type);
+    std::vector<std::wstring> get_analyse_result(const std::wstring& field_name,
+                                                 const std::string& value,
+                                                 InvertedIndexQueryType query_type,
+                                                 InvertedIndexParserType analyser_type);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
