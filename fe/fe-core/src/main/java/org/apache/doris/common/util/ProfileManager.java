@@ -32,8 +32,8 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -83,7 +83,7 @@ public class ProfileManager {
         LOAD,
     }
 
-    public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
+    public static final List<String> PROFILE_HEADERS = Collections.unmodifiableList(
             Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
 
