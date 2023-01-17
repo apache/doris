@@ -50,8 +50,6 @@ public class JdbcClient {
 
     private String dbType;
     private String jdbcUser;
-    private String jdbcPasswd;
-    private String driverClass;
 
     private URLClassLoader classLoader = null;
 
@@ -59,9 +57,7 @@ public class JdbcClient {
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
         this.jdbcUser = user;
-        this.jdbcPasswd = password;
         this.dbType = parseDbType(jdbcUrl);
-        this.driverClass = driverClass;
 
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
@@ -72,10 +68,10 @@ public class JdbcClient {
             classLoader = URLClassLoader.newInstance(urls, null);
             Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
-            config.setDriverClassName(this.driverClass);
+            config.setDriverClassName(driverClass);
             config.setJdbcUrl(jdbcUrl);
             config.setUsername(jdbcUser);
-            config.setPassword(jdbcPasswd);
+            config.setPassword(password);
             config.setMaximumPoolSize(1);
             dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
