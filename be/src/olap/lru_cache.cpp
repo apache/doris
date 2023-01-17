@@ -240,14 +240,21 @@ void LRUCache::release(Cache::Handle* handle) {
                 } else if (e->priority == CachePriority::DURABLE) {
                     _lru_append(&_lru_durable, e);
                 }
-
+                // _cache_value_check_timestamp is true,
+                // means evict entry will depends on the timestamp sequence,
+                // the timestamp is updated by higher level caller,
+                // and the timestamp of hit entry is different with the insert entry,
+                // that is why need check timestamp to evict entry,
+                // in order to keep the survival time of hit entries
+                // longer than the entries just inserted,
+                // so use priority_queue to sorted these entries's timestamp and LRUHandle*
                 if (_cache_value_check_timestamp) {
                     if (e->priority == CachePriority::NORMAL) {
-                        _sort_normal_entries_with_timestamp.push(
-                                std::make_pair(_cache_value_extractor(e->value), e));
+                        _sorted_normal_entries_with_timestamp.push(
+                                std::make_pair(_cache_value_time_extractor(e->value), e));
                     } else if (e->priority == CachePriority::DURABLE) {
-                        _sort_durable_entries_with_timestamp.push(
-                                std::make_pair(_cache_value_extractor(e->value), e));
+                        _sorted_durable_entries_with_timestamp.push(
+                                std::make_pair(_cache_value_time_extractor(e->value), e));
                     }
                 }
             }
@@ -262,35 +269,41 @@ void LRUCache::release(Cache::Handle* handle) {
 
 void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head) {
     // 1. evict normal cache entries
-    while (_usage + total_size > _capacity && !_sort_normal_entries_with_timestamp.empty()) {
-        auto entry_pair = _sort_normal_entries_with_timestamp.top();
+    while (_usage + total_size > _capacity && !_sorted_normal_entries_with_timestamp.empty()) {
+        auto entry_pair = _sorted_normal_entries_with_timestamp.top();
         LRUHandle* remove_handle = entry_pair.second;
-        if (_cache_value_extractor(remove_handle->value) != entry_pair.first) {
-            // time in cache value maybe updated when higher level call LRUCache::release()
-            _sort_normal_entries_with_timestamp.pop();
+        if (_cache_value_time_extractor(remove_handle->value) != entry_pair.first) {
+            // Time in cache value maybe updated when higher level call LRUCache::release(),
+            // get time by _cache_value_time_extractor is the latest.
+            // Because remove element can only pop from the priority_queue header,
+            // so old <timestamp, LRUHandle*> keep in the priority_queue until pop it here.
+            _sorted_normal_entries_with_timestamp.pop();
             continue;
         }
         DCHECK(remove_handle->priority == CachePriority::NORMAL);
         _evict_one_entry(remove_handle);
         remove_handle->next = *to_remove_head;
         *to_remove_head = remove_handle;
-        _sort_normal_entries_with_timestamp.pop();
+        _sorted_normal_entries_with_timestamp.pop();
     }
 
     // 2. evict durable cache entries if need
-    while (_usage + total_size > _capacity && !_sort_durable_entries_with_timestamp.empty()) {
-        auto entry_pair = _sort_durable_entries_with_timestamp.top();
+    while (_usage + total_size > _capacity && !_sorted_durable_entries_with_timestamp.empty()) {
+        auto entry_pair = _sorted_durable_entries_with_timestamp.top();
         LRUHandle* remove_handle = entry_pair.second;
-        if (_cache_value_extractor(remove_handle->value) != entry_pair.first) {
-            // time in cache value maybe updated when higher level call LRUCache::release()
-            _sort_durable_entries_with_timestamp.pop();
+        if (_cache_value_time_extractor(remove_handle->value) != entry_pair.first) {
+            // Time in cache value maybe updated when higher level call LRUCache::release(),
+            // get time by _cache_value_time_extractor is the latest.
+            // Because remove element can only pop from the priority_queue header,
+            // so old <timestamp, LRUHandle*> keep in the priority_queue until pop it here.
+            _sorted_durable_entries_with_timestamp.pop();
             continue;
         }
         DCHECK(remove_handle->priority == CachePriority::DURABLE);
         _evict_one_entry(remove_handle);
         remove_handle->next = *to_remove_head;
         *to_remove_head = remove_handle;
-        _sort_durable_entries_with_timestamp.pop();
+        _sorted_durable_entries_with_timestamp.pop();
     }
 }
 
@@ -472,8 +485,8 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred) {
     return pruned_count;
 }
 
-void LRUCache::set_cache_value_extractor(CacheValueExtractor cache_value_extractor) {
-    _cache_value_extractor = cache_value_extractor;
+void LRUCache::set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor) {
+    _cache_value_time_extractor = cache_value_time_extractor;
 }
 
 void LRUCache::set_cache_value_check_timestamp(bool cache_value_check_timestamp) {
@@ -516,11 +529,12 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                                 uint32_t num_shards, CacheValueExtractor cache_value_extractor,
+                                 uint32_t num_shards,
+                                 CacheValueTimeExtractor cache_value_time_extractor,
                                  bool cache_value_check_timestamp)
         : ShardedLRUCache(name, total_capacity, type, num_shards) {
     for (int s = 0; s < _num_shards; s++) {
-        _shards[s]->set_cache_value_extractor(cache_value_extractor);
+        _shards[s]->set_cache_value_time_extractor(cache_value_time_extractor);
         _shards[s]->set_cache_value_check_timestamp(cache_value_check_timestamp);
     }
 }

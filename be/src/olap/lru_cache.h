@@ -147,7 +147,10 @@ private:
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
 using CacheValuePredicate = std::function<bool(const void*)>;
-using CacheValueExtractor = std::function<int64_t(const void*)>;
+// CacheValueTimeExtractor can extract timestamp
+// in cache value through the specified function,
+// such as last_visit_time in InvertedIndexSearcherCache::CacheValue
+using CacheValueTimeExtractor = std::function<int64_t(const void*)>;
 
 class Cache {
 public:
@@ -302,6 +305,9 @@ private:
     void _resize();
 };
 
+// pair first is timestatmp, put <timestatmp, LRUHandle*> into asc priority_queue,
+// when need to free space, can first evict the top of the LRUHandleHeap,
+// because the top element's timestamp is the oldest.
 typedef std::priority_queue<std::pair<int64_t, LRUHandle*>,
                             std::vector<std::pair<int64_t, LRUHandle*>>,
                             std::greater<std::pair<int64_t, LRUHandle*>>>
@@ -327,7 +333,7 @@ public:
     int64_t prune();
     int64_t prune_if(CacheValuePredicate pred);
 
-    void set_cache_value_extractor(CacheValueExtractor cache_value_extractor);
+    void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
 
     uint64_t get_lookup_count() const { return _lookup_count; }
@@ -365,10 +371,10 @@ private:
     uint64_t _lookup_count = 0; // cache查找总次数
     uint64_t _hit_count = 0;    // 命中cache的总次数
 
-    CacheValueExtractor _cache_value_extractor;
+    CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
-    LRUHandleHeap _sort_normal_entries_with_timestamp;
-    LRUHandleHeap _sort_durable_entries_with_timestamp;
+    LRUHandleHeap _sorted_normal_entries_with_timestamp;
+    LRUHandleHeap _sorted_durable_entries_with_timestamp;
 };
 
 class ShardedLRUCache : public Cache {
@@ -376,7 +382,8 @@ public:
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards);
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards, CacheValueExtractor cache_value_extractor,
+                             uint32_t num_shards,
+                             CacheValueTimeExtractor cache_value_time_extractor,
                              bool cache_value_check_timestamp);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();

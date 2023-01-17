@@ -46,7 +46,6 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
 #include "olap/segment_loader.h"

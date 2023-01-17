@@ -50,7 +50,7 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
         : _mem_tracker(std::make_unique<MemTracker>("InvertedIndexSearcherCache")) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    if (config::enable_index_cache_check_timestamp) {
+    if (config::enable_inverted_index_cache_check_timestamp) {
         auto get_last_visit_time = [](const void* value) -> int64_t {
             InvertedIndexSearcherCache::CacheValue* cache_value =
                     (InvertedIndexSearcherCache::CacheValue*)value;
