@@ -143,6 +143,7 @@ void VSetOperationNode<is_intersect>::release_resource(RuntimeState* state) {
         VExpr::close(exprs, state);
     }
     release_mem();
+    ExecNode::release_resource(state);
 }
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
