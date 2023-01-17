@@ -206,10 +206,6 @@ public:
         return Status::OK();
     }
 
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch<false>(n, dst);
-    }
-
     size_t count() const override {
         DCHECK(_parsed);
         return _num_elems;
