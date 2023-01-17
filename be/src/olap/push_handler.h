@@ -178,12 +178,12 @@ private:
 
 class PushBrokerReader {
 public:
-    PushBrokerReader() : _ready(false), _eof(false), _fill_tuple(false) {}
+    PushBrokerReader() : _ready(false), _eof(false) {}
     ~PushBrokerReader() = default;
 
     Status init(const Schema* schema, const TBrokerScanRange& t_scan_range,
                 const TDescriptorTable& t_desc_tbl);
-    Status next(ContiguousRow* row);
+    Status next(vectorized::Block* block);
     void print_profile();
 
     Status close() {
@@ -191,7 +191,6 @@ public:
         return Status::OK();
     }
     bool eof() const { return _eof; }
-    bool is_fill_tuple() const { return _fill_tuple; }
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
@@ -199,10 +198,6 @@ private:
                           FieldType type);
     bool _ready;
     bool _eof;
-    bool _fill_tuple;
-    TupleDescriptor* _tuple_desc;
-    Tuple* _tuple;
-    const Schema* _schema;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
     std::unique_ptr<MemPool> _mem_pool;
