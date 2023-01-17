@@ -263,10 +263,10 @@ S2_SOURCE=s2geometry-0.10.0
 S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
-BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
-BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
-BITSHUFFLE_SOURCE=bitshuffle-0.3.5
-BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
+BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.5.1.tar.gz"
+BITSHUFFLE_NAME=bitshuffle-0.5.1.tar.gz
+BITSHUFFLE_SOURCE=bitshuffle-0.5.1
+BITSHUFFLE_MD5SUM="b3bf6a9838927f7eb62214981c138e2f"
 
 # croaringbitmap
 CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"

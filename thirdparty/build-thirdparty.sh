@@ -1035,11 +1035,11 @@ build_bitshuffle() {
     cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
     PREFIX="${TP_INSTALL_DIR}"
 
-    # This library has significant optimizations when built with -mavx2. However,
-    # we still need to support non-AVX2-capable hardware. So, we build it twice,
-    # once with the flag and once without, and use some linker tricks to
-    # suffix the AVX2 symbols with '_avx2'.
-    arches=('default' 'avx2')
+    # This library has significant optimizations when built with AVX2/AVX512. However,
+    # we still need to support non-AVX2-capable hardware. So, we build it three times,
+    # with the flag AVX2, AVX512 each and once without, and use some linker tricks to
+    # suffix the AVX2 symbols with '_avx2', AVX512 symbols with '_avx512'
+    arches=('default' 'avx2' 'avx512')
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
@@ -1052,6 +1052,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx2" ]]; then
             arch_flag="-mavx2"
         fi
+        if [[ "${arch}" == "avx512" ]]; then
+            arch_flag="-mavx512bw -mavx512f"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1061,7 +1064,7 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]]; then
+        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
