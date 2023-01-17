@@ -442,7 +442,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Create OlapScanNode
         List<Slot> slotList = new ImmutableList.Builder<Slot>()
                 .addAll(olapScan.getOutput())
-                .addAll(olapScan.getNonUserVisibleOutput())
+                .addAll(filterSlotsOfSelectedIndex(olapScan.getNonUserVisibleOutput(), olapScan))
                 .build();
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
@@ -1731,5 +1731,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         public List<List<Expression>> getResultExpressions() {
             return resultExpressions;
         }
+    }
+
+    private List<Slot> filterSlotsOfSelectedIndex(List<Slot> slots, PhysicalOlapScan olapScan) {
+        ImmutableSet<Column> selectIndexColumns = ImmutableSet.copyOf(olapScan.getTable()
+                .getIndexIdToMeta().get(olapScan.getSelectedIndexId()).getSchema());
+        return slots.stream()
+                .filter(slot -> ((SlotReference) slot).getColumn().isPresent()
+                        && selectIndexColumns.contains(((SlotReference) slot).getColumn().get()))
+                .collect(ImmutableList.toImmutableList());
     }
 }
