@@ -49,6 +49,7 @@ public class Multiply extends BinaryArithmetic {
         DataType leftType = child(1).getDataType();
         DataType outputType = TypeCoercionUtils.findTightestCommonType(null,
                 rightType, leftType).orElseGet(() -> rightType);
+        outputType = outputType.promotion();
         return outputType;
     }
 
