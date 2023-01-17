@@ -147,7 +147,8 @@ public:
     std::string queryMax;
 
 public:
-    InvertedIndexVisitor(roaring::Roaring* hits, InvertedIndexQueryType query_type, bool only_count = false);
+    InvertedIndexVisitor(roaring::Roaring* hits, InvertedIndexQueryType query_type,
+                         bool only_count = false);
     virtual ~InvertedIndexVisitor() = default;
 
     void set_reader(lucene::util::bkd::bkd_reader* r) { reader = r; };

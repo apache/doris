@@ -306,8 +306,7 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         return;
     }
     compoundReader = new DorisCompoundReader(
-            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
-            index_file_name.c_str());
+            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str());
 }
 
 Status BkdIndexReader::new_iterator(const TabletIndex* index_meta,
@@ -364,7 +363,8 @@ Status BkdIndexReader::query(const std::string& column_name, const void* query_v
     auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        RETURN_IF_ERROR(bkd_query(column_name, query_value, query_type, std::move(r), visitor.get()));
+        RETURN_IF_ERROR(
+                bkd_query(column_name, query_value, query_type, std::move(r), visitor.get()));
         r->intersect(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
