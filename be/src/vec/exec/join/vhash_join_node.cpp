@@ -695,9 +695,9 @@ void HashJoinNode::release_resource(RuntimeState* state) {
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
-    bool eos = false;
 
     if (_should_build_hash_table) {
+        bool eos = false;
         Block block;
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
@@ -720,7 +720,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         RETURN_IF_ERROR(child(1)->close(state));
     } else {
         RETURN_IF_ERROR(child(1)->close(state));
-        RETURN_IF_ERROR(sink(state, nullptr, eos));
+        RETURN_IF_ERROR(sink(state, nullptr, true));
     }
     return Status::OK();
 }
