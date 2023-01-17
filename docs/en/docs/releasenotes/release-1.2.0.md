@@ -47,7 +47,7 @@ under the License.
     2. Elasticsearch: Access ES data sources.
     3. JDBC: Access MySQL through the JDBC protocol.
     
-    Documentation: https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/multi-catalog)
+    Documentation: https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog)
 
     > Note: The corresponding permission level will also be changed automatically, see the "Upgrade Notes" section for details.
     
