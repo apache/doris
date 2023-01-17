@@ -345,8 +345,8 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `fragment_pool_thread_num_max`
 
-* 描述：后续查询请求动态创建线程，最大创建256个线程。
-* 默认值：256
+* 描述：后续查询请求动态创建线程，最大创建512个线程。
+* 默认值：512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 

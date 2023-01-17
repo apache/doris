@@ -334,8 +334,8 @@ There are two ways to configure BE configuration items:
 
 #### `fragment_pool_thread_num_max`
 
-* Description: Follow up query requests create threads dynamically, with a maximum of 256 threads created.
-* Default value: 256
+* Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
+* Default value: 512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
