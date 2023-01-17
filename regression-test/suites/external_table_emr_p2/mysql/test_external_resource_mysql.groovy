@@ -126,7 +126,7 @@ suite("test_external_resource_mysql", "p2") {
             ) ENGINE=JDBC
             PROPERTIES (
             "resource" = "${mysqlResourceName}",
-            "table" = "customer",
+            "table" = "supplier",
             "table_type"="mysql"
             );
             """

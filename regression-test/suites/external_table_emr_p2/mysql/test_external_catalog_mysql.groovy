@@ -35,6 +35,7 @@ suite("test_external_catalog_mysql", "p2") {
         sql """use ${mysqlDatabaseName01};"""
 
 
+        sql """drop catalog if exists ${mysqlCatalogName};"""
         sql """drop resource if exists ${mysqlResource01};"""
         sql """
             CREATE RESOURCE ${mysqlResource01}
@@ -47,8 +48,6 @@ suite("test_external_catalog_mysql", "p2") {
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """
-
-        sql """drop catalog if exists ${mysqlCatalogName};"""
 
         sql """CREATE CATALOG ${mysqlCatalogName} WITH RESOURCE ${mysqlResource01};"""
 //        sql """drop catalog if exists ${mysqlCatalogName};"""
