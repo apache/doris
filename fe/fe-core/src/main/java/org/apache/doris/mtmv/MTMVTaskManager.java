@@ -278,20 +278,20 @@ public class MTMVTaskManager {
         } else {
             for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
                 taskList.addAll(
-                        pTaskQueue.stream().map(MTMVTaskExecutor::getTask).filter(u -> u.getDbName().equals(dbName))
+                        pTaskQueue.stream().map(MTMVTaskExecutor::getTask).filter(u -> u.getDBName().equals(dbName))
                                 .collect(Collectors.toList()));
             }
             taskList.addAll(getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
-                    .filter(u -> u.getDbName().equals(dbName)).collect(Collectors.toList()));
+                    .filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
             taskList.addAll(
-                    getAllHistory().stream().filter(u -> u.getDbName().equals(dbName)).collect(Collectors.toList()));
+                    getAllHistory().stream().filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
 
         }
         return taskList.stream().sorted().collect(Collectors.toList());
     }
 
     public List<MTMVTask> showTasks(String dbName, String mvName) {
-        return showTasks(dbName).stream().filter(u -> u.getMvName().equals(mvName)).collect(Collectors.toList());
+        return showTasks(dbName).stream().filter(u -> u.getMVName().equals(mvName)).collect(Collectors.toList());
     }
 
     public MTMVTask getTask(String taskId) throws AnalysisException {
@@ -307,7 +307,7 @@ public class MTMVTaskManager {
     }
 
     public void replayCreateJobTask(MTMVTask task) {
-        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILED) {
+        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILURE) {
             if (MTMVUtils.getNowTimeStamp() > task.getExpireTime()) {
                 return;
             }
@@ -326,10 +326,10 @@ public class MTMVTaskManager {
                 arrangeToPendingTask(taskExecutor);
                 break;
             case RUNNING:
-                task.setState(TaskState.FAILED);
+                task.setState(TaskState.FAILURE);
                 addHistory(task);
                 break;
-            case FAILED:
+            case FAILURE:
             case SUCCESS:
                 addHistory(task);
                 break;
@@ -360,16 +360,17 @@ public class MTMVTaskManager {
                     status.setState(TaskState.RUNNING);
                     getRunningTaskMap().put(jobId, pendingTask);
                 }
-            } else if (toStatus == TaskState.FAILED) {
+            } else if (toStatus == TaskState.FAILURE) {
                 status.setMessage(changeTask.getErrorMessage());
                 status.setErrorCode(changeTask.getErrorCode());
-                status.setState(TaskState.FAILED);
+                status.setState(TaskState.FAILURE);
                 addHistory(status);
             }
             if (taskQueue.size() == 0) {
                 getPendingTaskMap().remove(jobId);
             }
-        } else if (fromStatus == TaskState.RUNNING && (toStatus == TaskState.SUCCESS || toStatus == TaskState.FAILED)) {
+        } else if (fromStatus == TaskState.RUNNING && (toStatus == TaskState.SUCCESS
+                || toStatus == TaskState.FAILURE)) {
             MTMVTaskExecutor runningTask = getRunningTaskMap().remove(jobId);
             if (runningTask == null) {
                 return;
@@ -425,10 +426,10 @@ public class MTMVTaskManager {
                     MTMVTaskExecutor taskExecutor = tasks.poll();
                     taskExecutor.getTask().setMessage("Fe abort the task");
                     taskExecutor.getTask().setErrorCode(-1);
-                    taskExecutor.getTask().setState(TaskState.FAILED);
+                    taskExecutor.getTask().setState(TaskState.FAILURE);
                     addHistory(taskExecutor.getTask());
                     changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.PENDING,
-                            TaskState.FAILED);
+                            TaskState.FAILURE);
                 }
                 pendingIter.remove();
             }
@@ -437,12 +438,12 @@ public class MTMVTaskManager {
                 MTMVTaskExecutor taskExecutor = getRunningTaskMap().get(runningIter.next());
                 taskExecutor.getTask().setMessage("Fe abort the task");
                 taskExecutor.getTask().setErrorCode(-1);
-                taskExecutor.getTask().setState(TaskState.FAILED);
+                taskExecutor.getTask().setState(TaskState.FAILURE);
                 taskExecutor.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());
                 runningIter.remove();
                 addHistory(taskExecutor.getTask());
                 changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,
-                        TaskState.FAILED);
+                        TaskState.FAILURE);
             }
         } finally {
             unlock();

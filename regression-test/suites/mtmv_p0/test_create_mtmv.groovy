@@ -58,10 +58,7 @@ suite("test_create_mtmv") {
     """
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE 
-        REFRESH COMPLETE 
-        START WITH "2022-10-27 19:35:00"
-        NEXT  60 second
+        BUILD IMMEDIATE REFRESH COMPLETE
         KEY(username)   
         DISTRIBUTED BY HASH (username)  buckets 1
         PROPERTIES ('replication_num' = '1') 
@@ -72,15 +69,16 @@ suite("test_create_mtmv") {
     def show_task_meta = sql_meta "SHOW MTMV TASK FROM ${dbName}"
     def index = show_task_meta.indexOf(['State', 'CHAR'])
     def query = "SHOW MTMV TASK FROM ${dbName}"
+    def show_task_result
     def state
     do {
-        def show_task_result = sql "${query}"
+        show_task_result = sql "${query}"
         state = show_task_result.last().get(index)
         println "The state of ${query} is ${state}"
         Thread.sleep(1000);
     } while (state.equals('PENDING') || state.equals('RUNNING'))
 
-    assertEquals('SUCCESS', state)
+    assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
 }
 
