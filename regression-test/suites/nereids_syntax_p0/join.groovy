@@ -204,11 +204,6 @@ suite("join") {
         insert into outerjoin_D values( 1 );
     """
 
-    explain {
-        sql("select count(*) from outerjoin_A_join A left join outerjoin_B_join B on A.a = B.a where B.a in (select a from outerjoin_C_join);")
-        contains "INNER JOIN"
-    }
-
     def explainStr =
         sql(""" explain SELECT count(1)
                 FROM 

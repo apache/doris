@@ -203,12 +203,12 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         return outputs;
     }
 
-    public abstract Plan withNewOutputs(List<NamedExpression> newOutputs);
+    public abstract LogicalSetOperation withNewOutputs(List<NamedExpression> newOutputs);
 
     @Override
     public int getArity() {
         return children.size();
     }
 
-    public abstract Plan withNewChildren(List<Plan> children);
+    public abstract LogicalSetOperation withNewChildren(List<Plan> children);
 }
