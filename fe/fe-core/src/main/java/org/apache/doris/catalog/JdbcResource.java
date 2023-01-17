@@ -254,6 +254,8 @@ public class JdbcResource extends Resource {
             // it will convert to Doris tinyint, not bit.
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+        }
+        if (dbType.equals(MYSQL) || dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
         return newJdbcUrl;
