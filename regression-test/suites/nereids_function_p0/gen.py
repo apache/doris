@@ -59,16 +59,15 @@ mp1 = {'tinyint': ['ktint'],
        'float': ['kfloat'],
        'double': ['kdbl'],
        'decimalv2': ['kdcmls1'],
-       'decimalv3_32': ['kdcmlv3s1', 'kdcmlv3s2', 'kdcmlv3s3'],
-       'decimalv3_64': ['kdcmlv3s2'],
-       'decimalv3_128': ['kdcmlv3s3'],
        'char': ['kchrs1'],
        'varchar': ['kvchrs1'],
        'string': ['kstr'],
        'date': ['kdt'],
        'datetime': ['kdtm'],
        'datev2': ['kdtv2'],
-       'datetimev2': ['kdtmv2s1']}
+       'datetimev2': ['kdtmv2s1'],
+       'boolean': ['kbool'],
+       '': ['']}
 
 run('/Users/mochenhui/projects/doris/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')
 for k in sorted(mp):
@@ -85,3 +84,4 @@ for k in sorted(mp):
             continue
         args = ", ".join([mp1[s][0] for s in list(i[1:])])
         print('sql "select ' + k + '(' + args + ') from fn_test order by ' + args + '"')
+
