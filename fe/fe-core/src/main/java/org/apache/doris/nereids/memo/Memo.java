@@ -462,7 +462,7 @@ public class Memo {
         }
         if (!source.equals(destination)) {
             // TODO: stats and other
-            source.moveOwnership(destination);
+            source.mergeTo(destination);
             groups.remove(source.getGroupId());
         }
         return destination;
