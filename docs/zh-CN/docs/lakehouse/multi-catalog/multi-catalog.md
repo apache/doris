@@ -269,79 +269,6 @@ under the License.
 
 详见 [JDBC Catalog](./jdbc)
 
-### 连接阿里云 Data Lake Formation
-
-> [什么是 Data Lake Formation](https://www.aliyun.com/product/bigdata/dlf)
-
-1. 创建 hive-site.xml
-
-    创建 hive-site.xml 文件，并将其放置在 `fe/conf` 目录下。
-    
-    ```
-    <?xml version="1.0"?>
-    <configuration>
-        <!--Set to use dlf client-->
-        <property>
-            <name>hive.metastore.type</name>
-            <value>dlf</value>
-        </property>
-        <property>
-            <name>dlf.catalog.endpoint</name>
-            <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
-        </property>
-        <property>
-            <name>dlf.catalog.region</name>
-            <value>cn-beijing</value>
-        </property>
-        <property>
-            <name>dlf.catalog.proxyMode</name>
-            <value>DLF_ONLY</value>
-        </property>
-        <property>
-            <name>dlf.catalog.uid</name>
-            <value>20000000000000000</value>
-        </property>
-        <property>
-            <name>dlf.catalog.accessKeyId</name>
-            <value>XXXXXXXXXXXXXXX</value>
-        </property>
-        <property>
-            <name>dlf.catalog.accessKeySecret</name>
-            <value>XXXXXXXXXXXXXXXXX</value>
-        </property>
-    </configuration>
-    ```
-
-    * `dlf.catalog.endpoint`：DLF Endpoint，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
-    * `dlf.catalog.region`：DLF Region，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
-    * `dlf.catalog.uid`：阿里云账号。即阿里云控制台右上角个人信息的“云账号ID”。
-    * `dlf.catalog.accessKeyId`：AccessKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
-    * `dlf.catalog.accessKeySecret`：SecretKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
-
-    其他配置项为固定值，无需改动。
-
-2. 重启 FE，并通过 `CREATE CATALOG` 语句创建 catalog。
-
-    HMS resource 会读取和解析 fe/conf/hive-site.xml
-    ```sql
-    -- 1.2.0+ 版本
-    CREATE RESOURCE dlf_resource PROPERTIES (
-        "type"="hms",
-        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-    )
-    CREATE CATALOG dlf WITH RESOURCE dlf_resource;
-
-    -- 1.2.0 版本
-    CREATE CATALOG dlf PROPERTIES (
-        "type"="hms",
-        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-    )
-    ```
-    
-    其中 `type` 固定为 `hms`。 `hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
-    
-    之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
-    
 ## 列类型映射
 
 用户创建 Catalog 后，Doris 会自动同步数据目录的数据库和表，针对不同的数据目录和数据表格式，Doris 会进行以下列映射关系。
@@ -392,24 +319,29 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 </version>
 
-1. CREATE DATABASE event:在对应数据目录下创建数据库。
-2. DROP DATABASE event:在对应数据目录下删除数据库。
-3. ALTER DATABASE event:此事件的影响主要有更改数据库的属性信息，注释及默认存储位置等，这些改变不影响doris对外部数据目录的查询操作，因此目前会忽略此event。
-4. CREATE TABLE event:在对应数据库下创建表。
-5. DROP TABLE event:在对应数据库下删除表，并失效表的缓存。
-6. ALTER TABLE event:如果是重命名，先删除旧名字的表，再用新名字创建表，否则失效该表的缓存。
-7. ADD PARTITION event:在对应表缓存的分区列表里添加分区。
-8. DROP PARTITION event:在对应表缓存的分区列表里删除分区，并失效该分区的缓存。
-9. ALTER PARTITION event:如果是重命名，先删除旧名字的分区，再用新名字创建分区，否则失效该分区的缓存。
-10. 当导入数据导致文件变更,分区表会走ALTER PARTITION event逻辑，不分区表会走ALTER TABLE event逻辑(注意：如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知)。
+|事件 | 事件行为和对应的动作 |
+|---|---|
+| CREATE DATABASE | 在对应数据目录下创建数据库。 |
+| DROP DATABASE | 在对应数据目录下删除数据库。 |
+| ALTER DATABASE  | 此事件的影响主要有更改数据库的属性信息，注释及默认存储位置等，这些改变不影响doris对外部数据目录的查询操作，因此目前会忽略此event。 |
+| CREATE TABLE | 在对应数据库下创建表。 |
+| DROP TABLE  | 在对应数据库下删除表，并失效表的缓存。 |
+| ALTER TABLE | 如果是重命名，先删除旧名字的表，再用新名字创建表，否则失效该表的缓存。 |
+| ADD PARTITION | 在对应表缓存的分区列表里添加分区。 |
+| DROP PARTITION | 在对应表缓存的分区列表里删除分区，并失效该分区的缓存。 |
+| ALTER PARTITION | 如果是重命名，先删除旧名字的分区，再用新名字创建分区，否则失效该分区的缓存。 |
 
-该特性被fe的如下参数控制：
+> 当导入数据导致文件变更,分区表会走ALTER PARTITION event逻辑，不分区表会走ALTER TABLE event逻辑。
+> 
+> 如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知
+
+该特性被在 fe.conf 中有如下参数：
 
 1. `enable_hms_events_incremental_sync`: 是否开启元数据自动增量同步功能,默认关闭。
 2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
 3. `hms_events_batch_size_per_rpc`: 每次读取 event 的最大数量，默认值为 500。
 
-如果想使用该特性，需要更改HMS的 hive-site.xml 并重启HMS
+如果想使用该特性，需要更改HMS的 hive-site.xml 并重启HMS：
 
 ```
 <property>
@@ -427,6 +359,4 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 ```
 
-> 使用建议
-> 
-> 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
+> 使用建议： 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
