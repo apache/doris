@@ -334,37 +334,13 @@ public class EditLog {
                     env.replayRenameRollup(info);
                     break;
                 }
-                case OperationType.OP_LOAD_START: {
-                    LoadJob job = (LoadJob) journal.getData();
-                    env.getLoadInstance().replayAddLoadJob(job);
-                    break;
-                }
-                case OperationType.OP_LOAD_ETL: {
-                    LoadJob job = (LoadJob) journal.getData();
-                    env.getLoadInstance().replayEtlLoadJob(job);
-                    break;
-                }
-                case OperationType.OP_LOAD_LOADING: {
-                    LoadJob job = (LoadJob) journal.getData();
-                    env.getLoadInstance().replayLoadingLoadJob(job);
-                    break;
-                }
-                case OperationType.OP_LOAD_QUORUM: {
-                    LoadJob job = (LoadJob) journal.getData();
-                    Load load = env.getLoadInstance();
-                    load.replayQuorumLoadJob(job, env);
-                    break;
-                }
-                case OperationType.OP_LOAD_DONE: {
-                    LoadJob job = (LoadJob) journal.getData();
-                    Load load = env.getLoadInstance();
-                    load.replayFinishLoadJob(job, env);
-                    break;
-                }
+                case OperationType.OP_LOAD_START:
+                case OperationType.OP_LOAD_ETL:
+                case OperationType.OP_LOAD_LOADING:
+                case OperationType.OP_LOAD_QUORUM:
+                case OperationType.OP_LOAD_DONE:
                 case OperationType.OP_LOAD_CANCEL: {
-                    LoadJob job = (LoadJob) journal.getData();
-                    Load load = env.getLoadInstance();
-                    load.replayCancelLoadJob(job);
+                    LOG.warn("load job is deprecated");
                     break;
                 }
                 case OperationType.OP_EXPORT_CREATE: {
