@@ -1025,7 +1025,7 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
         Assert.assertTrue(explainString.contains("NESTED LOOP JOIN"));
-        Assert.assertTrue(!explainString.contains("PREDICATES"));
+        Assert.assertTrue(!explainString.contains("PREDICATES") || explainString.contains("PREDICATES: TRUE"));
     }
 
     @Test

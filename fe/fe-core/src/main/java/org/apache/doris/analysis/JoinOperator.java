@@ -71,6 +71,19 @@ public enum JoinOperator {
                 || this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
+    public boolean isSemiOrAntiJoinNoNullAware() {
+        return this == JoinOperator.LEFT_SEMI_JOIN || this == JoinOperator.LEFT_ANTI_JOIN
+                || this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN;
+    }
+
+    public boolean isAntiJoinNullAware() {
+        return this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
+    public boolean isAntiJoinNoNullAware() {
+        return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN;
+    }
+
     public boolean isLeftSemiJoin() {
         return this.thriftJoinOp == TJoinOp.LEFT_SEMI_JOIN;
     }
