@@ -216,6 +216,12 @@ public:
     const ColumnPtr& get_column_ptr(size_t idx) const { return columns[idx]; }
     ColumnPtr& get_column_ptr(size_t idx) { return columns[idx]; }
 
+    void clear() override {
+        for (auto col : columns) {
+            col->clear();
+        }
+    }
+
 private:
     int compare_at_impl(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const;
 
