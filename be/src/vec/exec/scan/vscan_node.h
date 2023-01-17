@@ -336,6 +336,11 @@ private:
                                                    PushDownType* pdt);
 
     template <PrimitiveType T>
+    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                  PushDownType* pdt);
+
+    template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         PushDownType* pdt);

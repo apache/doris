@@ -244,6 +244,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                     [&](auto&& range) {
                         if (range.is_in_compound_value_range()) {
                             range.to_condition_in_compound(filters);
+                        } else if (range.is_match_value_range()) {
+                            range.to_match_condition(filters);
                         }
                     },
                     iter);
