@@ -960,6 +960,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoin.getOutput().stream()
                     .map(SlotReference.class::cast)
                     .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+            nestedLoopJoin.getFilterConjuncts().stream()
+                    .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                    .flatMap(e -> e.getInputSlots().stream())
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
             List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
                     .map(TupleDescriptor::getSlots)
                     .flatMap(Collection::stream)
@@ -1026,6 +1031,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
                     .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
             nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
+
+            nestedLoopJoin.getFilterConjuncts().stream()
+                    .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .forEach(nestedLoopJoinNode::addConjunct);
 
             if (nestedLoopJoin.isShouldTranslateOutput()) {
                 // translate output expr on intermediate tuple
@@ -1134,9 +1144,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanTranslatorContext context) {
-        if (filter.child(0) instanceof PhysicalHashJoin) {
-            PhysicalHashJoin join = (PhysicalHashJoin<?, ?>) filter.child(0);
-            join.getFilterConjuncts().addAll(filter.getConjuncts());
+        if (filter.child(0) instanceof AbstractPhysicalJoin) {
+            AbstractPhysicalJoin join = (AbstractPhysicalJoin<?, ?>) filter.child(0);
+            join.addFilterConjuncts(filter.getConjuncts());
         }
         PlanFragment inputFragment = filter.child(0).accept(this, context);
 
@@ -1152,7 +1162,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             addConjunctsToPlanNode(filter, selectNode, context);
             inputFragment.addPlanRoot(selectNode);
         } else {
-            if (!(filter.child(0) instanceof PhysicalHashJoin)) {
+            if (!(filter.child(0) instanceof AbstractPhysicalJoin)) {
                 addConjunctsToPlanNode(filter, planNode, context);
             }
         }
