@@ -378,6 +378,8 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
         return Status::OK();
     }
 
+    InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(index_meta->properties()));
     FieldType type;
     if ((FieldType)_meta.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         type = (FieldType)_meta.children_columns(0).type();
@@ -386,9 +388,17 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     }
 
     if (is_string_type(type)) {
-        // todo(wy): implement
+        if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+            _inverted_index.reset(new FullTextIndexReader(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta->index_id()));
+            return Status::OK();
+        } else {
+            _inverted_index.reset(new StringTypeInvertedIndexReader(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta->index_id()));
+        }
     } else if (is_numeric_type(type)) {
         // todo(wy): implement
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     } else {
         _inverted_index.reset();
     }
