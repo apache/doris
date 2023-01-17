@@ -214,12 +214,15 @@ public class BindFunction implements AnalysisRuleFactory {
         public BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,
                 StatementContext statementContext) {
             Env env = statementContext.getConnectContext().getEnv();
+            List<Expression> boundArguments = unboundFunction.getArguments().stream()
+                    .map(e -> INSTANCE.bind(e, env))
+                    .collect(Collectors.toList());
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
 
             String functionName = unboundFunction.getName();
             FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(
-                    functionName, unboundFunction.getArguments());
-            BoundFunction function = functionBuilder.build(functionName, unboundFunction.getArguments());
+                    functionName, boundArguments);
+            BoundFunction function = functionBuilder.build(functionName, boundArguments);
             if (!(function instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
             }
