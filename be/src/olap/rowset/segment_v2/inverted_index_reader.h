@@ -70,6 +70,7 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(const TabletIndex* index_meta,
+                                OlapReaderStatistics* stats,
                                 InvertedIndexIterator** iterator) = 0;
     virtual Status query(const std::string& column_name, const void* query_value,
                          InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
@@ -89,6 +90,7 @@ protected:
     io::FileSystemSPtr _fs;
     std::string _path;
     uint32_t _index_id;
+    OlapReaderStatistics* _stats {nullptr};
 };
 
 class FullTextIndexReader : public InvertedIndexReader {
@@ -98,7 +100,8 @@ public:
             : InvertedIndexReader(std::move(fs), path, uniq_id) {}
     ~FullTextIndexReader() override = default;
 
-    Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
+    Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                        InvertedIndexIterator** iterator) override;
     Status query(const std::string& column_name, const void* query_value,
                  InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
                  roaring::Roaring* bit_map) override;
@@ -122,7 +125,8 @@ public:
             : InvertedIndexReader(std::move(fs), path, uniq_id) {}
     ~StringTypeInvertedIndexReader() override = default;
 
-    Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
+    Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                        InvertedIndexIterator** iterator) override;
     Status query(const std::string& column_name, const void* query_value,
                  InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
                  roaring::Roaring* bit_map) override;
@@ -179,7 +183,8 @@ public:
         }
     }
 
-    Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
+    Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                        InvertedIndexIterator** iterator) override;
 
     Status query(const std::string& column_name, const void* query_value,
                  InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
@@ -203,8 +208,10 @@ private:
 
 class InvertedIndexIterator {
 public:
-    InvertedIndexIterator(const TabletIndex* index_meta, InvertedIndexReader* reader)
-            : _index_meta(index_meta), _reader(reader) {
+    InvertedIndexIterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                          InvertedIndexReader* reader)
+            : _index_meta(index_meta), _stats(stats), _reader(reader) {
+        // TODO xk maybe change interface to use index
         _analyser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
     }
@@ -221,6 +228,7 @@ public:
 
 private:
     const TabletIndex* _index_meta;
+    OlapReaderStatistics* _stats;
     InvertedIndexReader* _reader;
     InvertedIndexParserType _analyser_type;
 };
