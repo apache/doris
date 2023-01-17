@@ -303,7 +303,7 @@ public class NereidsPlanner extends Planner {
             case OPTIMIZED_PLAN:
                 return optimizedPlan.treeString();
             case ALL_PLAN:
-                String explainString = "========== PARSED PLAN ==========\n"
+                return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
                         + "========== ANALYZED PLAN ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
@@ -311,7 +311,6 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
-                return explainString;
             default:
                 return super.getExplainString(explainOptions);
         }

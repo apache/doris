@@ -36,6 +36,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,19 +77,23 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
-                    Set<Slot> aOutputSet = a.getOutputSet();
                     Set<Slot> cOutputSet = c.getOutputSet();
+                    Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
+                    Set<ExprId> cOutputExprIdSet = c.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> projectExprsMap = projects.stream()
                             .collect(Collectors.partitioningBy(projectExpr -> {
-                                Set<Slot> usedSlots = projectExpr.collect(SlotReference.class::isInstance);
-                                return aOutputSet.containsAll(usedSlots);
+                                Set<ExprId> usedExprIds = projectExpr
+                                        .<Set<SlotReference>>collect(SlotReference.class::isInstance)
+                                        .stream()
+                                        .map(SlotReference::getExprId)
+                                        .collect(Collectors.toSet());
+                                return aOutputExprIdSet.containsAll(usedExprIds);
                             }));
                     List<NamedExpression> newLeftProjects = projectExprsMap.get(Boolean.TRUE);
                     List<NamedExpression> newRightProjects = projectExprsMap.get(Boolean.FALSE);
-                    Set<ExprId> aExprIdSet = getExprIdSetForA(bottomJoin.left(),
-                            newLeftProjects);
+                    Set<ExprId> aExprIdSet = getExprIdSetForA(bottomJoin.left(), newLeftProjects);
 
                     /* ********** split Conjuncts ********** */
                     Map<Boolean, List<Expression>> newHashJoinConjuncts
@@ -120,8 +125,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     /* ********** replace Conjuncts by projects ********** */
-                    Map<Slot, Slot> inputToOutput = new HashMap<>();
-                    Map<Slot, Slot> outputToInput = new HashMap<>();
+                    Map<ExprId, Slot> inputToOutput = new HashMap<>();
+                    Map<ExprId, Slot> outputToInput = new HashMap<>();
                     for (NamedExpression expr : projects) {
                         if (expr instanceof Alias) {
                             Alias alias = (Alias) expr;
@@ -130,8 +135,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             // checkProject already confirmed.
                             Preconditions.checkState(child instanceof Slot);
                             Slot inputSlot = (Slot) child;
-                            inputToOutput.put(inputSlot, outputSlot);
-                            outputToInput.put(outputSlot, inputSlot);
+                            inputToOutput.put(inputSlot.getExprId(), outputSlot);
+                            outputToInput.put(outputSlot.getExprId(), inputSlot);
                         }
                     }
                     // replace hashJoinConjuncts
@@ -153,9 +158,9 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                                 Set<Slot> usedSlotRefs = onExpr.collect(SlotReference.class::isInstance);
                                 return usedSlotRefs.stream();
                             })
-                            .filter(slot -> !cOutputSet.contains(slot))
-                            .collect(Collectors.partitioningBy(slot -> aExprIdSet.contains(slot.getExprId()),
-                                    Collectors.toSet()));
+                            .filter(slot -> !cOutputExprIdSet.contains(slot.getExprId()))
+                            .collect(Collectors.partitioningBy(
+                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
                     Set<Slot> aUsedSlots = abOnUsedSlots.get(Boolean.TRUE);
                     Set<Slot> bUsedSlots = abOnUsedSlots.get(Boolean.FALSE);
 
@@ -163,7 +168,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     JoinUtils.addSlotsUsedByOn(aUsedSlots, newLeftProjects);
 
                     if (!newLeftProjects.isEmpty()) {
-                        newLeftProjects.addAll(cOutputSet);
+                        Set<Slot> nullableCOutputSet = forceToNullable(cOutputSet);
+                        newLeftProjects.addAll(nullableCOutputSet);
                     }
 
                     /* ********** new Plan ********** */
@@ -174,13 +180,15 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     Plan left = newBottomJoin;
-                    if (!newLeftProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
-                            .equals(newBottomJoin.getOutputSet())) {
+                    if (!newLeftProjects.stream().map(NamedExpression::toSlot)
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet())
+                            .equals(newBottomJoin.getOutputExprIdSet())) {
                         left = PlanUtils.projectOrSelf(newLeftProjects, newBottomJoin);
                     }
                     Plan right = b;
-                    if (!newRightProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
-                            .equals(b.getOutputSet())) {
+                    if (!newRightProjects.stream().map(NamedExpression::toSlot)
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet())
+                            .equals(b.getOutputExprIdSet())) {
                         right = PlanUtils.projectOrSelf(newRightProjects, b);
                     }
 
@@ -201,19 +209,19 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // if top join's conjuncts are all related to A, we can do reorder
         Map<Boolean, List<Expression>> splitOn = new HashMap<>();
-        splitOn.put(true, new ArrayList<>());
+        splitOn.put(true, Lists.newArrayList());
         if (topConjuncts.stream().allMatch(topHashOn -> {
-            Set<Slot> usedSlots = topHashOn.getInputSlots();
-            Set<ExprId> usedSlotsId = usedSlots.stream().map(NamedExpression::getExprId)
+            Set<ExprId> usedSlotsId = topHashOn.getInputSlots().stream()
+                    .map(NamedExpression::getExprId)
                     .collect(Collectors.toSet());
 
             return ExpressionUtils.isIntersecting(bExprIdSet, usedSlotsId);
         })) {
             // do reorder, create new bottom join conjuncts
-            splitOn.put(false, new ArrayList<>(topConjuncts));
+            splitOn.put(false, Lists.newArrayList(topConjuncts));
         } else {
             // can't reorder, return empty list
-            splitOn.put(false, new ArrayList<>());
+            splitOn.put(false, Lists.newArrayList());
         }
 
         List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
@@ -226,5 +234,15 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
         return Stream.concat(
                 a.getOutput().stream().map(NamedExpression::getExprId),
                 aProject.stream().map(NamedExpression::getExprId)).collect(Collectors.toSet());
+    }
+
+    private Set<Slot> forceToNullable(Set<Slot> slotSet) {
+        return slotSet.stream().map(s -> (Slot) s.rewriteUp(e -> {
+            if (e instanceof SlotReference) {
+                return ((SlotReference) e).withNullable(true);
+            } else {
+                return e;
+            }
+        })).collect(Collectors.toSet());
     }
 }

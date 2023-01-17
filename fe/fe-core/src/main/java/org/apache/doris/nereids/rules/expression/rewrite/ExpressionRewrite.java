@@ -201,7 +201,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     Expression expression = rewriter.rewrite(k.getExpr());
                     rewrittenOrderKeys.add(new OrderKey(expression, k.isAsc(), k.isNullFirst()));
                 }
-                return sort.withOrderByKey(rewrittenOrderKeys);
+                return sort.withOrderKeys(rewrittenOrderKeys);
             }).toRule(RuleType.REWRITE_SORT_EXPRESSION);
         }
     }
@@ -215,7 +215,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     rewrittenExpr.add(rewriter.rewrite(e));
                 }
                 return having.withExpressions(rewrittenExpr);
-            }).toRule(RuleType.REWRITE_HAVING_EXPRESSSION);
+            }).toRule(RuleType.REWRITE_HAVING_EXPRESSION);
         }
     }
 
@@ -230,7 +230,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 return r.withGroupSetsAndOutput(groupingExprs,
                         r.getOutputExpressions().stream().map(rewriter::rewrite).map(e -> (NamedExpression) e)
                                 .collect(Collectors.toList()));
-            }).toRule(RuleType.REWRITE_REPEAT_EXPRESSSION);
+            }).toRule(RuleType.REWRITE_REPEAT_EXPRESSION);
         }
     }
 }
