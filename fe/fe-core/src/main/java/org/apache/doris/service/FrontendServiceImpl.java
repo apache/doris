@@ -302,7 +302,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                     String comment = tColumnDef.getComment();
                     if (comment == null || comment.length() == 0) {
-                        Instant ins = Instant.ofEpochSecond(1568568760);
+                        Instant ins = Instant.ofEpochSecond(System.currentTimeMillis() / 1000);
                         ZonedDateTime zdt = ins.atZone(ZoneId.systemDefault());
                         comment = "auto change " + zdt.toString();
                     }

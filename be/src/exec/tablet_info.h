@@ -68,6 +68,8 @@ public:
         }
         return _proto_schema;
     }
+    
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
 
     std::string debug_string() const;
 
@@ -80,6 +82,7 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
+    bool _is_dynamic_schema = false;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;

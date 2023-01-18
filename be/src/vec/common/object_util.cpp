@@ -647,12 +647,15 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     return Status::OK();
 }
 
+
+
 template <typename ColumnInserterFn>
 void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size_t row_cnt,
                                   ColumnInserterFn inserter) {
     assert(!mblock->get_names().empty());
     const auto& names = mblock->get_names();
     [[maybe_unused]] const auto& data_types = mblock->data_types();
+    size_t num_rows = mblock->rows();
     for (size_t i = 0; i < mblock->columns(); ++i) {
         auto& dst = mblock->get_column_by_position(i);
         if (!block->has(names[i])) {
@@ -667,13 +670,21 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size
         // encounter a new column
         if (!mblock->has(name)) {
             auto new_column = type->create_column();
-            new_column->insert_many_defaults(mblock->rows());
+            new_column->insert_many_defaults(num_rows);
             inserter(*column.get(), new_column);
             mblock->mutable_columns().push_back(std::move(new_column));
             mblock->data_types().push_back(type);
             mblock->get_names().push_back(name);
         }
     }
+
+#ifndef NDEBUG
+    // Check all columns rows matched
+    num_rows = mblock->rows();
+    for (size_t i = 0; i < mblock->columns(); ++i) {
+        DCHECK_EQ(mblock->mutable_columns()[i]->size(), num_rows); 
+    }
+#endif
 }
 
 void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, const int* row_begin,
@@ -689,6 +700,16 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size
                                  [row_begin, length](const IColumn& src, MutableColumnPtr& dst) {
                                      dst->insert_range_from(src, row_begin, length);
                                  });
+}
+
+void align_append_block_by_selector(MutableBlock* mblock,
+                const Block* block, const IColumn::Selector& selector) {
+    // append by selector with alignment
+    assert(!mblock->get_names().empty());
+    align_block_by_name_and_type(mblock, block, selector.size(), 
+                                [&selector](const IColumn& src, MutableColumnPtr& dst) {
+                                    src.append_data_by_selector(dst, selector);
+                                });
 }
 
 void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,

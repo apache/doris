@@ -162,11 +162,18 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         if (_keys_type != KeysType::DUP_KEYS) {
             _init_agg_functions(&target_block);
         }
+        if (_tablet_schema->is_dynamic_schema()) {
+            // Set _input_mutable_block to dynamic since
+            // input blocks may be structure-variable(dyanmic)
+            // this will align _input_mutable_block with
+            // input_block and auto extends columns
+            _input_mutable_block.set_block_type(vectorized::BlockType::DYNAMIC);
+        }
     }
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows, _tablet_schema->is_dynamic_schema());
+    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);

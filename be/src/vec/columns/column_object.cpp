@@ -584,9 +584,19 @@ Status ColumnObject::try_insert(const Field& field) {
     for (const auto& [key_str, value] : object) {
         PathInData key(key_str);
         inserted.insert(key_str);
-        if (!has_subcolumn(key)) add_sub_column(key, old_size);
-        auto& subcolumn = get_subcolumn(key);
-        RETURN_IF_ERROR(subcolumn.insert(value));
+        if (!has_subcolumn(key)) {
+            bool succ = add_sub_column(key, old_size);
+            if (!succ) {
+                return Status::InvalidArgument(
+                        fmt::format("Failed to add sub column {}", key.get_path()));
+            }
+        }
+        auto* subcolumn = get_subcolumn(key);
+        if (!subcolumn) {
+            return Status::InvalidArgument(
+                        fmt::format("Failed to find sub column {}", key.get_path()));
+        }
+        RETURN_IF_ERROR(subcolumn->insert(value));
     }
     for (auto& entry : subcolumns) {
         if (!inserted.contains(entry->path.get_path())) {
@@ -642,14 +652,19 @@ Status ColumnObject::try_insert_range_from(const IColumn& src, size_t start, siz
     }
     for (auto& entry : subcolumns) {
         if (src_object.has_subcolumn(entry->path)) {
-            RETURN_IF_ERROR(entry->data.insertRangeFrom(src_object.get_subcolumn(entry->path),
-                                                        start, length));
+            auto* subcolumn = src_object.get_subcolumn(entry->path);
+            if (!subcolumn) {
+                return Status::InvalidArgument(
+                            fmt::format("Failed to find sub column {}", entry->path.get_path())); 
+            }
+            RETURN_IF_ERROR(entry->data.insertRangeFrom(*subcolumn, start, length));
         } else {
             entry->data.insertManyDefaults(length);
         }
     }
     for (const auto& entry : src_object.subcolumns) {
         if (!has_subcolumn(entry->path)) {
+            bool succ = false;
             if (entry->path.has_nested_part()) {
                 const auto& base_type = entry->data.getLeastCommonTypeBase();
                 FieldInfo field_info {
@@ -658,12 +673,20 @@ Status ColumnObject::try_insert_range_from(const IColumn& src, size_t start, siz
                         .need_convert = false,
                         .num_dimensions = entry->data.getDimensions(),
                 };
-                add_nested_subcolumn(entry->path, field_info, num_rows);
+                succ = add_nested_subcolumn(entry->path, field_info, num_rows);
             } else {
-                add_sub_column(entry->path, num_rows);
+                succ = add_sub_column(entry->path, num_rows);
             }
-            auto& subcolumn = get_subcolumn(entry->path);
-            RETURN_IF_ERROR(subcolumn.insertRangeFrom(entry->data, start, length));
+            if (!succ) {
+                return Status::InvalidArgument(fmt::format(
+                                "Failed to add column {}", entry->path.get_path()));
+            }
+            auto* subcolumn = get_subcolumn(entry->path);
+            if (!subcolumn) {
+                return Status::InvalidArgument(
+                            fmt::format("Failed to find sub column {}", entry->path.get_path())); 
+            }
+            RETURN_IF_ERROR(subcolumn->insertRangeFrom(entry->data, start, length));
         }
     }
     num_rows += length;
@@ -676,52 +699,60 @@ void ColumnObject::pop_back(size_t length) {
     num_rows -= length;
 }
 
-const ColumnObject::Subcolumn& ColumnObject::get_subcolumn(const PathInData& key) const {
+const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key) const {
     const auto* node = subcolumns.find_leaf(key);
     if (node == nullptr) {
-        LOG(FATAL) << "There is no subcolumn " << key.get_path();
+        VLOG_DEBUG << "There is no subcolumn " << key.get_path();
+        return nullptr;
     }
-    return node->data;
+    return &node->data;
 }
 
-ColumnObject::Subcolumn& ColumnObject::get_subcolumn(const PathInData& key) {
+ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key) {
     const auto* node = subcolumns.find_leaf(key);
     if (node == nullptr) {
-        LOG(FATAL) << "There is no subcolumn " << key.get_path();
+        VLOG_DEBUG << "There is no subcolumn " << key.get_path();
+        return nullptr;
     }
-    return const_cast<Subcolumns::Node*>(node)->data;
+    return &const_cast<Subcolumns::Node*>(node)->data;
 }
 
 bool ColumnObject::has_subcolumn(const PathInData& key) const {
     return subcolumns.find_leaf(key) != nullptr;
 }
 
-void ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn) {
+bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn) {
     size_t new_size = subcolumn->size();
     bool inserted = subcolumns.add(key, Subcolumn(std::move(subcolumn), is_nullable));
     if (!inserted) {
-        LOG(FATAL) << "Duplicated sub column " << key.get_path();
+        VLOG_DEBUG << "Duplicated sub column " << key.get_path();
+        return false;
     }
     if (num_rows == 0) {
         num_rows = new_size;
     } else if (new_size != num_rows) {
-        LOG(FATAL) << "Size of subcolumn is in consistent with column";
+        VLOG_DEBUG << "Size of subcolumn is in consistent with column";
+        return false;
     }
+    return true;
 }
 
-void ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
+bool ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
     bool inserted = subcolumns.add(key, Subcolumn(new_size, is_nullable));
     if (!inserted) {
-        LOG(FATAL) << "Duplicated sub column " << key.get_path();
+        VLOG_DEBUG << "Duplicated sub column " << key.get_path();
+        return false;
     }
     if (num_rows == 0) {
         num_rows = new_size;
     } else if (new_size != num_rows) {
-        LOG(FATAL) << "Size of subcolumn is in consistent with column";
+        VLOG_DEBUG << "Size of subcolumn is in consistent with column";
+        return false;
     }
+    return true;
 }
 
-void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info,
+bool ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info,
                                         size_t new_size) {
     assert(key.has_nested_part());
     bool inserted = false;
@@ -744,9 +775,11 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
         inserted = subcolumns.add(key, Subcolumn(new_size, is_nullable));
     }
     if (!inserted) {
-        LOG(FATAL) << "Subcolumn already exists";
+        VLOG_DEBUG << "Subcolumn already exists";
+        return false;
     }
     if (num_rows == 0) num_rows = new_size;
+    return true;
 }
 
 PathsInData ColumnObject::getKeys() const {

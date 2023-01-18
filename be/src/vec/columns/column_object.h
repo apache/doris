@@ -180,21 +180,23 @@ public:
 
     bool has_subcolumn(const PathInData& key) const;
 
-    const Subcolumn& get_subcolumn(const PathInData& key) const;
+    // return null if not found
+    const Subcolumn* get_subcolumn(const PathInData& key) const;
 
-    Subcolumn& get_subcolumn(const PathInData& key);
+    // return null if not found
+    Subcolumn* get_subcolumn(const PathInData& key);
 
     void incr_num_rows() { ++num_rows; }
 
     /// Adds a subcolumn from existing IColumn.
-    void add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn);
+    bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn);
 
     /// Adds a subcolumn of specific size with default values.
-    void add_sub_column(const PathInData& key, size_t new_size);
+    bool add_sub_column(const PathInData& key, size_t new_size);
 
     /// Adds a subcolumn of type Nested of specific size with default values.
     /// It cares about consistency of sizes of Nested arrays.
-    void add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
+    bool add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 

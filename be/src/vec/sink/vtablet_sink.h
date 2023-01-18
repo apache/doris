@@ -228,17 +228,6 @@ public:
 
     size_t get_pending_bytes() { return _pending_batches_bytes; }
 
-    // if input block fitted with NodeChannel's pending block
-    // dynamic table may return false, since block schema may be changed
-    // during sink
-    bool fitted_with(VecBlock* input_block) override;
-
-    // force to send current block to pending queue
-    // usually when input block not fitted with _cur_mutable_block
-    // we need to flush it to down stream or input block could be conflict
-    // with _cur_mutable_block
-    void force_send_cur_block() override;
-
 protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);

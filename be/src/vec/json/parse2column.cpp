@@ -154,9 +154,9 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         result = ParseResult {};
     }
     if (!result) {
-        LOG(INFO) << "failed to parse" << std::string_view(src, length) << ", length= " << length;
-        return Status::InvalidArgument(
-                fmt::format("Cannot parse object {}", std::string_view(src, length)));
+        LOG(INFO) << "failed to parse " << std::string_view(src, length) << ", length= " << length;
+        return Status::DataQualityError(
+                fmt::format("Failed to parse object {}", std::string_view(src, length)));
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
@@ -167,12 +167,12 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         RETURN_IF_ERROR(get_field_info(values[i], &field_info));
         // TODO support multi dimensions array
         if (!config::enable_parse_multi_dimession_array && field_info.num_dimensions >= 2) {
-            return Status::InvalidArgument(
+            return Status::DataQualityError(
                     "Sorry multi dimensions array is not supported now, we are working on it");
         }
         if (is_nothing(field_info.scalar_type)) continue;
         if (!paths_set.insert(paths[i].get_path()).second) {
-            return Status::InvalidArgument("Object has ambiguous path");
+            return Status::DataQualityError(fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
         }
 
         if (!column_object.has_subcolumn(paths[i])) {
@@ -182,9 +182,17 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
                 column_object.add_sub_column(paths[i], num_rows);
             }
         }
-        auto& subcolumn = column_object.get_subcolumn(paths[i]);
-        assert(subcolumn.size() == num_rows);
-        RETURN_IF_ERROR(subcolumn.insert(std::move(values[i]), std::move(field_info)));
+        auto* subcolumn = column_object.get_subcolumn(paths[i]);
+        if (!subcolumn) {
+            return Status::DataQualityError(
+                        fmt::format("Failed to find sub column {}", paths[i].get_path()));
+        }
+        assert(subcolumn->size() == num_rows);
+        Status st = subcolumn->insert(std::move(values[i]), std::move(field_info));
+        if (st.is_invalid_argument()) {
+            return Status::DataQualityError(fmt::format("Failed to insert field {}", st.get_error_msg()));
+        }
+        RETURN_IF_ERROR(st);
     }
     // /// Insert default values to missed subcolumns.
     const auto& subcolumns = column_object.get_subcolumns();

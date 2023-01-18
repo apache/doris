@@ -129,7 +129,7 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     const int batch_size = _state->batch_size();
     auto columns = block->mutate_columns();
 
-    while (columns[0]->size() < batch_size && !_reader_eof) {
+    while (columns.back()->size() < batch_size && !_reader_eof) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;
@@ -383,9 +383,8 @@ Status NewJsonReader::_read_json_column(std::vector<MutableColumnPtr>& columns,
     return (this->*_vhandle_json_callback)(columns, slot_descs, is_empty_row, eof);
 }
 
-Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
-                                          const std::vector<SlotDescriptor*>& slot_descs,
-                                          bool* is_empty_row, bool* eof) {
+Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
+                        MutableColumnPtr& dynamic_column) {
     size_t size = 0;
     // read a whole message
     SCOPED_TIMER(_file_read_timer);
@@ -395,7 +394,7 @@ Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& colum
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, eof));
     } else {
         int64_t length = 0;
-        RETURN_IF_ERROR(_file_reader->read_one_message(&json_str_ptr, &length));
+        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
         json_str = json_str_ptr.get();
         size = length;
         if (length == 0) {
@@ -413,10 +412,26 @@ Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& colum
         return Status::OK();
     }
 
-    auto* dynamic_column_ptr = columns.back().get();
-    auto& column_object = assert_cast<vectorized::ColumnObject&>(*dynamic_column_ptr);
-    RETURN_IF_ERROR(doris::vectorized::parse_json_to_variant(
-            column_object, StringRef {json_str, size}, _json_parser.get()));
+    auto& column_object = assert_cast<vectorized::ColumnObject&>(*(dynamic_column.get()));
+    Status st = doris::vectorized::parse_json_to_variant(
+            column_object, StringRef {json_str, size}, _json_parser.get());
+    if (st.is_data_quality_error()) {
+        fmt::memory_buffer error_msg;
+        fmt::format_to(error_msg, "Parse json data for JsonDoc failed. error info: {}",
+                       st.get_error_msg());
+        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                [&]() -> std::string { return std::string((char*)json_str, size); },
+                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
+        _counter->num_rows_filtered++;
+        if (*_scanner_eof) {
+            // Case A: if _scanner_eof is set to true in "append_error_msg_to_file", which means
+            // we meet enough invalid rows and the scanner should be stopped.
+            // So we set eof to true and return OK, the caller will stop the process as we meet the end of file.
+            *eof = true;
+            return Status::OK();
+        }
+        return Status::DataQualityError(fmt::to_string(error_msg));
+    }
 
     if (_strip_outer_array) {
         column_object.finalize();
@@ -424,6 +439,28 @@ Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& colum
     }
 
     return Status::OK();
+}
+
+Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
+                                          const std::vector<SlotDescriptor*>& slot_descs,
+                                          bool* is_empty_row, bool* eof) {
+    MutableColumnPtr& dynamic_column = columns.back();
+    bool valid = false;
+    do {
+        Status st = _parse_dynamic_json(is_empty_row, eof, dynamic_column);
+        if (st.is_data_quality_error()) {
+            continue; // continue to read next
+        }
+        RETURN_IF_ERROR(st);
+        if (*is_empty_row == true) {
+            return Status::OK();
+        }
+        *is_empty_row = false;
+        valid = true;
+    } while (!valid);
+    return Status::OK();
+
+    
 }
 
 Status NewJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
