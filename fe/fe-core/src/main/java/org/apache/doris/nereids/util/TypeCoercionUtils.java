@@ -246,7 +246,19 @@ public class TypeCoercionUtils {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, (DecimalV2Type) right);
         } else if (left instanceof FloatType && right instanceof DecimalV2Type
                 || left instanceof DecimalV2Type && right instanceof FloatType) {
-            tightestCommonType = DoubleType.INSTANCE;
+            //TODO: need refactor. let operator upgrade data type.
+            if (binaryOperator != null) {
+                // for arithmetic, like Float + Decimal, upgrade to Double
+                tightestCommonType = DoubleType.INSTANCE;
+            } else {
+                //of other case, like
+                //          case
+                //            when 1=1 then cast(1 as int)
+                //            when 1>1 then cast(1 as float)
+                //            else 0.0 end;
+                //do not upgrade data type, keep Float
+                tightestCommonType = FloatType.INSTANCE;
+            }
         } else if (canCompareDate(left, right)) {
             if (binaryOperator instanceof BinaryArithmetic) {
                 tightestCommonType = IntegerType.INSTANCE;
