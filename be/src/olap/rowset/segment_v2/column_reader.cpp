@@ -397,8 +397,8 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
                     _file_reader->fs(), _file_reader->path().native(), index_meta->index_id()));
         }
     } else if (is_numeric_type(type)) {
-        // todo(wy): implement
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        _inverted_index.reset(new BkdIndexReader(_file_reader->fs(), _file_reader->path().native(),
+                                                 index_meta->index_id()));
     } else {
         _inverted_index.reset();
     }
