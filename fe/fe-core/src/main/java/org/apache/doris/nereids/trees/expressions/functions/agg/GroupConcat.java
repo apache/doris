@@ -24,7 +24,9 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -46,7 +48,17 @@ public class GroupConcat extends AggregateFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE)
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
+                    .varArgs(CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+            FunctionSignature.ret(CharType.SYSTEM_DEFAULT)
+                    .varArgs(CharType.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, AnyDataType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, StringType.INSTANCE, AnyDataType.INSTANCE)
     );
 
     private final int nonOrderArguments;
@@ -55,8 +67,7 @@ public class GroupConcat extends AggregateFunction
      * constructor with 1 argument.
      */
     public GroupConcat(Expression arg, OrderExpression... orders) {
-        super("group_concat", ExpressionUtils.mergeArguments(arg, orders));
-        this.nonOrderArguments = 1;
+        this(false, arg, orders);
     }
 
     /**
@@ -71,8 +82,7 @@ public class GroupConcat extends AggregateFunction
      * constructor with 2 arguments.
      */
     public GroupConcat(Expression arg0, Expression arg1, OrderExpression... orders) {
-        super("group_concat", ExpressionUtils.mergeArguments(arg0, arg1, orders));
-        this.nonOrderArguments = 2;
+        this(false, arg0, arg1, orders);
     }
 
     /**
