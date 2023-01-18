@@ -648,6 +648,13 @@ Status StructColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
+Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                           size_t num_rows) {
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+    return Status::OK();
+}
+
 Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     auto results = reinterpret_cast<const uint64_t*>(*ptr);
     for (size_t i = 0; i < _num_sub_column_writers; ++i) {
