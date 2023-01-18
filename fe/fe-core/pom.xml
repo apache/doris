@@ -843,6 +843,10 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-common</artifactId>
+        </dependency>
 
     </dependencies>
     <build>
