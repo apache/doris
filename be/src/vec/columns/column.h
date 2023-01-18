@@ -539,7 +539,9 @@ public:
     virtual bool is_dummy() const { return false; }
 
     /// Clear data of column, just like vector clear
-    virtual void clear() {};
+    virtual void clear() {
+        LOG(FATAL) << fmt::format("clear not impl for column {}", get_name());
+    }
 
     /** Memory layout properties.
       *
