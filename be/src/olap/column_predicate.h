@@ -172,6 +172,14 @@ public:
     }
 
 protected:
+    // Just prevent access not align memory address coredump
+    template <class T>
+    T _get_zone_map_value(void* data_ptr) const {
+        T res;
+        memcpy(&res, data_ptr, sizeof(T));
+        return res;
+    }
+
     virtual std::string _debug_string() const = 0;
 
     uint32_t _column_id;
