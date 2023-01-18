@@ -28,7 +28,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
-#include "olap/row.h"        // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"

@@ -62,7 +62,6 @@ add_library(Olap STATIC
     data_dir.cpp
     short_key_index.cpp
     snapshot_manager.cpp
-    stream_index_common.cpp
     stream_name.cpp
     tablet.cpp
     tablet_manager.cpp

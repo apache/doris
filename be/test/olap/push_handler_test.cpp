@@ -22,7 +22,6 @@
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "olap/row.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"

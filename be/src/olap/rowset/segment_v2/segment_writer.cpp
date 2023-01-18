@@ -22,7 +22,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/primary_key_index.h"
-#include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
