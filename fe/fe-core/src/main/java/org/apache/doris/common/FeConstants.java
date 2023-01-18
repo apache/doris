@@ -22,6 +22,10 @@ import org.apache.doris.persist.meta.FeMetaFormat;
 public class FeConstants {
     // Database and table's default configurations, we will never change them
     public static short default_replication_num = 3;
+
+    // The default value of bucket setting && auto bucket without estimate_partition_size
+    public static int default_bucket_num = 10;
+
     /*
      * Those two fields is responsible for determining the default key columns in duplicate table.
      * If user does not specify key of duplicate table in create table stmt,
