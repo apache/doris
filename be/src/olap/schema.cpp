@@ -114,15 +114,7 @@ vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
 }
 
 vectorized::IColumn::MutablePtr Schema::get_column_by_field(const Field& field) {
-    auto data_type_ptr = vectorized::DataTypeFactory::instance().create_data_type(field);
-    vectorized::IColumn::MutablePtr col_ptr = data_type_ptr->create_column();
-
-    if (field.is_nullable()) {
-        return doris::vectorized::ColumnNullable::create(std::move(col_ptr),
-                                                         doris::vectorized::ColumnUInt8::create());
-    }
-
-    return col_ptr;
+    return get_data_type_ptr(field)->create_column();
 }
 
 vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(const Field& field) {
