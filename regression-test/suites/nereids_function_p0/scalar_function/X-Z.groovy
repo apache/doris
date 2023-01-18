@@ -47,6 +47,7 @@ suite("nereids_scalar_fn_5") {
     qt_sql "select year_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select year_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select year_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
+    // cannot find function
     // qt_sql "select year_week(kdtm) from fn_test order by kdtm"
     // qt_sql "select year_week(kdtmv2s1) from fn_test order by kdtmv2s1"
     // qt_sql "select year_week(kdtv2) from fn_test order by kdtv2"
@@ -62,10 +63,12 @@ suite("nereids_scalar_fn_5") {
     qt_sql "select years_diff(kdtv2, kdtmv2s1) from fn_test order by kdtv2, kdtmv2s1"
     qt_sql "select years_diff(kdtmv2s1, kdtv2) from fn_test order by kdtmv2s1, kdtv2"
     qt_sql "select years_diff(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
+    // result error
     // qt_sql "select years_diff(kdtv2, kdtm) from fn_test order by kdtv2, kdtm"
     // qt_sql "select years_diff(kdtm, kdtv2) from fn_test order by kdtm, kdtv2"
     qt_sql "select years_diff(kdtmv2s1, kdtm) from fn_test order by kdtmv2s1, kdtm"
     qt_sql "select years_diff(kdtm, kdtmv2s1) from fn_test order by kdtm, kdtmv2s1"
+    // cannot find function
     // qt_sql "select years_sub(kdtm, kint) from fn_test order by kdtm, kint"
     // qt_sql "select years_sub(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     // qt_sql "select years_sub(kdt, kint) from fn_test order by kdt, kint"
