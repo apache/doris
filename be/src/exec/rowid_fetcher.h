@@ -34,7 +34,7 @@ public:
     Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::MutableBlock* block);
 
 private:
-    PMultiGetRequest init_fetch_request(const vectorized::ColumnString& row_ids);
+    PMultiGetRequest _init_fetch_request(const vectorized::ColumnString& row_ids);
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
     TupleDescriptor* _tuple_desc;

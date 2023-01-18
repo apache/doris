@@ -438,10 +438,6 @@ public:
         return next_batch(n, dst, &has_null);
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override {
-        return Status::NotSupported("next_batch ColumnBlockView not implement");
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
             rowid_t row_id = _current_rowid + i;

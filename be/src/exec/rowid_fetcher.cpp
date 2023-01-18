@@ -49,7 +49,7 @@ static std::string format_rowid(const GlobalRowLoacation& location) {
                        location.row_location.segment_id, location.row_location.row_id);
 }
 
-PMultiGetRequest RowIDFetcher::init_fetch_request(const vectorized::ColumnString& row_ids) {
+PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnString& row_ids) {
     PMultiGetRequest mget_req;
     _tuple_desc->to_protobuf(mget_req.mutable_desc());
     for (auto slot : _tuple_desc->slots()) {
@@ -100,7 +100,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& row_ids,
     CHECK(!_stubs.empty());
     res_block->clear_column_data();
     vectorized::MutableBlock mblock({_tuple_desc}, row_ids->size());
-    PMultiGetRequest mget_req = init_fetch_request(assert_cast<const vectorized::ColumnString&>(
+    PMultiGetRequest mget_req = _init_fetch_request(assert_cast<const vectorized::ColumnString&>(
             *vectorized::remove_nullable(row_ids).get()));
     std::vector<PMultiGetResponse> resps(_stubs.size());
     std::vector<brpc::Controller> cntls(_stubs.size());

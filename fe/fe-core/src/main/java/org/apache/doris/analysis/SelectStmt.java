@@ -35,7 +35,6 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -690,8 +689,10 @@ public class SelectStmt extends QueryStmt {
             return false;
         }
         // Only TOPN query at present
-        if (getOrderByElements() == null || !hasLimit()
-                    || getLimit() == 0 || getLimit() > Config.topn_two_phase_limit_threshold) {
+        if (getOrderByElements() == null
+                    || !hasLimit()
+                    || getLimit() == 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
             return false;
         }
         // Check order by exprs are all slot refs
