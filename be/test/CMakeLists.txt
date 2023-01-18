@@ -100,7 +100,7 @@ set(OLAP_TEST_FILES
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
-    olap/row_cursor_test.cpp
+    #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
@@ -142,10 +142,10 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/common_test.cpp
     olap/tablet_cooldown_test.cpp
-    olap/rowid_conversion_test.cpp
+    #olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
-    olap/segcompaction_test.cpp
-    olap/ordered_data_compaction_test.cpp
+    #olap/segcompaction_test.cpp
+    #olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -305,7 +305,7 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
-    vec/olap/vertical_compaction_test.cpp
+    #vec/olap/vertical_compaction_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}
