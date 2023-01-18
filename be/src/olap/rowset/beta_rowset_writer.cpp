@@ -607,7 +607,6 @@ Status BetaRowsetWriter::_add_row(const RowType& row) {
 }
 
 template Status BetaRowsetWriter::_add_row(const RowCursor& row);
-template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);

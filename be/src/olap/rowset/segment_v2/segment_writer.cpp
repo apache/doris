@@ -344,7 +344,6 @@ Status SegmentWriter::append_row(const RowType& row) {
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
-template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.
