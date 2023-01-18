@@ -60,5 +60,5 @@
 -- !window_funnel --
 2
 
--- !fn_2 --
+-- !regexp_extract_all --
 ['b']

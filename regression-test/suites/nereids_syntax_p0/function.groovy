@@ -239,7 +239,7 @@ suite("nereids_function") {
     ) as runningDifference
     """
 
-    qt_fn_2 """
+    qt_regexp_extract_all """
         SELECT regexp_extract_all('AbCdE', '([[:lower:]]+)C([[:lower:]]+)')
     """
 }
