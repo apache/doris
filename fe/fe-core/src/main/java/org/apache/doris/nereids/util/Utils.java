@@ -214,11 +214,14 @@ public class Utils {
      * Replace one item in a list with another item.
      */
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
+        boolean result = false;
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i).equals(oldItem)) {
                 list.set(i, newItem);
+                result = true;
             }
         }
+        Preconditions.checkState(result);
     }
 
     /**
