@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -118,12 +119,12 @@ public class GroupConcat extends AggregateFunction
         Preconditions.checkArgument(children().size() >= 1);
 
         // in type coercion, the orderExpression will be the child of cast, we should push down cast.
-        children = children.stream().map(ExpressionUtils::pushDownCastInOrderExpression).collect(Collectors.toList());
         boolean foundOrderExpr = false;
         int firstOrderExrIndex = 0;
         for (int i = 0; i < children.size(); i++) {
             Expression child = children.get(i);
-            if (child instanceof OrderExpression) {
+            if (child instanceof OrderExpression
+                    || child instanceof Cast && ((Cast) child).child() instanceof OrderExpression) {
                 foundOrderExpr = true;
             } else if (!foundOrderExpr) {
                 firstOrderExrIndex++;
@@ -132,7 +133,9 @@ public class GroupConcat extends AggregateFunction
             }
         }
 
-        List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size());
+        List<OrderExpression> orders = children.subList(firstOrderExrIndex, children.size())
+                .stream().map(e -> e instanceof OrderExpression ? e : ((Cast) e).child())
+                .map(OrderExpression.class::cast).collect(Collectors.toList());
         if (firstOrderExrIndex == 1) {
             return new GroupConcat(distinct, children.get(0), orders.toArray(new OrderExpression[0]));
         } else if (firstOrderExrIndex == 2) {

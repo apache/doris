@@ -467,17 +467,4 @@ public class ExpressionUtils {
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
-
-    /**
-     * cast push down in order expression
-     */
-    public static Expression pushDownCastInOrderExpression(Expression expression) {
-        if (expression instanceof Cast
-                && ((Cast) expression).child() instanceof OrderExpression) {
-            Cast cast = ((Cast) expression);
-            OrderExpression order = ((OrderExpression) cast.child());
-            return order.withChildren(cast.withChildren(order.getOrderKey().getExpr()));
-        }
-        return expression;
-    }
 }
