@@ -102,6 +102,9 @@ public class CatalogFactory {
             case "jdbc":
                 catalog = new JdbcExternalCatalog(catalogId, name, resource, props);
                 break;
+            case "iceberg":
+                catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props);
+                break;
             default:
                 throw new DdlException("Unknown catalog type: " + catalogType);
         }

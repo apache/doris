@@ -36,6 +36,7 @@ public class InitCatalogLog implements Writable {
         HMS,
         ES,
         JDBC,
+        ICEBERG,
         UNKNOWN;
     }
 

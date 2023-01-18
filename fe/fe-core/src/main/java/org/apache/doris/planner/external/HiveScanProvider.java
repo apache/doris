@@ -209,7 +209,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
         allFiles.addAll(files);
     }
 
-    protected Configuration getConfiguration() {
+    public Configuration getConfiguration() {
         Configuration conf = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : hmsTable.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
