@@ -313,10 +313,8 @@ public class ConnectProcessor {
                     && ctx.getSessionVariable().isEnableNereidsPlanner()
                     && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
                 Exception exception = new Exception(
-                        String.format("Nereids cannot parse the SQL, and fallback disabled.\n\n%s",
+                        String.format("Nereids cannot parse the SQL, and fallback disabled. caused by: %s",
                                 nereidsParseException.getMessage()), nereidsParseException);
-                        String.format("nereids cannot anaylze sql, and fall-back disabled: %s, caused by %s",
-                        parsedStmt.toSql(), nereidsParseException.getMessage()), nereidsParseException);
                 // audit it and break
                 handleQueryException(exception, auditStmt, null, null);
                 break;
