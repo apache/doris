@@ -45,6 +45,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -616,7 +617,8 @@ terminal String
     KW_YEAR,
     KW_MTMV,
     KW_TYPECAST,
-    KW_HISTOGRAM;
+    KW_HISTOGRAM,
+    KW_AUTO;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -2914,12 +2916,16 @@ opt_distribution ::=
     /* Hash distributed */
     | KW_DISTRIBUTED KW_BY KW_HASH LPAREN ident_list:columns RPAREN opt_distribution_number:numDistribution
     {:
-        RESULT = new HashDistributionDesc(numDistribution, columns);
+        int bucketNum = (numDistribution == null ? -1 : numDistribution);
+        boolean is_auto_bucket = (numDistribution == null);
+        RESULT = new HashDistributionDesc(bucketNum, is_auto_bucket, columns);
     :}
     /* Random distributed */
     | KW_DISTRIBUTED KW_BY KW_RANDOM opt_distribution_number:numDistribution
     {:
-        RESULT = new RandomDistributionDesc(numDistribution);
+        int bucketNum = (numDistribution == null ? -1 : numDistribution);
+        boolean is_auto_bucket = (numDistribution == null);
+        RESULT = new RandomDistributionDesc(bucketNum, is_auto_bucket);
     :}
     ;
 
@@ -2937,12 +2943,16 @@ opt_rollup ::=
 opt_distribution_number ::=
     /* Empty */
     {:
-        /* If distribution number is null, default distribution number is 10. */
-        RESULT = 10;
+        /* If distribution number is null, default distribution number is FeConstants.default_bucket_num. */
+        RESULT = FeConstants.default_bucket_num;
     :}
     | KW_BUCKETS INTEGER_LITERAL:numDistribution
     {:
         RESULT = numDistribution.intValue();
+    :}
+    | KW_BUCKETS KW_AUTO
+    {:
+        RESULT = null;
     :}
     ;
 
