@@ -68,7 +68,7 @@ class BenchmarkAction implements SuiteAction {
             log.info("start to warm up")
             for (int i = 1; i <= sqls.size(); ++i) {
                 def sql = sqls[i - 1]
-                log.info("Start to execute sql ${i}:\n${sql}".toString())
+                log.info("Start to warm up sql ${i}:\n${sql}".toString())
 
                 try {
                     JdbcUtils.executeToList(context.getConnection(), sql)
