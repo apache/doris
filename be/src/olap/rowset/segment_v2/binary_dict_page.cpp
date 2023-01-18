@@ -203,10 +203,6 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
-        // copy the codewords into a temporary buffer first
-        // And then copy the strings corresponding to the codewords to the destination buffer
-        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
-        RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
         _data_page_decoder.reset(
                 _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
@@ -296,57 +292,6 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
         dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
     }
     *n = read_count;
-    return Status::OK();
-}
-
-Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
-        return _data_page_decoder->next_batch(n, dst);
-    }
-    // dictionary encoding
-    DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
-
-    if (PREDICT_FALSE(*n == 0)) {
-        return Status::OK();
-    }
-    auto* out = reinterpret_cast<Slice*>(dst->data());
-
-    _batch->resize(*n);
-
-    ColumnBlock column_block(_batch.get(), dst->column_block()->pool());
-    ColumnBlockView tmp_block_view(&column_block);
-    RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
-    const auto len = *n;
-
-    size_t mem_len[len];
-    for (int i = 0; i < len; ++i) {
-        int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
-        // get the string from the dict decoder
-        *out = Slice(_dict_word_info[codeword].data, _dict_word_info[codeword].size);
-        mem_len[i] = out->size;
-        out++;
-    }
-
-    // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
-    size_t mem_size = 0;
-    for (int i = 0; i < len; ++i) {
-        mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
-        mem_size += mem_len[i];
-    }
-
-    // allocate a batch of memory and do memcpy
-    out = reinterpret_cast<Slice*>(dst->data());
-    char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
-    if (destination == nullptr) {
-        return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
-    }
-    for (int i = 0; i < len; ++i) {
-        out->relocate(destination);
-        destination += mem_len[i];
-        ++out;
-    }
-
     return Status::OK();
 }
 

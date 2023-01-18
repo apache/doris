@@ -19,7 +19,6 @@
 
 #include <roaring/roaring.hh>
 
-#include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"

@@ -27,7 +27,6 @@
 #include <arrow/visit_type_inline.h>
 
 #include "gutil/strings/substitute.h"
-#include "olap/column_block.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/schema.h"
