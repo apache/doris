@@ -48,6 +48,7 @@ struct SerializedHashTableContext {
 
     HashTable hash_table;
     Iter iter;
+    ForwardIterator<RowRefListType> probe_row_match_iter;
     bool inited = false;
     std::vector<StringRef> keys;
     size_t keys_memory_usage = 0;
@@ -88,6 +89,7 @@ struct PrimaryTypeHashTableContext {
 
     HashTable hash_table;
     Iter iter;
+    ForwardIterator<RowRefListType> probe_row_match_iter;
     bool inited = false;
 
     void init_once() {
@@ -122,6 +124,7 @@ struct FixedKeyHashTableContext {
 
     HashTable hash_table;
     Iter iter;
+    ForwardIterator<RowRefListType> probe_row_match_iter;
     bool inited = false;
 
     void init_once() {
