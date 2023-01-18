@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "exec/tablet_info.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/utils.h"
 #include "tablet_meta.h"

@@ -25,7 +25,6 @@
 #include "olap/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
-#include "exec/tablet_info.h"
 
 namespace doris {
 namespace vectorized {
