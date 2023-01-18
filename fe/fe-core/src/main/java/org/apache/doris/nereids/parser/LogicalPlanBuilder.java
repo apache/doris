@@ -163,6 +163,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
@@ -774,22 +776,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new DaysAdd(timeStamp, amount);
         }
 
-        if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DaysAdd(timeStamp, amount);
-        }
-        if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthsAdd(timeStamp, amount);
-        }
         if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
             return new YearsAdd(timeStamp, amount);
-        }
-        if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MonthsAdd(timeStamp, amount);
+        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+            return new WeeksAdd(timeStamp, amount);
+        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new DaysAdd(timeStamp, amount);
+        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
             return new HoursAdd(timeStamp, amount);
-        }
-        if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
             return new MinutesAdd(timeStamp, amount);
-        }
-        if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
             return new SecondsAdd(timeStamp, amount);
         }
         throw new ParseException("Unsupported time unit: " + ctx.unit
@@ -808,22 +807,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new DaysSub(timeStamp, amount);
         }
 
-        if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DaysSub(timeStamp, amount);
-        }
-        if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthsSub(timeStamp, amount);
-        }
         if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
             return new YearsSub(timeStamp, amount);
-        }
-        if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MonthsSub(timeStamp, amount);
+        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+            return new WeeksSub(timeStamp, amount);
+        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new DaysSub(timeStamp, amount);
+        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
             return new HoursSub(timeStamp, amount);
-        }
-        if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
             return new MinutesSub(timeStamp, amount);
-        }
-        if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
             return new SecondsSub(timeStamp, amount);
         }
         throw new ParseException("Unsupported time unit: " + ctx.unit
