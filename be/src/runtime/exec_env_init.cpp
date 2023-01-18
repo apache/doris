@@ -22,6 +22,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
@@ -210,6 +211,19 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
+
+    // use memory limit
+    int64_t inverted_index_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_cache_limit = inverted_index_cache_limit / 2;
+    }
+    InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+    LOG(INFO) << "Inverted index searcher cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_searcher_cache_limit;
 
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());

@@ -26,6 +26,7 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
@@ -91,6 +92,12 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
+            if (config::enable_write_index_searcher_cache) {
+                // open index searcher into cache
+                auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+                        _segment_file_name, _index_meta->index_id());
+                InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);
+            }
             _CLLDELETE(_index_writer)
             _index_writer = nullptr;
         }

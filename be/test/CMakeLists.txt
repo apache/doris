@@ -123,6 +123,7 @@ set(OLAP_TEST_FILES
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
     olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
     olap/rowset/segment_v2/zone_map_index_test.cpp
+    olap/rowset/segment_v2/inverted_index_searcher_cache_test.cpp
     olap/tablet_meta_test.cpp
     olap/tablet_meta_manager_test.cpp
     olap/tablet_mgr_test.cpp
