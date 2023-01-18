@@ -29,6 +29,7 @@ class BenchmarkAction implements SuiteAction {
     private int executeTimes = 3
     private boolean skipFailure = true
     private boolean printResult = true
+    private boolean warmUp = true
     private List<String> sqls
 
     SuiteContext context
@@ -53,12 +54,32 @@ class BenchmarkAction implements SuiteAction {
         this.skipFailure = skipFailure
     }
 
+    void warmUp(boolean warmUp) {
+        this.warmUp = warmUp
+    }
+
     void printResult(boolean printResult) {
         this.printResult = printResult
     }
 
     @Override
     void run() {
+        if (warmUp) {
+            log.info("start to warm up")
+            for (int i = 1; i <= sqls.size(); ++i) {
+                def sql = sqls[i - 1]
+                log.info("Start to execute sql ${i}:\n${sql}".toString())
+
+                try {
+                    JdbcUtils.executeToList(context.getConnection(), sql)
+                } catch (Throwable t) {
+                    if (!skipFailure) {
+                        throw t
+                    }
+                }
+            }
+        }
+
         log.info("start to run benchmark")
         List<Map<String, Double>> results = []
         for (int i = 1; i <= sqls.size(); ++i) {
@@ -95,7 +116,7 @@ class BenchmarkAction implements SuiteAction {
             List<Long> minResults = []
             List<Long> maxResults = []
             for (int i = 1; i <= results.size(); ++i) {
-                def result = results[i -1]
+                def result = results[i - 1]
                 resultStrings += String.format("|  SQL %-3d  | %10.2f ms | %10d ms | %10d ms |\n",
                         i, result["avg"], result["min"], result["max"])
                 avgResults.add(result["avg"])
@@ -103,10 +124,10 @@ class BenchmarkAction implements SuiteAction {
                 maxResults.add(result["max"].toLong())
             }
             resultStrings += line +
-                String.format("| TOTAL AVG | %10.2f ms | %10.2f ms | %10.2f ms |\n",
-                    avg(avgResults), avg(minResults), avg(maxResults)) +
-                String.format("| TOTAL SUM | %10.2f ms | %10d ms | %10d ms |\n",
-                    sum(avgResults), sum(minResults), sum(maxResults)) + line
+                    String.format("| TOTAL AVG | %10.2f ms | %10.2f ms | %10.2f ms |\n",
+                            avg(avgResults), avg(minResults), avg(maxResults)) +
+                    String.format("| TOTAL SUM | %10.2f ms | %10d ms | %10d ms |\n",
+                            sum(avgResults), sum(minResults), sum(maxResults)) + line
             log.info("bechmark result: \n${resultStrings}")
         }
     }

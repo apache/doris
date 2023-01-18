@@ -183,12 +183,8 @@ suite("explain_clickbench_benchmark") {
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    // warm up
-    for (def warmUpSql in queries) {
-        sql warmUpSql
-    }
-
     benchmark {
+        warmUp true
         executeTimes 3
         skipFailure false
         printResult true
