@@ -45,11 +45,6 @@ public class SqlCache extends Cache {
         return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
     }
 
-    // only used for UT
-    public Types.PUniqueId getSqlKey() {
-        return CacheProxy.getMd5(getSqlWithViewStmt());
-    }
-
     public InternalService.PFetchCacheResult getCacheData(Status status) {
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
                 .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
