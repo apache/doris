@@ -571,16 +571,6 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 };
 
-static void prepare_char_before_convert(const void* src) {
-    Slice* slice = const_cast<Slice*>(reinterpret_cast<const Slice*>(src));
-    char* buf = slice->data;
-    int64_t p = slice->size - 1;
-    while (p >= 0 && buf[p] == '\0') {
-        p--;
-    }
-    slice->size = p + 1;
-}
-
 // Using NumericFieldtypeTraits to Derived code for OLAP_FIELD_TYPE_XXXINT, OLAP_FIELD_TYPE_FLOAT,
 // OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
 template <FieldType fieldType, bool isArithmetic>
