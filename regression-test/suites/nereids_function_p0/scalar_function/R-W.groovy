@@ -134,7 +134,7 @@ suite("nereids_scalar_fn_4") {
     // cannot find function
     // qt_sql "select sm4_encrypt(kvchrs1, kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1, kvchrs1"
     // qt_sql "select sm4_encrypt(kstr, kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr, kstr"
-    qt_sql "select space(10) from fn_test order by kint"
+    sql "select space(10) from fn_test order by kint"
     // argument in index 2 must be constant but it is
     // qt_sql "select split_part(kvchrs1, kvchrs1, 3) from fn_test order by kvchrs1, kvchrs1, kint"
     // qt_sql "select split_part(kstr, kstr, 3) from fn_test order by kstr, kstr, kint"
