@@ -231,6 +231,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | char/varchar/text/nchar/nvarchar/ntext | STRING | |
 | binary/varbinary | STRING | |
 | time/datetimeoffset | STRING | |
+|Other| UNSUPPORTED | |
 
 
 ### Clickhouse
