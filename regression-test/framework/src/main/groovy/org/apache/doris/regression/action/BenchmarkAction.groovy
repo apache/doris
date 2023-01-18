@@ -90,30 +90,41 @@ class BenchmarkAction implements SuiteAction {
         }
 
         if (printResult) {
-            String line = "+---------+---------------+---------------+---------------+\n"
-            String resultStrings = line + "| SQL ID  |      avg      |      min      |      max      |\n" + line
+            String line = "+-----------+---------------+---------------+---------------+\n"
+            String resultStrings = line + "|  SQL ID   |      avg      |      min      |      max      |\n" + line
+            List<Double> avgResults = []
+            List<Long> minResults = []
+            List<Long> maxResults = []
             for (int i = 1; i <= results.size(); ++i) {
                 def result = results[i -1]
-                resultStrings += String.format("| SQL %-3d | %10.2f ms | %10d ms | %10d ms |\n",
+                resultStrings += String.format("|  SQL %-3d  | %10.2f ms | %10d ms | %10d ms |\n",
                         i, result["avg"], result["min"], result["max"])
+                avgResults.add(result["avg"])
+                minResults.add(result["min"].toLong())
+                maxResults.add(result["max"].toLong())
             }
-            log.info("bechmark result: \n${resultStrings}${line}")
+            resultStrings += line +
+                String.format("| TOTAL AVG | %10.2f ms | %10.2f ms | %10.2f ms |\n",
+                    avg(avgResults), avg(minResults), avg(maxResults)) +
+                String.format("| TOTAL SUM | %10.2f ms | %10d ms | %10d ms |\n",
+                    sum(avgResults), sum(minResults), sum(maxResults)) + line
+            log.info("bechmark result: \n${resultStrings}")
         }
     }
 
-    private long max(List<Long> numbers) {
+    private Number max(List<Long> numbers) {
         return numbers.stream()
-            .reduce{ n1, n2 -> return Math.max(n1, n2) }.orElse(0)
+            .reduce{ n1, n2 -> return Math.max(n1, n2) }.orElse(0L)
     }
 
-    private long min(List<Long> numbers) {
+    private Number min(List<Number> numbers) {
         return numbers.stream()
-                .reduce{ n1, n2 -> return Math.min(n1, n2) }.orElse(0)
+                .reduce{ n1, n2 -> return Math.min(n1, n2) }.orElse(0L)
     }
 
-    private long sum(List<Long> numbers) {
+    private Number sum(List<Number> numbers) {
         return numbers.stream()
-                .reduce{ n1, n2 -> return n1 + n2 }.orElse(0)
+                .reduce{ n1, n2 -> return n1 + n2 }.orElse(0L)
     }
 
     private double avg(List<Long> numbers) {
