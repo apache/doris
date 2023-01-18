@@ -132,7 +132,7 @@ public class ExportJob implements Writable {
     private String sql = "";
     private JobState state;
     // If set to true, the profile of export job with be pushed to ProfileManager
-    private boolean enableProfile = false;
+    private volatile boolean enableProfile = false;
     private long createTimeMs;
     private long startTimeMs;
     private long finishTimeMs;
