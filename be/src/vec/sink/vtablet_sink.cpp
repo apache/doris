@@ -426,7 +426,16 @@ Status VNodeChannel::add_block(vectorized::Block* block,
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), *(payload.first));
+    if (UNLIKELY(!_cur_mutable_block)) {
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+    }
+
+    if (_parent->_schema->is_dynamic_schema()) {
+        // Set _cur_mutable_block to dynamic since input blocks may be structure-variable(dyanmic)
+        // this will align _cur_mutable_block with block and auto extends columns
+        _cur_mutable_block->set_block_type(vectorized::BlockType::DYNAMIC);
+    }
+    block->append_block_by_selector(_cur_mutable_block.get(), *(payload.first));
     for (auto tablet_id : payload.second) {
         _cur_add_block_request.add_tablet_ids(tablet_id);
     }
@@ -742,39 +751,6 @@ void VNodeChannel::mark_close() {
     }
 
     _eos_is_produced = true;
-}
-
-void VNodeChannel::force_send_cur_block() {
-    if (_cur_mutable_block->rows() > 0) {
-        SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
-        std::lock_guard<std::mutex> l(_pending_batches_lock);
-        // To simplify the add_row logic, postpone adding block into req until the time of sending req
-        _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
-        _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
-        _pending_batches_num++;
-    }
-
-    _cur_mutable_block.reset(nullptr);
-    _cur_add_block_request.clear_tablet_ids();
-}
-
-bool VNodeChannel::fitted_with(VecBlock* input_block) {
-    if (_cur_mutable_block == nullptr) {
-        return true;
-    }
-    if (input_block->columns() != _cur_mutable_block->columns()) {
-        return false;
-    }
-    const std::vector<std::string>& names = _cur_mutable_block->get_names();
-    for (size_t i = 0; i < input_block->columns(); ++i) {
-        auto& column_type_name = input_block->get_by_position(i);
-        if (column_type_name.name != names[i] ||
-            !column_type_name.type->equals(*_cur_mutable_block->get_datatype_by_position(i))) {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,

@@ -235,7 +235,7 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end()) {
+        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
             // not exist in file, using type from _input_tuple_desc
             data_type =
                     DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
@@ -408,6 +408,12 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
     auto origin_column_num = _src_block.columns();
+
+    // Set block dynamic, block maybe merge or add_rows
+    // in in later process.
+    if (_is_dynamic_schema) {
+        block->set_block_type(BlockType::DYNAMIC);
+    }
 
     for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
@@ -770,10 +776,6 @@ Status VFileScanner::_init_expr_ctxes() {
             if (!slot_desc->is_materialized()) {
                 continue;
             }
-            if (slot_desc->type().is_variant() &&
-                slot_desc->col_name() == BeConsts::DYNAMIC_COLUMN_NAME) {
-                _is_dynamic_schema = true;
-            }
             auto it = _params.expr_of_dest_slot.find(slot_desc->id());
             if (it == std::end(_params.expr_of_dest_slot)) {
                 return Status::InternalError("No expr for dest slot, id={}, name={}",
@@ -807,8 +809,10 @@ Status VFileScanner::_init_expr_ctxes() {
             }
         }
     }
+    // If last slot is_variant from stream plan which indicate table is dynamic schema
+    _is_dynamic_schema = _output_tuple_desc &&
+                _output_tuple_desc->slots().back()->type().is_variant();
     if (_is_dynamic_schema) {
-        CHECK(_output_tuple_desc);
         // should not resuse Block since Block is variable
         _src_block_mem_reuse = false;
         _full_base_schema_view.reset(new vectorized::object_util::FullBaseSchemaView);
