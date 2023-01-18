@@ -144,7 +144,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     }
     RowsetSharedPtr rowset_to_add;
     // writes
-    res = _convert_v2(tablet, &rowset_to_add, tablet_schema);
+    res = _convert_v2(tablet, &rowset_to_add, tablet_schema, push_type);
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
@@ -175,7 +175,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 }
 
 Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
-                                TabletSchemaSPtr tablet_schema) {
+                                TabletSchemaSPtr tablet_schema, PushType push_type) {
     Status res = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
@@ -209,10 +209,14 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
 
         // 2. Init PushBrokerReader to read broker file if exist,
         //    in case of empty push this will be skipped.
-        std::string path = _request.broker_scan_range.ranges[0].path;
-        LOG(INFO) << "tablet=" << cur_tablet->full_name() << ", file path=" << path
-                  << ", file size=" << _request.broker_scan_range.ranges[0].file_size;
-
+        std::string path;
+        // If it is push delete, the broker_scan_range is not set.
+        if (push_type == PushType::PUSH_NORMAL_V2) {
+            path = _request.broker_scan_range.ranges[0].path;
+            LOG(INFO) << "tablet=" << cur_tablet->full_name() << ", file path=" << path
+                      << ", file size=" << _request.broker_scan_range.ranges[0].file_size;
+        }
+        // For push load, this tablet maybe not need push data, so that the path maybe empty
         if (!path.empty()) {
             std::unique_ptr<PushBrokerReader> reader(new (std::nothrow) PushBrokerReader());
             if (reader == nullptr) {

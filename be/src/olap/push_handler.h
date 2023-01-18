@@ -54,11 +54,7 @@ public:
 
 private:
     Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
-                       TabletSchemaSPtr tablet_schema);
-    // Convert local data file to internal formatted delta,
-    // return new delta's rowset
-    Status _convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
-                    TabletSchemaSPtr tablet_schema);
+                       TabletSchemaSPtr tablet_schema, PushType push_type);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
