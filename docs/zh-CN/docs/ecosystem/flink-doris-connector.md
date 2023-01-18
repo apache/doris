@@ -459,7 +459,7 @@ Exactly-Once场景下，Flink Job重启时必须从最新的Checkpoint/Savepoint
 
 6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
-这是因为同一个库并发导入超过了100。可通过调整 fe.conf的参数 `max_running_txn_num_per_db` 来解决。具体可参考 [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+这是因为同一个库并发导入超过了100，可通过调整 fe.conf的参数 `max_running_txn_num_per_db` 来解决。具体可参考 [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
 
 7. **Flink写入Uniq模型时，如何保证一批数据的有序性？**
 

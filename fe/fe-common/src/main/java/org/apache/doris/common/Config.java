@@ -740,7 +740,7 @@ public class Config extends ConfigBase {
      * txn manager will reject coming txns
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int default_db_max_running_txn_num = 100;
+    public static int max_running_txn_num_per_db = 100;
 
     /**
      * This configuration is just for compatible with old version,
@@ -754,7 +754,7 @@ public class Config extends ConfigBase {
     /**
      * The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
      * Currently, it only limits the pending_load task of broker load and spark load.
-     * It should be less than 'default_db_max_running_txn_num'
+     * It should be less than 'max_running_txn_num_per_db'
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int async_pending_load_task_pool_size = 10;
@@ -1966,9 +1966,9 @@ public class Config extends ConfigBase {
     public static int topn_two_phase_limit_threshold = 512;
 
     /**
-     * Maximum running transaction number per database
+     * Used to set default db transaction quota num.
      */
-    @ConfField(masterOnly = true)
-    public static int default_max_running_txn_per_db = 100;
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_max_running_txn_num = -1;
 }
 

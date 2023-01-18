@@ -1005,7 +1005,7 @@ MasterOnly：true
 
 Maximum percentage of data that can be filtered (due to reasons such as data is irregularly) , The default value is 0.
 
-#### `default_db_max_running_txn_num`
+#### `max_running_txn_num_per_db`
 
 Default：100
 
@@ -1013,14 +1013,17 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to set the default database transaction quota size. To set the quota size of a single database, you can use:
+This configuration is mainly used to control the number of concurrent load jobs of the same database.
 
+When there are too many load jobs running in the cluster, the newly submitted load jobs may report errors:
+
+```text
+current running txns on db xxx is xx, larger than limit xx
 ```
-Set the database transaction quota
-ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
-View configuration
-show data （Detail：HELP SHOW DATA）
-```
+
+When this error is encountered, it means that the load jobs currently running in the cluster exceeds the configuration value. At this time, it is recommended to wait on the business side and retry the load jobs.
+
+Generally it is not recommended to increase this configuration value. An excessively high number of concurrency may cause excessive system load
 
 #### `using_old_load_usage_pattern`
 
@@ -1261,7 +1264,7 @@ The pending_load task executor pool size. This pool size limits the max running 
 
 Currently, it only limits the pending_load task of broker load and spark load.
 
-It should be less than 'default_db_max_running_txn_num'
+It should be less than 'max_running_txn_num_per_db'
 
 #### `async_load_task_pool_size`
 
@@ -2580,7 +2583,7 @@ MasterOnly：false
 
 The default dir to put jdbc drivers.
 
-#### `max_error_tablet_of_broker_load`
+#### max_error_tablet_of_broker_load
 
 Default: 3;
 
@@ -2589,4 +2592,26 @@ IsMutable：true
 MasterOnly：true
 
 Maximum number of error tablet showed in broker load.
+
+#### `default_db_max_running_txn_num`
+
+Default：-1
+
+IsMutable：true
+
+MasterOnly：true
+
+Used to set the default database transaction quota size.
+
+The default value setting to -1 means using `max_running_txn_num_per_db` instead of `default_db_max_running_txn_num`.
+
+To set the quota size of a single database, you can use:
+
+```
+Set the database transaction quota
+ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
+View configuration
+show data （Detail：HELP SHOW DATA）
+```
+
 

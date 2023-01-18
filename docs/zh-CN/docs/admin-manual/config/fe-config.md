@@ -1005,7 +1005,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 可过滤数据（由于数据不规则等原因）的最大百分比。默认值为0，表示严格模式，只要数据有一条被过滤掉整个导入失败
 
-#### `default_db_max_running_txn_num`
+#### `max_running_txn_num_per_db`
 
 默认值：100
 
@@ -1013,14 +1013,17 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 是否为 Master FE 节点独有的配置项：true
 
-用于设置默认数据库事务配额大小，设置单个数据库的配额大小可以使用：
+这个配置主要是用来控制同一个 DB 的并发导入个数的。
 
+当集群中有过多的导入任务正在运行时，新提交的导入任务可能会报错：
+
+```text
+current running txns on db xxx is xx, larger than limit xx
 ```
-设置数据库事务数配额
-ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
-查看配置
-show data （其他用法：HELP SHOW DATA）
-```
+
+该遇到该错误时，说明当前集群内正在运行的导入任务超过了该配置值。此时建议在业务侧进行等待并重试导入任务。
+
+一般来说不推荐增大这个配置值。过高的并发数可能导致系统负载过大
 
 #### `using_old_load_usage_pattern`
 
@@ -1261,7 +1264,7 @@ Spark 负载调度程序运行间隔,默认 60 秒
 
 当前，它仅限制 `broker load`和 `spark load`的 `pending_load`任务的数量。
 
-它应该小于 `default_db_max_running_txn_num`的值
+它应该小于 `max_running_txn_num_per_db`的值
 
 #### `async_load_task_pool_size`
 
@@ -2589,3 +2592,25 @@ SmallFileMgr 中存储的最大文件数
 是否为 Master FE 节点独有的配置项：true
 
 broker load job 保存的失败tablet 信息的最大数量
+
+#### `default_db_max_running_txn_num`
+
+默认值：-1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+用于设置默认数据库事务配额大小。
+
+默认值设置为 -1 意味着使用 `max_running_txn_num_per_db` 而不是 `default_db_max_running_txn_num`。
+
+设置单个数据库的配额大小可以使用：
+
+```
+设置数据库事务量配额
+ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
+查看配置
+show data （其他用法：HELP SHOW DATA）
+```
+

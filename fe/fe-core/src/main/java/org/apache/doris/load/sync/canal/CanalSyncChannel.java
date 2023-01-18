@@ -124,7 +124,9 @@ public class CanalSyncChannel extends SyncChannel {
             String targetColumn = Joiner.on(",").join(columns) + "," + DELETE_COLUMN;
             GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
             DatabaseTransactionMgr databaseTransactionMgr = globalTransactionMgr.getDatabaseTransactionMgr(db.getId());
-            if (databaseTransactionMgr.getRunningTxnNums() < Config.default_db_max_running_txn_num) {
+            long txnLimit = (Config.default_db_max_running_txn_num == -1L)
+                    ? Config.max_running_txn_num_per_db : Config.default_db_max_running_txn_num;
+            if (databaseTransactionMgr.getRunningTxnNums() < txnLimit) {
                 TransactionEntry txnEntry = txnExecutor.getTxnEntry();
                 TTxnParams txnConf = txnEntry.getTxnConf();
                 TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
@@ -185,7 +187,7 @@ public class CanalSyncChannel extends SyncChannel {
             } else {
                 String failMsg = "current running txns on db " + db.getId() + " is "
                         + databaseTransactionMgr.getRunningTxnNums()
-                        + ", larger than limit " + Config.default_db_max_running_txn_num;
+                        + ", larger than limit " + txnLimit;
                 LOG.warn(failMsg);
                 throw new BeginTransactionException(failMsg);
             }
