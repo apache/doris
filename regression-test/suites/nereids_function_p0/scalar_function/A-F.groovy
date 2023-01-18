@@ -244,8 +244,8 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select fmod(kdbl, kdbl) from fn_test order by kdbl, kdbl"
     // data out of float range
     // qt_sql "select fpow(kdbl, kdbl) from fn_test order by kdbl, kdbl"
-    qt_sql "select from_base64(kvchrs1) from fn_test order by kvchrs1"
-    qt_sql "select from_base64(kstr) from fn_test order by kstr"
+    sql "select from_base64(kvchrs1) from fn_test order by kvchrs1"
+    sql "select from_base64(kstr) from fn_test order by kstr"
     qt_sql "select from_days(kint) from fn_test order by kint"
     qt_sql "select from_unixtime(kint) from fn_test order by kint"
     qt_sql "select from_unixtime(kint, 'varchar') from fn_test order by kint, kvchrs1"
