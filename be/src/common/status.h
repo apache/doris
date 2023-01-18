@@ -251,6 +251,7 @@ E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
+E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 #undef E
 }; // namespace ErrorCode
 
@@ -276,7 +277,8 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
-        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND;
+        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
+        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT;
 }
 // clang-format on
 

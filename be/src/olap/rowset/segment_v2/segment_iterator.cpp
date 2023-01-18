@@ -581,8 +581,9 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         if (!res.ok()) {
-            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                pred->type() != PredicateType::MATCH) {
+            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                 pred->type() != PredicateType::MATCH) ||
+                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
                 // downgrade without index query
                 continue;
             }
@@ -652,8 +653,9 @@ Status SegmentIterator::_apply_inverted_index() {
             Status res = pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(),
                                         &bitmap);
             if (!res.ok()) {
-                if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                    pred->type() != PredicateType::MATCH) {
+                if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                     pred->type() != PredicateType::MATCH) ||
+                    res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
                     //downgrade without index query
                     remaining_predicates.push_back(pred);
                     continue;

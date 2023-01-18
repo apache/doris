@@ -186,9 +186,7 @@ public:
                  roaring::Roaring* bit_map) override;
     Status try_query(const std::string& column_name, const void* query_value,
                      InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
-    }
+                     uint32_t* count) override;
     Status bkd_query(const std::string& column_name, const void* query_value,
                      InvertedIndexQueryType query_type,
                      std::shared_ptr<lucene::util::bkd::bkd_reader>&& r,
@@ -213,7 +211,7 @@ public:
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
-                                    roaring::Roaring* bit_map);
+                                    roaring::Roaring* bit_map, bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
