@@ -14,15 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SlotRef.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
@@ -30,7 +34,6 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,6 +82,19 @@ public class SlotRef extends Expr {
             this.type = Type.VARCHAR;
         }
         analysisDone();
+    }
+
+    // nereids use this constructor to build aggFnParam
+    public SlotRef(Type type, boolean nullable) {
+        super();
+        // tuple id and slot id is meaningless here, nereids just use type and nullable
+        // to build the TAggregateExpr.param_types
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
+        tupleDescriptor.addSlot(desc);
+        desc.setIsNullable(nullable);
+        desc.setType(type);
+        this.type = type;
     }
 
     protected SlotRef(SlotRef other) {
@@ -189,7 +205,7 @@ public class SlotRef extends Expr {
         }
         if (tblName == null && StringUtils.isNotEmpty(desc.getParent().getLastAlias())
                 && !desc.getParent().getLastAlias().equals(desc.getParent().getTable().getName())) {
-            tblName = new TableName(null, desc.getParent().getLastAlias());
+            tblName = new TableName(null, null, desc.getParent().getLastAlias());
         }
     }
 
@@ -208,9 +224,18 @@ public class SlotRef extends Expr {
         StringBuilder sb = new StringBuilder();
 
         if (tblName != null) {
-            return tblName.toSql() + "." + label + sb.toString();
+            return tblName.toSql() + "." + label;
         } else if (label != null) {
-            return label + sb.toString();
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getState().isNereids()
+                    && !ConnectContext.get().getState().isQuery()
+                    && ConnectContext.get().getSessionVariable() != null
+                    && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()
+                    && desc != null) {
+                return label + "[#" + desc.getId().asInt() + "]";
+            } else {
+                return label;
+            }
         } else if (desc.getSourceExprs() != null) {
             if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
                 if (desc.getId().asInt() != 1) {
@@ -315,13 +340,17 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         Preconditions.checkState(desc != null);
-        for (TupleId tid: tids) {
-            if (tid.equals(desc.getParent().getId())) return true;
+        for (TupleId tid : tids) {
+            if (tid.equals(desc.getParent().getId())) {
+                return true;
+            }
         }
         return false;
     }
@@ -350,6 +379,18 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public Expr getRealSlotRef() {
+        Preconditions.checkState(!type.equals(Type.INVALID));
+        Preconditions.checkState(desc != null);
+        if (!desc.getSourceExprs().isEmpty()
+                && desc.getSourceExprs().get(0) instanceof SlotRef) {
+            return desc.getSourceExprs().get(0);
+        } else {
+            return this;
+        }
+    }
+
+    @Override
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         Preconditions.checkState(!type.equals(Type.INVALID));
         Preconditions.checkState(desc != null);
@@ -363,16 +404,16 @@ public class SlotRef extends Expr {
 
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(desc != null);
-        if (!desc.isMaterialized()) {
+        if (desc == null) {
             return;
         }
+
         if (col == null) {
             for (Expr expr : desc.getSourceExprs()) {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);
             }
         } else {
-            Table table = desc.getParent().getTable();
+            TableIf table = desc.getParent().getTable();
             if (table == null) {
                 // Maybe this column comes from inline view.
                 return;
@@ -387,10 +428,9 @@ public class SlotRef extends Expr {
         }
     }
 
-    public Table getTable() {
+    public TableIf getTable() {
         Preconditions.checkState(desc != null);
-        Table table = desc.getParent().getTable();
-        return table;
+        return desc.getParent().getTable();
     }
 
     public void setLabel(String label) {
@@ -440,5 +480,22 @@ public class SlotRef extends Expr {
     public boolean isNullable() {
         Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        if (tblName != null) {
+            builder.append(tblName).append(".");
+        }
+        if (label != null) {
+            builder.append(label);
+        }
+        return builder.toString();
     }
 }
