@@ -65,8 +65,6 @@ public:
     virtual bool equal(const void* left, const void* right) const = 0;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void shallow_copy(void* dest, const void* src) const = 0;
-
     virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
@@ -92,8 +90,6 @@ public:
     bool equal(const void* left, const void* right) const override { return _equal(left, right); }
 
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
-
-    void shallow_copy(void* dest, const void* src) const override { _shallow_copy(dest, src); }
 
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         _deep_copy(dest, src, mem_pool);
@@ -122,7 +118,6 @@ public:
     ScalarTypeInfo(TypeTraitsClass t)
             : _equal(TypeTraitsClass::equal),
               _cmp(TypeTraitsClass::cmp),
-              _shallow_copy(TypeTraitsClass::shallow_copy),
               _deep_copy(TypeTraitsClass::deep_copy),
               _direct_copy(TypeTraitsClass::direct_copy),
               _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
@@ -130,7 +125,6 @@ public:
               _to_string(TypeTraitsClass::to_string),
               _set_to_max(TypeTraitsClass::set_to_max),
               _set_to_min(TypeTraitsClass::set_to_min),
-              _hash_code(TypeTraitsClass::hash_code),
               _size(TypeTraitsClass::size),
               _field_type(TypeTraitsClass::type) {}
 
@@ -149,8 +143,6 @@ private:
 
     void (*_set_to_max)(void* buf);
     void (*_set_to_min)(void* buf);
-
-    uint32_t (*_hash_code)(const void* data, uint32_t seed);
 
     const size_t _size;
     const FieldType _field_type;
@@ -242,12 +234,6 @@ public:
         } else {
             return 0;
         }
-    }
-
-    void shallow_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
-        auto src_value = reinterpret_cast<const CollectionValue*>(src);
-        dest_value->shallow_copy(src_value);
     }
 
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
@@ -552,10 +538,6 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void shallow_copy(void* dest, const void* src) {
-        memcpy(dest, src, sizeof(CppType));
-    }
-
     static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         memcpy(dest, src, sizeof(CppType));
     }
@@ -714,9 +696,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
 
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void shallow_copy(void* dest, const void* src) {
-        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
-    }
     static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
