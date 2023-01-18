@@ -2226,40 +2226,81 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
     }
 
+    /*
+    NOTE:
+    explainString.contains("PREDICATES: xxx\n")
+    add '\n' at the end of line to ensure there are no other predicates
+     */
     @Test
     public void testRewriteOrToIn() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `query_time` IN (3, 4)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `query_time` IN (3, 4)\n"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`query_time` = 1 OR `query_time` = 2 OR `scan_bytes` = 2), `scan_bytes` IN (2, 3)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_bytes` = 2, `scan_bytes` IN (2, 3)\n"));
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `scan_bytes` IN (2, 3)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `scan_bytes` IN (2, 3)\n"));
 
         sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time = 3 or query_time = 1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3)\n"));
 
         sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 2)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3)\n"));
 
         connectContext.getSessionVariable().setRewriteOrToInPredicateThreshold(100);
         sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`query_time` = 1 OR `query_time` = 2 OR `query_time` IN (3, 4))"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` = 1 OR `query_time` = 2 OR `query_time` IN (3, 4)\n"));
+        connectContext.getSessionVariable().setRewriteOrToInPredicateThreshold(2);
 
         sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: (`query_time` = 1 OR `query_time` = 2), `query_time` IN (3, 4)"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2), `query_time` IN (3, 4)\n"));
+
+        //test we can handle `!=` and `not in`
+        sql = "select * from test1 where (query_time = 1 or query_time = 2 or query_time!= 3 or query_time not in (5, 6))";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `query_time` != 3 OR `query_time` NOT IN (5, 6)\n"));
+
+        //test we can handle merge 2 or more columns
+        sql = "select * from test1 where (query_time = 1 or query_time = 2 or scan_rows = 3 or scan_rows = 4)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_rows` IN (3, 4)"));
+
+        //merge in-pred or in-pred
+        sql = "select * from test1 where (query_time = 1 or query_time = 2 or query_time = 3 or query_time = 4)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));
+
+        //rewrite recursively
+        sql = "select * from test1 "
+                + "where query_id=client_ip "
+                + "      and (stmt_id=1 or stmt_id=2 or stmt_id=3 "
+                + "           or (user='abc' and (state = 'a' or state='b' or state in ('c', 'd'))))"
+                + "      or (db not in ('x', 'y')) ";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains(
+                "PREDICATES: `query_id` = `client_ip` "
+                        + "AND (`stmt_id` IN (1, 2, 3) OR `user` = 'abc' AND `state` IN ('a', 'b', 'c', 'd')) "
+                        + "OR (`db` NOT IN ('x', 'y'))\n"));
+
+        //ExtractCommonFactorsRule may generate more expr, test the rewriteOrToIn applied on generated exprs
+        sql = "select * from test1 where (stmt_id=1 and state='a') or (stmt_id=2 and state='b')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains(
+                "PREDICATES: `state` IN ('a', 'b'), `stmt_id` IN (1, 2),"
+                        + " `stmt_id` = 1 AND `state` = 'a' OR `stmt_id` = 2 AND `state` = 'b'\n"
+        ));
     }
 }
