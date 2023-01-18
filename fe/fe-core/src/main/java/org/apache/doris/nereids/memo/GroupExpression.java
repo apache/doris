@@ -66,6 +66,7 @@ public class GroupExpression {
     // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
+    // After mergeGroup(), source Group was cleaned up, but it may be in the Job Stack. So use this to mark and skip it.
     private boolean isUnused = false;
 
     public GroupExpression(Plan plan) {
