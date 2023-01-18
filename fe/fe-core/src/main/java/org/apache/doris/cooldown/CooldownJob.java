@@ -296,6 +296,7 @@ public class CooldownJob implements Writable {
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, CooldownJob.class);
         }
+        return null;
     }
 
     /**
