@@ -127,7 +127,7 @@ class BenchmarkAction implements SuiteAction {
                 .reduce{ n1, n2 -> return n1 + n2 }.orElse(0L)
     }
 
-    private double avg(List<Long> numbers) {
+    private double avg(List<Number> numbers) {
         double result = numbers.isEmpty() ? 0 : sum(numbers) * 1.0 / numbers.size()
         return new BigDecimal(result).setScale(2, RoundingMode.HALF_UP).toDouble()
     }
