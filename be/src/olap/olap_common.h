@@ -184,9 +184,9 @@ enum OLAPCompressionType {
 };
 
 enum PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load
+    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
