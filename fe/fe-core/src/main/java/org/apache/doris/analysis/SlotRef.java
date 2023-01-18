@@ -307,11 +307,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public String toString() {
-        return debugString();
-    }
-
-    @Override
     public int hashCode() {
         if (desc != null) {
             return desc.getId().hashCode();
