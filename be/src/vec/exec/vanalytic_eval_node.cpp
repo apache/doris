@@ -429,8 +429,8 @@ BlockRowPos VAnalyticEvalNode::_get_partition_by_end() {
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start,
-                                                        BlockRowPos end, bool need_check_first) {
+BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+                                                        bool need_check_first) {
     int64_t start_init_row_num = start.row_num;
     int64_t end_init_row_num = end.row_num;
     ColumnPtr start_column = _input_blocks[start.block_num].get_by_position(idx).column;
