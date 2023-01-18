@@ -1530,7 +1530,7 @@ public class DatabaseTransactionMgr {
                 break;
             default:
                 long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
-                if (runningTxnNums >= txnQuota) {
+                if (txnQuota != -1L && runningTxnNums >= txnQuota) {
                     throw new BeginTransactionException("current running txns on db " + dbId + " is "
                             + runningTxnNums + ", larger than limit " + txnQuota);
                 }

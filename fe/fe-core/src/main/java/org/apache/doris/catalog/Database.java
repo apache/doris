@@ -35,7 +35,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,7 +91,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     private volatile long replicaQuotaSize;
 
-    @SerializedName(value = "transactionQuotaSize")
     private volatile long transactionQuotaSize;
 
     private volatile boolean isDropped;
@@ -571,7 +569,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
-        out.writeLong(transactionQuotaSize);
+        dbProperties.put("transactionQuotaSize", String.valueOf(transactionQuotaSize));
         dbProperties.write(out);
     }
 
@@ -619,11 +617,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
-            String txnQuotaStr = dbProperties.getOrDefault("transactionQuotaSize", (transactionQuotaSize == -1L)
-                    ? String.valueOf(Config.max_running_txn_num_per_db)
-                    : String.valueOf(Config.default_db_max_running_txn_num));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
         }
+
+        String txnQuotaStr = dbProperties.getOrDefault("transactionQuotaSize", (transactionQuotaSize == -1L)
+                ? String.valueOf(Config.max_running_txn_num_per_db)
+                : String.valueOf(Config.default_db_max_running_txn_num));
+        transactionQuotaSize = Long.parseLong(txnQuotaStr);
+
     }
 
     @Override
