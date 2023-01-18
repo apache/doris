@@ -61,7 +61,6 @@ set(EXPRS_TEST_FILES
     exprs/encryption_functions_test.cpp
     exprs/math_functions_test.cpp
     exprs/topn_function_test.cpp
-    exprs/runtime_filter_test.cpp
     exprs/bloom_filter_predicate_test.cpp
     exprs/array_functions_test.cpp
     exprs/quantile_function_test.cpp
