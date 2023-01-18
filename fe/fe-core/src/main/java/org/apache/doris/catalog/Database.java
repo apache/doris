@@ -621,6 +621,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                     ? String.valueOf(Config.max_running_txn_num_per_db)
                     : String.valueOf(Config.default_db_max_running_txn_num));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
+        } else {
+            transactionQuotaSize = (transactionQuotaSize == -1L) ? Config.max_running_txn_num_per_db
+                    : Config.default_db_max_running_txn_num);
         }
     }
 
