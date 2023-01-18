@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 
@@ -142,10 +143,12 @@ public class CooldownHandler extends MasterDaemon {
     }
 
     public void readField(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            CooldownJob cooldownJob = CooldownJob.read(in);
-            replayCooldownJob(cooldownJob);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                CooldownJob cooldownJob = CooldownJob.read(in);
+                replayCooldownJob(cooldownJob);
+            }
         }
     }
 
