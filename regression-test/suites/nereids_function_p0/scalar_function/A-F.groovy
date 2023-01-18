@@ -28,23 +28,27 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select abs(kint) from fn_test order by kint"
     qt_sql "select abs(ktint) from fn_test order by ktint"
     qt_sql "select abs(kdcmls1) from fn_test order by kdcmls1"
+    // data out of function definition field
     // qt_sql "select acos(kdbl) from fn_test order by kdbl"
     sql "select aes_decrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     sql "select aes_decrypt(kstr, kstr) from fn_test order by kstr, kstr"
     sql "select aes_decrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
     sql "select aes_decrypt(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
+    // cannot find function
     // sql "select aes_decrypt(kvchrs1, kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1, kvchrs1"
     // sql "select aes_decrypt(kstr, kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr, kstr"
     sql "select aes_encrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     sql "select aes_encrypt(kstr, kstr) from fn_test order by kstr, kstr"
     sql "select aes_encrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
     sql "select aes_encrypt(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
+    // cannot find function
     // sql "select aes_encrypt(kvchrs1, kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1, kvchrs1"
     // sql "select aes_encrypt(kstr, kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr, kstr"
     qt_sql "select append_trailing_char_if_absent(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     qt_sql "select append_trailing_char_if_absent(kstr, kstr) from fn_test order by kstr, kstr"
     qt_sql "select ascii(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select ascii(kstr) from fn_test order by kstr"
+    // data out of function definition field
     // qt_sql "select asin(kdbl) from fn_test order by kdbl"
     qt_sql "select atan(kdbl) from fn_test order by kdbl"
     qt_sql "select bin(kbint) from fn_test order by kbint"
@@ -77,6 +81,7 @@ suite("nereids_scalar_fn_1") {
 // function bitmap_xor_count(bitmap, bitmap) is unsupported for the test suite.
     qt_sql "select cbrt(kdbl) from fn_test order by kdbl"
     qt_sql "select ceil(kdbl) from fn_test order by kdbl"
+    // core
     // qt_sql "select ceiling(kdbl) from fn_test order by kdbl"
     qt_sql "select character_length(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select character_length(kstr) from fn_test order by kstr"
@@ -105,17 +110,20 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select convert_to(kvchrs1, 'gbk') from fn_test order by kvchrs1, kvchrs1"
     qt_sql "select convert_tz(kdtm, kvchrs1, kvchrs1) from fn_test order by kdtm, kvchrs1, kvchrs1"
     qt_sql "select convert_tz(kdtmv2s1, kvchrs1, kvchrs1) from fn_test order by kdtmv2s1, kvchrs1, kvchrs1"
+    // core
     // qt_sql "select convert_tz(kdtv2, kvchrs1, kvchrs1) from fn_test order by kdtv2, kvchrs1, kvchrs1"
     qt_sql "select cos(kdbl) from fn_test order by kdbl"
     sql "select current_date() from fn_test"
     sql "select current_time() from fn_test"
     sql "select current_timestamp() from fn_test"
+    // core
     // qt_sql "select current_timestamp(kint) from fn_test order by kint"
     sql "select current_user() from fn_test"
     sql "select curtime() from fn_test"
     sql "select database() from fn_test"
     qt_sql "select date(kdtm) from fn_test order by kdtm"
     qt_sql "select date(kdtmv2s1) from fn_test order by kdtmv2s1"
+    // cannot find function
     // qt_sql "select date_diff(kdtm, kdtm) from fn_test order by kdtm, kdtm"
     // qt_sql "select date_diff(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
     // qt_sql "select date_diff(kdtmv2s1, kdtv2) from fn_test order by kdtmv2s1, kdtv2"
@@ -129,6 +137,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select date_format(kdtv2, '2006-01-02') from fn_test order by kdtv2"
     qt_sql "select date_trunc(kdtm, kvchrs1) from fn_test order by kdtm, kvchrs1"
     qt_sql "select date_trunc(kdtmv2s1, kvchrs1) from fn_test order by kdtmv2s1, kvchrs1"
+    // cannot find function
     // qt_sql "select date_v2(kdtmv2s1) from fn_test order by kdtmv2s1"
     qt_sql "select day(kdtm) from fn_test order by kdtm"
     qt_sql "select day(kdtmv2s1) from fn_test order by kdtmv2s1"
@@ -157,6 +166,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select day_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select day_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select day_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
+    // cannot find function
     // qt_sql "select day_name(kdtm) from fn_test order by kdtm"
     // qt_sql "select day_name(kdtmv2s1) from fn_test order by kdtmv2s1"
     // qt_sql "select day_name(kdtv2) from fn_test order by kdtv2"
@@ -182,19 +192,24 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select days_diff(kdtm, kdtv2) from fn_test order by kdtm, kdtv2"
     qt_sql "select days_diff(kdtmv2s1, kdtm) from fn_test order by kdtmv2s1, kdtm"
     qt_sql "select days_diff(kdtm, kdtmv2s1) from fn_test order by kdtm, kdtmv2s1"
+    // cannot find function
     // qt_sql "select days_sub(kdtm, kint) from fn_test order by kdtm, kint"
     // qt_sql "select days_sub(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     // qt_sql "select days_sub(kdt, kint) from fn_test order by kdt, kint"
     // qt_sql "select days_sub(kdtv2, kint) from fn_test order by kdtv2, kint"
+    // core
     // qt_sql "select dceil(kdbl) from fn_test order by kdbl"
     qt_sql "select degrees(kdbl) from fn_test order by kdbl"
+    // data out of double range
     // qt_sql "select dexp(kdbl) from fn_test order by kdbl"
+    // core
     // qt_sql "select dfloor(kdbl) from fn_test order by kdbl"
     qt_sql "select digital_masking(kbint) from fn_test order by kbint"
     qt_sql "select dlog1(kdbl) from fn_test order by kdbl"
     qt_sql "select dlog10(kdbl) from fn_test order by kdbl"
     qt_sql "select domain(kstr) from fn_test order by kstr"
     qt_sql "select domain_without_www(kstr) from fn_test order by kstr"
+    // data out of double range
     // qt_sql "select dpow(kdbl, kdbl) from fn_test order by kdbl, kdbl"
     // qt_sql "select dround(kdbl) from fn_test order by kdbl"
     // qt_sql "select dround(kdbl, kint) from fn_test order by kdbl, kint"
@@ -204,9 +219,12 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select elt(kint, kstr) from fn_test order by kint, kstr"
     qt_sql "select ends_with(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     qt_sql "select ends_with(kstr, kstr) from fn_test order by kstr, kstr"
+    // cannot find function
     // qt_sql "select es_query(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+    // data out of range
     // qt_sql "select exp(kdbl) from fn_test order by kdbl"
     qt_sql "select extract_url_parameter(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+    // must be less than 2, but some data fit.
     // qt_sql "select field(ktint) from fn_test order by ktint"
     // qt_sql "select field(ksint) from fn_test order by ksint"
     // qt_sql "select field(kint) from fn_test order by kint"
@@ -224,6 +242,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select floor(kdbl) from fn_test order by kdbl"
     qt_sql "select fmod(kfloat, kfloat) from fn_test order by kfloat, kfloat"
     qt_sql "select fmod(kdbl, kdbl) from fn_test order by kdbl, kdbl"
+    // data out of float range
     // qt_sql "select fpow(kdbl, kdbl) from fn_test order by kdbl, kdbl"
     qt_sql "select from_base64(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select from_base64(kstr) from fn_test order by kstr"
