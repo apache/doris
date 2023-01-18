@@ -58,7 +58,7 @@ public class StatsCalculatorTest {
 
     private Group newGroup() {
         GroupExpression groupExpression = new GroupExpression(new FakePlan());
-        Group group = new Group(null, groupExpression,null);
+        Group group = new Group(null, groupExpression, null);
         group.getPhysicalExpressions().remove(0);
         return group;
     }
