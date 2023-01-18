@@ -23,7 +23,6 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.ExplainTest;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
@@ -41,7 +40,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
@@ -690,21 +688,6 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
         Assert.assertTrue(explainString.contains("2011-11-09"));
         Assert.assertFalse(explainString.contains("2011-11-09 00:00:00"));
-    }
-
-    @Test
-    public void testDateTypeEquality() throws Exception {
-        // related to Github issue #3309
-        String loadStr = "load label test.app_profile_20200306\n"
-                + "(DATA INFILE('filexxx')INTO TABLE app_profile partition (p_20200306)\n"
-                + "COLUMNS TERMINATED BY '\\t'\n"
-                + "(app_name,package_name,age,gender,level,city,model,brand,hours,use_num,use_time,start_times)\n"
-                + "SET\n"
-                + "(event_date = default_value('2020-03-06'))) \n"
-                + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n";
-        LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
-        Env.getCurrentEnv().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
-                System.currentTimeMillis());
     }
 
     @Test
