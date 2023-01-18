@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/segment_iterator.h"
+
 #include <memory>
 #include <set>
 #include <utility>
@@ -25,7 +27,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/short_key_index.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"

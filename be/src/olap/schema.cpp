@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/schema.h"
+
 #include "olap/uint24.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_dictionary.h"
