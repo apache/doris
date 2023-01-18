@@ -484,4 +484,16 @@ public class SlotRef extends Expr {
     public void finalizeImplForNereids() throws AnalysisException {
 
     }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        if (tblName != null) {
+            builder.append(tblName).append(".");
+        }
+        if (label != null) {
+            builder.append(label);
+        }
+        return builder.toString();
+    }
 }
