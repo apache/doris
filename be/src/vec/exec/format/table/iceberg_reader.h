@@ -56,6 +56,14 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    void set_file_to_table_col_map(std::unordered_map<std::string, std::string>& map) {
+        _file_col_to_table_col = map;
+    }
+
+    void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
+        _table_col_to_file_col = map;
+    }
+
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
 
 private:
@@ -88,6 +96,10 @@ private:
     KVCache<std::string>& _kv_cache;
     IcebergProfile _iceberg_profile;
     std::vector<int64_t> _delete_rows;
+    // file column name to table column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _file_col_to_table_col;
+    // table column name to file column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
 
     IOContext* _io_ctx;
 };

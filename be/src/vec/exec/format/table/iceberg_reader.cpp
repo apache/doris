@@ -60,7 +60,28 @@ IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, Runtim
 }
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    return _file_format_reader->get_next_block(block, read_rows, eof);
+    // To support iceberg schema evolution. We change the column name in block to
+    // make it match with the column name in parquet file before reading data. and
+    // Set the name back to table column name before return this block.
+    for (int i = 0; i < block->columns(); i++) {
+        ColumnWithTypeAndName& col = block->get_by_position(i);
+        auto iter = _table_col_to_file_col.find(col.name);
+        if (iter != _table_col_to_file_col.end()) {
+            col.name = iter->second;
+        }
+    }
+    block->initialize_index_by_name();
+    auto res = _file_format_reader->get_next_block(block, read_rows, eof);
+    // Set the name back to table column name before return this block.
+    for (int i = 0; i < block->columns(); i++) {
+        ColumnWithTypeAndName& col = block->get_by_position(i);
+        auto iter = _file_col_to_table_col.find(col.name);
+        if (iter != _file_col_to_table_col.end()) {
+            col.name = iter->second;
+        }
+    }
+    block->initialize_index_by_name();
+    return res;
 }
 
 Status IcebergTableReader::set_fill_columns(
@@ -114,7 +135,6 @@ Status IcebergTableReader::_position_delete(
     std::vector<std::string> delete_file_col_names;
     std::vector<TypeDescriptor> delete_file_col_types;
     std::vector<DeleteRows*> delete_rows_array;
-    std::unordered_map<int, std::string> col_id_to_name;
     int64_t num_delete_rows = 0;
     std::vector<DeleteFile*> erase_data;
     for (auto& delete_file : delete_files) {
@@ -139,7 +159,8 @@ Status IcebergTableReader::_position_delete(
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;
             }
-            create_status = delete_reader.init_reader(delete_file_col_names, col_id_to_name,
+            std::vector<std::string> _not_in_file_col_names;
+            create_status = delete_reader.init_reader(delete_file_col_names, _not_in_file_col_names,
                                                       nullptr, nullptr, false);
             if (!create_status.ok()) {
                 return nullptr;

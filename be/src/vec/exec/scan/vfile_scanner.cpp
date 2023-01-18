@@ -488,25 +488,37 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            ParquetReader* parquet_reader =
-                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
-                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()),
-                                      _io_ctx.get(), _schema_evolution);
-
+            ParquetReader* parquet_reader = new ParquetReader(
+                    _profile, _params, range, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get());
+            parquet_reader->open();
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }
-            init_status = parquet_reader->init_reader(_file_col_names, _col_id_name_map,
-                                                      _colname_to_value_range, _push_down_expr);
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
+                _table_col_to_file_col.clear();
+                _file_col_to_table_col.clear();
+                _new_colname_to_value_range.clear();
+                auto parquet_meta_kv = parquet_reader->get_metadata_key_values();
+                _gen_col_name_maps(parquet_meta_kv);
+                _gen_file_col_names();
+                _gen_new_colname_to_value_range();
+                parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
+                init_status =
+                        parquet_reader->init_reader(_all_required_col_names, _not_in_file_col_names,
+                                                    &_new_colname_to_value_range, _push_down_expr);
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
+                iceberg_reader->set_file_to_table_col_map(_file_col_to_table_col);
+                iceberg_reader->set_table_to_file_col_map(_table_col_to_file_col);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
+                init_status = parquet_reader->init_reader(_file_col_names, _not_in_file_col_names,
+                                                          _colname_to_value_range, _push_down_expr);
                 _cur_reader.reset((GenericReader*)parquet_reader);
             }
             break;
@@ -651,7 +663,6 @@ Status VFileScanner::_init_expr_ctxes() {
             _file_col_names.push_back(it->second->col_name());
             if (it->second->col_unique_id() > 0) {
                 _col_id_name_map.emplace(it->second->col_unique_id(), it->second->col_name());
-                _schema_evolution = true;
             }
         } else {
             _partition_slot_descs.emplace_back(it->second);
@@ -726,6 +737,94 @@ Status VFileScanner::_init_expr_ctxes() {
         }
     }
     return Status::OK();
+}
+
+/*
+ * To support schema evolution, Iceberg write the column id to column name map to
+ * parquet file key_value_metadata.
+ * This function is to compare the table schema from FE (_col_id_name_map) with
+ * the schema in key_value_metadata for the current parquet file and generate two maps
+ * for future use:
+ * 1. table column name to parquet column name.
+ * 2. parquet column name to table column name.
+ * For example, parquet file has a column 'col1',
+ * after this file was written, iceberg changed the column name to 'col1_new'.
+ * The two maps would contain:
+ * 1. col1_new -> col1
+ * 2. col1 -> col1_new
+ */
+Status VFileScanner::_gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv) {
+    for (int i = 0; i < parquet_meta_kv.size(); ++i) {
+        tparquet::KeyValue kv = parquet_meta_kv[i];
+        if (kv.key == "iceberg.schema") {
+            std::string schema = kv.value;
+            rapidjson::Document json;
+            json.Parse(schema.c_str());
+
+            if (json.HasMember("fields")) {
+                rapidjson::Value& fields = json["fields"];
+                if (fields.IsArray()) {
+                    for (int j = 0; j < fields.Size(); j++) {
+                        rapidjson::Value& e = fields[j];
+                        rapidjson::Value& id = e["id"];
+                        rapidjson::Value& name = e["name"];
+                        std::string name_string = name.GetString();
+                        transform(name_string.begin(), name_string.end(), name_string.begin(),
+                                  ::tolower);
+                        auto iter = _col_id_name_map.find(id.GetInt());
+                        if (iter != _col_id_name_map.end()) {
+                            _table_col_to_file_col.emplace(iter->second, name_string);
+                            _file_col_to_table_col.emplace(name_string, iter->second);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    return Status::OK();
+}
+
+/*
+ * Generate _all_required_col_names and _not_in_file_col_names.
+ *
+ * _all_required_col_names is all the columns required by user sql.
+ * If the column name has been modified after the data file was written,
+ * put the old name in data file to _all_required_col_names.
+ *
+ * _not_in_file_col_names is all the columns required by user sql but not in the data file.
+ * e.g. New columns added after this data file was written.
+ * The columns added with names used by old dropped columns should consider as a missing column,
+ * which should be in _not_in_file_col_names.
+ */
+void VFileScanner::_gen_file_col_names() {
+    _all_required_col_names.clear();
+    _not_in_file_col_names.clear();
+    for (int i = 0; i < _file_col_names.size(); ++i) {
+        auto name = _file_col_names[i];
+        auto iter = _table_col_to_file_col.find(name);
+        if (iter == _table_col_to_file_col.end()) {
+            _all_required_col_names.emplace_back(name);
+            _not_in_file_col_names.emplace_back(name);
+        } else {
+            _all_required_col_names.emplace_back(iter->second);
+        }
+    }
+}
+
+/*
+ * Generate _new_colname_to_value_range, by replacing the column name in
+ * _colname_to_value_range with column name in data file.
+ */
+void VFileScanner::_gen_new_colname_to_value_range() {
+    for (auto it = _colname_to_value_range->begin(); it != _colname_to_value_range->end(); it++) {
+        auto iter = _table_col_to_file_col.find(it->first);
+        if (iter == _table_col_to_file_col.end()) {
+            _new_colname_to_value_range.emplace(it->first, it->second);
+        } else {
+            _new_colname_to_value_range.emplace(iter->second, it->second);
+        }
+    }
 }
 
 Status VFileScanner::close(RuntimeState* state) {

@@ -66,10 +66,15 @@ protected:
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+    // col names in the data file, e.g. parquet.
+    std::vector<std::string> _all_required_col_names;
+    // col names in table but not in data file
+    std::vector<std::string> _not_in_file_col_names;
     // column id to name map. Collect from FE slot descriptor.
     std::unordered_map<int, std::string> _col_id_name_map;
 
@@ -122,7 +127,6 @@ protected:
     Block _src_block;
 
     VExprContext* _push_down_expr = nullptr;
-    bool _schema_evolution = false;
 
     std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<IOContext> _io_ctx;
@@ -134,6 +138,10 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    // file column name to table column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _file_col_to_table_col;
+    // table column name to file column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
 
 private:
     Status _init_expr_ctxes();
@@ -144,6 +152,9 @@ private:
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
+    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    void _gen_file_col_names();
+    void _gen_new_colname_to_value_range();
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;

@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             IOContext* io_ctx, bool schema_evolution)
+                             IOContext* io_ctx)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -42,8 +42,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
-          _io_ctx(io_ctx),
-          _schema_evolution(schema_evolution) {
+          _io_ctx(io_ctx) {
     _init_profile();
 }
 
@@ -169,77 +168,45 @@ Status ParquetReader::_open_file() {
     return Status::OK();
 }
 
-/*
- * To support schema evolution, Iceberg write the column id to column name map to
- * parquet file key_value_metadata.
- * This function is to compare the table schema from FE (_col_id_name_map) with
- * the schema in key_value_metadata for the current parquet file and generate two maps
- * for future use:
- * 1. table column name to parquet column name.
- * 2. parquet column name to table column name.
- * For example, parquet file has a column 'col1',
- * after this file was written, iceberg changed the column name to 'col1_new'.
- * The two maps would contain:
- * 1. col1_new -> col1
- * 2. col1 -> col1_new
- */
-Status ParquetReader::_gen_col_name_maps(
-        const std::unordered_map<int, std::string>& _col_id_name_map) {
-    std::vector<tparquet::KeyValue> key_values = _t_metadata->key_value_metadata;
-    std::string schema;
-    for (int i = 0; i < key_values.size(); ++i) {
-        tparquet::KeyValue kv = key_values[i];
-        if (kv.key == "iceberg.schema") {
-            schema = kv.value;
-            rapidjson::Document json;
-            json.Parse(schema.c_str());
+// Get iceberg col id to col name map stored in parquet metadata key values.
+// This is for iceberg schema evolution.
+std::vector<tparquet::KeyValue> ParquetReader::get_metadata_key_values() {
+    return _t_metadata->key_value_metadata;
+}
 
-            if (json.HasMember("fields")) {
-                rapidjson::Value& fields = json["fields"];
-                if (fields.IsArray()) {
-                    for (int j = 0; j < fields.Size(); j++) {
-                        rapidjson::Value& e = fields[j];
-                        rapidjson::Value& id = e["id"];
-                        rapidjson::Value& name = e["name"];
-                        auto iter = _col_id_name_map.find(id.GetInt());
-                        if (iter != _col_id_name_map.end()) {
-                            _table_col_to_file_col.emplace(iter->second, name.GetString());
-                            _file_col_to_table_col.emplace(name.GetString(), iter->second);
-                        }
-                    }
-                }
-            }
-            break;
-        }
-    }
+Status ParquetReader::open() {
+    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
+    RETURN_IF_ERROR(_open_file());
+    _t_metadata = &_file_metadata->to_thrift();
     return Status::OK();
 }
 
 Status ParquetReader::init_reader(
-        const std::vector<std::string>& column_names,
-        const std::unordered_map<int, std::string>& _col_id_name_map,
+        const std::vector<std::string>& all_column_names,
+        const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         VExprContext* vconjunct_ctx, bool filter_groups) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    RETURN_IF_ERROR(_open_file());
-    _column_names = &column_names;
-    _t_metadata = &_file_metadata->to_thrift();
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
         return Status::EndOfFile("Empty Parquet File");
     }
+    // all_column_names are all the columns required by user sql.
+    // missing_column_names are the columns required by user sql but not in the parquet file,
+    // e.g. table added a column after this parquet file was written.
+    _column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
-    if (_schema_evolution) {
-        _gen_col_name_maps(_col_id_name_map);
-    }
     for (int i = 0; i < schema_desc.size(); ++i) {
-        if (_schema_evolution) {
-            auto iter = _file_col_to_table_col.find(schema_desc.get_column(i)->name);
-            if (iter != _file_col_to_table_col.end()) {
-                _map_column.emplace(iter->second, i);
-            }
-        } else {
-            _map_column.emplace(schema_desc.get_column(i)->name, i);
+        auto name = schema_desc.get_column(i)->name;
+        // If the column in parquet file is included in all_column_names and not in missing_column_names,
+        // add it to _map_column, which means the reader should read the data of this column.
+        // Here to check against missing_column_names is to for the 'Add a column with back to the table
+        // with the same column name' case. Shouldn't read this column data in this case.
+        if (find(all_column_names.begin(), all_column_names.end(), name) !=
+                    all_column_names.end() &&
+            find(missing_column_names.begin(), missing_column_names.end(), name) ==
+                    missing_column_names.end()) {
+            _map_column.emplace(name, i);
         }
     }
     _colname_to_value_range = colname_to_value_range;
@@ -259,11 +226,9 @@ Status ParquetReader::set_fill_columns(
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
             auto expr_name = slot_ref->expr_name();
-            if (_schema_evolution) {
-                auto iter = _table_col_to_file_col.find(expr_name);
-                if (iter != _table_col_to_file_col.end()) {
-                    expr_name = iter->second;
-                }
+            auto iter = _table_col_to_file_col.find(expr_name);
+            if (iter != _table_col_to_file_col.end()) {
+                expr_name = iter->second;
             }
             predicate_columns.emplace(expr_name, slot_ref->column_id());
             if (slot_ref->column_id() == 0) {
@@ -423,18 +388,6 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 }
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    // To support iceberg schema evolution. We change the column name in block to
-    // make it match with the column name in parquet file before reading data. and
-    // Set the name back to table column name before return this block.
-    // TODO: refactor this logic, maybe move them to iceberg_reader or scanner.
-    for (int i = 0; i < block->columns(); i++) {
-        ColumnWithTypeAndName& col = block->get_by_position(i);
-        auto iter = _table_col_to_file_col.find(col.name);
-        if (iter != _table_col_to_file_col.end()) {
-            col.name = iter->second;
-        }
-    }
-    block->initialize_index_by_name();
     if (_current_group_reader == nullptr || _row_group_eof) {
         if (_read_row_groups.size() > 0) {
             RETURN_IF_ERROR(_next_row_group_reader());
@@ -462,15 +415,6 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
             *eof = false;
         }
     }
-    // Set the name back to table column name before return this block.
-    for (int i = 0; i < block->columns(); i++) {
-        ColumnWithTypeAndName& col = block->get_by_position(i);
-        auto iter = _file_col_to_table_col.find(col.name);
-        if (iter != _file_col_to_table_col.end()) {
-            col.name = iter->second;
-        }
-    }
-    block->initialize_index_by_name();
     return Status::OK();
 }
 
@@ -707,9 +651,7 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         if (!statistic.__isset.max || !statistic.__isset.min) {
             continue;
         }
-        auto real_col_name =
-                _schema_evolution ? _table_col_to_file_col.find(col_name)->second : col_name;
-        const FieldSchema* col_schema = schema_desc.get_column(real_col_name);
+        const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
         *filter_group = determine_filter_min_max(slot_iter->second, col_schema, statistic.min,
                                                  statistic.max);
