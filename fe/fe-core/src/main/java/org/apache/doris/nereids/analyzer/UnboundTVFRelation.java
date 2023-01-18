@@ -115,13 +115,12 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
         if (!super.equals(o)) {
             return false;
         }
-        UnboundTVFRelation relation = (UnboundTVFRelation) o;
-        return Objects.equals(functionName, relation.functionName) && Objects.equals(properties,
-                relation.properties);
+        UnboundTVFRelation that = (UnboundTVFRelation) o;
+        return functionName.equals(that.functionName) && properties.equals(that.properties) && id.equals(that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), functionName, properties);
+        return Objects.hash(super.hashCode(), functionName, properties, id);
     }
 }
