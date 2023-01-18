@@ -453,27 +453,24 @@ public class Memo {
             Utils.replaceList(reinsertGroupExpr.children(), source, destination);
 
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
-            if (existGroupExpr != null && existGroupExpr.getOwnerGroup() != null) {
+            if (existGroupExpr != null) {
+                Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
                 // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
                 // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
                 reinsertGroupExpr.setUnused(true);
-                if (existGroupExpr.getOwnerGroup() != null
-                        && existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
-                    // reinsertGroupExpr & existGroupExpr are in same Group,use existGroupExpr to
-                    // replace the bestExpression in the group
+                if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
+                    // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
                     if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
                         reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
                     }
                     // existingGroupExpression merge the state of reinsertGroupExpr
                     reinsertGroupExpr.mergeTo(existGroupExpr);
                 } else {
-                    // reinsertGroupExpr and existGroupExpr are not in the same group, need to merge them.
+                    // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
                     if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
                         reinsertGroupExpr.getOwnerGroup().deleteBestPlan(reinsertGroupExpr);
                     }
                     needMergeGroup.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
-                    // TODO !!!!: reinsertGroupExpr need to merge to existGroupExpr???????
-                    reinsertGroupExpr.mergeTo(existGroupExpr);
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -482,7 +479,8 @@ public class Memo {
         if (!source.equals(destination)) {
             // TODO: stats and other
             source.mergeTo(destination);
-            groups.remove(source.getGroupId());
+            // groups.remove(source.getGroupId());
+            groups.put(source.getGroupId(), destination);
         }
 
         needMergeGroup.forEach(this::mergeGroup);
