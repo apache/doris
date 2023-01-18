@@ -24,10 +24,10 @@ suite("nereids_using_join") {
         SET enable_nereids_planner=true
     """
 
-    sql """DROP TABLE IF EXISTS t1"""
+    sql """DROP TABLE IF EXISTS nereids_using_join_t1"""
 
     sql """
-        CREATE TABLE `t1` (
+        CREATE TABLE `nereids_using_join_t1` (
             `col1` varchar(4) NULL,
             `col2` int(11) NULL,
             `col3` int(11) NULL
@@ -40,10 +40,10 @@ suite("nereids_using_join") {
         );
     """
 
-    sql """DROP TABLE IF EXISTS t2"""
+    sql """DROP TABLE IF EXISTS nereids_using_join_t2"""
 
     sql """
-        CREATE TABLE `t2` (
+        CREATE TABLE `nereids_using_join_t2` (
             `col1` varchar(4) NULL,
             `col2` int(11) NULL,
             `col3` int(11) NULL
@@ -56,22 +56,22 @@ suite("nereids_using_join") {
         );
     """
 
-    sql """INSERT INTO t1 VALUES('1', 1, 1)"""
-    sql """INSERT INTO t1 VALUES('2', 2, 1)"""
-    sql """INSERT INTO t1 VALUES('3', 3, 1)"""
-    sql """INSERT INTO t1 VALUES('4', 4, 1)"""
+    sql """INSERT INTO nereids_using_join_t1 VALUES('1', 1, 1)"""
+    sql """INSERT INTO nereids_using_join_t1 VALUES('2', 2, 1)"""
+    sql """INSERT INTO nereids_using_join_t1 VALUES('3', 3, 1)"""
+    sql """INSERT INTO nereids_using_join_t1 VALUES('4', 4, 1)"""
 
-    sql """INSERT INTO t2 VALUES('1', 1, 1)"""
-    sql """INSERT INTO t2 VALUES('2', 2, 1)"""
-    sql """INSERT INTO t2 VALUES('6', 3, 1)"""
-    sql """INSERT INTO t2 VALUES('7', 4, 1)"""
+    sql """INSERT INTO nereids_using_join_t2 VALUES('1', 1, 1)"""
+    sql """INSERT INTO nereids_using_join_t2 VALUES('2', 2, 1)"""
+    sql """INSERT INTO nereids_using_join_t2 VALUES('6', 3, 1)"""
+    sql """INSERT INTO nereids_using_join_t2 VALUES('7', 4, 1)"""
 
     order_qt_sql """
-        SELECT t1.col1 FROM t1 JOIN t2 USING (col1)
+        SELECT nereids_using_join_t1.col1 FROM nereids_using_join_t1 JOIN nereids_using_join_t2 USING (col1)
     """
 
     order_qt_sql """
-        SELECT t1.col1 FROM t1 JOIN t2 USING (col1, col2)
+        SELECT nereids_using_join_t1.col1 FROM nereids_using_join_t1 JOIN nereids_using_join_t2 USING (col1, col2)
     """
 
 }
