@@ -272,7 +272,7 @@ bool DataTypeStruct::equals(const IDataType& rhs) const {
     }
 
     for (size_t i = 0; i < size; ++i) {
-        if (!elems[i]->equals(*rhs_tuple.elems[i]) || names[i] != rhs_tuple.names[i]) {
+        if (!elems[i]->equals(*rhs_tuple.elems[i])) {
             return false;
         }
     }

@@ -647,6 +647,13 @@ Status StructColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
+Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                           size_t num_rows) {
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+    return Status::OK();
+}
+
 Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     auto results = reinterpret_cast<const uint64_t*>(*ptr);
     for (size_t i = 0; i < _num_sub_column_writers; ++i) {
@@ -657,11 +664,9 @@ Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                                                        num_rows));
     }
     if (is_nullable()) {
-        uint8_t null_sign = 0;
-        const uint8_t* null_sign_ptr = &null_sign;
-        for (size_t i = 0; i < num_rows; ++i) {
-            RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, 1));
-        }
+        std::vector<vectorized::UInt8> null_signs(num_rows, 0);
+        const uint8_t* null_sign_ptr = null_signs.data();
+        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
     }
     return Status::OK();
 }
@@ -706,7 +711,15 @@ Status StructColumnWriter::write_ordinal_index() {
 }
 
 Status StructColumnWriter::append_nulls(size_t num_rows) {
-    return Status::NotSupported("struct writer not support append nulls");
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->append_nulls(num_rows));
+    }
+    if (is_nullable()) {
+        std::vector<vectorized::UInt8> null_signs(num_rows, 1);
+        const uint8_t* null_sign_ptr = null_signs.data();
+        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
+    }
+    return Status::OK();
 }
 
 Status StructColumnWriter::finish_current_page() {
