@@ -286,7 +286,13 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
-    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+    | name=(TIMESTAMPADD | DATEADD)
+                  LEFT_PAREN
+                      unit=datetimeUnit COMMA
+                      startTimestamp=valueExpression COMMA
+                      endTimestamp=valueExpression
+                  RIGHT_PAREN                                                                  #timestampadd
+    | name =(ADDDATE | DAYS_ADD | DATE_ADD)
             LEFT_PAREN
                 timestamp=valueExpression COMMA
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
