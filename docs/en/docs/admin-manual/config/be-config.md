@@ -250,7 +250,7 @@ There are two ways to configure BE configuration items:
 
 * Description: This configuration is mainly used to modify the number of bthreads for brpc. The default value is set to -1, which means the number of bthreads is #cpu-cores.
   - User can set this configuration to a larger value to get better QPS performance. For more information, please refer to `https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`
-* Default value: 1
+* Default value: -1
 
 #### `thrift_rpc_timeout_ms`
 

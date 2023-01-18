@@ -219,6 +219,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(children.get(0)).append(" ").append(op).append(" ").append(children.get(1));
+        return builder.toString();
+    }
+
+    @Override
     public Expr negate() {
         Operator newOp = null;
         switch (op) {

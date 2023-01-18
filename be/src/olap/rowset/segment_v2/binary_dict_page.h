@@ -25,8 +25,6 @@
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
-#include "olap/column_block.h"
-#include "olap/column_vector.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
@@ -106,8 +104,6 @@ public:
 
     Status seek_to_position_in_page(size_t pos) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
@@ -131,8 +127,6 @@ private:
     BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
-    // use as data buf.
-    std::unique_ptr<ColumnVectorBatch> _batch;
 
     StringRef* _dict_word_info = nullptr;
 };

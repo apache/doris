@@ -36,7 +36,7 @@ suite("test_external_catalog_es", "p2") {
                     "elasticsearch.hosts"="http://${extEsHost}:${extEsPort}",
                     "elasticsearch.nodes_discovery"="false",
                     "elasticsearch.username"="${extEsUser}",
-                    "elasticsearch.username"="${extEsPassword}",
+                    "elasticsearch.username"="${extEsPassword}"
             );
             """
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 
 import org.junit.jupiter.api.Assertions;
@@ -54,6 +55,11 @@ public class DataTypeTest {
     }
 
     @Test
+    void testFromPrimitiveType() {
+        Assertions.assertEquals(DataType.fromCatalogType(Type.STRING), StringType.INSTANCE);
+    }
+
+    @Test
     void testConvertFromString() {
         // boolean
         Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("bool"));
@@ -84,6 +90,8 @@ public class DataTypeTest {
         Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("string"));
         // char
         Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("char(10)"));
+        Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("character(10)"));
+
         // varchar
         Assertions.assertEquals(VarcharType.createVarcharType(10), DataType.convertFromString("varchar(10)"));
         // null

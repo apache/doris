@@ -166,7 +166,7 @@ enum TAggregationType {
 }
 
 enum TPushType {
-    LOAD,
+    LOAD, // deprecated, it is used for old hadoop dpp load
     DELETE,
     LOAD_DELETE,
     // for spark load push request

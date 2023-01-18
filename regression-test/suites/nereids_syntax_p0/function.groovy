@@ -74,6 +74,18 @@ suite("nereids_function") {
         result([[0L], [1L], [2L], [3L], [4L], [5L], [6L], [7L], [8L], [9L]])
     }
 
+    // numbers: table valued function
+    test {
+        sql """
+            select
+                a.number as num1, b.number as num2
+            from
+                numbers("number" = "10") a
+                inner join numbers("number" = "10") b on a.number=b.number;
+        """
+        result([[0L, 0L], [1L, 1L], [2L, 2L], [3L, 3L], [4L, 4L], [5L, 5L], [6L, 6L], [7L, 7L], [8L, 8L], [9L, 9L]])
+    }
+
     qt_subquery1 """ select * from numbers("number" = "10") where number = (select number from numbers("number" = "10") where number=1); """
     qt_subquery2 """ select * from numbers("number" = "10") where number in (select number from numbers("number" = "10") where number>5); """
     qt_subquery3 """ select a.number from numbers("number" = "10") a where number in (select number from numbers("number" = "10") b where a.number=b.number); """
