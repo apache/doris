@@ -232,37 +232,6 @@ public class Group {
         lowestCostPlans.putAll(needReplaceBestExpressions);
     }
 
-    /**
-     * delete groupExpression in lowestCostPlans.
-     */
-    public void deleteBestPlan(GroupExpression groupExpression) {
-        for (Iterator<Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
-                lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
-            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
-            Pair<Double, GroupExpression> pair = entry.getValue();
-            GroupExpression bestExpression = pair.second;
-            if (bestExpression.equals(groupExpression)) {
-                iterator.remove();
-            }
-        }
-
-        // we need to delete the enforcer whose input property is satisfied by the deleted group expression.
-        for (Iterator<Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
-                lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
-            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
-            PhysicalProperties requiredProperty = entry.getKey();
-            Pair<Double, GroupExpression> pair = entry.getValue();
-            GroupExpression bestExpression = pair.second;
-            // enforcer's child group is same with itself.
-            if (bestExpression.arity() == 1 && bestExpression.child(0) == bestExpression.getOwnerGroup()) {
-                // the enforcer need to be deleted when its input property can not be satisfied by the group
-                if (!lowestCostPlans.keySet().containsAll(bestExpression.getInputProperties(requiredProperty))) {
-                    iterator.remove();
-                }
-            }
-        }
-    }
-
     public StatsDeriveResult getStatistics() {
         return statistics;
     }
