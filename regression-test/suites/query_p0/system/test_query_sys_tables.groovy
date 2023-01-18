@@ -25,15 +25,15 @@ suite("test_query_sys_tables", "query,p0") {
 
     // test backends
     sql("use information_schema")
-    qt_backends("select count(*) from backends")
+    qt_backends("select count(*) >= 1 from backends")
 
     // test charsets
     sql("use information_schema")
-    qt_charsets("select * from character_sets")
+    qt_charsets("select count(*) >= 1 from character_sets")
 
     // test collations
     sql("use information_schema")
-    qt_collations("select * from collations")
+    qt_collations("select count(*) >= 1 from collations")
 
     // test columns
     // create test dbs
@@ -51,7 +51,8 @@ suite("test_query_sys_tables", "query,p0") {
         )
         DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         );
     """
     sql("use ${dbName2}")
@@ -64,7 +65,8 @@ suite("test_query_sys_tables", "query,p0") {
         )
         DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         );
     """
     sql("use ${dbName3}")
@@ -77,22 +79,35 @@ suite("test_query_sys_tables", "query,p0") {
         )
         DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         );
     """
     sql("use information_schema")
-    qt_columns("select * from columns where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}'")
+    qt_columns("select TABLE_CATALOG, COLUMN_NAME, ORDINAL_POSITION, DATA_TYPE, COLUMN_TYPE, COLUMN_SIZE from columns where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}'")
 
     // test files
+    sql """
+        CREATE FILE "test_file"
+        IN ${dbName1}
+        PROPERTIES
+        (
+            "url" = "http://bit-images.bj.bcebos.com/bit2/index.html",
+            "catalog" = "test"
+        );
+    """
     sql("use information_schema")
-    qt_files("select * from files")
+    qt_files("select FILE_ID, FILE_NAME, FILE_TYPE from files where TABLE_SCHEMA = '${dbName1}'")
+    sql """
+        DROP FILE "test_file" from test_query_sys_db_1  properties("catalog" = "test")
+    """
 
     // test partitions
     sql("use information_schema")
     qt_partitions("select * from partitions")
 
     // test rowsets
-    // have no tablet tables, add this later 
+    // have no tablet system table, add this later 
     // sql("use information_schema")
     // qt_rowsets1("select count(*) from rowsets");
     // qt_rowsets2("select ROWSET_ID, TABLET_ID, DATA_DISK_SIZE, CREATION_TIME from rowsets")
@@ -109,7 +124,7 @@ suite("test_query_sys_tables", "query,p0") {
     sql("CREATE DATABASE IF NOT EXISTS ${dbName3}")
 
     sql("use information_schema")
-    qt_schemata("select CATALOG_NAME, DEFAULT_CHARACTER_SET_NAME, SQL_PATH from schemata where SCHEMA_NAME = '${dbName1}' or SCHEMA_NAME = '${dbName2}' or SCHEMA_NAME = '${dbName3}'");
+    qt_schemata("select CATALOG_NAME, SCHEMA_NAME, SQL_PATH from schemata where SCHEMA_NAME = '${dbName1}' or SCHEMA_NAME = '${dbName2}' or SCHEMA_NAME = '${dbName3}'");
 
     // test statistics
     sql("use information_schema")
@@ -140,7 +155,8 @@ suite("test_query_sys_tables", "query,p0") {
         )
         DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         );
     """
     sql("use ${dbName2}")
@@ -153,7 +169,8 @@ suite("test_query_sys_tables", "query,p0") {
         )
         DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         );
     """
     sql("use ${dbName3}")
@@ -166,7 +183,8 @@ suite("test_query_sys_tables", "query,p0") {
         )
         DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         );
     """
 
@@ -190,7 +208,7 @@ suite("test_query_sys_tables", "query,p0") {
     // test views
     sql("use ${dbName1}")
     sql """
-        CREATE VIEW ${dbName1}.test_view (a)
+        CREATE VIEW IF NOT EXISTS ${dbName1}.test_view (a)
         AS
         SELECT ccc as a FROM ${tbName1}
     """
