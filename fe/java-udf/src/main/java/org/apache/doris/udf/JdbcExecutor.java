@@ -249,8 +249,10 @@ public class JdbcExecutor {
             dataSource = new HikariDataSource(config);
             conn = dataSource.getConnection();
             if (op == TJdbcOperation.READ) {
+                conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
-                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY,
+                        ResultSet.FETCH_FORWARD);
                 stmt.setFetchSize(batchSize);
             } else {
                 stmt = conn.createStatement();
@@ -264,3 +266,4 @@ public class JdbcExecutor {
         }
     }
 }
+

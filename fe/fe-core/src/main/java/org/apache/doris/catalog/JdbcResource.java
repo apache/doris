@@ -189,10 +189,10 @@ public class JdbcResource extends Resource {
             // skip checking checksum when running ut
             return "";
         }
-        String fullDriverPath = getRealDriverPath(driverPath);
+        String fullDriverUrl = getFullDriverUrl(driverPath);
         InputStream inputStream = null;
         try {
-            inputStream = Util.getInputStreamFromUrl(fullDriverPath, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+            inputStream = Util.getInputStreamFromUrl(fullDriverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] buf = new byte[4096];
             int bytesRead = 0;
@@ -213,7 +213,7 @@ public class JdbcResource extends Resource {
         }
     }
 
-    private static String getRealDriverPath(String driverUrl) {
+    public static String getFullDriverUrl(String driverUrl) {
         try {
             URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
@@ -254,6 +254,8 @@ public class JdbcResource extends Resource {
             // it will convert to Doris tinyint, not bit.
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+        }
+        if (dbType.equals(MYSQL) || dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
         return newJdbcUrl;
