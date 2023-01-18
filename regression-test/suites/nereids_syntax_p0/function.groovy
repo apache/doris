@@ -216,7 +216,7 @@ suite("nereids_function") {
             ('6', '2022-11-08', '2022-03-12 11:05:04', 4.7, 3.5464); 
     """
 
-    qt_fn """
+    sql """
     SELECT
         id,
         day,
