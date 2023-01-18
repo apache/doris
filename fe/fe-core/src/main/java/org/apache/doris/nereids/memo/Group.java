@@ -70,13 +70,8 @@ public class Group {
      */
     public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
         this.groupId = groupId;
-        if (groupExpression.getPlan() instanceof LogicalPlan) {
-            this.logicalExpressions.add(groupExpression);
-        } else {
-            this.physicalExpressions.add(groupExpression);
-        }
+        addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
-        groupExpression.setOwnerGroup(this);
     }
 
     /**
@@ -109,6 +104,11 @@ public class Group {
     public void addLogicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         logicalExpressions.add(groupExpression);
+    }
+
+    public void addPhysicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        physicalExpressions.add(groupExpression);
     }
 
     public List<GroupExpression> getLogicalExpressions() {
@@ -211,7 +211,7 @@ public class Group {
     /**
      * replace best plan with new properties
      */
-    public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
+    public void replaceBestPlanProperty(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
         Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;
         lowestGroupExpr.updateLowestCostTable(newProperty,
@@ -298,6 +298,11 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+
+        // If statistics is null, use other statistics
+        if (target.statistics == null) {
+            target.statistics = this.statistics;
+        }
     }
 
     public boolean isJoinGroup() {

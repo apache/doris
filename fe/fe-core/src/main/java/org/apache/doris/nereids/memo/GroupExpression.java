@@ -114,6 +114,7 @@ public class GroupExpression {
     }
 
     public void setChild(int i, Group group) {
+        child(i).removeParentExpression(this);
         children.set(i, group);
         group.addParentExpression(this);
     }
@@ -194,6 +195,7 @@ public class GroupExpression {
 
     /**
      * get the lowest cost when satisfy property
+     *
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */
