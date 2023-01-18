@@ -22,7 +22,6 @@ import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.SuiteUtils
 
-import java.math.MathContext
 import java.math.RoundingMode
 
 @Slf4j
