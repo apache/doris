@@ -77,7 +77,7 @@ public class MaterializedView extends OlapTable {
         type = TableType.MATERIALIZED_VIEW;
         buildMode = params.buildMode;
         refreshInfo = params.mvRefreshInfo;
-        query = params.queryStmt.toSql();
+        query = params.queryStmt.toSqlWithHint();
     }
 
     public BuildMode getBuildMode() {
