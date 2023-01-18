@@ -90,6 +90,7 @@ import org.apache.doris.nereids.DorisParser.SystemVariableContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
+import org.apache.doris.nereids.DorisParser.TimestampaddContext;
 import org.apache.doris.nereids.DorisParser.TimestampdiffContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
@@ -164,6 +165,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
@@ -754,6 +756,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new YearsDiff(end, start);
         } else if ("MONTH".equalsIgnoreCase(unit)) {
             return new MonthsDiff(end, start);
+        } else if ("WEEK".equalsIgnoreCase(unit)) {
+            return new WeeksDiff(end, start);
         } else if ("DAY".equalsIgnoreCase(unit)) {
             return new DaysDiff(end, start);
         } else if ("HOUR".equalsIgnoreCase(unit)) {
@@ -764,7 +768,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new SecondsDiff(end, start);
         }
         throw new ParseException("Unsupported time stamp diff time unit: " + unit
-                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
+                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
+
+    }
+
+    @Override
+    public Expression visitTimestampadd(TimestampaddContext ctx) {
+        Expression start = (Expression) visit(ctx.startTimestamp);
+        Expression end = (Expression) visit(ctx.endTimestamp);
+        String unit = ctx.unit.getText();
+        if ("YEAR".equalsIgnoreCase(unit)) {
+            return new YearsAdd(end, start);
+        } else if ("MONTH".equalsIgnoreCase(unit)) {
+            return new MonthsAdd(end, start);
+        } else if ("WEEK".equalsIgnoreCase(unit)) {
+            return new WeeksAdd(end, start);
+        } else if ("DAY".equalsIgnoreCase(unit)) {
+            return new DaysAdd(end, start);
+        } else if ("HOUR".equalsIgnoreCase(unit)) {
+            return new HoursAdd(end, start);
+        } else if ("MINUTE".equalsIgnoreCase(unit)) {
+            return new MinutesAdd(end, start);
+        } else if ("SECOND".equalsIgnoreCase(unit)) {
+            return new SecondsAdd(end, start);
+        }
+        throw new ParseException("Unsupported time stamp add time unit: " + unit
+                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
 
     }
 
