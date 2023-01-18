@@ -692,20 +692,30 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
 void StorageEngine::_cooldown_tasks_producer_callback() {
     int64_t interval = config::generate_cooldown_task_interval_sec;
     do {
-        if (_cooldown_thread_pool->get_queue_size() > 0) {
-            continue;
-        }
         // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
-        _tablet_manager->get_cooldown_tablets(&tablets);
+        // we should skip all the tablets pending to do cooldown
+        auto cooldown_pending_predicate = [this](const TabletSharedPtr& tablet) -> bool {
+            std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+            return _running_cooldown_tablets.find(tablet->tablet_id()) ==
+                   _running_cooldown_tablets.end();
+        };
+        _tablet_manager->get_cooldown_tablets(&tablets, std::move(cooldown_pending_predicate));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
         int max_priority = tablets.size();
         for (const auto& tablet : tablets) {
+            {
+                std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+                _running_cooldown_tablets.insert(tablet->tablet_id());
+            }
             PriorityThreadPool::Task task;
-            task.work_function = [tablet, tablets, this]() {
+            task.work_function = [tablet, &tablets, this]() {
                 Status st = tablet->cooldown();
-                tablet->set_is_cooldown(false);
+                {
+                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+                    _running_cooldown_tablets.erase(tablet->tablet_id());
+                }
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to cooldown, tablet: " << tablet->tablet_id()
                                  << " err: " << st.to_string();

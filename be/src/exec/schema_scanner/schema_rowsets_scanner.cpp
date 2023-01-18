@@ -44,7 +44,6 @@ SchemaScanner::ColumnDesc SchemaRowsetsScanner::_s_tbls_columns[] = {
         {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"CREATION_TIME", TYPE_BIGINT, sizeof(int64_t), true},
-        {"OLDEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
         {"NEWEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
 
 };
@@ -159,11 +158,6 @@ Status SchemaRowsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
         *(reinterpret_cast<size_t*>(slot)) = rowset->creation_time();
-    }
-    // OLDEST_WRITE_TIMESTAMP
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
-        *(reinterpret_cast<size_t*>(slot)) = rowset->oldest_write_timestamp();
     }
     // NEWEST_WRITE_TIMESTAMP
     {

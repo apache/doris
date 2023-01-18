@@ -1827,7 +1827,6 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
 }
 
 bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
-    // std::shared_lock meta_rlock(_meta_lock);
     if (storage_policy().empty()) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
         return false;
@@ -1845,26 +1844,18 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         return false;
     }
 
-    int64_t oldest_cooldown_time = std::numeric_limits<int64_t>::max();
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
     if (cooldown_ttl_sec >= 0) {
-        oldest_cooldown_time = rowset->oldest_write_timestamp() + cooldown_ttl_sec;
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
     }
     if (cooldown_datetime > 0) {
-        oldest_cooldown_time = std::min(oldest_cooldown_time, cooldown_datetime);
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
-    // the oldest one would be more prior
-    if (oldest_cooldown_time < UnixSeconds()) {
-        *cooldown_timestamp = oldest_cooldown_time;
-        VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
-                   << " cooldown_timestamp: " << *cooldown_timestamp;
-        return true;
-    }
-
+    // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than 
+    // current time or it's datatime is less than current time
     if (newest_cooldown_time < UnixSeconds()) {
+        *cooldown_timestamp = newest_cooldown_time;
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
@@ -1873,7 +1864,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
 
     VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id()
                << " ttl sec: " << cooldown_ttl_sec << " cooldown datetime: " << cooldown_datetime
-               << " oldest write time: " << rowset->oldest_write_timestamp()
                << " newest write time: " << rowset->newest_write_timestamp();
     return false;
 }

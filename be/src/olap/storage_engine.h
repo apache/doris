@@ -397,6 +397,9 @@ private:
 
     std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
 
+    std::mutex _running_cooldown_mutex;
+    std::unordered_set<int64_t> _running_cooldown_tablets;
+
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 

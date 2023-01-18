@@ -1292,28 +1292,31 @@ struct SortCtx {
     }
 };
 
-void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) {
+void TabletManager::get_cooldown_tablets(
+        std::vector<TabletSharedPtr>* tablets,
+        std::function<bool(const TabletSharedPtr&)> cooldown_pending_predicate) {
     std::vector<SortCtx> sort_ctx_vec;
     std::vector<std::weak_ptr<Tablet>> candidates;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
-        std::for_each(tablets_shard.tablet_map.begin(), tablets_shard.tablet_map.end(), [&candidates](auto& tablet_pair){
-            candidates.emplace_back(tablet_pair.second.tablet->weak_from_this());
-        });
+        std::for_each(
+                tablets_shard.tablet_map.begin(), tablets_shard.tablet_map.end(),
+                [&candidates](auto& tablet_pair) { candidates.emplace_back(tablet_pair.second); });
     }
-    std::for_each(candidates.begin(), candidates.end(), [&sort_ctx_vec](std::weak_ptr<Tablet>& t) {
-        if (UNLIKELY(t.expired())) {
-            return;
-        }
-        const TabletSharedPtr& tablet = t.lock();
-        int64_t cooldown_timestamp = -1;
-        size_t file_size = -1;
-        // skip pending tablet
-        if (!tablet->get_is_cooldown() || tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
-            tablet->set_is_cooldown(true);
-        }
-    });
+    std::for_each(candidates.begin(), candidates.end(),
+                  [&sort_ctx_vec, &cooldown_pending_predicate](std::weak_ptr<Tablet>& t) {
+                      if (UNLIKELY(t.expired())) {
+                          return;
+                      }
+                      const TabletSharedPtr& tablet = t.lock();
+                      std::shared_lock rdlock(tablet->get_header_lock());
+                      int64_t cooldown_timestamp = -1;
+                      size_t file_size = -1;
+                      if (cooldown_pending_predicate(tablet) ||
+                          tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
+                          sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+                      }
+                  });
 
     std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end());
 

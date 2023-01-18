@@ -73,7 +73,6 @@ struct RowsetWriterContext {
     // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
     DataDir* data_dir = nullptr;
 
-    int64_t oldest_write_timestamp;
     int64_t newest_write_timestamp;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;

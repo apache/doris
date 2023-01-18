@@ -354,15 +354,9 @@ public:
         }
     }
 
-    void set_oldest_write_timestamp(int64_t timestamp) {
-        _rowset_meta_pb.set_oldest_write_timestamp(timestamp);
-    }
-
     void set_newest_write_timestamp(int64_t timestamp) {
         _rowset_meta_pb.set_newest_write_timestamp(timestamp);
     }
-
-    int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 

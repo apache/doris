@@ -184,7 +184,6 @@ void Compaction::build_basic_info() {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
-    _oldest_write_timestamp = _input_rowsets.front()->oldest_write_timestamp();
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
@@ -365,7 +364,6 @@ Status Compaction::construct_output_rowset_writer(bool is_vertical) {
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
-    ctx.oldest_write_timestamp = _oldest_write_timestamp;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     if (is_vertical) {
         return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);
