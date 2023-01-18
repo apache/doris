@@ -210,11 +210,27 @@ public class Utils {
                 expr -> expr.anyMatch(slots::contains)));
     }
 
+    /**
+     * Replace one item in a list with another item.
+     */
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i).equals(oldItem)) {
                 list.set(i, newItem);
             }
         }
+    }
+
+    /**
+     * Remove item from a list without equals method.
+     */
+    public static <T> void identityRemove(List<T> list, T item) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == item) {
+                list.remove(i);
+                return;
+            }
+        }
+        Preconditions.checkState(false, "item not found in list");
     }
 }
