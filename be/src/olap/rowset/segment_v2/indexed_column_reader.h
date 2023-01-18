@@ -25,7 +25,6 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
-#include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"

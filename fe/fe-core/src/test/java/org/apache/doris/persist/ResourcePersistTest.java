@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
+
 import org.junit.Assert;
 import org.junit.Test;
 
