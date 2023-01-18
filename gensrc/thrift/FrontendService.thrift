@@ -483,6 +483,7 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string auth_code_uuid
+    13: optional string cluster_token
 }
 
 struct TLoadTxnBeginResult {
@@ -548,6 +549,7 @@ struct TStreamLoadPutRequest {
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
+    44: optional string cluster_token
 }
 
 struct TStreamLoadPutResult {
@@ -595,6 +597,7 @@ struct TLoadTxnCommitRequest {
     12: optional i64 thrift_rpc_timeout_ms
     13: optional string auth_code_uuid
     14: optional i64 db_id
+    15: optional string cluster_token
 }
 
 struct TLoadTxnCommitResult {
@@ -612,6 +615,7 @@ struct TLoadTxn2PCRequest {
     8: optional i64 auth_code
     9: optional string auth_code_uuid
     10: optional i64 thrift_rpc_timeout_ms
+    11: optional string cluster_token
 }
 
 struct TLoadTxn2PCResult {
@@ -631,6 +635,7 @@ struct TLoadTxnRollbackRequest {
     10: optional TTxnCommitAttachment txnCommitAttachment
     11: optional string auth_code_uuid
     12: optional i64 db_id
+    13: optional string cluster_token
 }
 
 struct TLoadTxnRollbackResult {

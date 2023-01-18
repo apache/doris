@@ -563,6 +563,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    private void checkClusterToken(String clusterToken) throws AuthenticationException {
+        if (!Env.getCurrentEnv().getToken().equals(clusterToken)) {
+            throw new AuthenticationException("Un matched cluster token.");
+        }
+    }
+
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
@@ -602,7 +608,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
+        if (!Strings.isNullOrEmpty(request.getClusterToken())) {
+            checkClusterToken(request.getClusterToken());
+        } else if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -672,6 +680,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // CHECKSTYLE IGNORE THIS LINE
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetClusterToken()) {
+            checkClusterToken(request.getClusterToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -808,6 +818,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO(cmy): find a way to check
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetClusterToken()) {
+            checkClusterToken(request.getClusterToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -871,6 +883,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO(cmy): find a way to check
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetClusterToken()) {
+            checkClusterToken(request.getClusterToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
