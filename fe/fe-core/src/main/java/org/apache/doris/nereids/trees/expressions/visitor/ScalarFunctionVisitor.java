@@ -315,7 +315,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Weekday;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
@@ -1525,8 +1527,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(weekday, context);
     }
 
+    default R visitWeeksAdd(WeeksAdd weeksAdd, C context) {
+        return visitScalarFunction(weeksAdd, context);
+    }
+
     default R visitWeeksDiff(WeeksDiff weeksDiff, C context) {
         return visitScalarFunction(weeksDiff, context);
+    }
+
+    default R visitWeeksSub(WeeksSub weeksSub, C context) {
+        return visitScalarFunction(weeksSub, context);
     }
 
     default R visitYear(Year year, C context) {
