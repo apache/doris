@@ -21,8 +21,8 @@ suite("nereids_scalar_fn_4") {
     sql "set enable_fallback_to_original_planner=false"
 
     qt_sql "select radians(kdbl) from fn_test order by kdbl"
-    qt_sql "select random() from fn_test"
-    qt_sql "select random(1000) from fn_test order by kbint"
+    sql "select random() from fn_test"
+    sql "select random(1000) from fn_test order by kbint"
     qt_sql "select regexp_extract(kvchrs1, kvchrs1, kbint) from fn_test order by kvchrs1, kvchrs1, kbint"
     qt_sql "select regexp_extract(kstr, kstr, kbint) from fn_test order by kstr, kstr, kbint"
     // qt_sql "select regexp_extract_all(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
