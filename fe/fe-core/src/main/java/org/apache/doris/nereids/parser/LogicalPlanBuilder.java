@@ -1339,6 +1339,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Optional<Expression> condition = Optional.empty();
             List<UnboundSlot> ids = null;
             if (joinCriteria != null) {
+                if (join.joinType().CROSS() != null) {
+                    throw new ParseException("Cross join can't be used with ON clause", joinCriteria);
+                }
                 if (joinCriteria.booleanExpression() != null) {
                     condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
                 } else if (joinCriteria.USING() != null) {
