@@ -176,7 +176,7 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select negative(kdcmls1) from fn_test order by kdcmls1"
     qt_sql "select not_null_or_empty(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select not_null_or_empty(kstr) from fn_test order by kstr"
-    qt_sql "select now() from fn_test"
+    sql "select now() from fn_test"
     // qt_sql "select now(kint) from fn_test order by kint"
     // qt_sql "select null_if(kbool, kbool) from fn_test order by kbool, kbool"
     // qt_sql "select null_if(ktint, ktint) from fn_test order by ktint, ktint"
