@@ -312,8 +312,12 @@ public class Group {
      * @param target the new owner group of expressions
      */
     public void mergeTo(Group target) {
-        // move parentExpressions  Ownership
+        // move parentExpressions Ownership
         parentExpressions.keySet().forEach(target::addParentExpression);
+        // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
+        // So we need to manually replace the children of PhysicalEnforcer in here.
+        parentExpressions.keySet().stream().filter(ge -> ge.getPlan() instanceof PhysicalDistribute)
+                .forEach(ge -> ge.children().set(0, target));
         parentExpressions.clear();
 
         // move LogicalExpression PhysicalExpression Ownership
@@ -324,7 +328,7 @@ public class Group {
             if (existGroupExpr != null) {
                 Preconditions.checkState(logicalExpression != existGroupExpr, "must not equals");
                 // lowCostPlans must be physical GroupExpression, don't need to replaceBestPlanGroupExpr
-                logicalExpression.move(existGroupExpr);
+                logicalExpression.mergeToNotOwnerRemove(existGroupExpr);
             } else {
                 target.addLogicalExpression(logicalExpression);
             }
@@ -338,7 +342,7 @@ public class Group {
             if (existGroupExpr != null) {
                 Preconditions.checkState(physicalExpression != existGroupExpr, "must not equals");
                 physicalExpression.getOwnerGroup().replaceBestPlanGroupExpr(physicalExpression, existGroupExpr);
-                physicalExpression.move(existGroupExpr);
+                physicalExpression.mergeToNotOwnerRemove(existGroupExpr);
             } else {
                 target.addPhysicalExpression(physicalExpression);
             }

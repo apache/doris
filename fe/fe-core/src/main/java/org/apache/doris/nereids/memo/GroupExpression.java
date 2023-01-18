@@ -166,6 +166,9 @@ public class GroupExpression {
         this.statDerived = statDerived;
     }
 
+    /**
+     * Check this GroupExpression isUnused. See detail of `isUnused` in its comment.
+     */
     public boolean isUnused() {
         if (isUnused) {
             Preconditions.checkState(children.isEmpty() || ownerGroup == null);
@@ -241,21 +244,14 @@ public class GroupExpression {
      * Merge GroupExpression.
      */
     public void mergeTo(GroupExpression target) {
-        // LowestCostTable
-        this.getLowestCostTable()
-                .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
-        // requestPropertiesMap
-        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
-        // ruleMasks
-        target.ruleMasks.or(this.ruleMasks);
-
-        // clear
+        this.mergeToNotOwnerRemove(target);
         this.ownerGroup.removeGroupExpression(this);
-        this.children.forEach(child -> child.removeParentExpression(this));
-        this.children.clear();
     }
 
-    public void move(GroupExpression target) {
+    /**
+     * Merge GroupExpression, but owner don't remove this GroupExpression.
+     */
+    public void mergeToNotOwnerRemove(GroupExpression target) {
         // LowestCostTable
         this.getLowestCostTable()
                 .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));

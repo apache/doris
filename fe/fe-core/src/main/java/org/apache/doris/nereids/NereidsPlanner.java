@@ -269,9 +269,7 @@ public class NereidsPlanner extends Planner {
 
             List<Plan> planChildren = Lists.newArrayList();
             for (int i = 0; i < groupExpression.arity(); i++) {
-                planChildren.add(
-                        chooseBestPlan(cascadesContext.getMemo().getGroup(groupExpression.child(i).getGroupId()),
-                                inputPropertiesList.get(i)));
+                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
             }
 
             Plan plan = groupExpression.getPlan().withChildren(planChildren);

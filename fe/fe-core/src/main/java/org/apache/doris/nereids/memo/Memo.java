@@ -474,10 +474,8 @@ public class Memo {
             }
         }
         if (!source.equals(destination)) {
-            // TODO: stats and other
             source.mergeTo(destination);
-            // groups.remove(source.getGroupId());
-            groups.put(source.getGroupId(), destination);
+            groups.remove(source.getGroupId());
         }
 
         needMergeGroupPairs.forEach(this::mergeGroup);
