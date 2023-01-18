@@ -13,7 +13,6 @@ internal	aaa	1	varchar	varchar(170)	170
 internal	bbb	2	varchar	varchar(20)	20
 internal	ccc	3	int	int(11)	10
 internal	ddd	4	smallint	smallint(6)	5
-internal	a	1	int	int(11)	10
 internal	aaa	1	varchar	varchar(170)	170
 internal	bbb	2	varchar	varchar(20)	20
 internal	ccc	3	int	int(11)	10
@@ -22,48 +21,26 @@ internal	aaa	1	varchar	varchar(170)	170
 internal	bbb	2	varchar	varchar(20)	20
 internal	ccc	3	int	int(11)	10
 internal	ddd	4	smallint	smallint(6)	5
-
--- !files --
-
--- !partitions --
-
--- !schema_privileges --
 
 -- !schemata --
 internal	test_query_sys_db_1	\N
 internal	test_query_sys_db_2	\N
 internal	test_query_sys_db_3	\N
 
--- !statistics --
-
--- !table_privileges --
-
 -- !tables --
 internal	test_query_sys_tb_1	BASE TABLE	0	\N	\N
-internal	test_view	VIEW	0	\N	\N
 internal	test_query_sys_tb_2	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_3	BASE TABLE	0	\N	\N
-
--- !user_privileges --
-'root'@'%'	def	SELECT	YES
-'root'@'%'	def	INSERT	YES
-'root'@'%'	def	ALTER	YES
-'root'@'%'	def	CREATE	YES
-'root'@'%'	def	DROP	YES
-'root'@'%'	def	USAGE	YES
-'admin'@'%'	def	SELECT	YES
-'admin'@'%'	def	INSERT	YES
-'admin'@'%'	def	ALTER	YES
-'admin'@'%'	def	CREATE	YES
-'admin'@'%'	def	DROP	YES
-'admin'@'%'	def	USAGE	YES
 
 -- !session_variables --
 wait_timeout	30000
 
--- !session_variables --
+-- !global_variables --
 wait_timeout	31000
 
+-- !user_privileges --
+'test_sys_tables'@'%'	SELECT	NO
+
 -- !views --
-\N	test_query_sys_db_1	test_view		NONE	NO	root@%	DEFINER	utf8	\N
+test_view	
 

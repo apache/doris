@@ -87,35 +87,13 @@ suite("test_query_sys_tables", "query,p0") {
     qt_columns("select TABLE_CATALOG, COLUMN_NAME, ORDINAL_POSITION, DATA_TYPE, COLUMN_TYPE, COLUMN_SIZE from columns where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}'")
 
     // test files
-    sql """
-        CREATE FILE "test_file"
-        IN ${dbName1}
-        PROPERTIES
-        (
-            "url" = "http://bit-images.bj.bcebos.com/bit2/index.html",
-            "catalog" = "test"
-        );
-    """
-    sql("use information_schema")
-    qt_files("select FILE_ID, FILE_NAME, FILE_TYPE from files where TABLE_SCHEMA = '${dbName1}'")
-    sql """
-        DROP FILE "test_file" from test_query_sys_db_1  properties("catalog" = "test")
-    """
+    // have no impl
 
     // test partitions
-    sql("use information_schema")
-    qt_partitions("select * from partitions")
+    // have no impl
 
     // test rowsets
     // have no tablet system table, add this later 
-    // sql("use information_schema")
-    // qt_rowsets1("select count(*) from rowsets");
-    // qt_rowsets2("select ROWSET_ID, TABLET_ID, DATA_DISK_SIZE, CREATION_TIME from rowsets")
-
-    // test schema privileges
-    sql("use information_schema")
-    sql("GRANT LOAD_PRIV ON ctl.${dbName1}.* TO ROLE 'root'")
-    qt_schema_privileges("select * from schema_privileges where TABLE_SCHEMA = '${dbName1}'")
 
     // test schemata
     // create test dbs
@@ -127,13 +105,7 @@ suite("test_query_sys_tables", "query,p0") {
     qt_schemata("select CATALOG_NAME, SCHEMA_NAME, SQL_PATH from schemata where SCHEMA_NAME = '${dbName1}' or SCHEMA_NAME = '${dbName2}' or SCHEMA_NAME = '${dbName3}'");
 
     // test statistics
-    sql("use information_schema")
-    qt_statistics("select * from statistics")
-
-    // test table privileges
-    sql("use information_schema")
-    sql("GRANT LOAD_PRIV ON ctl.${dbName1}.${tbName1} TO ROLE 'root'")
-    qt_table_privileges("select * from table_privileges where TABLE_NAME = '${tbName1}'")
+    // have no impl
 
     // test tables
     // create test dbs
@@ -191,19 +163,25 @@ suite("test_query_sys_tables", "query,p0") {
     sql("use information_schema")
     qt_tables("select TABLE_CATALOG, TABLE_NAME, TABLE_TYPE, AVG_ROW_LENGTH, MAX_DATA_LENGTH, INDEX_LENGTH from tables where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}'");
 
-    // test user privileges
-    sql("use information_schema")
-    qt_user_privileges("select * from user_privileges")
-
     // test variables
     // session_variables
     sql("use information_schema")
     sql("SET wait_timeout = 30000")
     qt_session_variables("select VARIABLE_NAME, VARIABLE_VALUE from session_variables where VARIABLE_NAME = 'wait_timeout'")
+    
     // global_variables
     sql("use information_schema")
     sql("SET GLOBAL wait_timeout = 31000")
-    qt_session_variables("select VARIABLE_NAME, VARIABLE_VALUE from global_variables where VARIABLE_NAME = 'wait_timeout'")
+    qt_global_variables("select VARIABLE_NAME, VARIABLE_VALUE from global_variables where VARIABLE_NAME = 'wait_timeout'")
+
+    // test user_privileges
+    sql("CREATE USER 'test_sys_tables'")
+    sql("GRANT SELECT_PRIV ON *.*.* TO 'test_sys_tables'")
+    sql("use information_schema")
+    qt_user_privileges """
+        select GRANTEE, PRIVILEGE_TYPE, IS_GRANTABLE from user_privileges where GRANTEE regexp '^\\'test'
+    """
+    sql("DROP USER 'test_sys_tables'")
 
     // test views
     sql("use ${dbName1}")
@@ -213,5 +191,5 @@ suite("test_query_sys_tables", "query,p0") {
         SELECT ccc as a FROM ${tbName1}
     """
     sql("use information_schema")
-    qt_views("select * from views where TABLE_SCHEMA = '${dbName1}'")
+    qt_views("select TABLE_NAME, VIEW_DEFINITION from views where TABLE_SCHEMA = '${dbName1}'")
 }
