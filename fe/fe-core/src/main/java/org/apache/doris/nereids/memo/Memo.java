@@ -95,6 +95,10 @@ public class Memo {
         return ImmutableList.copyOf(groups.values());
     }
 
+    public Group getGroup(GroupId groupId) {
+        return groups.get(groupId);
+    }
+
     public Map<GroupExpression, GroupExpression> getGroupExpressions() {
         return groupExpressions;
     }
@@ -472,7 +476,9 @@ public class Memo {
      * Add enforcer expression into the target group.
      */
     public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
+        Preconditions.checkArgument(groupExpression != null);
         groupExpression.setOwnerGroup(group);
+        // Don't add groupExpression into group's physicalExpressions, it will cause dead loop;
     }
 
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
