@@ -33,7 +33,7 @@ struct AuthInfo {
     // -1 as unset
     int64_t auth_code = -1;
     std::string auth_code_uuid = "";
-    std::string cluster_token = "";
+    std::string cluster_token;
 };
 
 template <class T>
