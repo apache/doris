@@ -89,6 +89,20 @@ public:
         _init(columns, col_ids, num_key_columns);
     }
 
+    Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
+        std::vector<ColumnId> col_ids(cols.size());
+        _unique_ids.resize(cols.size());
+        for (uint32_t cid = 0; cid < cols.size(); ++cid) {
+            col_ids[cid] = cid;
+            if (cols.at(cid)->name() == DELETE_SIGN) {
+                _delete_sign_idx = cid;
+            }
+            _unique_ids[cid] = cols[cid]->unique_id();
+        }
+
+        _init(cols, col_ids, num_key_columns);
+    }
+
     Schema(const Schema&);
     Schema& operator=(const Schema& other);
 
