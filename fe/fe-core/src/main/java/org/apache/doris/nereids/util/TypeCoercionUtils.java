@@ -214,7 +214,7 @@ public class TypeCoercionUtils {
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType && right instanceof DateLikeType
-                    || left instanceof DateLikeType && right instanceof CharacterType) {
+                || left instanceof DateLikeType && right instanceof CharacterType) {
             // TODO: need check implicitCastMap to keep the behavior consistent with old optimizer
             tightestCommonType = right;
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
@@ -239,6 +239,8 @@ public class TypeCoercionUtils {
             } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
                 tightestCommonType = DateV2Type.INSTANCE;
             }
+        } else if (left instanceof DecimalV2Type && right instanceof DecimalV2Type) {
+            tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, (DecimalV2Type) right);
         } else if (canCompareDate(left, right)) {
             if (binaryOperator instanceof BinaryArithmetic) {
                 tightestCommonType = IntegerType.INSTANCE;
