@@ -412,7 +412,7 @@ public class PaloAuth implements Writable {
             roleManager.removeDefaultRole(userIdent);
             //drop user role
             userRoleManager.dropUser(userIdent);
-            if (userManager.getUserIdentityByName(userIdent.getQualifiedUser()).size() == 0) {
+            if (userManager.getUserByName(userIdent.getQualifiedUser()).size() == 0) {
                 propertyMgr.dropUser(userIdent);
             } else if (userIdent.isDomain()) {
                 propertyMgr.removeDomainFromUser(userIdent);

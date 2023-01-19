@@ -1,5 +1,7 @@
 package org.apache.doris.mysql.rbac;
 
+import org.apache.doris.analysis.UserIdentity;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -7,14 +9,14 @@ import java.util.Map;
 import java.util.Set;
 
 public class UserManager {
-    Set<UserIdentity> users = new HashSet<>();
-    Map<String, List<UserIdentity>> userToUserIdentitys = new HashMap<>();
+    Set<User> users = new HashSet<>();
+    Map<String, List<User>> nameToUsers = new HashMap<>();
 
-    public boolean userIdentityExist(UserIdentity userIdentity) {
-        return users.contains(userIdentity);
+    public boolean userIdentityExist(User user) {
+        return users.contains(user);
     }
 
-    public Set<UserIdentity> getUserIdentitys() {
+    public Set<User> getUsers() {
         return users;
     }
 
@@ -22,11 +24,13 @@ public class UserManager {
 
     }
 
-    public List<UserIdentity> getUserIdentityByName (String name) {
-        return userToUserIdentitys.get(name);
+    public List<User> getUserByName(String name) {
+        return nameToUsers.get(name);
     }
-    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString, List<org.apache.doris.analysis.UserIdentity> currentUser) {
-        List<UserIdentity> userIdentities = userToUserIdentitys.get(remoteUser);
+
+    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<org.apache.doris.analysis.UserIdentity> currentUser) {
+        List<User> userIdentities = nameToUsers.get(remoteUser);
         //return match best UserIdentity
     }
 
