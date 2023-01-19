@@ -432,7 +432,6 @@ BlockRowPos VAnalyticEvalNode::_get_partition_by_end() {
 BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
                                                         bool need_check_first) {
     int64_t start_init_row_num = start.row_num;
-    int64_t end_init_row_num = end.row_num;
     ColumnPtr start_column = _input_blocks[start.block_num].get_by_position(idx).column;
     ColumnPtr start_next_block_column = start_column;
 
@@ -441,28 +440,22 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     int64_t start_block_num = start.block_num;
     int64_t end_block_num = end.block_num;
     int64_t mid_blcok_num = end.block_num;
+    // To fix this problem: https://github.com/apache/doris/issues/15951
+    // in this case, the partition by column is last row of block, so it's pointed to a new block at row = 0, range is: [left, right)
+    // From the perspective of order by column, the two values are exactly equal.
+    // so the range will be get wrong because it's compare_at == 0 with next block at row = 0
+    if (need_check_first && end.block_num > 0 && end.row_num == 0) {
+        end.block_num--;
+        end_block_num--;
+        end.row_num = _input_blocks[end_block_num].rows();
+    }
     //binary search find in which block
     while (start_block_num < end_block_num) {
         mid_blcok_num = (start_block_num + end_block_num + 1) >> 1;
         start_next_block_column = _input_blocks[mid_blcok_num].get_by_position(idx).column;
         //Compares (*this)[n] and rhs[m], this: start[init_row]  rhs: mid[0]
         if (start_column->compare_at(start_init_row_num, 0, *start_next_block_column, 1) == 0) {
-            // To fix this problem: https://github.com/apache/doris/issues/15951 , Now more elegant way has not been found
-            // maybe need to refator this.
-            // in this case, the partition by column is last row of block, so it's pointed to a new block at row = 0,
-            // From the perspective of order by column, the two values are exactly equal.
-            // so the range will be get wrong because it's compare_at == 0 with next block
-            if (need_check_first && end_init_row_num == 0) {
-                auto col = _input_blocks[mid_blcok_num - 1].get_by_position(idx).column;
-                auto last_row = _input_blocks[mid_blcok_num - 1].rows() - 1;
-                if (start_column->compare_at(start_init_row_num, last_row, *col, 1)) {
-                    end_block_num = mid_blcok_num - 1;
-                } else {
-                    start_block_num = mid_blcok_num;
-                }
-            } else {
-                start_block_num = mid_blcok_num;
-            }
+            start_block_num = mid_blcok_num;
         } else {
             end_block_num = mid_blcok_num - 1;
         }
