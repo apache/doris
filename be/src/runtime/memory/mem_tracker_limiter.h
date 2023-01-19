@@ -106,7 +106,7 @@ public:
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
 
     Status check_limit(int64_t bytes = 0);
-    bool is_overcommit_tracker() { return type() == Type::QUERY || type() == Type::LOAD; }
+    bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
 
     // Returns the maximum consumption that can be made without exceeding the limit on
     // this tracker limiter.
