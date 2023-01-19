@@ -657,11 +657,11 @@ public class JdbcClient {
             case "text":
             case "ntext":
             case "time":
+            case "datetimeoffset":
+                return ScalarType.createStringType();
             case "image":
             case "binary":
             case "varbinary":
-            case "datetimeoffset":
-                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }
