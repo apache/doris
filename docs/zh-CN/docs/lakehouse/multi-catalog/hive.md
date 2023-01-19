@@ -35,7 +35,7 @@ under the License.
 1. hive 支持 1/2/3 版本。
 2. 支持 Managed Table 和 External Table。
 3. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
-4. 支持数据存储在 Juicefs 上的 hive 表，用法和普通 hive 一样（需要把juicefs-hadoop-x.x.x.jar放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下）。
+4. 支持数据存储在 Juicefs 上的 hive 表，用法如下（需要把juicefs-hadoop-x.x.x.jar放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下）。
 
 ## 创建 Catalog
 	
@@ -95,6 +95,19 @@ CREATE CATALOG hive PROPERTIES (
     'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
+);
+```
+
+hive数据存储在JuiceFS，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'root',
+    'fs.jfs.impl' = 'io.juicefs.JuiceFileSystem',
+    'fs.AbstractFileSystem.jfs.impl' = 'io.juicefs.JuiceFS',
+    'juicefs.meta' = 'xxx'
 );
 ```
 	
