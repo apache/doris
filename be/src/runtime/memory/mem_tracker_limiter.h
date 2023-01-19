@@ -105,7 +105,8 @@ public:
     int64_t limit() const { return _limit; }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
 
-    Status check_limit(int64_t bytes);
+    Status check_limit(int64_t bytes = 0);
+    bool is_overcommit_tracker() { return type() == Type::QUERY || type() == Type::LOAD; }
 
     // Returns the maximum consumption that can be made without exceeding the limit on
     // this tracker limiter.
@@ -144,10 +145,16 @@ public:
                                        int64_t failed_allocation_size = 0);
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
-    static int64_t free_top_memory_query(int64_t min_free_mem);
+    static int64_t free_top_memory_query(int64_t min_free_mem, Type type = Type::QUERY);
+    static int64_t free_top_memory_load(int64_t min_free_mem) {
+        return free_top_memory_query(min_free_mem, Type::LOAD);
+    }
     // Start canceling from the query with the largest memory overcommit ratio until the memory
     // of min_free_mem size is freed.
-    static int64_t free_top_overcommit_query(int64_t min_free_mem);
+    static int64_t free_top_overcommit_query(int64_t min_free_mem, Type type = Type::QUERY);
+    static int64_t free_top_overcommit_load(int64_t min_free_mem) {
+        return free_top_overcommit_query(min_free_mem, Type::LOAD);
+    }
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
         auto queryid = split(label, "#Id=")[1];
@@ -263,7 +270,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         return false;
     }
 
-    if (_limit < 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
+    if (_limit < 0 || (is_overcommit_tracker() && config::enable_query_memroy_overcommit)) {
         _consumption->add(bytes); // No limit at this tracker.
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
@@ -280,7 +287,7 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     if (sys_mem_exceed_limit_check(bytes)) {
         return Status::MemoryLimitExceeded(process_limit_exceeded_errmsg_str(bytes));
     }
-    if (bytes <= 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
+    if (bytes <= 0 || (is_overcommit_tracker() && config::enable_query_memroy_overcommit)) {
         return Status::OK();
     }
     if (_limit > 0 && _consumption->current_value() + bytes > _limit) {

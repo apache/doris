@@ -89,6 +89,8 @@ void MemInfo::refresh_allocator_mem() {
 #endif
 }
 
+// step1: free all cache
+// step2: free top overcommit query, if enable query memroy overcommit
 void MemInfo::process_minor_gc() {
     // TODO, free more cache, and should free a certain percentage of capacity, not all.
     int64_t freed_mem = 0;
@@ -110,6 +112,10 @@ void MemInfo::process_minor_gc() {
     }
 }
 
+// step1: free all cache
+// step2: free top memory query
+// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step4: free top memory load
 void MemInfo::process_full_gc() {
     int64_t freed_mem = 0;
     Defer defer {
@@ -127,6 +133,18 @@ void MemInfo::process_full_gc() {
         return;
     }
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return;
+    }
+    if (config::enable_query_memroy_overcommit) {
+        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+                _s_process_full_gc_size - freed_mem, MemTrackerLimiter::Type::LOAD);
+        if (freed_mem > _s_process_full_gc_size) {
+            return;
+        }
+    }
+    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
+                                                          MemTrackerLimiter::Type::LOAD);
 }
 
 #ifndef __APPLE__
