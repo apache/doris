@@ -53,7 +53,7 @@ CREATE CATALOG es PROPERTIES (
 参数 | 是否必须 | 默认值 | 说明 
 --- | --- | --- | --- 
 `hosts` | 是 | | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址 |
-`username` | 否 |  空 | ES 用户名 |
+`user` | 否 |  空 | ES 用户名 |
 `password` | 否 | 空 | 对应用户的密码信息 |
 `doc_value_scan` | 否 | true | 是否开启通过 ES/Lucene 列式存储获取查询字段的值 |
 `keyword_sniff` | 否 | true | 是否对 ES 中字符串分词类型 text.fields 进行探测，通过 keyword 进行查询。设置为 false 会按照分词后的内容匹配 |
