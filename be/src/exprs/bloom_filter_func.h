@@ -318,6 +318,12 @@ struct DateTimeFindOp : public CommonFindOp<DateTimeValue> {
         value.from_olap_datetime(*reinterpret_cast<const uint64_t*>(data));
         return bloom_filter.test(Slice((char*)&value, sizeof(DateTimeValue)));
     }
+    void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        DateTimeValue date_value;
+        const auto* vec_dt = reinterpret_cast<const vectorized::VecDateTimeValue*>(data);
+        vec_dt->convert_vec_dt_to_dt(&date_value);
+        bloom_filter.add_bytes((char*)&date_value, sizeof(DateTimeValue));
+    }
 };
 
 // avoid violating C/C++ aliasing rules.
