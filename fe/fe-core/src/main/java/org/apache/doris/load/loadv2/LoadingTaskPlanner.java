@@ -149,7 +149,6 @@ public class LoadingTaskPlanner {
         scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
         ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
-        
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {
