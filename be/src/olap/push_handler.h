@@ -92,8 +92,6 @@ public:
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
-    Status fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                          FieldType type);
     bool _ready;
     bool _eof;
     std::unique_ptr<RuntimeState> _runtime_state;

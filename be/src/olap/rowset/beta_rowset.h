@@ -65,10 +65,6 @@ public:
 
     static std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id);
 
-    Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                       uint64_t request_block_row_count, size_t key_num,
-                       std::vector<OlapTuple>* ranges) override;
-
     Status remove() override;
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,

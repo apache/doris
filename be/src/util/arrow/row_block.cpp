@@ -124,16 +124,4 @@ Status convert_to_tablet_column(const arrow::Field& field, int32_t cid, TabletCo
     return Status::OK();
 }
 
-Status convert_to_doris_schema(const arrow::Schema& schema, std::shared_ptr<Schema>* result) {
-    auto num_fields = schema.num_fields();
-    std::vector<TabletColumn> columns(num_fields);
-    std::vector<ColumnId> col_ids(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-        RETURN_IF_ERROR(convert_to_tablet_column(*schema.field(i), i, &columns[i]));
-        col_ids[i] = i;
-    }
-    result->reset(new Schema(columns, col_ids));
-    return Status::OK();
-}
-
 } // namespace doris

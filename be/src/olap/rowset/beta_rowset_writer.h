@@ -42,8 +42,6 @@ public:
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_row(const RowCursor& row) override { return _add_row(row); }
-    // For Memtable::flush()
-    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     Status add_block(const vectorized::Block* block) override;
 

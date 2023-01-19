@@ -22,7 +22,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/primary_key_index.h"
-#include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -345,7 +344,6 @@ Status SegmentWriter::append_row(const RowType& row) {
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
-template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.

@@ -18,7 +18,6 @@
 #include "olap/memtable.h"
 
 #include "common/logging.h"
-#include "olap/row.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
