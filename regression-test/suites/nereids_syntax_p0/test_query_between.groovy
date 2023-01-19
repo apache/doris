@@ -36,6 +36,6 @@ suite("nereids_test_query_between", "query,p0") {
                 and \"9999-12-31 12:12:12\" order by k1, k2, k3, k4"""
     qt_between11 """select k10 from ${tableName} where k10 between \"2015-04-02\"
                 and \"9999-12-31\" order by k1, k2, k3, k4"""
-    qt_between12 "select k9 from ${tableName} where k9 between -1 and 6.333 order by k1, k2, k3, k4"
-    qt_between13 "select k5 from ${tableName} where k5 between 0 and 1243.5 order by k1, k2, k3, k4"
+    qt_between12 "select k9 from ${tableName} where k9 between -1 and 6.34 order by k1, k2, k3, k4"
+    qt_between13 "select k5 from ${tableName} where k5 between 0 and 1243.6 order by k1, k2, k3, k4"
 }
