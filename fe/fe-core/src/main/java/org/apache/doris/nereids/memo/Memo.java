@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -444,29 +445,40 @@ public class Memo {
             }
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
-        for (GroupExpression groupExpression : needReplaceChild) {
-            // After change GroupExpression children, the hashcode will change,
-            // so need to reinsert into map.
-            groupExpressions.remove(groupExpression);
-            Utils.replaceList(groupExpression.children(), source, destination);
 
-            GroupExpression that = groupExpressions.get(groupExpression);
-            if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
-                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
-                // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                mergeGroup(ownerGroup, that.getOwnerGroup());
+        Map<Group, Group> needMergeGroupPairs = Maps.newHashMap();
+        for (GroupExpression reinsertGroupExpr : needReplaceChild) {
+            // After change GroupExpression children, hashcode will change, so need to reinsert into map.
+            groupExpressions.remove(reinsertGroupExpr);
+            Utils.replaceList(reinsertGroupExpr.children(), source, destination);
+
+            GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
+            if (existGroupExpr != null) {
+                Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
+                // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
+                // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
+                reinsertGroupExpr.setUnused(true);
+                if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
+                    // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
+                    if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
+                        reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
+                    }
+                    // existingGroupExpression merge the state of reinsertGroupExpr
+                    reinsertGroupExpr.mergeTo(existGroupExpr);
+                } else {
+                    // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
+                    needMergeGroupPairs.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                }
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
             }
         }
         if (!source.equals(destination)) {
-            // TODO: stats and other
             source.mergeTo(destination);
             groups.remove(source.getGroupId());
         }
+
+        needMergeGroupPairs.forEach(this::mergeGroup);
         return destination;
     }
 
