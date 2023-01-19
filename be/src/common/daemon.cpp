@@ -261,13 +261,13 @@ void Daemon::calculate_metrics_thread() {
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
-            last_ts = GetCurrentTimeMicros() / 1000;
+            last_ts = GetMonoTimeMicros() / 1000;
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
                                                                             &lst_net_receive_bytes);
         } else {
-            int64_t current_ts = GetCurrentTimeMicros() / 1000;
+            int64_t current_ts = GetMonoTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
