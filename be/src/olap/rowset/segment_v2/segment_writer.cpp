@@ -408,6 +408,9 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
 
 Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     RETURN_IF_ERROR(_write_footer());
+    // finish
+    RETURN_IF_ERROR(_file_writer->finalize());
+    *segment_file_size = _file_writer->bytes_appended();
     return Status::OK();
 }
 
