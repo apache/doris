@@ -1440,8 +1440,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void uncheckedCastChild(Type targetType, int childIndex)
             throws AnalysisException {
         Expr child = getChild(childIndex);
-        Expr newChild = child.uncheckedCastTo(targetType);
-        setChild(childIndex, newChild);
+        //avoid to generate Expr like cast (cast(... as date) as date)
+        if (!child.getType().equals(targetType)) {
+            Expr newChild = child.uncheckedCastTo(targetType);
+            setChild(childIndex, newChild);
+        }
     }
 
     /**
