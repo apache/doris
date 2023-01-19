@@ -174,7 +174,8 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold_hot_separation"
+                "advanced/cold_hot_separation",
+                "advanced/compute_node"
             ]
         },
         {
