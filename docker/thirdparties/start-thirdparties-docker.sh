@@ -63,6 +63,13 @@ sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
 sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
 sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
 
+# sqlserver
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
+sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
+sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
+sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
+sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
+
 # hive
 # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
 sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
