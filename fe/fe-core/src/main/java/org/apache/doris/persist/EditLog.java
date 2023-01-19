@@ -970,7 +970,7 @@ public class EditLog {
                 }
                 default: {
                     IOException e = new IOException();
-                    LOG.error("UNKNOWN Operation Type {}", opCode, e);
+                    LOG.error("UNKNOWN Operation Type {}", opCode);
                     throw e;
                 }
             }
@@ -994,9 +994,10 @@ public class EditLog {
              * log a warning here to debug when happens. This could happen to other meta
              * like DB.
              */
-            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
+            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage());
         } catch (Exception e) {
-            LOG.error("Operation Type {}", opCode, e);
+            LOG.error("Operation Type {}: {}", opCode, e.getMessage());
+            e.printStackTrace();
             System.exit(-1);
         }
     }
