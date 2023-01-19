@@ -34,7 +34,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
@@ -147,17 +146,10 @@ public class LoadingTaskPlanner {
         // Generate plan trees
         // 1. Broker scan node
         ScanNode scanNode;
-        boolean useNewScanNode = Config.enable_new_load_scan_node || useNewLoadScanNode;
-        if (useNewScanNode) {
-            scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
-            ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
-                    fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
-        } else {
-            scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, "BrokerScanNode",
-                    fileStatusesList, filesAdded);
-            ((BrokerScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode,
-                    loadParallelism, userInfo);
-        }
+        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
+        ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
+                fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
+        
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {

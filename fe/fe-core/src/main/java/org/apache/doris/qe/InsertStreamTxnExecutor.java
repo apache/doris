@@ -77,16 +77,10 @@ public class InsertStreamTxnExecutor {
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
-                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                            TFileFormatType.FORMAT_PROTO);
-                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                            TFileCompressType.PLAIN);
-                } else {
-                    for (TBrokerRangeDesc desc : scanRangeParams.scan_range.broker_scan_range.ranges) {
-                        desc.setFormatType(TFileFormatType.FORMAT_PROTO);
-                    }
-                }
+                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
+                        TFileFormatType.FORMAT_PROTO);
+                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
+                        TFileCompressType.PLAIN);
             }
         }
         txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
