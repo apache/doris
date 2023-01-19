@@ -17,11 +17,11 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.plugin.ProfileEvent;
+import org.apache.doris.plugin.ProfilePlugin;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,32 +29,35 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 
 /**
- * Class for processing all audit events.
- * It will receive audit events and handle them to all AUDIT type plugins.
+ * Class for processing all profile events.
+ * It will receive profile events and handle them to all PROFILE type plugins.
  */
-public class AuditEventProcessor extends AbstractEventProcessor<AuditEvent> {
-    private static final Logger LOG = LogManager.getLogger(AuditEventProcessor.class);
+public class ProfileEventProcessor extends AbstractEventProcessor<ProfileEvent> {
+    private static final Logger LOG = LogManager.getLogger(ProfileEventProcessor.class);
+    private static final int PROFILE_EVENT_QUEUE_SIZE = 1000;
 
     private final PluginMgr pluginMgr;
 
-    public AuditEventProcessor(PluginMgr pluginMgr) {
+    public ProfileEventProcessor(PluginMgr pluginMgr) {
         this.pluginMgr = pluginMgr;
     }
 
     @Override
     protected List<Plugin> getPlugins() {
-        return pluginMgr.getActivePluginList(PluginType.AUDIT);
+        return pluginMgr.getActivePluginList(PluginType.PROFILE);
     }
 
     @Override
     protected ProcessorType getType() {
-        return ProcessorType.AUDIT_EVENT_PROCESSOR;
+        return ProcessorType.PROFILE_EVENT_PROCESSOR;
     }
 
     @Override
-    protected void handle(Plugin plugin, AuditEvent event) {
-        if (((AuditPlugin) plugin).eventFilter(event.type)) {
-            ((AuditPlugin) plugin).exec(event);
-        }
+    protected void handle(Plugin plugin, ProfileEvent event) {
+        ((ProfilePlugin) plugin).exec(event);
+    }
+
+    protected int getEventQueueSize() {
+        return PROFILE_EVENT_QUEUE_SIZE;
     }
 }

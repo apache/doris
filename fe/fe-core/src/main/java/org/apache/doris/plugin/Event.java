@@ -17,19 +17,5 @@
 
 package org.apache.doris.plugin;
 
-/**
- * Audit plugin interface describe.
- */
-public interface AuditPlugin {
-    /**
-     * use for check audit event type, the event will skip the plugin if return false
-     */
-    boolean eventFilter(AuditEvent.EventType type);
-
-    /**
-     * process the event.
-     * This method should be implemented as a non-blocking or lightweight method.
-     * Because it will be called after each query. So it must be efficient.
-     */
-    void exec(AuditEvent event);
+public abstract class Event {
 }

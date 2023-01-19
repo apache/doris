@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
@@ -24,6 +25,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.plugin.ProfileEvent;
+import org.apache.doris.qe.ProfileEventProcessor;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -150,6 +153,12 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
+
+        ProfileEventProcessor processor = Env.getCurrentProfileEventProcessor();
+        if (processor.needHandle()) {
+            processor.handleEvent(buildProfileEvent(element));
+        }
+
         String key = isQueryProfile(profile) ? element.infoStrings.get(ProfileManager.QUERY_ID)
                 : element.infoStrings.get(ProfileManager.JOB_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
@@ -339,5 +348,21 @@ public class ProfileManager {
 
     public boolean isQueryProfile(RuntimeProfile profile) {
         return "Query".equals(profile.getName());
+    }
+
+    private ProfileEvent buildProfileEvent(ProfileElement element) {
+        ProfileEvent.ProfileEventBuilder builder = new ProfileEvent.ProfileEventBuilder();
+        builder.setJobId(element.infoStrings.getOrDefault(JOB_ID, ""));
+        builder.setQueryId(element.infoStrings.getOrDefault(QUERY_ID, ""));
+        builder.setUser(element.infoStrings.getOrDefault(USER, ""));
+        builder.setDefaultDb(element.infoStrings.getOrDefault(DEFAULT_DB, ""));
+        builder.setStmt(element.infoStrings.getOrDefault(SQL_STATEMENT, ""));
+        builder.setQueryType(element.infoStrings.getOrDefault(QUERY_TYPE, ""));
+        builder.setStartTime(element.infoStrings.getOrDefault(START_TIME, ""));
+        builder.setEndTime(element.infoStrings.getOrDefault(END_TIME, ""));
+        builder.setQueryState(element.infoStrings.getOrDefault(QUERY_STATE, ""));
+        builder.setTotalTime(element.infoStrings.getOrDefault(TOTAL_TIME, ""));
+        builder.setProfile(element.profileContent);
+        return builder.build();
     }
 }

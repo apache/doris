@@ -31,7 +31,7 @@ import java.lang.annotation.RetentionPolicy;
  *          ...
  *          .build();
  */
-public class AuditEvent {
+public class AuditEvent extends Event {
     public enum EventType {
         CONNECTION,
         DISCONNECTION,
