@@ -135,11 +135,11 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitGroupBitmapXor(GroupBitmapXor groupBitmapXor, C context) {
-        return visitAggregateFunction(groupBitmapXor, context);
+        return visitNullableAggregateFunction(groupBitmapXor, context);
     }
 
     default R visitGroupConcat(GroupConcat groupConcat, C context) {
-        return visitAggregateFunction(groupConcat, context);
+        return visitNullableAggregateFunction(groupConcat, context);
     }
 
     default R visitHistogram(Histogram histogram, C context) {
