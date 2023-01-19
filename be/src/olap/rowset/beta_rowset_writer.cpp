@@ -28,7 +28,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
-#include "olap/row.h"        // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -608,7 +607,6 @@ Status BetaRowsetWriter::_add_row(const RowType& row) {
 }
 
 template Status BetaRowsetWriter::_add_row(const RowCursor& row);
-template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);

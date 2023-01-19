@@ -132,10 +132,7 @@ public:
 
     size_t column_offset(ColumnId cid) const { return _col_offsets[cid]; }
 
-    // TODO(lingbin): What is the difference between column_size() and index_size()
     size_t column_size(ColumnId cid) const { return _cols[cid]->size(); }
-
-    size_t index_size(ColumnId cid) const { return _cols[cid]->index_size(); }
 
     bool is_null(const char* row, int index) const {
         return *reinterpret_cast<const bool*>(row + _col_offsets[index]);

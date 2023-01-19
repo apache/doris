@@ -31,7 +31,6 @@
 
 namespace doris {
 
-struct ContiguousRow;
 class RowsetWriter;
 class Schema;
 class SlotDescriptor;
