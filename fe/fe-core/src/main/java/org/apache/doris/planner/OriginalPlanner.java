@@ -263,12 +263,12 @@ public class OriginalPlanner extends Planner {
                 LOG.debug("this isn't block query");
             }
             // Check SelectStatement if optimization condition satisfied
-            if (stmt.checkAndSetPointQuery()) {
+            if (selectStmt.checkAndSetPointQuery()) {
                 // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
                 // such query will use direct RPC to do point query
                 LOG.debug("it's a point query");
-                Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) stmt).getPointQueryEQPredicates();
-                OlapScanNode olapScanNode = (OlapScanNode) node;
+                Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
+                OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
                 olapScanNode.setDescTable(analyzer.getDescTbl());
                 olapScanNode.setPointQueryEqualPredicates(eqConjuncts);
                 if (analyzer.getPrepareStmt() != null) {

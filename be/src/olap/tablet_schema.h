@@ -67,10 +67,8 @@ public:
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
-    void set_type(FieldType type) { _type = type; }
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
-    void set_unique_id(int32_t unique_id) { _unique_id = unique_id; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,

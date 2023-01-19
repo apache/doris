@@ -1922,20 +1922,6 @@ TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mute
     return _max_version_schema;
 }
 
-RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
-    for (auto& version_rowset : _rs_version_map) {
-        if (version_rowset.second->rowset_id() == rowset_id) {
-            return version_rowset.second;
-        }
-    }
-    for (auto& stale_version_rowset : _stale_rs_version_map) {
-        if (stale_version_rowset.second->rowset_id() == rowset_id) {
-            return stale_version_rowset.second;
-        }
-    }
-    return nullptr;
-}
-
 Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescriptor* desc,
                                vectorized::Block* block) {
     // read row data

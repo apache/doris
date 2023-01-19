@@ -52,10 +52,7 @@ class OlapTableSchemaParam;
 class PTupleDescriptor;
 class PSlotDescriptor;
 class PInternalServiceImpl;
-<<<<<<< HEAD
-=======
 class TabletSchema;
->>>>>>> 809684c99 ([Feature-WIP](optimize point query) optimize point query)
 
 // Location information for null indicator bit for particular slot.
 // For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
@@ -130,11 +127,8 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
-<<<<<<< HEAD
-=======
     friend class Tablet;
     friend class TabletSchema;
->>>>>>> 809684c99 ([Feature-WIP](optimize point query) optimize point query)
 
     const SlotId _id;
     const TypeDescriptor _type;
