@@ -344,6 +344,8 @@ public:
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
+    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

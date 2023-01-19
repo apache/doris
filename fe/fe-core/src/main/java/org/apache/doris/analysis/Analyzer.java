@@ -551,6 +551,10 @@ public class Analyzer {
         isInlineView = inlineView;
     }
 
+    public boolean isInlineViewAnalyzer() {
+        return isInlineView;
+    }
+
     public void setExplicitViewAlias(String alias) {
         explicitViewAlias = alias;
     }
@@ -997,6 +1001,9 @@ public class Analyzer {
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
         result.setIsNullable(srcSlotDesc.getIsNullable());
+        if (srcSlotDesc.getColumn() != null) {
+            result.setColumn(srcSlotDesc.getColumn());
+        }
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;
     }

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -557,7 +558,6 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-
         whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
@@ -576,7 +576,6 @@ public class SelectStmt extends QueryStmt {
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
-
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -591,6 +590,33 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
+        if (checkEnableTwoPhaseRead(analyzer)) {
+            // If optimize enabled, we try our best to read less columns from ScanNode,
+            // here we analyze conjunct exprs and ordering exprs before resultExprs,
+            // rest of resultExprs will be marked as `INVALID`, such columns will
+            // be prevent from reading from ScanNode.Those columns will be finally
+            // read by the second fetch phase
+            LOG.debug("two phase read optimize enabled");
+            // Expr.analyze(resultExprs, analyzer);
+            Set<SlotRef> resultSlots = Sets.newHashSet();
+            Set<SlotRef> orderingSlots = Sets.newHashSet();
+            Set<SlotRef> conjuntSlots = Sets.newHashSet();
+            TreeNode.collect(resultExprs, Predicates.instanceOf(SlotRef.class), resultSlots);
+            TreeNode.collect(sortInfo.getOrderingExprs(), Predicates.instanceOf(SlotRef.class), orderingSlots);
+            if (whereClause != null) {
+                whereClause.collect(SlotRef.class, conjuntSlots);
+            }
+            resultSlots.removeAll(orderingSlots);
+            resultSlots.removeAll(conjuntSlots);
+            // reset slots need to do fetch column
+            for (SlotRef slot : resultSlots) {
+                // invalid slots will be pruned from reading from ScanNode
+                slot.setInvalid();
+            }
+            LOG.debug("resultsSlots {}", resultSlots);
+            LOG.debug("orderingSlots {}", orderingSlots);
+            LOG.debug("conjuntSlots {}", conjuntSlots);
+        }
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
@@ -613,6 +639,72 @@ public class SelectStmt extends QueryStmt {
         if (hasOutFileClause()) {
             outFileClause.analyze(analyzer, resultExprs, colLabels);
         }
+    }
+
+    // Check whether enable two phase read optimize, if enabled query will be devieded into two phase read:
+    // 1. read conjuncts columns and order by columns along with an extra RowId column from ScanNode
+    // 2. sort and filter data, and get final RowId column, spawn RPC to other BE to fetch final data
+    // 3. final matrialize all data
+    public boolean checkEnableTwoPhaseRead(Analyzer analyzer) {
+        // only vectorized mode and session opt variable enabled
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
+                || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
+            return false;
+        }
+        if (!evaluateOrderBy) {
+            // Need evaluate orderby, if sort node was eliminated then this optmization
+            // could be useless
+            return false;
+        }
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
+        if (getAggInfo() != null
+                || getHavingPred() != null
+                || getWithClause() != null) {
+            return false;
+        }
+        if (!analyzer.isRootAnalyzer()) {
+            // ensure no sub query
+            return false;
+        }
+        // If select stmt has inline view or this is an inline view query stmt analyze call
+        if (hasInlineView() || analyzer.isInlineViewAnalyzer()) {
+            return false;
+        }
+        // single olap table
+        List<TableRef> tblRefs = getTableRefs();
+        if (tblRefs.size() != 1 || !(tblRefs.get(0) instanceof BaseTableRef)) {
+            return false;
+        }
+        TableRef tbl = tblRefs.get(0);
+        if (tbl.getTable().getType() != Table.TableType.OLAP) {
+            return false;
+        }
+        LOG.debug("table ref {}", tbl);
+        // Need enable light schema change, since opt rely on
+        // column_unique_id of each slot
+        OlapTable olapTable = (OlapTable) tbl.getTable();
+        if (!olapTable.getEnableLightSchemaChange()) {
+            return false;
+        }
+        // Only TOPN query at present
+        if (getOrderByElements() == null
+                    || !hasLimit()
+                    || getLimit() == 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
+            return false;
+        }
+        // Check order by exprs are all slot refs
+        // Rethink? implement more generic to support all exprs
+        LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+        LOG.debug("getOrderByElements {}", getOrderByElements());
+        for (OrderByElement orderby : getOrderByElements()) {
+            if (!(orderby.getExpr() instanceof SlotRef)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<TupleId> getTableRefIds() {

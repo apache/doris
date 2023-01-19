@@ -29,7 +29,7 @@ class IOBufAsZeroCopyInputStream;
 namespace doris {
 class Predicate;
 class ObjectPool;
-class RuntimeState;
+class ExprContext;
 class RuntimePredicateWrapper;
 class MemTracker;
 class TupleRow;
