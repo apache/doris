@@ -247,6 +247,10 @@ E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
+E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
+E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
+E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
+E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 #undef E
 }; // namespace ErrorCode
 
@@ -268,7 +272,11 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
-        && code != ErrorCode::SEGCOMPACTION_FAILED;
+        && code != ErrorCode::SEGCOMPACTION_FAILED
+        && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
+        && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
+        && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
+        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND;
 }
 // clang-format on
 
@@ -356,6 +364,7 @@ public:
     static Status name(std::string_view msg, Args&&... args) {                  \
         return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
     }
+
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)

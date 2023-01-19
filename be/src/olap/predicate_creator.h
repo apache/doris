@@ -20,6 +20,12 @@
 #include <charconv>
 #include <type_traits>
 
+#include "exec/olap_utils.h"
+#include "exprs/bloomfilter_predicate.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/match_predicate.h"
+#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
@@ -58,7 +64,14 @@ public:
 private:
     static CppType convert(const std::string& condition) {
         CppType value = 0;
-        std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        // because std::from_chars can't compile on macOS
+        if constexpr (std::is_same_v<CppType, double>) {
+            value = std::stod(condition, nullptr);
+        } else if constexpr (std::is_same_v<CppType, float>) {
+            value = std::stof(condition, nullptr);
+        } else {
+            std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        }
         return value;
     }
 };
@@ -156,6 +169,12 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_FLOAT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_FLOAT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_DOUBLE: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
@@ -257,6 +276,9 @@ inline ColumnPredicate* parse_to_predicate(TabletSchemaSPtr tablet_schema,
     if (to_lower(condition.condition_op) == "is") {
         return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null",
                                  opposite);
+    } else if (is_match_condition(condition.condition_op)) {
+        return new MatchPredicate(index, condition.condition_values[0],
+                                  to_match_type(condition.condition_op));
     }
 
     if ((condition.condition_op == "*=" || condition.condition_op == "!*=") &&

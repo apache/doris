@@ -52,7 +52,7 @@ DECIMALV3有一套很复杂的类型推演规则，针对不同的表达式，�
 #### 聚合运算
 
 * SUM / MULTI_DISTINCT_SUM：SUM(DECIMALV3(a, b)) -> DECIMALV3(38, b)。
-* AVG：AVG(DECIMALV3(a, b)) -> DECIMALV3(38, b)。
+* AVG：AVG(DECIMALV3(a, b)) -> DECIMALV3(38, max(b, 4))。
 
 #### 默认规则
 

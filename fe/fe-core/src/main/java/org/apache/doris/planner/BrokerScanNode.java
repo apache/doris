@@ -326,7 +326,8 @@ public class BrokerScanNode extends LoadScanNode {
                 throw new UserException(e.getMessage());
             }
             brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
-        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
+        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.OFS
+                || brokerDesc.getStorageType() == StorageBackend.StorageType.JFS) {
             FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
             if (broker == null) {
                 throw new UserException("No alive broker.");

@@ -124,20 +124,13 @@ Status BaseScanner::init_expr_ctxes() {
 
     // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
     if (!_pre_filter_texprs.empty()) {
-        if (_state->enable_vectorized_exec()) {
-            // for vectorized, preceding filter exprs should be compounded to one passed from fe.
-            DCHECK(_pre_filter_texprs.size() == 1);
-            _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
-                    _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
-            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
-        } else {
-            RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
-                                                    &_pre_filter_ctxs));
-            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc));
-            RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
-        }
+        // for vectorized, preceding filter exprs should be compounded to one passed from fe.
+        DCHECK(_pre_filter_texprs.size() == 1);
+        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
+                _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
+        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
+        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
     }
 
     // Construct dest slots information
@@ -158,20 +151,11 @@ Status BaseScanner::init_expr_ctxes() {
                                          slot_desc->col_name());
         }
 
-        if (_state->enable_vectorized_exec()) {
-            vectorized::VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
-            RETURN_IF_ERROR(ctx->open(_state));
-            _dest_vexpr_ctx.emplace_back(ctx);
-        } else {
-            ExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
-            RETURN_IF_ERROR(ctx->open(_state));
-            _dest_expr_ctx.emplace_back(ctx);
-        }
+        vectorized::VExprContext* ctx = nullptr;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
+        RETURN_IF_ERROR(ctx->open(_state));
+        _dest_vexpr_ctx.emplace_back(ctx);
         if (has_slot_id_map) {
             auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {

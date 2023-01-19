@@ -25,14 +25,20 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Config;
+import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
@@ -42,20 +48,20 @@ import java.util.Map;
  * External catalog for hive metastore compatible data sources.
  */
 public class HMSExternalCatalog extends ExternalCatalog {
+    private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
+
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
+    // Record the latest synced event id when processing hive events
+    private long lastSyncedEventId;
 
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(
-            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
-        this.id = catalogId;
-        this.name = name;
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+        super(catalogId, name);
         this.type = "hms";
-        if (resource == null) {
-            props.putAll(HMSResource.getPropertiesFromDLF());
-        }
+        props.putAll(HMSResource.getPropertiesFromDLF());
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -92,11 +98,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
-    }
-
-    @Override
-    public void notifyPropertiesUpdated() {
-        initLocalObjectsImpl();
     }
 
     @Override
@@ -153,6 +154,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return client.tableExists(getRealTableName(dbName), tblName);
     }
 
+    @Override
+    public boolean tableExistInLocal(String dbName, String tblName) {
+        makeSureInitialized();
+        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (hmsExternalDatabase == null) {
+            return false;
+        }
+        return hmsExternalDatabase.getTable(getRealTableName(tblName)).isPresent();
+    }
+
     public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;
@@ -169,5 +180,69 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     true, null, field.getComment(), true, null, -1));
         }
         return tmpSchema;
+    }
+
+    public void setLastSyncedEventId(long lastSyncedEventId) {
+        this.lastSyncedEventId = lastSyncedEventId;
+    }
+
+    public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
+            throws MetastoreNotificationFetchException {
+        makeSureInitialized();
+        if (lastSyncedEventId < 0) {
+            lastSyncedEventId = getCurrentEventId();
+            refreshCatalog(hmsExternalCatalog);
+            LOG.info(
+                    "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
+                            + "lastSyncedEventId is [{}]",
+                    hmsExternalCatalog.getName(), lastSyncedEventId);
+            return null;
+        }
+
+        long currentEventId = getCurrentEventId();
+        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {},lastSyncedEventId is {}",
+                hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
+        if (currentEventId == lastSyncedEventId) {
+            LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
+            return null;
+        }
+        return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+    }
+
+    private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(hmsExternalCatalog.getId());
+        log.setInvalidCache(true);
+        Env.getCurrentEnv().getCatalogMgr().refreshCatalog(log);
+    }
+
+    private long getCurrentEventId() {
+        makeSureInitialized();
+        CurrentNotificationEventId currentNotificationEventId = client.getCurrentNotificationEventId();
+        if (currentNotificationEventId == null) {
+            LOG.warn("Get currentNotificationEventId is null");
+            return -1;
+        }
+        return currentNotificationEventId.getEventId();
+    }
+
+    @Override
+    public void dropDatabase(String dbName) {
+        LOG.debug("drop database [{}]", dbName);
+        makeSureInitialized();
+        Long dbId = dbNameToId.remove(dbName);
+        if (dbId == null) {
+            LOG.warn("drop database [{}] failed", dbName);
+        }
+        idToDb.remove(dbId);
+    }
+
+    @Override
+    public void createDatabase(long dbId, String dbName) {
+        makeSureInitialized();
+        LOG.debug("create database [{}]", dbName);
+        dbNameToId.put(dbName, dbId);
+        HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
+        idToDb.put(dbId, db);
     }
 }

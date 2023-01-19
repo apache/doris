@@ -37,9 +37,9 @@ public:
     virtual Status connect() = 0;
 
     Status open_file(const Path& path, const FileReaderOptions& reader_options,
-                     FileReaderSPtr* reader) override;
+                     FileReaderSPtr* reader, IOContext* io_ctx) override;
 
-    Status open_file(const Path& path, FileReaderSPtr* reader) override {
+    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override {
         return Status::NotSupported("implemented in derived classes");
     }
 };

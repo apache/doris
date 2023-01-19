@@ -46,7 +46,6 @@ Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
 }
 
 Status NewOlapScanNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
     return Status::OK();
 }
@@ -108,6 +107,12 @@ Status NewOlapScanNode::_init_profile() {
     _bitmap_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
+
+    _inverted_index_filter_counter =
+            ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
+    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTimer");
+
+    _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
@@ -239,6 +244,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                     [&](auto&& range) {
                         if (range.is_in_compound_value_range()) {
                             range.to_condition_in_compound(filters);
+                        } else if (range.is_match_value_range()) {
+                            range.to_match_condition(filters);
                         }
                     },
                     iter);

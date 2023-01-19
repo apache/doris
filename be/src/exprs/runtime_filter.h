@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/expr_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
@@ -31,7 +30,6 @@ namespace doris {
 class Predicate;
 class ObjectPool;
 class ExprContext;
-class RuntimeState;
 class RuntimePredicateWrapper;
 class MemTracker;
 class TupleRow;
@@ -147,7 +145,6 @@ public:
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               _always_true(false),
-              _probe_ctx(nullptr),
               _is_ignored(false),
               registration_time_(MonotonicMillis()) {}
 
@@ -174,20 +171,7 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    // get push down expr context
-    // This function can only be called once
-    // _wrapper's function will be clear
-    // only consumer could call this
-    Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs);
-
     Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
-
-    // This function is used by UT and producer
-    Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs, ExprContext* probe_ctx);
-
-    // This function can be called multiple times
-    Status get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                const RowDescriptor& desc);
 
     Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
                                const RowDescriptor& desc);
@@ -347,23 +331,12 @@ protected:
     // this filter won't filter any data
     bool _always_true;
 
-    // build expr_context
-    // ExprContext* _build_ctx;
-    // probe expr_context
-    // it only used in consumer to generate runtime_filter expr_context
-    // we don't have to prepare it or close it
-    ExprContext* _probe_ctx;
     doris::vectorized::VExprContext* _vprobe_ctx;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
     std::string _ignored_msg;
 
-    // some runtime filter will generate
-    // multiple contexts such as minmax filter
-    // these context is called prepared by this,
-    // consumer_close should be called before release
-    std::vector<ExprContext*> _push_down_ctxs;
     std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
 
     struct rpc_context;

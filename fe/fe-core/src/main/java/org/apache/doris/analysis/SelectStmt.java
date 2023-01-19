@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -197,6 +198,35 @@ public class SelectStmt extends QueryStmt {
         groupingInfo = null;
     }
 
+    public List<Expr> getAllExprs() {
+        List<Expr> exprs = new ArrayList<Expr>();
+        if (getAggInfo() != null && getAggInfo().getGroupingExprs() != null) {
+            exprs.addAll(getAggInfo().getGroupingExprs());
+        }
+        if (originSelectList != null) {
+            exprs.addAll(originSelectList.getExprs());
+        }
+        if (havingClause != null) {
+            exprs.add(havingClause);
+        }
+        if (havingPred != null) {
+            exprs.add(havingPred);
+        }
+        if (havingClauseAfterAnaylzed != null) {
+            exprs.add(havingClauseAfterAnaylzed);
+        }
+        return exprs;
+    }
+
+    public boolean haveStar() {
+        for (SelectListItem item : selectList.getItems()) {
+            if (item.isStar()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void resetSelectList() {
         if (originSelectList != null) {
@@ -304,7 +334,6 @@ public class SelectStmt extends QueryStmt {
                 inlineStmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
             } else if (tblRef instanceof TableValuedFunctionRef) {
                 TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
-                tblFuncRef.analyze(analyzer);
                 tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
                         tblFuncRef.getTableFunction().getTable());
             } else {
@@ -529,7 +558,6 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-
         whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
@@ -548,7 +576,6 @@ public class SelectStmt extends QueryStmt {
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
-
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -563,16 +590,39 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
+        if (checkEnableTwoPhaseRead(analyzer)) {
+            // If optimize enabled, we try our best to read less columns from ScanNode,
+            // here we analyze conjunct exprs and ordering exprs before resultExprs,
+            // rest of resultExprs will be marked as `INVALID`, such columns will
+            // be prevent from reading from ScanNode.Those columns will be finally
+            // read by the second fetch phase
+            LOG.debug("two phase read optimize enabled");
+            // Expr.analyze(resultExprs, analyzer);
+            Set<SlotRef> resultSlots = Sets.newHashSet();
+            Set<SlotRef> orderingSlots = Sets.newHashSet();
+            Set<SlotRef> conjuntSlots = Sets.newHashSet();
+            TreeNode.collect(resultExprs, Predicates.instanceOf(SlotRef.class), resultSlots);
+            TreeNode.collect(sortInfo.getOrderingExprs(), Predicates.instanceOf(SlotRef.class), orderingSlots);
+            if (whereClause != null) {
+                whereClause.collect(SlotRef.class, conjuntSlots);
+            }
+            resultSlots.removeAll(orderingSlots);
+            resultSlots.removeAll(conjuntSlots);
+            // reset slots need to do fetch column
+            for (SlotRef slot : resultSlots) {
+                // invalid slots will be pruned from reading from ScanNode
+                slot.setInvalid();
+            }
+            LOG.debug("resultsSlots {}", resultSlots);
+            LOG.debug("orderingSlots {}", orderingSlots);
+            LOG.debug("conjuntSlots {}", conjuntSlots);
+        }
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
 
         if (needToSql) {
             sqlString = toSql();
-        }
-        if (analyzer.enableStarJoinReorder()) {
-            LOG.debug("use old reorder logical in select stmt");
-            reorderTable(analyzer);
         }
 
         resolveInlineViewRefs(analyzer);
@@ -589,6 +639,72 @@ public class SelectStmt extends QueryStmt {
         if (hasOutFileClause()) {
             outFileClause.analyze(analyzer, resultExprs, colLabels);
         }
+    }
+
+    // Check whether enable two phase read optimize, if enabled query will be devieded into two phase read:
+    // 1. read conjuncts columns and order by columns along with an extra RowId column from ScanNode
+    // 2. sort and filter data, and get final RowId column, spawn RPC to other BE to fetch final data
+    // 3. final matrialize all data
+    public boolean checkEnableTwoPhaseRead(Analyzer analyzer) {
+        // only vectorized mode and session opt variable enabled
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
+                || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
+            return false;
+        }
+        if (!evaluateOrderBy) {
+            // Need evaluate orderby, if sort node was eliminated then this optmization
+            // could be useless
+            return false;
+        }
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
+        if (getAggInfo() != null
+                || getHavingPred() != null
+                || getWithClause() != null) {
+            return false;
+        }
+        if (!analyzer.isRootAnalyzer()) {
+            // ensure no sub query
+            return false;
+        }
+        // If select stmt has inline view or this is an inline view query stmt analyze call
+        if (hasInlineView() || analyzer.isInlineViewAnalyzer()) {
+            return false;
+        }
+        // single olap table
+        List<TableRef> tblRefs = getTableRefs();
+        if (tblRefs.size() != 1 || !(tblRefs.get(0) instanceof BaseTableRef)) {
+            return false;
+        }
+        TableRef tbl = tblRefs.get(0);
+        if (tbl.getTable().getType() != Table.TableType.OLAP) {
+            return false;
+        }
+        LOG.debug("table ref {}", tbl);
+        // Need enable light schema change, since opt rely on
+        // column_unique_id of each slot
+        OlapTable olapTable = (OlapTable) tbl.getTable();
+        if (!olapTable.getEnableLightSchemaChange()) {
+            return false;
+        }
+        // Only TOPN query at present
+        if (getOrderByElements() == null
+                    || !hasLimit()
+                    || getLimit() == 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
+            return false;
+        }
+        // Check order by exprs are all slot refs
+        // Rethink? implement more generic to support all exprs
+        LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+        LOG.debug("getOrderByElements {}", getOrderByElements());
+        for (OrderByElement orderby : getOrderByElements()) {
+            if (!(orderby.getExpr() instanceof SlotRef)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<TupleId> getTableRefIds() {
@@ -765,7 +881,7 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    protected void reorderTable(Analyzer analyzer) throws AnalysisException {
+    public void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
         ArrayList<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
         // New pair of table ref and row count
@@ -958,6 +1074,13 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
+    private boolean isContainInBitmap(Expr expr) {
+        List<Expr> inPredicates = Lists.newArrayList();
+        expr.collect(InPredicate.class, inPredicates);
+        return inPredicates.stream().anyMatch(e -> e.getChild(1) instanceof Subquery
+                && ((Subquery) e.getChild(1)).getStatement().getResultExprs().get(0).getType().isBitmapType());
+    }
+
     /**
      * Analyze aggregation-relevant components of the select block (Group By clause,
      * select list, Order By clause),
@@ -989,18 +1112,38 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
+
+            /* according to mysql (https://dev.mysql.com/doc/refman/8.0/en/select.html)
+             * "For GROUP BY or HAVING clauses, it searches the FROM clause before searching in the
+             * select_expr values. (For GROUP BY and HAVING, this differs from the pre-MySQL 5.0 behavior
+             * that used the same rules as for ORDER BY.)"
+             * case1: having clause use column name table.v1, because it searches the FROM clause firstly
+             *     select id, sum(v1) v1 from table group by id,v1 having(v1>1);
+             * case2: having clause used in aggregate functions, such as sum(v2) here
+             *     select id, sum(v1) v1, sum(v2) v2 from table group by id,v1 having(v1>1 AND sum(v2)>1);
+             * case3: having clause use alias name v, because table do not have column name v
+             *     select id, floor(v1) v, sum(v2) v2 from table group by id,v having(v>1 AND v2>1);
+             * case4: having clause use alias name vsum, because table do not have column name vsum
+             *     select id, floor(v1) v, sum(v2) vsum from table group by id,v having(v>1 AND vsum>1);
+             */
             if (groupByClause != null) {
-                // according to mysql
-                // if there is a group by clause, the having clause should use column name not alias
-                // this is the same as group by clause
-                try {
-                    // use col name from tableRefs first
-                    havingClauseAfterAnaylzed = havingClause.clone();
-                    havingClauseAfterAnaylzed.analyze(analyzer);
-                } catch (AnalysisException ex) {
-                    // then consider alias name
-                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
+                List<Expr> havingSlots = Lists.newArrayList();
+                havingClause.collect(SlotRef.class, havingSlots);
+                for (Expr expr : havingSlots) {
+                    if (excludeAliasSMap.get(expr) == null) {
+                        continue;
+                    }
+                    try {
+                        // try to use column name firstly
+                        expr.clone().analyze(analyzer);
+                        // analyze success means column name exist, do not use alias name
+                        excludeAliasSMap.removeByLhsExpr(expr);
+                    } catch (AnalysisException ex) {
+                        // according to case3, column name do not exist, keep alias name inside alias map
+                    }
                 }
+                havingClauseAfterAnaylzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
@@ -1017,6 +1160,10 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                         "HAVING clause must not contain analytic expressions: "
                                 + analyticExpr.toSql());
+            }
+            if (isContainInBitmap(havingClauseAfterAnaylzed)) {
+                throw new AnalysisException(
+                        "HAVING clause dose not support in bitmap syntax: " + havingClauseAfterAnaylzed.toSql());
             }
         }
 
@@ -1122,6 +1269,10 @@ public class SelectStmt extends QueryStmt {
                     // should keep at least one expr to make the result correct
                     groupingExprs.add(tempExprs.get(0));
                 }
+            }
+
+            for (int i = 0; i < groupingExprs.size(); i++) {
+                groupingExprs.set(i, rewriteQueryExprByMvColumnExpr(groupingExprs.get(i), analyzer));
             }
 
             if (groupingInfo != null) {
@@ -1337,6 +1488,9 @@ public class SelectStmt extends QueryStmt {
             ArrayList<FunctionCallExpr> aggExprs,
             Analyzer analyzer)
             throws AnalysisException {
+        for (int i = 0; i < aggExprs.size(); i++) {
+            aggExprs.set(i, (FunctionCallExpr) rewriteQueryExprByMvColumnExpr(aggExprs.get(i), analyzer));
+        }
         if (selectList.isDistinct()) {
             // Create aggInfo for SELECT DISTINCT ... stmt:
             // - all select list items turn into grouping exprs

@@ -135,6 +135,8 @@ public class HiveScanNode extends BrokerScanNode {
             this.storageType = StorageBackend.StorageType.HDFS;
         } else if (storagePrefix.equalsIgnoreCase(FeConstants.FS_PREFIX_OFS)) {
             this.storageType = StorageBackend.StorageType.OFS;
+        } else if (storagePrefix.equalsIgnoreCase(FeConstants.FS_PREFIX_JFS)) {
+            this.storageType = StorageBackend.StorageType.JFS;
         } else {
             throw new UserException("Not supported storage type: " + storagePrefix);
         }

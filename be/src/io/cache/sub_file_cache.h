@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
 namespace doris {
@@ -59,6 +60,8 @@ public:
     };
 
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
+
+    FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
 
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);

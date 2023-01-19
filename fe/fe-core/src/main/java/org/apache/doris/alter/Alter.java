@@ -137,18 +137,17 @@ public class Alter {
         if (!stmt.isForMTMV() && stmt.getTableName() == null) {
             throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
         }
-        TableName tableName = !stmt.isForMTMV() ? stmt.getTableName() : stmt.getMTMVName();
-
-        // check db
-        String dbName = tableName.getDb();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        String name = tableName.getTbl();
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name,
-                !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
 
         // drop materialized view
         if (!stmt.isForMTMV()) {
+            TableName tableName = stmt.getTableName();
+
+            // check db
+            String dbName = tableName.getDb();
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+            String name = tableName.getTbl();
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
             ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
         } else {
             DropTableStmt dropTableStmt = new DropTableStmt(stmt.isIfExists(), stmt.getMTMVName(), false);
@@ -542,8 +541,9 @@ public class Alter {
         long newTblId = log.getNewTblId();
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, TableType.OLAP);
-        OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, TableType.OLAP);
+        List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
+        OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, tableTypes);
+        OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, tableTypes);
         List<Table> tableList = Lists.newArrayList(origTable, newTbl);
         tableList.sort((Comparator.comparing(Table::getId)));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
@@ -753,12 +753,7 @@ public class Alter {
             modifiedProperties.putAll(properties);
 
             // 4.3 modify partition storage policy
-            String partitionStoragePolicy = partitionInfo.getStoragePolicy(partition.getId());
-            if (!partitionStoragePolicy.equals("")) {
-                throw new DdlException("Do not support alter table's partition storage policy , this table ["
-                    + olapTable.getName() + "] and partition [" + partitionName
-                    + "] has storage policy " + partitionStoragePolicy);
-            }
+            // can set multi times storage policy
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
             if (!currentStoragePolicy.equals("")) {
                 // check currentStoragePolicy resource exist.

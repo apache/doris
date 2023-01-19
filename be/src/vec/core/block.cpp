@@ -26,7 +26,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
@@ -55,8 +54,12 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
     initialize_index_by_name();
 }
 
-Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
+             bool ignore_trivial_slot) {
     for (const auto slot_desc : slots) {
+        if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+            continue;
+        }
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
@@ -197,6 +200,9 @@ void Block::erase_impl(size_t position) {
             if (it->second > position) --it->second;
             ++it;
         }
+    }
+    if (position < row_same_bit.size()) {
+        row_same_bit.erase(row_same_bit.begin() + position);
     }
 }
 
@@ -339,6 +345,9 @@ void Block::set_num_rows(size_t length) {
                 elem.column = elem.column->cut(0, length);
             }
         }
+        if (length < row_same_bit.size()) {
+            row_same_bit.resize(length);
+        }
     }
 }
 
@@ -352,6 +361,9 @@ void Block::skip_num_rows(int64_t& length) {
             if (elem.column) {
                 elem.column = elem.column->cut(length, origin_rows - length);
             }
+        }
+        if (length < row_same_bit.size()) {
+            row_same_bit.assign(row_same_bit.begin() + length, row_same_bit.end());
         }
     }
 }
@@ -593,6 +605,7 @@ DataTypes Block::get_data_types() const {
 void Block::clear() {
     data.clear();
     index_by_name.clear();
+    row_same_bit.clear();
 }
 
 void Block::clear_column_data(int column_size) noexcept {
@@ -607,17 +620,20 @@ void Block::clear_column_data(int column_size) noexcept {
         DCHECK_EQ(d.column->use_count(), 1);
         (*std::move(d.column)).assume_mutable()->clear();
     }
+    row_same_bit.clear();
 }
 
 void Block::swap(Block& other) noexcept {
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
+    row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
     clear();
     data = std::move(other.data);
     initialize_index_by_name();
+    row_same_bit = std::move(other.row_same_bit);
 }
 
 void Block::update_hash(SipHash& hash) const {
@@ -907,9 +923,13 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     }
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size) {
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
+                           bool ignore_trivial_slot) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
+            if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                continue;
+            }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
             if (reserve_size != 0) {

@@ -817,7 +817,7 @@ public:
     ~GzipBlockCompression() override = default;
 
     Status decompress(const Slice& input, Slice* output) override {
-        z_stream z_strm = {nullptr};
+        z_stream z_strm = {};
         z_strm.zalloc = Z_NULL;
         z_strm.zfree = Z_NULL;
         z_strm.opaque = Z_NULL;

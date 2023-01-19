@@ -47,6 +47,7 @@ public class HMSResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(HMSResource.class);
     public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
     public static final String DLF_TYPE = "dlf";
+    public static final String HIVE_VERSION = "hive.version";
     // required
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
 
@@ -95,8 +96,8 @@ public class HMSResource extends Resource {
             LOG.debug("Get properties from hive-site.xml");
         }
         Map<String, String> res = Maps.newHashMap();
-        HiveConf hiveConf = new HiveConf();
         // read properties from hive-site.xml.
+        HiveConf hiveConf = new HiveConf();
         String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
         if (!"dlf".equalsIgnoreCase(metastoreType)) {
             return res;

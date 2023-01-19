@@ -25,7 +25,7 @@ namespace io {
 class HdfsFileReader : public FileReader {
 public:
     HdfsFileReader(Path path, size_t file_size, const std::string& name_node, hdfsFile hdfs_file,
-                   HdfsFileSystem* fs);
+                   std::shared_ptr<HdfsFileSystem> fs);
 
     ~HdfsFileReader() override;
 
@@ -40,12 +40,14 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
+    FileSystemSPtr fs() const override { return _fs; }
+
 private:
     Path _path;
     size_t _file_size;
     const std::string& _name_node;
     hdfsFile _hdfs_file;
-    HdfsFileSystem* _fs;
+    std::shared_ptr<HdfsFileSystem> _fs;
     std::atomic<bool> _closed = false;
 };
 } // namespace io

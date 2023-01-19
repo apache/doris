@@ -29,31 +29,26 @@ public abstract class PartitionPruneTestBase extends TestWithFeService {
 
     protected void doTest() throws Exception {
         for (RangePartitionPruneTest.TestCase testCase : cases) {
-            connectContext.getSessionVariable().partitionPruneAlgorithmVersion = 1;
-            assertExplainContains(1, testCase.sql, testCase.v1Result);
-            connectContext.getSessionVariable().partitionPruneAlgorithmVersion = 2;
-            assertExplainContains(2, testCase.sql, testCase.v2Result);
+            assertExplainContains(testCase.sql, testCase.result);
         }
     }
 
-    private void assertExplainContains(int version, String sql, String subString) throws Exception {
-        Assert.assertTrue(String.format("version=%d, sql=%s, expectResult=%s", version, sql, subString),
+    private void assertExplainContains(String sql, String subString) throws Exception {
+        Assert.assertTrue(String.format("sql=%s, expectResult=%s", sql, subString),
                 getSQLPlanOrErrorMsg("explain " + sql).contains(subString));
     }
 
-    protected void addCase(String sql, String v1Result, String v2Result) {
-        cases.add(new TestCase(sql, v1Result, v2Result));
+    protected void addCase(String sql, String result) {
+        cases.add(new TestCase(sql, result));
     }
 
     protected static class TestCase {
         final String sql;
-        final String v1Result;
-        final String v2Result;
+        final String result;
 
-        public TestCase(String sql, String v1Result, String v2Result) {
+        public TestCase(String sql, String v2Result) {
             this.sql = sql;
-            this.v1Result = v1Result;
-            this.v2Result = v2Result;
+            this.result = v2Result;
         }
     }
 }

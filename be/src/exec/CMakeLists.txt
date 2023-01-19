@@ -63,7 +63,7 @@ set(EXEC_FILES
     odbc_connector.cpp
     table_connector.cpp
     schema_scanner.cpp
-    parquet_scanner.cpp
+    rowid_fetcher.cpp
 )
 
 if (WITH_LZO)

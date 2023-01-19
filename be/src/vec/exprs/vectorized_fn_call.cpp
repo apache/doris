@@ -19,6 +19,7 @@
 
 #include <string_view>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "exprs/anyval_util.h"
 #include "exprs/rpc_fn.h"
@@ -37,15 +38,6 @@ VectorizedFnCall::VectorizedFnCall(const doris::TExprNode& node) : VExpr(node) {
 
 doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                                         const doris::RowDescriptor& desc, VExprContext* context) {
-    // In 1.2-lts, repeat function return type is changed to always nullable,
-    // which is not compatible with 1.1-lts
-    if ("repeat" == _fn.name.function_name and !_data_type->is_nullable()) {
-        const auto error_msg =
-                "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized repeat "
-                "function cannot be executed, you can switch to non-vectorized engine by "
-                "'set global enable_vectorized_engine = false'";
-        return Status::InternalError(error_msg);
-    }
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
@@ -125,7 +117,8 @@ bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
                                     size_t input_rows_count) {
     auto query_value = block.get_by_position(arguments[1]).to_string(0);
     std::string column_name = block.get_by_position(arguments[0]).name;
-    auto result_column_name = column_name + "_" + _function->get_name() + "_" + query_value;
+    auto result_column_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" +
+                              _function->get_name() + "_" + query_value;
     if (!block.has(result_column_name)) {
         return false;
     }

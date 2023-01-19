@@ -155,7 +155,8 @@ public class TypeCoercionUtilsTest {
     }
 
     private void testFindTightestCommonType(DataType commonType, DataType left, DataType right) {
-        Assertions.assertEquals(Optional.ofNullable(commonType), TypeCoercionUtils.findTightestCommonType(left, right));
+        Assertions.assertEquals(Optional.ofNullable(commonType), TypeCoercionUtils.findTightestCommonType(null,
+                left, right));
     }
 
     @Test

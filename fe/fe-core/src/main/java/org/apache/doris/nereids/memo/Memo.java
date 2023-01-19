@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -83,8 +84,6 @@ public class Memo {
     /**
      * This function used to update the root group when DPHyp change the root Group
      * Note it only used in DPHyp
-     *
-     * @param root The new root Group
      */
     public void setRoot(Group root) {
         this.root = root;
@@ -92,6 +91,10 @@ public class Memo {
 
     public List<Group> getGroups() {
         return ImmutableList.copyOf(groups.values());
+    }
+
+    public Group getGroup(GroupId groupId) {
+        return groups.get(groupId);
     }
 
     public Map<GroupExpression, GroupExpression> getGroupExpressions() {
@@ -131,12 +134,11 @@ public class Memo {
         return copyOutAll(root);
     }
 
-    public List<Plan> copyOutAll(Group group) {
+    private List<Plan> copyOutAll(Group group) {
         List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
-        List<Plan> plans = logicalExpressions.stream()
+        return logicalExpressions.stream()
                 .flatMap(groupExpr -> copyOutAll(groupExpr).stream())
                 .collect(Collectors.toList());
-        return plans;
     }
 
     private List<Plan> copyOutAll(GroupExpression logicalExpression) {
@@ -446,12 +448,7 @@ public class Memo {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.
             groupExpressions.remove(groupExpression);
-            List<Group> children = groupExpression.children();
-            for (int i = 0; i < children.size(); i++) {
-                if (children.get(i).equals(source)) {
-                    children.set(i, destination);
-                }
-            }
+            Utils.replaceList(groupExpression.children(), source, destination);
 
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
@@ -467,9 +464,7 @@ public class Memo {
         }
         if (!source.equals(destination)) {
             // TODO: stats and other
-            source.moveLogicalExpressionOwnership(destination);
-            source.movePhysicalExpressionOwnership(destination);
-            source.moveLowestCostPlansOwnership(destination);
+            source.mergeTo(destination);
             groups.remove(source.getGroupId());
         }
         return destination;
@@ -479,7 +474,9 @@ public class Memo {
      * Add enforcer expression into the target group.
      */
     public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
+        Preconditions.checkArgument(groupExpression != null);
         groupExpression.setOwnerGroup(group);
+        // Don't add groupExpression into group's physicalExpressions, it will cause dead loop;
     }
 
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {

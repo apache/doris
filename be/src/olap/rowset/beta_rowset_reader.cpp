@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "olap/delete_handler.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
@@ -43,6 +42,13 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.key_ranges.clear();
 }
 
+bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+    if (_iterator != nullptr) {
+        return _iterator->update_profile(profile);
+    }
+    return false;
+}
+
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIterator*>* out_iters) {
     RETURN_NOT_OK(_rowset->load());
@@ -58,6 +64,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
+    _read_options.rowset_id = _rowset->rowset_id();
+    _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
@@ -148,9 +156,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.use_page_cache = read_context->use_page_cache;
     _read_options.tablet_schema = read_context->tablet_schema;
     _read_options.record_rowids = read_context->record_rowids;
+    _read_options.use_topn_opt = read_context->use_topn_opt;
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.runtime_state = read_context->runtime_state;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(

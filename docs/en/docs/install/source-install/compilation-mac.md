@@ -51,13 +51,26 @@ This topic is about how to compile Doris from source with macOS (both x86_64 and
 
 1. The [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page contains the source code of all third-party libraries. You can download [doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz) to obtain them.
 
-2. If your macOS is powered by _**Intel**_ chips, you can download the _**precompiled**_ third party library [doris-thirdparty-prebuilt-darwin-x86_64.tar.xz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz) from the [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page. You may refer to the following commands:
+2. You can download the _**precompiled**_ third party library from the [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation) page. You may refer to the following commands:
     ```shell
     cd thirdparty
+    rm -rf installed
+
+    # Intel chips
     curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-        -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
-    tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+        -o - | tar -Jxf -
+
+    # Apple Silicon chips
+    curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+        -o - | tar -Jxf -
+
+    # Make sure that protoc and thrift can run successfully.
+    cd installed/bin
+
+    ./protoc --version
+    ./thrift --version
     ```
+3. When running `protoc` or `thrift`, you may meet an error which says **the app can not be opened because the developer cannot be verified**. Go to `Security & Privacy`. Click the `Open Anyway` button in the `General` pane to confirm your intent to open the app. See [https://support.apple.com/en-us/HT202491](https://support.apple.com/en-us/HT202491).
 
 ## Start-up
 

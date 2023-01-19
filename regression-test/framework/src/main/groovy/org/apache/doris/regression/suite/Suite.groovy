@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
+import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.ExplainAction
@@ -32,6 +33,7 @@ import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
+import org.apache.doris.regression.util.SuiteUtils
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -44,8 +46,6 @@ import java.util.stream.Collectors
 import java.util.stream.LongStream
 
 import static org.apache.doris.regression.util.DataUtils.sortByToString
-
-import java.io.File
 
 @Slf4j
 class Suite implements GroovyInterceptable {
@@ -139,10 +139,7 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> Tuple2<T, Long> timer(Closure<T> actionSupplier) {
-        long startTime = System.currentTimeMillis()
-        T result = actionSupplier.call()
-        long endTime = System.currentTimeMillis()
-        return [result, endTime - startTime]
+        return SuiteUtils.timer(actionSupplier)
     }
 
     public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
@@ -272,6 +269,10 @@ class Suite implements GroovyInterceptable {
 
     void test(Closure actionSupplier) {
         runAction(new TestAction(context), actionSupplier)
+    }
+
+    void benchmark(Closure actionSupplier) {
+        runAction(new BenchmarkAction(context), actionSupplier)
     }
 
     String getBrokerName() {

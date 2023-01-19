@@ -38,11 +38,10 @@ suite("test_external_es", "p2") {
               `age` varchar(20) COMMENT ""
             ) ENGINE=ELASTICSEARCH
             PROPERTIES (
-            "hosts" = "https://${extEsHost}:${extEsPort}",
+            "hosts" = "http://${extEsHost}:${extEsPort}",
             "index" = "helloworld",
             "user" = "${extEsUser}",
-            "password" = "${extEsPassword}",
-            "http_ssl_enabled" = "true"
+            "password" = "${extEsPassword}"
             );
             """
         def res=sql """show create table ${jdbcPg14Table1};"""

@@ -18,7 +18,6 @@
 suite("nereids_test_query_between", "query,p0") {
     sql"use test_query_db"
 
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 

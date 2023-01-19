@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
+import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -77,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -252,6 +255,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(dateTimeLiteral, context);
     }
 
+    public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
+        return visitLiteral(arrayLiteral, context);
+    }
+
     public R visitBetween(Between between, C context) {
         return visit(between, context);
     }
@@ -380,6 +387,10 @@ public abstract class ExpressionVisitor<R, C>
         return visit(virtualSlotReference, context);
     }
 
+    public R visitVariableDesc(VariableDesc variableDesc, C context) {
+        return visit(variableDesc, context);
+    }
+
     public R visitTVFProperties(TVFProperties tvfProperties, C context) {
         return visit(tvfProperties, context);
     }
@@ -394,6 +405,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitIntegralDivide(IntegralDivide integralDivide, C context) {
         return visitBinaryArithmetic(integralDivide, context);
+    }
+
+    public R visitOrderExpression(OrderExpression orderExpression, C context) {
+        return visit(orderExpression, context);
     }
 
     /* ********************************************************************************************

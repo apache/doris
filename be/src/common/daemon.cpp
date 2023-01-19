@@ -37,19 +37,19 @@
 #include "exprs/is_null_predicate.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
+#include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
 #include "exprs/new_in_predicate.h"
 #include "exprs/operators.h"
 #include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/table_function/dummy_table_functions.h"
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
 #include "exprs/utility_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
-#include "runtime/bufferpool/buffer_pool.h"
+#include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
@@ -187,20 +187,6 @@ void Daemon::tcmalloc_gc_thread() {
 #endif
 }
 
-void Daemon::buffer_pool_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
-        ExecEnv* env = ExecEnv::GetInstance();
-        // ExecEnv may not have been created yet or this may be the catalogd or statestored,
-        // which don't have ExecEnvs.
-        if (env != nullptr) {
-            BufferPool* buffer_pool = env->buffer_pool();
-            if (buffer_pool != nullptr) {
-                buffer_pool->Maintenance();
-            }
-        }
-    }
-}
-
 void Daemon::memory_maintenance_thread() {
     int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
@@ -275,13 +261,13 @@ void Daemon::calculate_metrics_thread() {
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
-            last_ts = GetCurrentTimeMicros() / 1000;
+            last_ts = GetMonoTimeMicros() / 1000;
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
                                                                             &lst_net_receive_bytes);
         } else {
-            int64_t current_ts = GetCurrentTimeMicros() / 1000;
+            int64_t current_ts = GetMonoTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
@@ -310,6 +296,15 @@ void Daemon::calculate_metrics_thread() {
                                                                             &lst_net_receive_bytes);
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
+}
+
+// clean up stale spilled files
+void Daemon::block_spill_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
+        }
+    }
 }
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
@@ -403,7 +398,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     QuantileStateFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
-    DummyTableFunctions::init();
+    MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -418,10 +413,6 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
             &_tcmalloc_gc_thread);
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
-            &_buffer_pool_gc_thread);
     CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
@@ -445,6 +436,10 @@ void Daemon::start() {
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);
         CHECK(st.ok()) << st;
     }
+    st = Thread::create(
+            "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
+            &_block_spill_gc_thread);
+    CHECK(st.ok()) << st;
 }
 
 void Daemon::stop() {
@@ -452,9 +447,6 @@ void Daemon::stop() {
 
     if (_tcmalloc_gc_thread) {
         _tcmalloc_gc_thread->join();
-    }
-    if (_buffer_pool_gc_thread) {
-        _buffer_pool_gc_thread->join();
     }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();
@@ -464,6 +456,9 @@ void Daemon::stop() {
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();
+    }
+    if (_block_spill_gc_thread) {
+        _block_spill_gc_thread->join();
     }
 }
 

@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -48,6 +50,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.regex.Matcher;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -129,6 +132,8 @@ public class TableRef implements ParseNode, Writable {
     private boolean isPartitionJoin;
     private String sortColumn = null;
 
+    private TableSnapshot tableSnapshot;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
@@ -153,6 +158,11 @@ public class TableRef implements ParseNode, Writable {
      */
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
                     TableSample tableSample, ArrayList<String> commonHints) {
+        this(name, alias, partitionNames, sampleTabletIds, tableSample, commonHints, null);
+    }
+
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
+                    TableSample tableSample, ArrayList<String> commonHints, TableSnapshot tableSnapshot) {
         this.name = name;
         if (alias != null) {
             if (Env.isStoredTableNamesLowerCase()) {
@@ -167,6 +177,7 @@ public class TableRef implements ParseNode, Writable {
         this.sampleTabletIds = sampleTabletIds;
         this.tableSample = tableSample;
         this.commonHints = commonHints;
+        this.tableSnapshot = tableSnapshot;
         isAnalyzed = false;
     }
 
@@ -186,6 +197,7 @@ public class TableRef implements ParseNode, Writable {
                 (other.sortHints != null) ? Lists.newArrayList(other.sortHints) : null;
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
+        tableSnapshot = (other.tableSnapshot != null) ? new TableSnapshot(other.tableSnapshot) : null;
         tableSample = (other.tableSample != null) ? new TableSample(other.tableSample) : null;
         commonHints = other.commonHints;
 
@@ -300,6 +312,10 @@ public class TableRef implements ParseNode, Writable {
 
     public TableSample getTableSample() {
         return tableSample;
+    }
+
+    public TableSnapshot getTableSnapshot() {
+        return tableSnapshot;
     }
 
     /**
@@ -495,6 +511,27 @@ public class TableRef implements ParseNode, Writable {
             if (hint.toUpperCase().equals("PREAGGOPEN")) {
                 isForcePreAggOpened = true;
                 break;
+            }
+        }
+    }
+
+    protected void analyzeTableSnapshot(Analyzer analyzer) throws AnalysisException {
+        if (tableSnapshot == null) {
+            return;
+        }
+        TableIf.TableType tableType = this.getTable().getType();
+        if (tableType != TableIf.TableType.HMS_EXTERNAL_TABLE) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+        }
+        HMSExternalTable extTable = (HMSExternalTable) this.getTable();
+        if (extTable.getDlaType() != HMSExternalTable.DLAType.ICEBERG) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+        }
+        if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+            String asOfTime = tableSnapshot.getTime();
+            Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+            if (!matcher.matches()) {
+                throw new AnalysisException("Invalid datetime string: " + asOfTime);
             }
         }
     }

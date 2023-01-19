@@ -66,7 +66,6 @@ public abstract class ExpressionRewriteTestHelper {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
         needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
         Expression expectedExpression = PARSER.parseExpression(expected);
-        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
         Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }

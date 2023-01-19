@@ -17,17 +17,26 @@
 
 #include "new_jdbc_scanner.h"
 
+#include "util/runtime_profile.h"
+
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
                                const TupleId& tuple_id, const std::string& query_string,
-                               TOdbcTableType::type table_type)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                               TOdbcTableType::type table_type, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr),
-          _table_type(table_type) {}
+          _table_type(table_type) {
+    _load_jar_timer = ADD_TIMER(get_parent()->_scanner_profile, "LoadJarTime");
+    _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
+    _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
+    _get_data_timer = ADD_TIMER(get_parent()->_scanner_profile, "GetDataTime");
+    _execte_read_timer = ADD_TIMER(get_parent()->_scanner_profile, "ExecteReadTime");
+    _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
+}
 
 Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
     VLOG_CRITICAL << "NewJdbcScanner::Prepare";
@@ -67,7 +76,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
 
-    _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
+    _jdbc_connector.reset(new (std::nothrow) JdbcConnector(this, _jdbc_param));
     if (_jdbc_connector == nullptr) {
         return Status::InternalError("new a jdbc scanner failed.");
     }
@@ -125,7 +134,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, state->batch_size()));
+        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, block, state->batch_size()));
 
         if (_jdbc_eos == true) {
             if (block->rows() == 0) {

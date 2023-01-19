@@ -18,7 +18,6 @@
 #include "vec/exec/vanalytic_eval_node.h"
 
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 
@@ -141,7 +140,6 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VAnalyticEvalNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
@@ -212,7 +210,6 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
 
 Status VAnalyticEvalNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
@@ -227,13 +224,11 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
 
 Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
     {
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         RETURN_IF_CANCELLED(state);
     }
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -323,14 +318,12 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
             return Status::OK();
         }
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(_executor.get_next(current_block_rows));
         if (_window_end_position == current_block_rows) {
             break;
         }
     }
     RETURN_IF_ERROR(_output_current_block(block));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
@@ -393,8 +386,6 @@ Status VAnalyticEvalNode::_consumed_block_and_init_partition(RuntimeState* state
         RETURN_IF_ERROR(_fetch_next_block_data(state)); //return true, fetch next block
         found_partition_end = _get_partition_by_end();  //claculate new partition end
     }
-
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_input_eos && _input_total_rows == 0) {
         *eos = true;
@@ -529,8 +520,6 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
         return Status::OK();
     }
 
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-
     input_block_first_row_positions.emplace_back(_input_total_rows);
     size_t block_rows = input_block->rows();
     _input_total_rows += block_rows;
@@ -567,7 +556,7 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
         _ordey_by_column_idxs[i] = result_col_id;
     }
 
-    mem_tracker_held()->consume(input_block->allocated_bytes());
+    mem_tracker()->consume(input_block->allocated_bytes());
     _blocks_memory_usage->add(input_block->allocated_bytes());
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
@@ -628,11 +617,9 @@ void VAnalyticEvalNode::_insert_result_info(int64_t current_block_rows) {
 }
 
 Status VAnalyticEvalNode::_output_current_block(Block* block) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker_held()->consume(-block->allocated_bytes());
+    mem_tracker()->consume(-block->allocated_bytes());
     if (_origin_cols.size() < block->columns()) {
         block->erase_not_in(_origin_cols);
     }

@@ -54,6 +54,7 @@ public:
     friend class VScanner;
     friend class NewOlapScanner;
     friend class VFileScanner;
+    friend class NewJdbcScanner;
     friend class ScannerContext;
     friend class doris::pipeline::ScanOperator;
 
@@ -90,6 +91,8 @@ public:
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
     bool runtime_filters_are_ready_or_timeout();
+
+    Status try_close();
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -335,9 +338,19 @@ private:
                                                    PushDownType* pdt);
 
     template <PrimitiveType T>
+    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                  PushDownType* pdt);
+
+    template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         PushDownType* pdt);
+
+    template <PrimitiveType T>
+    Status _normalize_match_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                      SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                      PushDownType* pdt);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,

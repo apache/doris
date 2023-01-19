@@ -37,7 +37,10 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
 public:
     Pipeline() = delete;
     explicit Pipeline(PipelineId pipeline_id, std::weak_ptr<PipelineFragmentContext> context)
-            : _complete_dependency(0), _pipeline_id(pipeline_id), _context(context) {
+            : _complete_dependency(0),
+              _pipeline_id(pipeline_id),
+              _context(context),
+              _can_steal(true) {
         _init_profile();
     }
 
@@ -48,9 +51,13 @@ public:
 
     // If all dependencies are finished, this pipeline task should be scheduled.
     // e.g. Hash join probe task will be scheduled once Hash join build task is finished.
-    bool finish_one_dependency() {
+    bool finish_one_dependency(int dependency_core_id) {
         DCHECK(_complete_dependency < _dependencies.size());
-        return _complete_dependency.fetch_add(1) == _dependencies.size() - 1;
+        bool finish = _complete_dependency.fetch_add(1) == _dependencies.size() - 1;
+        if (finish) {
+            _previous_schedule_id = dependency_core_id;
+        }
+        return finish;
     }
 
     bool has_dependency() { return _complete_dependency.load() < _dependencies.size(); }
@@ -65,6 +72,10 @@ public:
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
+    bool can_steal() const { return _can_steal; }
+
+    void disable_task_steal() { _can_steal = false; }
+
 private:
     void _init_profile();
     std::atomic<uint32_t> _complete_dependency;
@@ -77,6 +88,8 @@ private:
 
     PipelineId _pipeline_id;
     std::weak_ptr<PipelineFragmentContext> _context;
+    bool _can_steal;
+    int _previous_schedule_id = -1;
 
     std::unique_ptr<RuntimeProfile> _pipeline_profile;
 };

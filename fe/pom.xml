@@ -226,7 +226,7 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>0.12.0</iceberg.version>
+        <iceberg.version>1.1.0</iceberg.version>
         <avro.version>1.10.1</avro.version>
         <!-- hudi -->
         <hudi.version>0.10.0</hudi.version>
@@ -243,7 +243,8 @@ under the License.
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
         <dlf-metastore-client-hive2.version>0.2.14</dlf-metastore-client-hive2.version>
         <hadoop.version>2.10.2</hadoop.version>
-        <revision>1.0-SNAPSHOT</revision>
+        <joda.version>2.8.1</joda.version>
+        <revision>1.2-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
@@ -933,7 +934,7 @@ under the License.
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
             </dependency>
-             <dependency>
+            <dependency>
                 <groupId>com.aliyun.datalake</groupId>
                 <artifactId>metastore-client-hive2</artifactId>
                 <version>${dlf-metastore-client-hive2.version}</version>
@@ -942,6 +943,12 @@ under the License.
                 <groupId>com.zaxxer</groupId>
                 <artifactId>HikariCP</artifactId>
                 <version>${hikaricp.version}</version>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
+            <dependency>
+                <groupId>joda-time</groupId>
+                <artifactId>joda-time</artifactId>
+                <version>${joda.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

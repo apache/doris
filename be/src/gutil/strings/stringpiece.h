@@ -334,12 +334,10 @@ struct GoodFastHash;
 // SWIG doesn't know how to parse this stuff properly. Omit it.
 #ifndef SWIG
 
-namespace std {
 template <>
-struct hash<StringPiece> {
+struct std::hash<StringPiece> {
     size_t operator()(StringPiece s) const;
 };
-} // namespace std
 
 // An implementation of GoodFastHash for StringPiece.  See
 // GoodFastHash values.

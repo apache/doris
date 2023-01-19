@@ -272,6 +272,22 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale);
 
 bool valid_bool(const std::string& value_str);
 
+constexpr bool is_string_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+           field_type == OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool is_numeric_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
+           field_type == OLAP_FIELD_TYPE_DATETIME || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_BOOL;
+}
+
 // Util used to get string name of thrift enum item
 #define EnumToString(enum_type, index, out)                 \
     do {                                                    \
@@ -292,6 +308,13 @@ struct RowLocation {
     RowsetId rowset_id;
     uint32_t segment_id;
     uint32_t row_id;
+};
+
+struct GlobalRowLoacation {
+    GlobalRowLoacation(uint32_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
+            : tablet_id(tid), row_location(rsid, sid, rid) {};
+    uint32_t tablet_id;
+    RowLocation row_location;
 };
 
 } // namespace doris

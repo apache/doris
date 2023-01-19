@@ -61,11 +61,10 @@ public:
     virtual IteratorBase* begin() = 0;
 };
 
-template <PrimitiveType T, bool is_vec = false>
+template <PrimitiveType T>
 class HybridSet : public HybridSetBase {
 public:
-    using CppType = std::conditional_t<is_vec, typename VecPrimitiveTypeTraits<T>::CppType,
-                                       typename PrimitiveTypeTraits<T>::CppType>;
+    using CppType = typename VecPrimitiveTypeTraits<T>::CppType;
 
     HybridSet() = default;
 
@@ -94,7 +93,7 @@ public:
     }
 
     void insert(HybridSetBase* set) override {
-        HybridSet<T, is_vec>* hybrid_set = reinterpret_cast<HybridSet<T, is_vec>*>(set);
+        HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
         _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
     }
 

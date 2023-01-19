@@ -56,7 +56,7 @@ public class RefreshManager {
             refreshInternalCtlIcebergTable(stmt, env);
         } else {
             // Process external catalog table refresh
-            refreshExternalCtlTable(dbName, tableName, catalog);
+            env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName);
         }
         LOG.info("Successfully refresh table: {} from db: {}", tableName, dbName);
     }
@@ -145,26 +145,5 @@ public class RefreshManager {
         CreateTableStmt createTableStmt = new CreateTableStmt(true, true,
                 stmt.getTableName(), "ICEBERG", icebergProperties, "");
         env.createTable(createTableStmt);
-    }
-
-    private void refreshExternalCtlTable(String dbName, String tableName, CatalogIf catalog) throws DdlException {
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new DdlException("Only support refresh ExternalCatalog Tables");
-        }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-        }
-
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setTableId(table.getId());
-        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 }

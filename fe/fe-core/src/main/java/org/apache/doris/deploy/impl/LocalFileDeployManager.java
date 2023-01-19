@@ -133,7 +133,7 @@ public class LocalFileDeployManager extends DeployManager {
                     LOG.warn("failed to close buffered reader after reading file: {}", clusterInfoFile, e);
                 }
             }
-            if (lock != null && channel.isOpen()) {
+            if (lock != null) {
                 try {
                     lock.release();
                 } catch (IOException e) {

@@ -225,10 +225,9 @@ public class NereidsPlanner extends Planner {
             // To keep the root group is not changed, we add a project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
             GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
-                    Lists.newArrayList(root));
-            root = new Group();
-            root.addGroupExpression(newExpr);
+                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()), Lists.newArrayList(root));
+            // FIXME: use wrong constructor.
+            root = new Group(null, newExpr, null);
             changeRoot = true;
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -303,7 +302,7 @@ public class NereidsPlanner extends Planner {
             case OPTIMIZED_PLAN:
                 return optimizedPlan.treeString();
             case ALL_PLAN:
-                String explainString = "========== PARSED PLAN ==========\n"
+                return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
                         + "========== ANALYZED PLAN ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
@@ -311,7 +310,6 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
-                return explainString;
             default:
                 return super.getExplainString(explainOptions);
         }

@@ -30,7 +30,6 @@
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
-#include "olap/row.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
@@ -203,6 +202,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
+    _reader_context.use_topn_opt = read_params.use_topn_opt;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
@@ -451,6 +451,10 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         ColumnPredicate* predicate =
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
         if (predicate != nullptr) {
+            // record condition value into predicate_params in order to pushdown segment_iterator,
+            // _gen_predicate_result_sign will build predicate result unique sign with condition value
+            auto predicate_params = predicate->predicate_params();
+            predicate_params->value = condition.condition_values[0];
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
@@ -520,6 +524,12 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
             predicate_params->value = condition.condition_values[0];
             _col_preds_except_leafnode_of_andnode.push_back(predicate);
         }
+    }
+
+    if (read_params.use_topn_opt) {
+        auto& runtime_predicate =
+                read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        runtime_predicate.set_tablet_schema(_tablet_schema);
     }
 }
 

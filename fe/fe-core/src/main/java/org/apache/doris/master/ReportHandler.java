@@ -259,6 +259,8 @@ public class ReportHandler extends Daemon {
         Set<Long> tabletFoundInMeta = Sets.newConcurrentHashSet();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
+        // the cooldown type of replicas which need to be sync. tabletId -> TabletMeta
+        Map<Long, TabletMeta> syncCooldownTabletMap = new HashMap<>();
 
         // dbid -> txn id -> [partition info]
         Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
@@ -278,7 +280,8 @@ public class ReportHandler extends Daemon {
                 transactionsToPublish,
                 transactionsToClear,
                 tabletRecoveryMap,
-                tabletToInMemory);
+                tabletToInMemory,
+                syncCooldownTabletMap);
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
@@ -319,6 +322,11 @@ public class ReportHandler extends Daemon {
         // 9. send set tablet in memory to be
         if (!tabletToInMemory.isEmpty()) {
             handleSetTabletInMemory(backendId, tabletToInMemory);
+        }
+
+        // 10. send cooldownType which need sync to CooldownHandler
+        if (!syncCooldownTabletMap.isEmpty()) {
+            Env.getCurrentEnv().getCooldownHandler().handleCooldownConf(syncCooldownTabletMap);
         }
 
         final SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();

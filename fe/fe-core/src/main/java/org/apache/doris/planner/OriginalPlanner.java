@@ -28,11 +28,14 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -90,8 +93,6 @@ public class OriginalPlanner extends Planner {
         return analyzer.getAssignedRuntimeFilter();
     }
 
-    /**
-     */
     private void setResultExprScale(Analyzer analyzer, ArrayList<Expr> outputExprs) {
         for (TupleDescriptor tupleDesc : analyzer.getDescTbl().getTupleDescs()) {
             for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
@@ -194,6 +195,11 @@ public class OriginalPlanner extends Planner {
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
 
+        // check and set flag for topn detail query opt
+        if (VectorizedUtil.isVectorized()) {
+            checkTopnOpt(singleNodePlan);
+        }
+
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -235,6 +241,8 @@ public class OriginalPlanner extends Planner {
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
+            LOG.debug("result Exprs {}", queryStmt.getResultExprs());
+            LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
         LOG.debug("finalize plan fragments");
@@ -254,6 +262,9 @@ public class OriginalPlanner extends Planner {
             } else {
                 isBlockQuery = false;
                 LOG.debug("this isn't block query");
+            }
+            if (selectStmt.checkEnableTwoPhaseRead(analyzer)) {
+                injectRowIdColumnSlot();
             }
         }
     }
@@ -330,6 +341,52 @@ public class OriginalPlanner extends Planner {
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
     }
 
+
+    private SlotDescriptor injectRowIdColumnSlot(Analyzer analyzer, TupleDescriptor tupleDesc) {
+        SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(tupleDesc);
+        LOG.debug("inject slot {}", slotDesc);
+        String name = Column.ROWID_COL;
+        Column col = new Column(name, Type.STRING, false, null, false, "",
+                                        "rowid column");
+        slotDesc.setType(Type.STRING);
+        slotDesc.setColumn(col);
+        slotDesc.setIsNullable(false);
+        slotDesc.setIsMaterialized(true);
+        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        slotDesc.setNullIndicatorBit(-1);
+        slotDesc.setNullIndicatorByte(0);
+        return slotDesc;
+    }
+
+    // We use two phase read to optimize sql like: select * from tbl [where xxx = ???] order by column1 limit n
+    // in the first phase, we add an extra column `RowId` to Block, and sort blocks in TopN nodes
+    // in the second phase, we have n rows, we do a fetch rpc to get all rowids date for the n rows
+    // and reconconstruct the final block
+    private void injectRowIdColumnSlot() {
+        for (PlanFragment fragment : fragments) {
+            PlanNode node = fragment.getPlanRoot();
+            PlanNode parent = null;
+            // OlapScanNode is the last node.
+            // So, just get the last two node and check if they are SortNode and OlapScan.
+            while (node.getChildren().size() != 0) {
+                parent = node;
+                node = node.getChildren().get(0);
+            }
+
+            if (!(node instanceof OlapScanNode) || !(parent instanceof SortNode)) {
+                continue;
+            }
+            SortNode sortNode = (SortNode) parent;
+            OlapScanNode scanNode = (OlapScanNode) node;
+            SlotDescriptor slot = injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
+            injectRowIdColumnSlot(analyzer, sortNode.getSortInfo().getSortTupleDescriptor());
+            SlotRef extSlot = new SlotRef(slot);
+            sortNode.getResolvedTupleExprs().add(extSlot);
+            sortNode.getSortInfo().setUseTwoPhaseRead();
+            break;
+        }
+    }
+
     /**
      * Push sort down to olap scan.
      */
@@ -350,6 +407,7 @@ public class OriginalPlanner extends Planner {
             }
             SortNode sortNode = (SortNode) parent;
             OlapScanNode scanNode = (OlapScanNode) node;
+
             if (!scanNode.checkPushSort(sortNode)) {
                 continue;
             }
@@ -361,6 +419,30 @@ public class OriginalPlanner extends Planner {
             }
             scanNode.setSortInfo(sortNode.getSortInfo());
             scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.resolvedTupleExprs);
+        }
+    }
+
+    /**
+     * optimize for topn query like: SELECT * FROM t1 WHERE a>100 ORDER BY b,c LIMIT 100
+     * the pre-requirement is as follows:
+     * 1. only contains SortNode + OlapScanNode
+     * 2. limit > 0
+     * 3. first expression of order by is a table column
+     */
+    private void checkTopnOpt(PlanNode node) {
+        if (node instanceof SortNode && node.getChildren().size() == 1) {
+            SortNode sortNode = (SortNode) node;
+            PlanNode child = sortNode.getChild(0);
+            if (child instanceof OlapScanNode && sortNode.getLimit() > 0
+                    && sortNode.getSortInfo().getMaterializedOrderingExprs().size() > 0) {
+                Expr firstSortExpr = sortNode.getSortInfo().getMaterializedOrderingExprs().get(0);
+                if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()
+                        && !firstSortExpr.getType().isFloatingPointType()) {
+                    OlapScanNode scanNode = (OlapScanNode) child;
+                    sortNode.setUseTopnOpt(true);
+                    scanNode.setUseTopnOpt(true);
+                }
+            }
         }
     }
 

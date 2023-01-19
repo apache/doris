@@ -82,7 +82,6 @@ private:
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;
     int64_t _raw_rows_read = 0;
-    RuntimeProfile* _profile;
     bool _profile_updated = false;
 };
 } // namespace vectorized

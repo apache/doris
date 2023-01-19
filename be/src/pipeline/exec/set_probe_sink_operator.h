@@ -33,7 +33,7 @@ class SetProbeSinkOperatorBuilder final
         : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
 private:
     constexpr static auto builder_name =
-            is_intersect ? "IntersectProbeSinkOperatorBuilder" : "ExceptProbeSinkOperatorBuilder";
+            is_intersect ? "IntersectProbeSinkOperator" : "ExceptProbeSinkOperator";
 
 public:
     SetProbeSinkOperatorBuilder(int32_t id, int child_id, ExecNode* set_node);

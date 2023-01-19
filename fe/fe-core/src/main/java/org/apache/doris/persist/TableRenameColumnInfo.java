@@ -85,7 +85,7 @@ public class TableRenameColumnInfo implements Writable {
 
         TableRenameColumnInfo info = (TableRenameColumnInfo) obj;
 
-        return (dbId == info.dbId && tableId == tableId
+        return (dbId == info.dbId && tableId == info.tableId
                 && colName.equals(info.colName) && newColName.equals(info.newColName));
     }
 

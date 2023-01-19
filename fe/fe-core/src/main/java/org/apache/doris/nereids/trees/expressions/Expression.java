@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -122,7 +123,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     /**
      * Whether the expression is a constant.
      */
-    public final boolean isConstant() {
+    public boolean isConstant() {
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
@@ -145,6 +146,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public final Set<Slot> getInputSlots() {
         return collect(Slot.class::isInstance);
+    }
+
+    public final Set<ExprId> getInputSlotExprIds() {
+        return getInputSlots().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
     }
 
     public boolean isLiteral() {

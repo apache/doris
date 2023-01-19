@@ -110,6 +110,8 @@ int VExprContext::register_func(RuntimeState* state, const FunctionContext::Type
                                 int varargs_buffer_size) {
     _fn_contexts.push_back(FunctionContextImpl::create_context(
             state, _pool.get(), return_type, arg_types, varargs_buffer_size, false));
+    _fn_contexts.back()->impl()->set_check_overflow_for_decimal(
+            state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
 }
 

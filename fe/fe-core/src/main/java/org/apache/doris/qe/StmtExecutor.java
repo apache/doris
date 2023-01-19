@@ -94,6 +94,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -301,6 +302,7 @@ public class StmtExecutor implements ProfileWriter {
 
     private Map<String, String> getSummaryInfo() {
         Map<String, String> infos = Maps.newLinkedHashMap();
+        infos.put(ProfileManager.JOB_ID, "N/A");
         infos.put(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
         infos.put(ProfileManager.QUERY_TYPE, queryType);
         infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
@@ -314,6 +316,8 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
                 String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
         infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
+        infos.put(ProfileManager.PARALLEL_FRAGMENT_EXEC_INSTANCE,
+                String.valueOf(context.sessionVariable.parallelExecInstanceNum));
         return infos;
     }
 
@@ -423,8 +427,16 @@ public class StmtExecutor implements ProfileWriter {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
         // set isQuery first otherwise this state will be lost if some error occurs
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
+        if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
+        }
+
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            context.getState().setNereids(true);
+            if (parsedStmt.getExplainOptions() == null
+                    && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command)) {
+                context.getState().setIsQuery(true);
+            }
         }
 
         try {
@@ -450,6 +462,7 @@ public class StmtExecutor implements ProfileWriter {
                         // fall back to legacy planner
                         LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
+                        context.getState().setNereids(false);
                         analyze(context.getSessionVariable().toThrift());
                     }
                 } catch (Exception e) {
@@ -1237,7 +1250,8 @@ public class StmtExecutor implements ProfileWriter {
                 return;
             }
             TTxnParams txnParams = new TTxnParams();
-            txnParams.setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
+            txnParams.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 txnParams.setMaxFilterRatio(0);
             } else {

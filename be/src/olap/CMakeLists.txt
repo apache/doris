@@ -54,7 +54,6 @@ add_library(Olap STATIC
     page_cache.cpp
     push_handler.cpp
     reader.cpp
-    row_block2.cpp
     row_cursor.cpp
     version_graph.cpp
     schema.cpp
@@ -63,7 +62,6 @@ add_library(Olap STATIC
     data_dir.cpp
     short_key_index.cpp
     snapshot_manager.cpp
-    stream_index_common.cpp
     stream_name.cpp
     tablet.cpp
     tablet_manager.cpp
@@ -77,6 +75,12 @@ add_library(Olap STATIC
     primary_key_index.cpp
     rowset/segment_v2/bitmap_index_reader.cpp
     rowset/segment_v2/bitmap_index_writer.cpp
+    rowset/segment_v2/inverted_index_reader.cpp
+    rowset/segment_v2/inverted_index_writer.cpp
+    rowset/segment_v2/inverted_index_cache.cpp
+    rowset/segment_v2/inverted_index_desc.cpp
+    rowset/segment_v2/inverted_index_compound_directory.cpp
+    rowset/segment_v2/inverted_index_compound_reader.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp
@@ -105,7 +109,6 @@ add_library(Olap STATIC
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
-    column_vector.cpp
     segment_loader.cpp
     storage_policy_mgr.cpp
 )

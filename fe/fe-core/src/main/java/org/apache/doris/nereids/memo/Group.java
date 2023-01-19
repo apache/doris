@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.TreeStringUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -33,6 +34,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +48,7 @@ import java.util.stream.Collectors;
  */
 public class Group {
     private final GroupId groupId;
-    // Save all parent GroupExpression to avoid travsing whole Memo.
+    // Save all parent GroupExpression to avoid traversing whole Memo.
     private final IdentityHashMap<GroupExpression, Void> parentExpressions = new IdentityHashMap<>();
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
@@ -68,20 +70,8 @@ public class Group {
      */
     public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
         this.groupId = groupId;
-        if (groupExpression.getPlan() instanceof LogicalPlan) {
-            this.logicalExpressions.add(groupExpression);
-        } else {
-            this.physicalExpressions.add(groupExpression);
-        }
+        addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
-        groupExpression.setOwnerGroup(this);
-    }
-
-    /**
-     * For unit test only.
-     */
-    public Group() {
-        groupId = null;
     }
 
     public GroupId getGroupId() {
@@ -107,6 +97,11 @@ public class Group {
     public void addLogicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         logicalExpressions.add(groupExpression);
+    }
+
+    public void addPhysicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        physicalExpressions.add(groupExpression);
     }
 
     public List<GroupExpression> getLogicalExpressions() {
@@ -142,10 +137,11 @@ public class Group {
      * @return removed {@link GroupExpression}
      */
     public GroupExpression removeGroupExpression(GroupExpression groupExpression) {
+        // use identityRemove to avoid equals() method
         if (groupExpression.getPlan() instanceof LogicalPlan) {
-            logicalExpressions.remove(groupExpression);
+            Utils.identityRemove(logicalExpressions, groupExpression);
         } else {
-            physicalExpressions.remove(groupExpression);
+            Utils.identityRemove(physicalExpressions, groupExpression);
         }
         groupExpression.setOwnerGroup(null);
         return groupExpression;
@@ -208,7 +204,7 @@ public class Group {
     /**
      * replace best plan with new properties
      */
-    public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
+    public void replaceBestPlanProperty(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
         Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;
         lowestGroupExpr.updateLowestCostTable(newProperty,
@@ -261,47 +257,25 @@ public class Group {
     }
 
     /**
-     * move the ownerGroup of all logical expressions to target group
-     * if this.equals(target), do nothing.
+     * move the ownerGroup to target group.
      *
      * @param target the new owner group of expressions
      */
-    public void moveLogicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : logicalExpressions) {
-            target.addGroupExpression(expression);
-        }
+    public void mergeTo(Group target) {
+        // move parentExpressions  Ownership
+        parentExpressions.keySet().forEach(target::addParentExpression);
+        parentExpressions.clear();
+
+        // move LogicalExpression PhysicalExpression Ownership
+        HashSet<GroupExpression> logicalSet = new HashSet<>(target.getLogicalExpressions());
+        logicalExpressions.stream().filter(ge -> !logicalSet.contains(ge)).forEach(target::addLogicalExpression);
         logicalExpressions.clear();
-    }
-
-    /**
-     * move the ownerGroup of all physical expressions to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void movePhysicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : physicalExpressions) {
-            target.addGroupExpression(expression);
-        }
+        // movePhysicalExpressionOwnership
+        HashSet<GroupExpression> physicalSet = new HashSet<>(target.getPhysicalExpressions());
+        physicalExpressions.stream().filter(ge -> !physicalSet.contains(ge)).forEach(target::addGroupExpression);
         physicalExpressions.clear();
-    }
 
-    /**
-     * move the ownerGroup of all lowestCostPlans to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void moveLowestCostPlansOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
+        // moveLowestCostPlansOwnership
         lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
             GroupExpression bestGroupExpression = costAndGroupExpr.second;
             // change into target group.
@@ -317,6 +291,11 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+
+        // If statistics is null, use other statistics
+        if (target.statistics == null) {
+            target.statistics = this.statistics;
+        }
     }
 
     public boolean isJoinGroup() {

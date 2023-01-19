@@ -72,7 +72,11 @@ public interface CatalogIf<T extends DatabaseIf> {
         return null;
     }
 
-    default void notifyPropertiesUpdated() { }
+    default void notifyPropertiesUpdated() {
+        if (this instanceof ExternalCatalog) {
+            ((ExternalCatalog) this).setUninitialized(false);
+        }
+    }
 
     void modifyCatalogName(String name);
 

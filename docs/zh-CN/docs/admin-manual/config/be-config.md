@@ -261,7 +261,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：该配置主要用来修改brpc中bthreads的数量. 该配置的默认值被设置为-1, 这意味着bthreads的数量将被设置为机器的cpu核数。
 
   - 用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
-* 默认值：1
+* 默认值：-1
 
 #### `thrift_rpc_timeout_ms`
 
@@ -345,8 +345,8 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `fragment_pool_thread_num_max`
 
-* 描述：后续查询请求动态创建线程，最大创建256个线程。
-* 默认值：256
+* 描述：后续查询请求动态创建线程，最大创建512个线程。
+* 默认值：512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -459,6 +459,42 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：是否开启向量化compaction
 * 默认值：true
 
+#### `enable_vertical_compaction`
+
+* 类型: bool
+* 描述: 是否开启列式compaction
+* 默认值: true
+
+#### `vertical_compaction_num_columns_per_group`
+
+* 类型: bool
+* 描述: 在列式compaction中, 组成一个合并组的列个数
+* 默认值: true
+
+#### `vertical_compaction_max_row_source_memory_mb`
+
+* 类型: bool
+* 描述: 在列式compaction中, row_source_buffer能使用的最大内存
+* 默认值: true
+
+#### `vertical_compaction_max_segment_size`
+
+* 类型: bool
+* 描述: 在列式compaction中, 输出的segment文件最大值
+* 默认值: true
+
+#### `enable_ordered_data_compaction`
+
+* 类型: bool
+* 描述: 是否开启有序数据的compaction
+* 默认值: true
+
+#### `ordered_data_compaction_min_segment_size`
+
+* 类型: bool
+* 描述: 在有序数据compaction中, 满足要求的最小segment大小
+* 默认值: true
+
 #### `max_base_compaction_threads`
 
 * 类型：int32
@@ -486,12 +522,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：被所有的compaction任务所能持有的 "permits" 上限，用来限制compaction占用的内存。
 * 默认值：10000
 * 可动态修改：是
-
-#### `compaction_tablet_compaction_score_factor`
-
-* 类型：int32
-* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
-* 默认值：1
 
 #### `compaction_promotion_size_mbytes`
 
@@ -1261,6 +1291,16 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
 
+<version since="1.2">
+
+#### `jvm_max_heap_size`
+
+* 类型：string
+* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数 
+* 默认值：1024M
+
+</version>
+
 ### 日志
 
 #### `sys_log_dir`
@@ -1381,7 +1421,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: BlockingPriorityQueue中剩余任务的优先级频率增加
 * 默认值:512
 
-#### `jdbc_drivers_dir
+<version since="1.2">
+
+#### `jdbc_drivers_dir`
 
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
+
+</version>

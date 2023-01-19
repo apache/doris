@@ -81,7 +81,6 @@ struct HashTableProbe {
 
     Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
 
         KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
@@ -144,6 +143,7 @@ void VSetOperationNode<is_intersect>::release_resource(RuntimeState* state) {
         VExpr::close(exprs, state);
     }
     release_mem();
+    ExecNode::release_resource(state);
 }
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
@@ -194,7 +194,6 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // TODO: build the hash table in a thread to open other children asynchronously.
     RETURN_IF_ERROR(hash_table_build(state));
@@ -235,7 +234,6 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");

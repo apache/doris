@@ -43,14 +43,14 @@ CREATE CATALOG
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
 	[WITH RESOURCE resource_name]
-	| [PROPERTIES ("key"="value", ...)];
+	[PROPERTIES ("key"="value", ...)];
 ```
 
 `RESOURCE` 可以通过 [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md) 创建，目前支持三种 Resource，分别连接三种外部数据源：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
-* jdbc：数据库访问的标准接口(JDBC), 当前只支持`jdbc:mysql`
+* jdbc：数据库访问的标准接口(JDBC), 当前支持 MySQL 和 PostgreSQL
 
 ### 创建 catalog
 
@@ -62,12 +62,16 @@ CREATE RESOURCE catalog_resource PROPERTIES (
     'type'='hms|es|jdbc',
     ...
 );
-CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+
+// 在 PROERPTIES 中指定的配置，将会覆盖 Resource 中的配置。
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource PROPERTIES(
+    'key' = 'value'
+)
 ```
 
 **通过 properties 创建 catalog**
 
-`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+`1.2.0` 版本通过 properties 创建 catalog。
 ```sql
 CREATE CATALOG catalog_name PROPERTIES (
     'type'='hms|es|jdbc',
@@ -122,6 +126,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	```
 
 3. 新建数据目录 jdbc
+	**mysql**
 
 	```sql
 	-- 1.2.0+ 版本
@@ -138,12 +143,83 @@ CREATE CATALOG catalog_name PROPERTIES (
 	-- 1.2.0 版本
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"user"="root",
-		"password"="123456",
-		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-		"driver_class" = "com.mysql.cj.jdbc.Driver"
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
+	```
+
+	**postgresql**
+
+	```sql
+	-- 方式一
+	CREATE RESOURCE pg_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="postgres",
+		"password"="123456",
+		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"driver_class" = "org.postgresql.Driver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+	-- 方式二，注意有jdbc前缀
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="postgres",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_class" = "org.postgresql.Driver"
+	);
+	```
+ 
+   **clickhouse**
+
+   ```sql
+   -- 1.2.0+ Version
+   CREATE RESOURCE clickhouse_resource PROPERTIES (
+       "type"="jdbc",
+       "user"="default",
+       "password"="123456",
+       "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+       "driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+       "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+   )
+   CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+   
+   -- 1.2.0 Version
+   CREATE CATALOG jdbc PROPERTIES (
+       "type"="jdbc",
+       "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+       ...
+   )
+   ```
+
+	**oracle**
+	```sql
+	-- 方式一
+	CREATE RESOURCE oracle_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="doris",
+		"password"="123456",
+		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"driver_url" = "file:/path/to/ojdbc6.jar",
+		"driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
+
+	-- 方式二，注意有jdbc前缀
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="doris",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+		"jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);	
 	```
 
 ### Keywords

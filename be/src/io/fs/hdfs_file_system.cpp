@@ -18,6 +18,7 @@
 #include "io/fs/hdfs_file_system.h"
 
 #include "gutil/hash/hash.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/hdfs_builder.h"
 #include "service/backend_options.h"
@@ -60,6 +61,11 @@ private:
     void _clean_oldest();
 };
 
+std::shared_ptr<HdfsFileSystem> HdfsFileSystem::create(const THdfsParams& hdfs_params,
+                                                       const std::string& path) {
+    return std::shared_ptr<HdfsFileSystem>(new HdfsFileSystem(hdfs_params, path));
+}
+
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
         : RemoteFileSystem(path, "", FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
@@ -68,8 +74,12 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string
 }
 
 HdfsFileSystem::~HdfsFileSystem() {
-    if (_fs_handle && _fs_handle->from_cache) {
-        _fs_handle->dec_ref();
+    if (_fs_handle != nullptr) {
+        if (_fs_handle->from_cache) {
+            _fs_handle->dec_ref();
+        } else {
+            delete _fs_handle;
+        }
     }
 }
 
@@ -93,7 +103,7 @@ Status HdfsFileSystem::create_file(const Path& /*path*/, FileWriterPtr* /*writer
     return Status::NotSupported("Currently not support to create file to HDFS");
 }
 
-Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
     CHECK_HDFS_HANDLE(_fs_handle);
     size_t file_len = 0;
     RETURN_IF_ERROR(file_size(path, &file_len));
@@ -121,7 +131,9 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
                                          hdfsGetLastError());
         }
     }
-    *reader = std::make_shared<HdfsFileReader>(path, file_len, _namenode, hdfs_file, this);
+    *reader = std::make_shared<HdfsFileReader>(
+            path, file_len, _namenode, hdfs_file,
+            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()));
     return Status::OK();
 }
 

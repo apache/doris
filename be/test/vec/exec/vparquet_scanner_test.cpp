@@ -28,7 +28,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
@@ -42,7 +41,6 @@ public:
     VParquetScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state.init_mem_trackers();
-        _runtime_state._query_options.enable_vectorized_engine = true;
     }
     ~VParquetScannerTest() {}
     void init();
