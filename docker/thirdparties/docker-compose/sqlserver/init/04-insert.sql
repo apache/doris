@@ -38,7 +38,7 @@ Insert into dbo.test_time values (1, '2023-01-17', '16:49:05.1234567', '2023-01-
 Insert into dbo.test_time values (3, '2023-01-17', '16:49:05.1234567', '2023-01-17 16:49:05', '2023-01-17 16:49:05.1234567', '2023-01-17 16:49:05', '2023-01-17 16:49:05.1234567+08:00');
 Insert into dbo.test_time values (4, '2023-01-17', '16:49:05', '2023-01-17 16:49:05', '2023-01-17 16:49:05', '2023-01-17 16:49:05', '2023-01-17 16:49:05+08:00');
 
-Insert into dbo.test_text values (1, 'Make Doris Great!', 'Make Doris Great!', 'Make Doris Great!');
+Insert into dbo.test_text values (1, 'Make Doris Great!', 'Make Doris Great!');
 
 Insert into dbo.test_money values (1, 922337203685477.5807, 214748.3647);
 Insert into dbo.test_money values (2, -922337203685477.5808, -214748.3648);

@@ -70,8 +70,7 @@ CREATE TABLE dbo.test_time (
 CREATE TABLE dbo.test_text (
     id int PRIMARY KEY NOT NULL,
     text_value text NOT NULL,
-    ntext_value ntext NULL,
-    image_value image NULL
+    ntext_value ntext NULL
 );
 
 CREATE TABLE dbo.test_money (
