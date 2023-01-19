@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -245,6 +246,9 @@ public class TypeCoercionUtils {
                 } else {
                     tightestCommonType = right;
                 }
+            } else if (left instanceof DateV2Type || right instanceof DateV2Type
+                    || left instanceof DateType || right instanceof DateType) {
+                tightestCommonType = DateV2Type.INSTANCE;
             } else if (left instanceof DateTimeV2Type) {
                 tightestCommonType = left;
             } else if (right instanceof DateTimeV2Type) {
