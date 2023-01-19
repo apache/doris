@@ -61,13 +61,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      */
     public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE,
-                Optional.empty(), Optional.empty(), leftChild, rightChild);
+                Optional.empty(), Optional.empty(), leftChild, rightChild, JoinReorderContext.EMPTY);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
-                Optional.empty(), leftChild, rightChild);
+                Optional.empty(), leftChild, rightChild, JoinReorderContext.EMPTY);
     }
 
     public LogicalJoin(
@@ -77,7 +77,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             JoinHint hint,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, hint, Optional.empty(), Optional.empty(), leftChild, rightChild);
+                otherJoinConjuncts, hint, Optional.empty(), Optional.empty(), leftChild, rightChild,
+                JoinReorderContext.EMPTY);
     }
 
     public LogicalJoin(
@@ -88,8 +89,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             RIGHT_CHILD_TYPE rightChild,
             JoinReorderContext joinReorderContext) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
-                Optional.empty(), Optional.empty(), leftChild, rightChild);
-        this.joinReorderContext.copyFrom(joinReorderContext);
+                Optional.empty(), Optional.empty(), leftChild, rightChild, joinReorderContext);
     }
 
     public LogicalJoin(
@@ -101,10 +101,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             RIGHT_CHILD_TYPE rightChild,
             JoinReorderContext joinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                Optional.empty(), Optional.empty(), leftChild, rightChild);
-        this.joinReorderContext.copyFrom(joinReorderContext);
+                Optional.empty(), Optional.empty(), leftChild, rightChild, joinReorderContext);
     }
 
+    /**
+     * Constructor for LogicalJoinPlan.
+     */
     public LogicalJoin(
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
@@ -115,30 +117,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild,
             JoinReorderContext joinReorderContext) {
-        this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, groupExpression, logicalProperties, leftChild,
-                rightChild);
-        this.joinReorderContext.copyFrom(joinReorderContext);
-    }
-
-    /**
-     * Constructor for LogicalJoinPlan.
-     *
-     * @param joinType logical type for join
-     */
-    public LogicalJoin(
-            JoinType joinType,
-            List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts,
-            JoinHint hint,
-            Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
-            LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
+        this.joinReorderContext.copyFrom(joinReorderContext);
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -160,6 +144,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public JoinHint getHint() {
         return hint;
+    }
+
+    public JoinReorderContext getJoinReorderContext() {
+        return joinReorderContext;
     }
 
     @Override
@@ -253,8 +241,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 .build();
     }
 
-    public JoinReorderContext getJoinReorderContext() {
-        return joinReorderContext;
+    @Override
+    public LEFT_CHILD_TYPE left() {
+        return (LEFT_CHILD_TYPE) child(0);
+    }
+
+    @Override
+    public RIGHT_CHILD_TYPE right() {
+        return (RIGHT_CHILD_TYPE) child(1);
     }
 
     @Override
@@ -276,16 +270,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), logicalProperties, left(), right(), joinReorderContext);
     }
 
-    @Override
-    public LEFT_CHILD_TYPE left() {
-        return (LEFT_CHILD_TYPE) child(0);
-    }
-
-    @Override
-    public RIGHT_CHILD_TYPE right() {
-        return (RIGHT_CHILD_TYPE) child(1);
-    }
-
     public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
         return new LogicalJoin<>(
                 joinType, hashJoinConjuncts, this.otherJoinConjuncts, hint, left(), right(), joinReorderContext);
@@ -297,7 +281,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 hint, left(), right(), joinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withhashJoinConjunctsAndChildren(
+    public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
             List<Expression> hashJoinConjuncts, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, children.get(0),
@@ -314,4 +298,3 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 joinReorderContext);
     }
 }
-
