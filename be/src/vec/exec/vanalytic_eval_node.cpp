@@ -475,6 +475,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     }
 
     //check whether need get column again, maybe same as first init
+    // if the start_block_num have move to forword, so need update start block num and compare it from row_num=0
     if (start_column.get() != start_next_block_column.get()) {
         start_init_row_num = 0;
         start.block_num = start_block_num;
@@ -483,6 +484,8 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     //binary search, set start and end pos
     int64_t start_pos = start_init_row_num;
     int64_t end_pos = _input_blocks[start.block_num].rows() - 1;
+    //if end_block_num haven't moved, only start_block_num go to the end block
+    //so could used the end.row_num for binary search
     if (start.block_num == end.block_num) {
         end_pos = end.row_num;
     }
