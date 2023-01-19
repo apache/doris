@@ -59,6 +59,7 @@ public class HMSResource extends Resource {
 
     public HMSResource(String name) {
         super(name, ResourceType.HMS);
+        this.properties = Maps.newHashMap();
     }
 
     @Override

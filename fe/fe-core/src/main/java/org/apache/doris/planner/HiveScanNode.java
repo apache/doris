@@ -159,8 +159,9 @@ public class HiveScanNode extends BrokerScanNode {
     @Override
     protected void getFileStatus() throws UserException {
         if (partitionKeys.size() > 0) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    conjuncts, partitionKeys, hiveTable.getName());
+            // Hive Table is no longer supported.
+            // So there we just create an empty predicate
+            hivePartitionPredicate = new ExprNodeGenericFuncDesc();
         }
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,
