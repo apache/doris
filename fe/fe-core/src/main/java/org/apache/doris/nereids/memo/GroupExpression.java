@@ -233,8 +233,8 @@ public class GroupExpression {
      * Merge GroupExpression.
      */
     public void mergeTo(GroupExpression target) {
-        this.mergeToNotOwnerRemove(target);
         this.ownerGroup.removeGroupExpression(this);
+        this.mergeToNotOwnerRemove(target);
     }
 
     /**
@@ -252,6 +252,7 @@ public class GroupExpression {
         // clear
         this.children.forEach(child -> child.removeParentExpression(this));
         this.children.clear();
+        this.ownerGroup = null;
     }
 
     public double getCost() {
