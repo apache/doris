@@ -208,7 +208,8 @@ public class HiveMetaStoreClientHelper {
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
             List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
         boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
-                || storage.getStorageType() == StorageBackend.StorageType.OFS;
+                || storage.getStorageType() == StorageBackend.StorageType.OFS
+                || storage.getStorageType() == StorageBackend.StorageType.JFS;
         String hdfsUrl = "";
         Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
         while (queue.peek() != null) {
