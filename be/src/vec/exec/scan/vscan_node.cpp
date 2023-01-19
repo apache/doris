@@ -565,6 +565,11 @@ bool VScanNode::_is_predicate_acting_on_slot(
             // the type of predicate not match the slot's type
             return false;
         }
+    } else if (child_contains_slot->type().is_datetime_type() &&
+               child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
+        // push down.
+        return false;
     }
     *range = &(entry->second.second);
     return true;
