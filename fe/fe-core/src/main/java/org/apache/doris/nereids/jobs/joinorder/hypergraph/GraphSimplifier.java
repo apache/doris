@@ -425,14 +425,14 @@ public class GraphSimplifier {
         //      Plan.cost = Plan.rowCount + Plan.children1.cost + Plan.children2.cost
         // The reason is that this cost model has ASI (adjacent sequence interchange) property.
         // TODO: consider network, data distribution cost
-        LogicalJoin newJoin = new LogicalJoin(join.getJoinType(), plan1, plan2);
+        LogicalJoin newJoin = new LogicalJoin<>(join.getJoinType(), plan1, plan2);
         List<Group> children = new ArrayList<>();
         children.add(getGroup(plan1));
         children.add(getGroup(plan2));
         double cost = getSimpleCost(plan1) + getSimpleCost(plan2);
         GroupExpression groupExpression = new GroupExpression(newJoin, children);
-        Group group = new Group();
-        group.addGroupExpression(groupExpression);
+        // FIXME: use wrong constructor
+        Group group = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression);
         cost += group.getStatistics().getRowCount();
 
