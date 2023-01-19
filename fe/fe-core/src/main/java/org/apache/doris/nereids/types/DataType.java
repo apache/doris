@@ -441,6 +441,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof IntegralType;
     }
 
+    public boolean isUnixtimeType() {
+        return this instanceof UnixtimeType;
+    }
+
     public boolean isTinyIntType() {
         return this instanceof TinyIntType;
     }

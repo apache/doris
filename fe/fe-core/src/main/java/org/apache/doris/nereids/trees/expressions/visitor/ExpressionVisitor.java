@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UnixtimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 /**
@@ -225,6 +226,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitIntegerLiteral(IntegerLiteral integerLiteral, C context) {
         return visitLiteral(integerLiteral, context);
+    }
+
+    public R visitUnixtimeLiteral(UnixtimeLiteral unixtimeLiteral, C context) {
+        return visitLiteral(unixtimeLiteral, context);
     }
 
     public R visitBigIntLiteral(BigIntLiteral bigIntLiteral, C context) {
