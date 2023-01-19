@@ -17,18 +17,28 @@
 
 #pragma once
 
-#include <string>
+#include "gen_cpp/internal_service.pb.h"
+#include "vec/core/block.h"
 
 namespace doris {
-namespace BeConsts {
-const std::string CSV = "csv";
-const std::string CSV_WITH_NAMES = "csv_with_names";
-const std::string CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
-const std::string BLOCK_TEMP_COLUMN_PREFIX = "__TEMP__";
-const std::string ROWID_COL = "__DORIS_ROWID_COL__";
 
-constexpr int MAX_DECIMAL32_PRECISION = 9;
-constexpr int MAX_DECIMAL64_PRECISION = 18;
-constexpr int MAX_DECIMAL128_PRECISION = 38;
-} // namespace BeConsts
+class DorisNodesInfo;
+class RuntimeState;
+
+// fetch rows by global rowid
+// tablet_id/rowset_name/segment_id/ordinal_id
+class RowIDFetcher {
+public:
+    RowIDFetcher(TupleDescriptor* desc, RuntimeState* st) : _tuple_desc(desc), _st(st) {}
+    Status init(DorisNodesInfo* nodes_info);
+    Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::MutableBlock* block);
+
+private:
+    PMultiGetRequest _init_fetch_request(const vectorized::ColumnString& row_ids);
+
+    std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
+    TupleDescriptor* _tuple_desc;
+    RuntimeState* _st;
+};
+
 } // namespace doris

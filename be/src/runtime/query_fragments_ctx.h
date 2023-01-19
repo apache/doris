@@ -165,7 +165,6 @@ private:
     std::atomic<bool> _is_cancelled {false};
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
-
     vectorized::RuntimePredicate _runtime_predicate;
 };
 
