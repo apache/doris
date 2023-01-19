@@ -427,8 +427,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_HAVING_SLOT.build(
-                logicalHaving(any()).when(Plan::canBind).thenApply(ctx -> {
-                    LogicalHaving<Plan> having = ctx.root;
+                logicalHaving(aggregate()).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalHaving<Aggregate<GroupPlan>> having = ctx.root;
                     Plan childPlan = having.child();
                     // We should deduplicate the slots, otherwise the binding process will fail due to the
                     // ambiguous slots exist.
@@ -446,6 +446,30 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 expr = childChildBinder.bind(expr);
                                 return childBinder.bind(expr);
                             })
+                            .collect(Collectors.toSet());
+                    return new LogicalHaving<>(boundConjuncts, having.child());
+                })
+            ),
+            RuleType.BINDING_HAVING_SLOT.build(
+                logicalHaving(any()).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalHaving<Plan> having = ctx.root;
+                    Plan childPlan = having.child();
+                    // We should deduplicate the slots, otherwise the binding process will fail due to the
+                    // ambiguous slots exist.
+                    List<Slot> childChildSlots = childPlan.children().stream()
+                            .flatMap(plan -> plan.getOutputSet().stream())
+                            .collect(Collectors.toList());
+                    SlotBinder childChildBinder = new SlotBinder(toScope(childChildSlots),
+                            ctx.cascadesContext);
+                    List<Slot> childSlots = childPlan.getOutputSet().stream()
+                            .collect(Collectors.toList());
+                    SlotBinder childBinder = new SlotBinder(toScope(childSlots),
+                            ctx.cascadesContext);
+                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(
+                                    expr -> {
+                                        expr = childBinder.bind(expr);
+                                        return childChildBinder.bind(expr);
+                                    })
                             .collect(Collectors.toSet());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
