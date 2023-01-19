@@ -89,7 +89,7 @@ public class UdfExecutor extends BaseExecutor {
                 // is returned, current value is stored successfully. Otherwise, current result is
                 // not processed successfully (e.g. current output buffer is not large enough) so
                 // we break this loop directly.
-                if (!storeUdfResult(evaluate(inputObjects), rowIdx)) {
+                if (!storeUdfResult(evaluate(inputObjects), rowIdx, method.getReturnType())) {
                     UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, rowIdx);
                     return;
                 }
@@ -122,7 +122,7 @@ public class UdfExecutor extends BaseExecutor {
 
     // Sets the result object 'obj' into the outputBufferPtr and outputNullPtr_
     @Override
-    protected boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
+    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
         if (obj == null) {
             if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
                 throw new UdfRuntimeException("UDF failed to store null data to not null column");
@@ -134,7 +134,7 @@ public class UdfExecutor extends BaseExecutor {
             }
             return true;
         }
-        return super.storeUdfResult(obj, row);
+        return super.storeUdfResult(obj, row, retClass);
     }
 
     @Override
@@ -150,14 +150,15 @@ public class UdfExecutor extends BaseExecutor {
     // Preallocate the input objects that will be passed to the underlying UDF.
     // These objects are allocated once and reused across calls to evaluate()
     @Override
-    protected void init(TJavaUdfExecutorCtorParams request, String jarPath, String udfPath, Type funcRetType,
+    protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
+        String className = request.fn.scalar_fn.symbol;
         batchSizePtr = request.batch_size_ptr;
         outputOffset = 0L;
         rowIdx = 0L;
         ArrayList<String> signatures = Lists.newArrayList();
         try {
-            LOG.debug("Loading UDF '" + udfPath + "' from " + jarPath);
+            LOG.debug("Loading UDF '" + className + "' from " + jarPath);
             ClassLoader loader;
             if (jarPath != null) {
                 // Save for cleanup.
@@ -168,7 +169,7 @@ public class UdfExecutor extends BaseExecutor {
                 // for test
                 loader = ClassLoader.getSystemClassLoader();
             }
-            Class<?> c = Class.forName(udfPath, true, loader);
+            Class<?> c = Class.forName(className, true, loader);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getMethods();
@@ -195,7 +196,7 @@ public class UdfExecutor extends BaseExecutor {
                         retType = returnType.second;
                     }
                     argTypes = new JavaUdfDataType[0];
-                    LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
+                    LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
                     return;
                 }
                 returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
@@ -210,13 +211,13 @@ public class UdfExecutor extends BaseExecutor {
                 } else {
                     argTypes = inputType.second;
                 }
-                LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
+                LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
                 return;
             }
 
             StringBuilder sb = new StringBuilder();
             sb.append("Unable to find evaluate function with the correct signature: ")
-                    .append(udfPath + ".evaluate(")
+                    .append(className + ".evaluate(")
                     .append(Joiner.on(", ").join(parameterTypes))
                     .append(")\n")
                     .append("UDF contains: \n    ")

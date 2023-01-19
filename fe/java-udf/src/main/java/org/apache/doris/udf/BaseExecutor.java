@@ -28,12 +28,12 @@ import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.Arrays;
 
 public abstract class BaseExecutor {
@@ -54,8 +54,6 @@ public abstract class BaseExecutor {
             new TBinaryProtocol.Factory();
 
     protected Object udf;
-    // setup by init() and cleared by close()
-    protected Method method;
     // setup by init() and cleared by close()
     protected URLClassLoader classLoader;
 
@@ -102,14 +100,13 @@ public abstract class BaseExecutor {
         for (int i = 0; i < request.fn.arg_types.size(); ++i) {
             parameterTypes[i] = Type.fromThrift(request.fn.arg_types.get(i));
         }
-        String className = request.fn.aggregate_fn.symbol;
         String jarFile = request.location;
         Type funcRetType = UdfUtils.fromThrift(request.fn.ret_type, 0).first;
 
-        init(request, jarFile, className, funcRetType, parameterTypes);
+        init(request, jarFile, funcRetType, parameterTypes);
     }
 
-    protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath, String udfPath,
+    protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException;
 
     protected Object[] allocateInputObjects(long row, int argClassOffset) throws UdfRuntimeException {
@@ -250,7 +247,7 @@ public abstract class BaseExecutor {
     }
 
     // Sets the result object 'obj' into the outputBufferPtr and outputNullPtr_
-    protected boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
+    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
         if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1) {
             UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputNullPtr) + row, (byte) 0);
         }
@@ -292,22 +289,22 @@ public abstract class BaseExecutor {
                 return true;
             }
             case DATE: {
-                long time = UdfUtils.convertToDate(obj, method.getReturnType());
+                long time = UdfUtils.convertToDate(obj, retClass);
                 UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
             case DATETIME: {
-                long time = UdfUtils.convertToDateTime(obj, method.getReturnType());
+                long time = UdfUtils.convertToDateTime(obj, retClass);
                 UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
             case DATEV2: {
-                int time = UdfUtils.convertToDateV2(obj, method.getReturnType());
+                int time = UdfUtils.convertToDateV2(obj, retClass);
                 UdfUtils.UNSAFE.putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
             case DATETIMEV2: {
-                long time = UdfUtils.convertToDateTimeV2(obj, method.getReturnType());
+                long time = UdfUtils.convertToDateTimeV2(obj, retClass);
                 UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }

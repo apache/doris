@@ -157,14 +157,14 @@ public class UdafExecutor extends BaseExecutor {
     public boolean getValue(long row, long place) throws UdfRuntimeException {
         try {
             return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place)),
-                    row);
+                    row, retClass);
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to result", e);
         }
     }
 
     @Override
-    protected boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
+    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
         if (obj == null) {
             // If result is null, return true directly when row == 0 as we have already inserted default value.
             if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
@@ -172,7 +172,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             return true;
         }
-        return super.storeUdfResult(obj, row);
+        return super.storeUdfResult(obj, row, retClass);
     }
 
     @Override
@@ -182,8 +182,9 @@ public class UdafExecutor extends BaseExecutor {
     }
 
     @Override
-    protected void init(TJavaUdfExecutorCtorParams request, String jarPath, String udfPath, Type funcRetType,
+    protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
+        String className = request.fn.aggregate_fn.symbol;
         inputPlacesPtr = request.input_places_ptr;
         allMethods = new HashMap<>();
         stateObjMap = new HashMap<>();
@@ -199,7 +200,7 @@ public class UdafExecutor extends BaseExecutor {
                 // for test
                 loader = ClassLoader.getSystemClassLoader();
             }
-            Class<?> c = Class.forName(udfPath, true, loader);
+            Class<?> c = Class.forName(className, true, loader);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getDeclaredMethods();
@@ -257,7 +258,7 @@ public class UdafExecutor extends BaseExecutor {
                 return;
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("Unable to find evaluate function with the correct signature: ").append(udfPath + ".evaluate(")
+            sb.append("Unable to find evaluate function with the correct signature: ").append(className + ".evaluate(")
                     .append(Joiner.on(", ").join(parameterTypes)).append(")\n").append("UDF contains: \n    ")
                     .append(Joiner.on("\n    ").join(signatures));
             throw new UdfRuntimeException(sb.toString());
