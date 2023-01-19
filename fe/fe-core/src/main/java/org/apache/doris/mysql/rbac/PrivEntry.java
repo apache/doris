@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.rbac;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 
@@ -31,8 +30,6 @@ import java.io.IOException;
 public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
 
     protected PrivBitSet privSet;
-
-    private UserIdentity userIdentity;
 
     protected PrivEntry() {
     }
