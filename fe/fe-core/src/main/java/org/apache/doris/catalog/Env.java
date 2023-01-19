@@ -4447,7 +4447,10 @@ public class Env {
 
         String currentDB = ctx.getDatabase();
         if (StringUtils.isNotEmpty(currentDB)) {
-            catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+            // When dropped the current catalog in current context, the current catalog will be null.
+            if (ctx.getCurrentCatalog() != null) {
+                catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+            }
         }
         ctx.changeDefaultCatalog(catalogName);
         String lastDb = catalogMgr.getLastDB(catalogName);
