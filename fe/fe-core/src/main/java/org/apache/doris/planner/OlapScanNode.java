@@ -275,7 +275,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
-     * Only used for Neredis to set rollup or materialized view selection result.
+     * Only used for Nereids to set rollup or materialized view selection result.
      */
     public void setSelectedIndexInfo(
             long selectedIndexId,
