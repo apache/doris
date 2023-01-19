@@ -239,8 +239,6 @@ public class TypeCoercionUtils {
                 tightestCommonType = left;
             } else if (right instanceof DateTimeV2Type) {
                 tightestCommonType = right;
-            } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
-                tightestCommonType = DateV2Type.INSTANCE;
             } else if (left instanceof DateTimeType || right instanceof DateTimeType) {
                 tightestCommonType = DateTimeType.INSTANCE;
             }
