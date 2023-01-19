@@ -802,6 +802,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoin.child(1).getOutput().stream()
                 .map(SlotReference.class::cast)
                 .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
+        // translate runtime filter
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
+                .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
+                .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
 
         // make intermediate tuple
         List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
@@ -875,10 +879,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .forEach(hashJoinNode::addConjunct);
-        // translate runtime filter
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
-                .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
-                .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
 
         hashJoinNode.setOtherJoinConjuncts(otherJoinConjuncts);
 
@@ -929,6 +929,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (nestedLoopJoin.getStats() != null) {
                 nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
             }
+            boolean needNewRootFragment = leftFragment.getPlanRoot() instanceof ExchangeNode;
+            PlanFragment joinFragment;
+            if (needNewRootFragment) {
+                joinFragment = new PlanFragment(context.nextFragmentId(), nestedLoopJoinNode,
+                        DataPartition.UNPARTITIONED);
+                context.addPlanFragment(joinFragment);
+            } else {
+                joinFragment = leftFragment;
+            }
 
             Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
             nestedLoopJoin.child(0).getOutput().stream()
@@ -972,46 +981,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(outputSlotReferenceMap::get)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-
-            if (nestedLoopJoin.getOtherJoinConjuncts().isEmpty()
-                    && (joinType == JoinType.LEFT_ANTI_JOIN
-                        || joinType == JoinType.LEFT_SEMI_JOIN
-                        || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
-                    if (!leftSlotDescriptor.isMaterialized()) {
-                        continue;
-                    }
-                    SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
-                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-                    leftIntermediateSlotDescriptor.add(sd);
+            // TODO: because of the limitation of be, the VNestedLoopJoinNode will output column from both children
+            // in the intermediate tuple, so fe have to do the same, if be fix the problem, we can change it back.
+            for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                if (!leftSlotDescriptor.isMaterialized()) {
+                    continue;
                 }
-            } else if (nestedLoopJoin.getOtherJoinConjuncts().isEmpty()
-                    && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
-                for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
-                    if (!rightSlotDescriptor.isMaterialized()) {
-                        continue;
-                    }
-                    SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
-                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-                    rightIntermediateSlotDescriptor.add(sd);
+                SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                leftIntermediateSlotDescriptor.add(sd);
+            }
+            for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                if (!rightSlotDescriptor.isMaterialized()) {
+                    continue;
                 }
-            } else {
-                for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
-                    if (!leftSlotDescriptor.isMaterialized()) {
-                        continue;
-                    }
-                    SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
-                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-                    leftIntermediateSlotDescriptor.add(sd);
-                }
-                for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
-                    if (!rightSlotDescriptor.isMaterialized()) {
-                        continue;
-                    }
-                    SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
-                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-                    rightIntermediateSlotDescriptor.add(sd);
-                }
+                SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                rightIntermediateSlotDescriptor.add(sd);
             }
 
             // set slots as nullable for outer join
@@ -1025,9 +1011,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
             rightFragment.getPlanRoot().setCompactData(false);
-            nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
-            connectChildFragment(nestedLoopJoinNode, 1, leftFragment, rightFragment, context);
-            leftFragment.setPlanRoot(nestedLoopJoinNode);
+            if (needNewRootFragment) {
+                connectChildFragment(nestedLoopJoinNode, 0, joinFragment, leftFragment, context);
+            } else {
+                nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
+                joinFragment.setPlanRoot(nestedLoopJoinNode);
+            }
+            connectChildFragment(nestedLoopJoinNode, 1, joinFragment, rightFragment, context);
             List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
                     .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
             nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
@@ -1052,7 +1042,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (nestedLoopJoin.getStats() != null) {
                 nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
             }
-            return leftFragment;
+            return joinFragment;
         } else {
             throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");
         }

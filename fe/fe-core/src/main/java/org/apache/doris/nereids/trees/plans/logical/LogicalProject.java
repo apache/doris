@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -140,10 +142,16 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             return false;
         }
         LogicalProject that = (LogicalProject) o;
-        return projects.equals(that.projects)
+        boolean equal = projects.equals(that.projects)
                 && excepts.equals(that.excepts)
                 && canEliminate == that.canEliminate
                 && isDistinct == that.isDistinct;
+        // TODO: should add exprId for UnBoundStar and BoundStar for equality comparasion
+        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)
+                && (child().getClass() == that.child().getClass())) {
+            equal = Objects.equals(child(), that.child());
+        }
+        return equal;
     }
 
     @Override
