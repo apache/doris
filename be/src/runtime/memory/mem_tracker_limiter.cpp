@@ -354,7 +354,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem, Type 
                             "details see be.INFO.",
                             TypeString[type], TypeString[type], max_pq.top().second,
                             print_bytes(query_mem), BackendOptions::get_localhost(),
-                            PerfCounters::get_vm_rss_str(), print_bytes(MemInfo::soft_mem_limit()),
+                            PerfCounters::get_vm_rss_str(), MemInfo::soft_mem_limit_str(),
                             MemInfo::sys_mem_available_str(),
                             print_bytes(MemInfo::sys_mem_available_warning_water_mark())));
 

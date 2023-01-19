@@ -185,6 +185,7 @@ void Daemon::memory_maintenance_thread() {
 
         // Refresh mem tracker each type metrics.
         doris::MemTrackerLimiter::refresh_global_counter();
+        doris::MemTrackerLimiter::enable_print_log_process_usage();
 
         // If system available memory is not enough, or the process memory exceeds the limit, reduce refresh interval.
         if (doris::MemInfo::sys_mem_available() <
@@ -204,7 +205,6 @@ void Daemon::memory_maintenance_thread() {
             cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
         } else {
             interval_milliseconds = config::memory_maintenance_sleep_time_ms;
-            doris::MemTrackerLimiter::enable_print_log_process_usage();
             if (doris::config::memory_debug) {
                 doris::MemTrackerLimiter::print_log_process_usage("memory debug", false);
             } else {

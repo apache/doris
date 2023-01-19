@@ -47,6 +47,7 @@ int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
 std::string MemInfo::_s_mem_limit_str = "";
 int64_t MemInfo::_s_soft_mem_limit = -1;
+std::string MemInfo::_s_soft_mem_limit_str = "";
 
 int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
@@ -200,6 +201,7 @@ void MemInfo::init() {
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     _s_process_minor_gc_size =
             ParseUtil::parse_mem_spec(config::process_minor_gc_size, -1, _s_mem_limit, &is_percent);
@@ -236,7 +238,7 @@ void MemInfo::init() {
             config::max_sys_mem_available_low_water_mark_bytes);
     int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
     _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
-    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1 * 2;
+    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
@@ -261,6 +263,7 @@ void MemInfo::init() {
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;

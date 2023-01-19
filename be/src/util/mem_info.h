@@ -111,6 +111,10 @@ public:
         DCHECK(_s_initialized);
         return _s_soft_mem_limit;
     }
+    static inline std::string soft_mem_limit_str() {
+        DCHECK(_s_initialized);
+        return _s_soft_mem_limit_str;
+    }
 
     static std::string debug_string();
 
@@ -128,6 +132,7 @@ private:
     static int64_t _s_mem_limit;
     static std::string _s_mem_limit_str;
     static int64_t _s_soft_mem_limit;
+    static std::string _s_soft_mem_limit_str;
 
     static int64_t _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
