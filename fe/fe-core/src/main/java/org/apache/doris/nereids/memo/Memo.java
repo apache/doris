@@ -84,8 +84,6 @@ public class Memo {
     /**
      * This function used to update the root group when DPHyp change the root Group
      * Note it only used in DPHyp
-     *
-     * @param root The new root Group
      */
     public void setRoot(Group root) {
         this.root = root;

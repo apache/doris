@@ -74,13 +74,6 @@ public class Group {
         this.logicalProperties = logicalProperties;
     }
 
-    /**
-     * For unit test only.
-     */
-    public Group() {
-        groupId = null;
-    }
-
     public GroupId getGroupId() {
         return groupId;
     }
