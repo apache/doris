@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -224,12 +225,16 @@ public class TypeCoercionUtils {
         } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) right, DecimalV2Type.forType(left));
         } else if (left instanceof DateLikeType && right instanceof DateLikeType) {
+            // if dateType exist, change all to dateType, otherwise change all to dateTimeType
             if (left instanceof DateTimeV2Type && right instanceof DateTimeV2Type) {
                 if (((DateTimeV2Type) left).getScale() > ((DateTimeV2Type) right).getScale()) {
                     tightestCommonType = left;
                 } else {
                     tightestCommonType = right;
                 }
+            } else if (left instanceof DateV2Type || right instanceof DateV2Type
+                    || left instanceof DateType || right instanceof DateType) {
+                tightestCommonType = DateV2Type.INSTANCE;
             } else if (left instanceof DateTimeV2Type) {
                 tightestCommonType = left;
             } else if (right instanceof DateTimeV2Type) {
