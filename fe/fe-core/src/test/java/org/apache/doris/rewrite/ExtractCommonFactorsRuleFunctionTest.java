@@ -41,6 +41,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     private static final String TABLE_NAME_1 = "tb1";
     private static final String TABLE_NAME_2 = "tb2";
     private static final String TABLE_NAME_3 = "tb3";
+    private static final String TABLE_NAME_4 = "nation";
 
     @BeforeClass
     public static void beforeClass() throws Exception {
@@ -60,6 +61,18 @@ public class ExtractCommonFactorsRuleFunctionTest {
         createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_3
                 + " (k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 largeint, k6 date, k7 datetime, k8 float, k9 double) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        dorisAssert.withTable(createTableSQL);
+        createTableSQL = "CREATE TABLE " + DB_NAME + "." + TABLE_NAME_4 + "(\n"
+                + "  `n_nationkey` int(11) NOT NULL,\n"
+                + "  `n_name` varchar(25) NOT NULL,\n"
+                + "  `n_regionkey` int(11) NOT NULL,\n"
+                + "  `n_comment` varchar(152) NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(`n_nationkey`)\n"
+                + "DISTRIBUTED BY HASH(`n_nationkey`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
     }
 
@@ -310,5 +323,16 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // date
         String sql = "select * from tb3 where k9 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+    }
+
+    @Test
+    public void testExtractCommonFactorsWithOnClause() throws Exception {
+        String sql = "select * from\n"
+                + "db1.nation n1 join db1.nation n2\n"
+                + "on (n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')\n"
+                + "or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')";
+        String explainStr = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainStr.contains("PREDICATES: `n1`.`n_name` IN ('FRANCE', 'GERMANY')"));
+        Assert.assertTrue(explainStr.contains("PREDICATES: `n2`.`n_name` IN ('FRANCE', 'GERMANY')"));
     }
 }
