@@ -114,6 +114,7 @@ public:
 
     static std::string debug_string();
 
+    static void process_cache_gc(int64_t& freed_mem);
     static void process_minor_gc();
     static void process_full_gc();
 

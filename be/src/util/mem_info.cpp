@@ -89,23 +89,27 @@ void MemInfo::refresh_allocator_mem() {
 #endif
 }
 
+void MemInfo::process_cache_gc(int64_t& freed_mem) {
+    // TODO, free more cache, and should free a certain percentage of capacity, not all.
+    freed_mem += ChunkAllocator::instance()->mem_consumption();
+    ChunkAllocator::instance()->clear();
+    freed_mem +=
+            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+}
+
 // step1: free all cache
 // step2: free top overcommit query, if enable query memroy overcommit
 void MemInfo::process_minor_gc() {
-    // TODO, free more cache, and should free a certain percentage of capacity, not all.
     int64_t freed_mem = 0;
     Defer defer {[&]() {
         LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
     }};
 
-    freed_mem += ChunkAllocator::instance()->mem_consumption();
-    ChunkAllocator::instance()->clear();
+    MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_minor_gc_size) {
         return;
     }
-    freed_mem +=
-            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
-    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     if (config::enable_query_memroy_overcommit) {
         freed_mem +=
                 MemTrackerLimiter::free_top_overcommit_query(_s_process_minor_gc_size - freed_mem);
@@ -121,14 +125,7 @@ void MemInfo::process_full_gc() {
     Defer defer {
             [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
-    freed_mem +=
-            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
-    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
-    if (freed_mem > _s_process_full_gc_size) {
-        return;
-    }
-    freed_mem += ChunkAllocator::instance()->mem_consumption();
-    ChunkAllocator::instance()->clear();
+    MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_full_gc_size) {
         return;
     }
