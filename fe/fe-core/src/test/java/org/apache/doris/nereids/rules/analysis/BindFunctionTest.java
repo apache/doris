@@ -45,6 +45,7 @@ public class BindFunctionTest extends TestWithFeService implements PatternMatchS
     @Test
     public void testTimeArithmExpr() {
         String sql = "SELECT * FROM t1 WHERE col1 < date '1994-01-01' + interval '1' year";
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
