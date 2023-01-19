@@ -158,7 +158,7 @@ sh gen-tpch-data.sh
 
 Before import the script, you need to write the FE’s ip port and other information in the `doris-cluster.conf` file.
 
-The file location is at `${DORIS_HOME}/tools/tpch-tools/conf/load-tpch-data.sh`.
+The file is located under `${DORIS_HOME}/tools/tpch-tools/conf/` .
 
 The content of the file includes FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
 
