@@ -44,7 +44,8 @@ public:
     virtual Status init(RowsetReaderContext* read_context) = 0;
 
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
-                                         std::vector<RowwiseIterator*>* out_iters) = 0;
+                                         std::vector<RowwiseIterator*>* out_iters,
+                                         bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;
