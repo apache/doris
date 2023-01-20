@@ -138,7 +138,6 @@ Status DeltaWriter::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.oldest_write_timestamp = UnixSeconds();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->table_id();
     RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
