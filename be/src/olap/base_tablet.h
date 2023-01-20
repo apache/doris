@@ -101,7 +101,7 @@ inline const std::string& BaseTablet::tablet_path() const {
     return _tablet_path;
 }
 
-inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {
+inline const TabletMetaSharedPtr& BaseTablet::tablet_meta() {
     return _tablet_meta;
 }
 

@@ -30,6 +30,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/file_system.h"
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
@@ -291,6 +292,10 @@ public:
                                          std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // begin cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -298,7 +303,29 @@ public:
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
+    void update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
+        if (cooldown_term > _cooldown_term) {
+            LOG(INFO) << "update cooldown conf. cooldown_replica_id: " << _cooldown_replica_id
+                      << " -> " << cooldown_replica_id << ", cooldown_term: " << _cooldown_term
+                      << " -> " << cooldown_term;
+            _cooldown_replica_id = cooldown_replica_id;
+            _cooldown_term = cooldown_term;
+        }
+    }
+
     Status remove_all_remote_rowsets();
+
+    void remove_self_owned_remote_rowsets();
+
+    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
+    // REQUIRES: held _meta_lock
+    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
+
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
+                                     int64_t num_segments);
+    ////////////////////////////////////////////////////////////////////////////
+    // end cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
@@ -326,15 +353,6 @@ public:
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
-
-    void remove_self_owned_remote_rowsets();
-
-    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
-    // REQUIRES: held _meta_lock
-    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
-
-    void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
-                                     int64_t num_segments);
 
     bool check_all_rowset_segment();
 
@@ -382,10 +400,18 @@ private:
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
-    Status _cooldown_data();
-    Status _follow_cooldowned_data();
-    Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
-    Status _write_remote_tablet_meta(io::FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // begin cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
+    Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
+    Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
+    Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
+                               TabletMetaPB* tablet_meta_pb);
+    Status _write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta);
+    ////////////////////////////////////////////////////////////////////////////
+    // end cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -461,6 +487,10 @@ private:
 
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
+
+    // cooldown conf
+    int64_t _cooldown_replica_id = -1;
+    int64_t _cooldown_term = -1;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

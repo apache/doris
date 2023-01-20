@@ -1637,6 +1637,8 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+
         TPushStoragePolicyReq& push_storage_policy_req = agent_task_req.push_storage_policy_req;
         // refresh resource
         for (auto& resource : push_storage_policy_req.resource) {
@@ -1703,7 +1705,6 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
 void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TPushCooldownConfReq push_cooldown_conf_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
@@ -1714,32 +1715,29 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             }
 
             agent_task_req = _tasks.front();
-            push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
             _tasks.pop_front();
         }
-        for (auto cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
+        // FIXME(plat1ko): no need to save cooldown conf job state in FE
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(Status::OK().to_thrift());
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+
+        TPushCooldownConfReq& push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
+        for (auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
             int64_t tablet_id = cooldown_conf.tablet_id;
             TabletSharedPtr tablet =
                     StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
-            if (tablet.get() == nullptr) {
-                std::stringstream ss;
-                ss << "failed to get tablet. tablet_id=" << tablet_id;
-                LOG(WARNING) << ss.str();
+            if (tablet == nullptr) {
+                LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
                 continue;
             }
-            if (cooldown_conf.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
-                tablet->tablet_meta()->set_cooldown_replica_id_and_term(
-                        cooldown_conf.cooldown_replica_id, cooldown_conf.cooldown_term);
-                LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id
-                          << ", cooldown_conf: " << cooldown_conf.cooldown_replica_id << "("
-                          << cooldown_conf.cooldown_term << ")";
-            } else {
-                LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
-                             << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term()
-                             << " -> " << cooldown_conf.cooldown_term;
-            }
+            tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
+                                         cooldown_conf.cooldown_replica_id);
         }
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }
 
