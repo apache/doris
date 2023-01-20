@@ -52,8 +52,6 @@ import org.apache.doris.thrift.TFileType;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileSplit;
@@ -207,14 +205,6 @@ public class HiveScanProvider extends HMSTableScanProvider {
                                     .collect(Collectors.toList())));
         }
         allFiles.addAll(files);
-    }
-
-    protected Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : hmsTable.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
     }
 
     public int getTotalPartitionNum() {

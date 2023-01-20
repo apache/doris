@@ -25,6 +25,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -37,12 +38,15 @@ import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -173,11 +177,34 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public List<Column> getSchema(String dbName, String tblName) {
         makeSureInitialized();
         List<FieldSchema> schema = getClient().getSchema(dbName, tblName);
+        Optional<ExternalDatabase> db = getDb(dbName);
+        if (db.isPresent()) {
+            Optional table = db.get().getTable(tblName);
+            if (table.isPresent()) {
+                HMSExternalTable hmsTable = (HMSExternalTable) table.get();
+                if (hmsTable.getDlaType().equals(HMSExternalTable.DLAType.ICEBERG)) {
+                    return getIcebergSchema(hmsTable, schema);
+                }
+            }
+        }
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
             tmpSchema.add(new Column(field.getName(),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                     true, null, field.getComment(), true, null, -1));
+        }
+        return tmpSchema;
+    }
+
+    private List<Column> getIcebergSchema(HMSExternalTable table, List<FieldSchema> hmsSchema) {
+        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
+        Schema schema = icebergTable.schema();
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
+        for (FieldSchema field : hmsSchema) {
+            tmpSchema.add(new Column(field.getName(),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    true, null, field.getComment(), true, null,
+                    schema.caseInsensitiveFindField(field.getName()).fieldId()));
         }
         return tmpSchema;
     }

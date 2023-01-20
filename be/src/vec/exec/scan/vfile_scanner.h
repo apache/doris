@@ -68,12 +68,10 @@ protected:
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // File slot id to index in _file_slot_descs
-    std::unordered_map<SlotId, int> _file_slot_index_map;
-    // file col name to index in _file_slot_descs
-    std::map<std::string, int> _file_slot_name_map;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+    // column id to name map. Collect from FE slot descriptor.
+    std::unordered_map<int, std::string> _col_id_name_map;
 
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
