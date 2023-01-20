@@ -45,7 +45,8 @@ void BetaRowsetReader::reset_read_options() {
 }
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
-                                               std::vector<RowwiseIterator*>* out_iters) {
+                                               std::vector<RowwiseIterator*>* out_iters,
+                                               bool use_cache) {
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
@@ -162,9 +163,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.io_ctx.reader_type = read_context->reader_type;
 
     // load segments
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle,
-            read_context->reader_type == ReaderType::READER_QUERY));
+    // use cache is true when do vertica compaction
+    bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;
+    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
+                                                           should_use_cache));
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;

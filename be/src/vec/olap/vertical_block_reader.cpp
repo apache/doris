@@ -53,7 +53,9 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     _reader_context.is_vertical_compaction = true;
     for (auto& rs_reader : rs_readers) {
         // segment iterator will be inited here
-        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters));
+        // In vertical compaction, every group will load segment so we should cache
+        // segment to avoid tot many s3 head request
+        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters, true));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current

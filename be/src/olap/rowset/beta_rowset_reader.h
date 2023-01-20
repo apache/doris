@@ -36,7 +36,8 @@ public:
     Status init(RowsetReaderContext* read_context) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
-                                 std::vector<RowwiseIterator*>* out_iters) override;
+                                 std::vector<RowwiseIterator*>* out_iters,
+                                 bool use_cache = false) override;
     void reset_read_options() override;
 
     // It's ok, because we only get ref here, the block's owner is this reader.
