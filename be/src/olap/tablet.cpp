@@ -1852,7 +1852,7 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
-    // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than 
+    // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than
     // current time or it's datatime is less than current time
     if (newest_cooldown_time < UnixSeconds()) {
         *cooldown_timestamp = newest_cooldown_time;
