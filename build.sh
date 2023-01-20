@@ -46,6 +46,7 @@ Usage: $0 <options>
      --audit            build audit loader. Default ON.
      --spark-dpp        build Spark DPP application. Default ON.
      --hive-udf         build Hive UDF library for Spark Load. Default ON.
+     --ui               build UI. Default ON.
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -132,6 +133,7 @@ BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=0
 BUILD_HIVE_UDF=0
+BUILD_UI=0
 CLEAN=0
 HELP=0
 PARAMETER_COUNT="$#"
@@ -146,14 +148,13 @@ if [[ "$#" == 1 ]]; then
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_JAVA_UDF=1
+    BUILD_UI=1
     CLEAN=0
 else
     while true; do
         case "$1" in
         --fe)
             BUILD_FE=1
-            BUILD_SPARK_DPP=1
-            BUILD_HIVE_UDF=1
             BUILD_JAVA_UDF=1
             shift
             ;;
@@ -180,6 +181,10 @@ else
             ;;
         --hive-udf)
             BUILD_HIVE_UDF=1
+            shift
+            ;;
+        --ui)
+            BUILD_UI=1
             shift
             ;;
         --clean)
@@ -340,6 +345,7 @@ echo "Get params:
     BUILD_SPARK_DPP     -- ${BUILD_SPARK_DPP}
     BUILD_JAVA_UDF      -- ${BUILD_JAVA_UDF}
     BUILD_HIVE_UDF      -- ${BUILD_HIVE_UDF}
+    BUILD_UI            -- ${BUILD_UI}
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     WITH_MYSQL          -- ${WITH_MYSQL}
@@ -474,7 +480,7 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [[ "${BUILD_FE}" -eq 1 ]]; then
+if [[ "${BUILD_UI}" -eq 1 ]]; then
     build_ui
 fi
 
