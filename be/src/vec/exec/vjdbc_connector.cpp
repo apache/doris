@@ -53,12 +53,6 @@ JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
           _conn_param(param),
           _closed(false) {}
 
-JdbcConnector::JdbcConnector(NewJdbcScanner* jdbc_scanner, const JdbcConnectorParam& param)
-        : TableConnector(param.tuple_desc, param.query_string),
-          _jdbc_scanner(jdbc_scanner),
-          _conn_param(param),
-          _closed(false) {}
-
 JdbcConnector::~JdbcConnector() {
     if (!_closed) {
         close();
@@ -71,7 +65,7 @@ JdbcConnector::~JdbcConnector() {
 #define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
 
 Status JdbcConnector::close() {
-    SCOPED_TIMER(_jdbc_scanner->_connector_close_timer);
+    SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
     _closed = true;
     if (!_is_open) {
         return Status::OK();
@@ -132,12 +126,12 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         if (_conn_param.resource_name.empty()) {
             // for jdbcExternalTable, _conn_param.resource_name == ""
             // so, we use _conn_param.driver_path as key of jarpath
-            SCOPED_TIMER(_jdbc_scanner->_load_jar_timer);
+            SCOPED_RAW_TIMER(&_jdbc_statistic._load_jar_timer);
             RETURN_IF_ERROR(function_cache->get_jarpath(
                     std::abs((int64_t)hash_str(_conn_param.driver_path)), _conn_param.driver_path,
                     _conn_param.driver_checksum, &local_location));
         } else {
-            SCOPED_TIMER(_jdbc_scanner->_load_jar_timer);
+            SCOPED_RAW_TIMER(&_jdbc_statistic._load_jar_timer);
             RETURN_IF_ERROR(function_cache->get_jarpath(
                     std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
                     _conn_param.driver_checksum, &local_location));
@@ -158,7 +152,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         RETURN_IF_ERROR(jni_frame.push(env));
         RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
         {
-            SCOPED_TIMER(_jdbc_scanner->_init_connector_timer);
+            SCOPED_RAW_TIMER(&_jdbc_statistic._init_connector_timer);
             _executor_obj = env->NewObject(_executor_clazz, _executor_ctor_id, ctor_params_bytes);
         }
         jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
@@ -186,7 +180,7 @@ Status JdbcConnector::query() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     {
-        SCOPED_TIMER(_jdbc_scanner->_execte_read_timer);
+        SCOPED_RAW_TIMER(&_jdbc_statistic._execte_read_timer);
         jint colunm_count =
                 env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_read_id);
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
@@ -201,7 +195,7 @@ Status JdbcConnector::query() {
 }
 
 Status JdbcConnector::_check_column_type() {
-    SCOPED_TIMER(_jdbc_scanner->_check_type_timer);
+    SCOPED_RAW_TIMER(&_jdbc_statistic._check_type_timer);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     jobject type_lists =
@@ -349,7 +343,7 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
     if (!_is_open) {
         return Status::InternalError("get_next before open of jdbc connector.");
     }
-    SCOPED_TIMER(_jdbc_scanner->_get_data_timer);
+    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     jboolean has_next =

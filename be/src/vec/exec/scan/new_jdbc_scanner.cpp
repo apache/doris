@@ -18,6 +18,7 @@
 #include "new_jdbc_scanner.h"
 
 #include "util/runtime_profile.h"
+#include "vec/exec/vjdbc_connector.h"
 
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
@@ -76,7 +77,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
 
-    _jdbc_connector.reset(new (std::nothrow) JdbcConnector(this, _jdbc_param));
+    _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {
         return Status::InternalError("new a jdbc scanner failed.");
     }
@@ -163,6 +164,13 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
 Status NewJdbcScanner::close(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::close(state));
     RETURN_IF_ERROR(_jdbc_connector->close());
+    JdbcConnector::JdbcStatistic& jdbc_statistic = _jdbc_connector->get_jdbc_statistic();
+    COUNTER_UPDATE(_load_jar_timer, jdbc_statistic._load_jar_timer);
+    COUNTER_UPDATE(_init_connector_timer, jdbc_statistic._init_connector_timer);
+    COUNTER_UPDATE(_check_type_timer, jdbc_statistic._check_type_timer);
+    COUNTER_UPDATE(_get_data_timer, jdbc_statistic._get_data_timer);
+    COUNTER_UPDATE(_execte_read_timer, jdbc_statistic._execte_read_timer);
+    COUNTER_UPDATE(_connector_close_timer, jdbc_statistic._connector_close_timer);
     return Status::OK();
 }
 } // namespace doris::vectorized
