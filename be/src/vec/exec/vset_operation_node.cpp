@@ -132,7 +132,8 @@ VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlan
           _valid_element_in_hash_tbl(0),
           _mem_used(0),
           _build_block_index(0),
-          _build_finished(false) {
+          _build_finished(false),
+          _mutable_block(row_desc().tuple_descriptors()) {
     _hash_table_variants = std::make_unique<HashTableVariants>();
     _arena = std::make_unique<Arena>();
 }
@@ -243,9 +244,9 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
 
-    for (auto ctx : _child_expr_lists[0]) {
-        _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(ctx->root()->data_type());
+    for (auto data_type : _mutable_block.data_types()) {
+        _build_not_ignore_null.push_back(data_type->is_nullable());
+        _left_table_data_types.push_back(data_type);
     }
     hash_table_init();
 
@@ -406,8 +407,6 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     SCOPED_TIMER(_build_timer);
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
-    MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
-
     bool eos = false;
     while (!eos) {
         block.clear_column_data();
