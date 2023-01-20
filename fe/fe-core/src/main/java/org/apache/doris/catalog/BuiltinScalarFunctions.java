@@ -319,6 +319,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Weekday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
@@ -641,6 +642,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(WeeksAdd.class, "weeks_add"),
             scalar(WeeksDiff.class, "weeks_diff"),
             scalar(WeeksSub.class, "weeks_sub"),
+            scalar(WidthBucket.class, "width_bucket"),
             scalar(Year.class, "year"),
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),
