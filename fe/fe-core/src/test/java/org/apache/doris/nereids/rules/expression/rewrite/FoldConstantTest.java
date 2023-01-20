@@ -120,7 +120,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testNotFold() {
+    public void testNotPredicateFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("not 1 > 2", "true");
         assertRewriteAfterTypeCoercion("not null + 1 > 2", "null");
