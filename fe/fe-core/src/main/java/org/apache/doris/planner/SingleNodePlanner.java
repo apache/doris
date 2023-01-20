@@ -1943,9 +1943,8 @@ public class SingleNodePlanner {
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case HUDI:
-                scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
-                        null, -1);
-                break;
+                throw new UserException(
+                        "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;

@@ -27,7 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Pair;
 
-import org.apache.directory.api.util.Strings;
+import com.google.common.base.Joiner;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -74,7 +74,7 @@ public class PredicatePushDown {
         if (tupleIdList.size() != 1) {
             LOG.info("The predicate pushdown is not reflected "
                             + "because the scan node involves more then one tuple:{}",
-                    Strings.listToString(tupleIdList));
+                    Joiner.on(",").join(tupleIdList));
             return;
         }
         TupleId rightSideTuple = tupleIdList.get(0);

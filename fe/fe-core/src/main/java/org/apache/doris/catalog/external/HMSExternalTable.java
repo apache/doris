@@ -288,10 +288,6 @@ public class HMSExternalTable extends ExternalTable {
         return catalog.getProperties();
     }
 
-    public Map<String, String> getS3HadoopProperties() {
-        return catalog.getCatalogProperty().getS3HadoopProperties();
-    }
-
     public Map<String, String> getHadoopProperties() {
         return catalog.getCatalogProperty().getHadoopProperties();
     }
