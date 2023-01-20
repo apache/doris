@@ -438,7 +438,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isIntegerLikeType() {
-        return this instanceof IntegralType;
+        return this instanceof IntegralType && !(this instanceof LargeIntType);
     }
 
     public boolean isTinyIntType() {
