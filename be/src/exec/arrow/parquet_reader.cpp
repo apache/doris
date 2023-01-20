@@ -52,7 +52,6 @@ ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
           _range_size(range_size) {}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                      const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
         parquet::ArrowReaderProperties arrow_reader_properties =
@@ -101,15 +100,6 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices());
-        _need_filter_row_group = (tuple_desc != nullptr);
-        if (_need_filter_row_group) {
-            int64_t file_size = 0;
-            size(&file_size);
-            _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
-                                                       conjunct_ctxs, _file_metadata, this));
-            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
-                                                  file_size);
-        }
         _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
         return Status::OK();
     } catch (parquet::ParquetException& e) {
@@ -553,13 +543,6 @@ void ParquetReaderWrap::read_batches(arrow::RecordBatchVector& batches, int curr
 }
 
 bool ParquetReaderWrap::filter_row_group(int current_group) {
-    if (_need_filter_row_group) {
-        auto filter_group_set = _row_group_reader->filter_groups();
-        if (filter_group_set.end() != filter_group_set.find(current_group)) {
-            // find filter group, skip
-            return true;
-        }
-    }
     return false;
 }
 

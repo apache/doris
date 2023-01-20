@@ -84,9 +84,7 @@ public:
                     FileReader* file_reader, int32_t num_of_columns_from_file, bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
-    virtual Status init_reader(const TupleDescriptor* tuple_desc,
-                               const std::vector<ExprContext*>& conjunct_ctxs,
-                               const std::string& timezone) = 0;
+    virtual Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) = 0;
     // for row
     virtual Status read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
         return Status::NotSupported("Not Implemented read");

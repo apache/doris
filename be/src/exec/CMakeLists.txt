@@ -25,7 +25,6 @@ set(EXEC_FILES
     arrow/arrow_reader.cpp
     arrow/orc_reader.cpp
     arrow/parquet_reader.cpp
-    arrow/parquet_row_group_reader.cpp
     base_scanner.cpp
     data_sink.cpp
     decompressor.cpp
