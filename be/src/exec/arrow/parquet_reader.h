@@ -96,8 +96,6 @@ private:
     int _current_line_of_group;
     int _current_line_of_batch;
     std::string _timezone;
-    int64_t _range_start_offset;
-    int64_t _range_size;
 };
 
 } // namespace doris

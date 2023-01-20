@@ -47,9 +47,7 @@ ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
                           case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
-          _current_line_of_batch(0),
-          _range_start_offset(range_start_offset),
-          _range_size(range_size) {}
+          _current_line_of_batch(0) {}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                                       const std::string& timezone) {
