@@ -49,6 +49,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendStatus;
 import org.apache.doris.system.SystemInfoService;
@@ -302,12 +303,11 @@ public class ReportHandler extends Daemon {
     }
 
     private static void diffPolicy(List<TStoragePolicy> storagePoliciesInBe, List<Policy> policiesInFe,
-                                              List<Policy> policyToPush,
-                                              List<Long> policyToDrop) {
+            List<Policy> policyToPush, List<Long> policyToDrop) {
         // fe - be
         for (Policy policy : policiesInFe) {
-            if (policy.getId() <= 0) {
-                continue; // ignore policy with invalid id
+            if (policy.getId() <= 0 || ((StoragePolicy) policy).getStorageResource() == null) {
+                continue; // ignore policy with invalid id or storage resource
             }
             boolean beHasIt = false;
             for (TStoragePolicy tStoragePolicy : storagePoliciesInBe) {

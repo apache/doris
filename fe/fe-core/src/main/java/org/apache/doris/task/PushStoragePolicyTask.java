@@ -56,23 +56,26 @@ public class PushStoragePolicyTask extends AgentTask {
         storagePolicy.forEach(p -> {
             TStoragePolicy item = new TStoragePolicy();
             p.readLock();
-            item.setId(p.getId());
-            item.setName(p.getPolicyName());
-            item.setVersion(p.getVersion());
-            StoragePolicy storagePolicy = (StoragePolicy) p;
-            String resourceName = storagePolicy.getStorageResource();
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (resource == null || resource.getType() != ResourceType.S3) {
+            try {
+                item.setId(p.getId());
+                item.setName(p.getPolicyName());
+                item.setVersion(p.getVersion());
+                StoragePolicy storagePolicy = (StoragePolicy) p;
+                String resourceName = storagePolicy.getStorageResource();
+                Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+                if (resource == null || resource.getType() != ResourceType.S3) {
+                    LOG.warn("can't find s3 resource by name {}", resourceName);
+                    return;
+                }
+                item.setResourceId(resource.getId());
+                long coolDownDatetime = storagePolicy.getCooldownTimestampMs() / 1000;
+                item.setCooldownDatetime(coolDownDatetime);
+                long coolDownTtl = storagePolicy.getCooldownTtlMs() / 1000;
+                item.setCooldownTtl(coolDownTtl);
+            } finally {
                 p.readUnlock();
-                LOG.warn("can't find s3 resource by name {}", resourceName);
-                return;
             }
-            item.setResourceId(resource.getId());
-            long coolDownDatetime = storagePolicy.getCooldownTimestampMs() / 1000;
-            item.setCooldownDatetime(coolDownDatetime);
-            long coolDownTtl = storagePolicy.getCooldownTtlMs() / 1000;
-            item.setCooldownTtl(coolDownTtl);
-            p.readUnlock();
+            tStoragePolicies.add(item);
         });
         ret.setStoragePolicy(tStoragePolicies);
 
@@ -102,6 +105,7 @@ public class PushStoragePolicyTask extends AgentTask {
                     ? S3Resource.DEFAULT_S3_CONNECTION_TIMEOUT_MS : connTimeoutMs));
             r.readUnlock();
             item.setS3StorageParam(s3Info);
+            tStorageResources.add(item);
         });
         ret.setResource(tStorageResources);
 
