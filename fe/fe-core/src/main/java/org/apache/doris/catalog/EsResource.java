@@ -85,7 +85,7 @@ public class EsResource extends Resource {
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
         valid(properties, false);
-        this.properties = properties;
+        this.properties = processCompatibleProperties(properties);
     }
 
     public static void valid(Map<String, String> properties, boolean isAlter) throws DdlException {
@@ -124,15 +124,24 @@ public class EsResource extends Resource {
         }
     }
 
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) {
+        // Compatible with ES catalog properties
+        Map<String, String> properties = Maps.newHashMap(props);
+        if (properties.containsKey("username")) {
+            properties.put(EsResource.USER, properties.remove("username"));
+        }
+        return properties;
+    }
+
     @Override
     public Map<String, String> getCopiedProperties() {
-        return Maps.newHashMap(properties);
+        return Maps.newHashMap(processCompatibleProperties(properties));
     }
 
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : processCompatibleProperties(properties).entrySet()) {
             result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
         }
     }

@@ -294,28 +294,41 @@ public class IntLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!targetType.isNumericType()) {
-            return super.uncheckedCastTo(targetType);
-        }
-        if (targetType.isFixedPointType()) {
-            if (!targetType.isScalarType(PrimitiveType.LARGEINT)) {
-                if (!type.equals(targetType)) {
-                    IntLiteral intLiteral = new IntLiteral(this);
-                    intLiteral.setType(targetType);
-                    return intLiteral;
+        if (targetType.isNumericType()) {
+            if (targetType.isFixedPointType()) {
+                if (!targetType.isScalarType(PrimitiveType.LARGEINT)) {
+                    if (!type.equals(targetType)) {
+                        IntLiteral intLiteral = new IntLiteral(this);
+                        intLiteral.setType(targetType);
+                        return intLiteral;
+                    }
+                    return this;
+                } else {
+                    return new LargeIntLiteral(Long.toString(value));
                 }
-                return this;
-            } else {
-                return new LargeIntLiteral(Long.toString(value));
+            } else if (targetType.isFloatingPointType()) {
+                return new FloatLiteral(new Double(value), targetType);
+            } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
+                DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                res.setType(targetType);
+                return res;
             }
-        } else if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(new Double(value), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
-            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            return this;
+        } else if (targetType.isDateLike()) {
+            try {
+                //int like 20200101 can be cast to date(2020,01,01)
+                DateLiteral res = new DateLiteral("" + value, targetType);
+                res.setType(targetType);
+                return res;
+            } catch (AnalysisException e) {
+                //invalid date format. leave it to BE to cast it as NULL
+            }
+        } else if (targetType.isStringType()) {
+            StringLiteral res = new StringLiteral("" + value);
             res.setType(targetType);
             return res;
         }
-        return this;
+        return super.uncheckedCastTo(targetType);
     }
 
     @Override

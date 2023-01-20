@@ -260,6 +260,20 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
     return res;
 }
 
+RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_id) {
+            return version_rowset.second;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_id) {
+            return stale_version_rowset.second;
+        }
+    }
+    return nullptr;
+}
+
 Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
@@ -952,71 +966,6 @@ void Tablet::calculate_cumulative_point() {
         return;
     }
     set_cumulative_layer_point(ret_cumulative_point);
-}
-
-Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                           uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
-    DCHECK(ranges != nullptr);
-
-    size_t key_num = 0;
-    RowCursor start_key;
-    // 如果有startkey，用startkey初始化；反之则用minkey初始化
-    if (start_key_strings.size() > 0) {
-        if (start_key.init_scan_key(_schema, start_key_strings.values()) != Status::OK()) {
-            LOG(WARNING) << "fail to initial key strings with RowCursor type.";
-            return Status::Error<INIT_FAILED>();
-        }
-
-        if (start_key.from_tuple(start_key_strings) != Status::OK()) {
-            LOG(WARNING) << "init end key failed";
-            return Status::Error<INVALID_SCHEMA>();
-        }
-        key_num = start_key_strings.size();
-    } else {
-        if (start_key.init(_schema, num_short_key_columns()) != Status::OK()) {
-            LOG(WARNING) << "fail to initial key strings with RowCursor type.";
-            return Status::Error<INIT_FAILED>();
-        }
-
-        start_key.allocate_memory_for_string_type(_schema);
-        start_key.build_min_key();
-        key_num = num_short_key_columns();
-    }
-
-    RowCursor end_key;
-    // 和startkey一样处理，没有则用maxkey初始化
-    if (end_key_strings.size() > 0) {
-        if (!end_key.init_scan_key(_schema, end_key_strings.values())) {
-            LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
-            return Status::Error<INVALID_SCHEMA>();
-        }
-
-        if (end_key.from_tuple(end_key_strings) != Status::OK()) {
-            LOG(WARNING) << "init end key failed";
-            return Status::Error<INVALID_SCHEMA>();
-        }
-    } else {
-        if (end_key.init(_schema, num_short_key_columns()) != Status::OK()) {
-            LOG(WARNING) << "fail to initial key strings with RowCursor type.";
-            return Status::Error<INIT_FAILED>();
-        }
-
-        end_key.allocate_memory_for_string_type(_schema);
-        end_key.build_max_key();
-    }
-
-    std::shared_lock rdlock(_meta_lock);
-    RowsetSharedPtr rowset = _rowset_with_largest_size();
-
-    // 如果找不到合适的rowset，就直接返回startkey，endkey
-    if (rowset == nullptr) {
-        VLOG_NOTICE << "there is no base file now, may be tablet is empty.";
-        // it may be right if the tablet is empty, so we return success.
-        ranges->emplace_back(start_key.to_tuple());
-        ranges->emplace_back(end_key.to_tuple());
-        return Status::OK();
-    }
-    return rowset->split_range(start_key, end_key, request_block_row_count, key_num, ranges);
 }
 
 // NOTE: only used when create_table, so it is sure that there is no concurrent reader and writer.

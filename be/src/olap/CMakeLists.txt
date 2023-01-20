@@ -62,7 +62,6 @@ add_library(Olap STATIC
     data_dir.cpp
     short_key_index.cpp
     snapshot_manager.cpp
-    stream_index_common.cpp
     stream_name.cpp
     tablet.cpp
     tablet_manager.cpp
@@ -110,7 +109,6 @@ add_library(Olap STATIC
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
-    column_vector.cpp
     segment_loader.cpp
     storage_policy_mgr.cpp
 )

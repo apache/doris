@@ -538,6 +538,25 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message PMultiGetRequest {
+    message RowId {
+        optional int64 tablet_id = 1;
+        optional string rowset_id = 2;
+        optional uint64 segment_id = 3;
+        optional uint64 ordinal_id = 4;
+    };
+    repeated RowId rowids = 1;
+    optional PTupleDescriptor desc = 2;
+    repeated PSlotDescriptor slots = 3;
+    // for compability
+    optional int32 be_exec_version = 4;
+};
+
+message PMultiGetResponse {
+    optional PBlock block = 1;
+    optional PStatus status = 2;
 };
 
 service PBackendService {
@@ -572,5 +591,6 @@ service PBackendService {
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
+    rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
 };
 

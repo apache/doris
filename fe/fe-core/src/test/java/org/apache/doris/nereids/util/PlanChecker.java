@@ -325,11 +325,12 @@ public class PlanChecker {
         boolean changeRoot = false;
         if (root.isJoinGroup()) {
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            // FIXME: can't match type, convert List<Slot> to List<NamedExpression>
             GroupExpression newExpr = new GroupExpression(
                     new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
                     Lists.newArrayList(root));
-            root = new Group();
-            root.addGroupExpression(newExpr);
+            // FIXME: use wrong constructor.
+            root = new Group(null, newExpr, null);
             changeRoot = true;
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -370,11 +371,6 @@ public class PlanChecker {
                         + memo.copyOut().treeString()
                         + "\n"
         );
-        return this;
-    }
-
-    public PlanChecker checkCascadesContext(Consumer<CascadesContext> contextChecker) {
-        contextChecker.accept(cascadesContext);
         return this;
     }
 

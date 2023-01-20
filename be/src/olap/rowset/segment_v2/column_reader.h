@@ -44,7 +44,6 @@
 
 namespace doris {
 
-class ColumnBlock;
 class TypeInfo;
 class BlockCompressionCodec;
 class WrapperField;
@@ -259,20 +258,10 @@ public:
     // then returns false.
     virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
-
-    // After one seek, we can call this function many times to read data
-    // into ColumnBlockView. when read string type data, memory will allocated
-    // from MemPool
-    virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
         return Status::NotSupported("next_batch not implement");
@@ -320,8 +309,6 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     Status seek_to_page_start();
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -386,10 +373,6 @@ class EmptyFileColumnIterator final : public ColumnIterator {
 public:
     Status seek_to_first() override { return Status::OK(); }
     Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override {
-        *n = 0;
-        return Status::OK();
-    }
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
@@ -401,8 +384,6 @@ public:
     ~ArrayFileColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -434,6 +415,56 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
     Status _calculate_offsets(ssize_t start,
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
+};
+
+class RowIdColumnIterator : public ColumnIterator {
+public:
+    RowIdColumnIterator() = delete;
+    RowIdColumnIterator(int32_t tid, RowsetId rid, int32_t segid)
+            : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        for (size_t i = 0; i < *n; ++i) {
+            rowid_t row_id = _current_rowid + i;
+            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
+        }
+        _current_rowid += *n;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        for (size_t i = 0; i < count; ++i) {
+            rowid_t row_id = rowids[i];
+            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    rowid_t _current_rowid = 0;
+    int32_t _tablet_id = 0;
+    RowsetId _rowset_id;
+    int32_t _segment_id = 0;
 };
 
 // This iterator is used to read default value column
@@ -469,8 +500,6 @@ public:
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 

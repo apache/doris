@@ -1558,10 +1558,6 @@ build_clucene() {
         USE_AVX2="${USE_AVX2:-0}"
     fi
 
-    if [[ -z ${BUILD_TYPE} ]]; then
-        BUILD_TYPE=Release
-    fi
-
     check_if_source_exist "${CLUCENE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
 
@@ -1578,7 +1574,7 @@ build_clucene() {
         -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
         -DUSE_STAT64=0 \
         -DUSE_AVX2="${USE_AVX2}" \
-        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBUILD_CONTRIBS_LIB=ON ..
     ${BUILD_SYSTEM} -j "${PARALLEL}"
     ${BUILD_SYSTEM} install

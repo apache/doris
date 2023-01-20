@@ -18,7 +18,6 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 
 #include "io/fs/file_reader.h"
-#include "olap/column_block.h"                       // for ColumnBlockView
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
@@ -503,69 +502,6 @@ Status ArrayFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     return Status::OK();
 }
 
-Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
-    ColumnBlock* array_block = dst->column_block();
-    auto* array_batch = static_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
-
-    // 1. read n+1 offsets
-    array_batch->offsets()->resize(*n + 1);
-    ColumnBlock offset_block(array_batch->offsets(), nullptr);
-    ColumnBlockView offset_view(&offset_block);
-    bool offset_has_null = false;
-    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &offset_view, &offset_has_null));
-    DCHECK(!offset_has_null);
-
-    if (*n == 0) {
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(_peek_one_offset(reinterpret_cast<ordinal_t*>(offset_view.data())));
-
-    size_t start_offset = dst->current_offset();
-    auto* ordinals = reinterpret_cast<ordinal_t*>(offset_block.data());
-    array_batch->put_item_ordinal(ordinals, start_offset, *n + 1);
-
-    // 2. read null
-    if (_array_reader->is_nullable()) {
-        DCHECK(dst->is_nullable());
-        auto null_batch = array_batch->get_null_as_batch();
-        ColumnBlock null_block(&null_batch, nullptr);
-        ColumnBlockView null_view(&null_block, dst->current_offset());
-        size_t size = *n;
-        bool null_signs_has_null = false;
-        _null_iterator->next_batch(&size, &null_view, &null_signs_has_null);
-        DCHECK(!null_signs_has_null);
-        *has_null = true; // just set has_null to is_nullable
-    } else {
-        *has_null = false;
-    }
-
-    // read item
-    size_t item_size = ordinals[*n] - ordinals[0];
-    bool item_has_null = false;
-    ColumnVectorBatch* item_vector_batch = array_batch->elements();
-
-    bool rebuild_array_from0 = false;
-    if (item_vector_batch->capacity() < array_batch->item_offset(dst->current_offset() + *n)) {
-        item_vector_batch->resize(array_batch->item_offset(dst->current_offset() + *n));
-        rebuild_array_from0 = true;
-    }
-
-    ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
-    ColumnBlockView item_view =
-            ColumnBlockView(&item_block, array_batch->item_offset(dst->current_offset()));
-    size_t real_read = item_size;
-    RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view, &item_has_null));
-    DCHECK(item_size == real_read);
-
-    size_t rebuild_start_offset = rebuild_array_from0 ? 0 : dst->current_offset();
-    size_t rebuild_size = rebuild_array_from0 ? dst->current_offset() + *n : *n;
-    array_batch->prepare_for_read(rebuild_start_offset, rebuild_size, item_has_null);
-
-    dst->advance(*n);
-    return Status::OK();
-}
-
 Status ArrayFileColumnIterator::_seek_by_offsets(ordinal_t ord) {
     // using offsets info
     ordinal_t offset = 0;
@@ -728,69 +664,6 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
 
     page->data_decoder->seek_to_position_in_page(pos_in_data);
     page->offset_in_page = offset_in_page;
-}
-
-Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
-    size_t remaining = *n;
-    *has_null = false;
-    while (remaining > 0) {
-        if (!_page.has_remaining()) {
-            bool eos = false;
-            RETURN_IF_ERROR(_load_next_page(&eos));
-            if (eos) {
-                break;
-            }
-        }
-
-        // number of rows to be read from this page
-        size_t nrows_in_page = std::min(remaining, _page.remaining());
-        size_t nrows_to_read = nrows_in_page;
-        if (_page.has_null) {
-            // when this page contains NULLs we read data in some runs
-            // first we read null bits in the same value, if this is null, we
-            // don't need to read value from page.
-            // If this is not null, we read data from page in batch.
-            // This would be bad in case that data is arranged one by one, which
-            // will lead too many function calls to PageDecoder
-            while (nrows_to_read > 0) {
-                bool is_null = false;
-                size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
-                // we use num_rows only for CHECK
-                size_t num_rows = this_run;
-                if (!is_null) {
-                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
-                    DCHECK_EQ(this_run, num_rows);
-                } else {
-                    *has_null = true;
-                }
-
-                // set null bits
-                dst->set_null_bits(this_run, is_null);
-
-                nrows_to_read -= this_run;
-                _page.offset_in_page += this_run;
-                dst->advance(this_run);
-                _current_ordinal += this_run;
-            }
-        } else {
-            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
-            DCHECK_EQ(nrows_to_read, nrows_in_page);
-
-            if (dst->is_nullable()) {
-                dst->set_null_bits(nrows_to_read, false);
-            }
-
-            _page.offset_in_page += nrows_to_read;
-            dst->advance(nrows_to_read);
-            _current_ordinal += nrows_to_read;
-        }
-        remaining -= nrows_in_page;
-    }
-    *n -= remaining;
-    // TODO(hkp): for string type, the bytes_read should be passed to page decoder
-    // bytes_read = data size + null bitmap size
-    _opts.stats->bytes_read += *n * dst->type_info()->size() + BitmapSize(*n);
-    return Status::OK();
 }
 
 Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
@@ -1052,24 +925,6 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     } else {
         return Status::InternalError(
                 "invalid default value column for no default value and not nullable");
-    }
-    return Status::OK();
-}
-
-Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
-    if (dst->is_nullable()) {
-        dst->set_null_bits(*n, _is_default_value_null);
-    }
-
-    if (_is_default_value_null) {
-        *has_null = true;
-        dst->advance(*n);
-    } else {
-        *has_null = false;
-        for (int i = 0; i < *n; ++i) {
-            memcpy(dst->data(), _mem_value, _type_size);
-            dst->advance(1);
-        }
     }
     return Status::OK();
 }

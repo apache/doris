@@ -1563,7 +1563,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (int i = 0; i < leftDistributionSpec.getOrderedShuffledColumns().size(); i++) {
             int idx = leftDistributionSpec.getExprIdToEquivalenceSet()
                     .get(leftDistributionSpec.getOrderedShuffledColumns().get(i));
-            rightPartitionExprIds.set(idx, onClauseUsedSlots.second.get(i));
+            ExprId leftShuffleColumnId = leftDistributionSpec.getOrderedShuffledColumns().get(i);
+            Set<ExprId> equivalIds = leftDistributionSpec.getEquivalenceExprIdsOf(leftShuffleColumnId);
+            int index = -1;
+            for (ExprId id : equivalIds) {
+                index = onClauseUsedSlots.first.indexOf(id);
+                if (index != -1) {
+                    break;
+                }
+            }
+            Preconditions.checkArgument(index != -1);
+            rightPartitionExprIds.set(idx, onClauseUsedSlots.second.get(index));
         }
         // assemble fragment
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);

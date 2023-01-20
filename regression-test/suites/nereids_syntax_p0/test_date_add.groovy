@@ -20,17 +20,6 @@ suite("test_date_add") {
     sql "set enable_fallback_to_original_planner=false"
     sql "set enable_fold_constant_by_be=false"
     
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as date), interval 2 day)"
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as datev2),interval 2 day)"
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as datetime), interval 2 day)"
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as datetimev2), interval 2 day)"
-    
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as date), interval 2 hour)"
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as datev2),interval 2 hour)"
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as datetime), interval 2 hour)"
-    qt_select "select TIMESTAMPADD(cast('2020-01-01' as datetimev2), interval 2 hour)"
-    qt_select "select TIMESTAMPADD('2020-01-01' , interval 2 year)"
-
     qt_select "SELECT DAYS_ADD('2020-01-01', interval 2 hour)"
     qt_select "SELECT DAYS_ADD('2020-01-01', interval 2 minute)"
     qt_select "SELECT DAYS_ADD('2020-01-01', interval 2 second)"
@@ -38,4 +27,30 @@ suite("test_date_add") {
     qt_select "SELECT ADDDATE('2020-01-01', interval 2 day)"
     qt_select "SELECT DAYS_ADD('2020-01-01', 2)"
     qt_select "SELECT DAYS_ADD('2020-01-01', -4)"
+    
+    qt_select "SELECT YEARS_ADD('2020-01-01', 2)"
+    qt_select "SELECT YEARS_ADD('2020-01-01', -4)"
+
+    qt_select "SELECT MONTHS_ADD('2020-01-01', 2)"
+    qt_select "SELECT MONTHS_ADD('2020-01-01', -4)"
+
+    qt_select "SELECT WEEKS_ADD('2020-01-01', 2)"
+    qt_select "SELECT WEEKS_ADD('2020-01-01', -4)"
+
+    qt_select "SELECT HOURS_ADD('2020-01-01', 2)"
+    qt_select "SELECT HOURS_ADD('2020-01-01', -4)"
+
+    qt_select "SELECT MINUTES_ADD('2020-01-01', 2)"
+    qt_select "SELECT MINUTES_ADD('2020-01-01', -4)"
+
+    qt_select "SELECT SECONDS_ADD('2020-01-01', 2)"
+    qt_select "SELECT SECONDS_ADD('2020-01-01', -4)"
+
+    qt_sql """ SELECT TIMESTAMPADD(YEAR,1,'2003-02-01'); """
+    qt_sql """ SELECT TIMESTAMPADD(MONTH,1,'2003-02-01'); """
+    qt_sql """ SELECT TIMESTAMPADD(WEEK,1,'2003-02-01'); """
+    qt_sql """ SELECT TIMESTAMPADD(DAY,1,'2003-02-01'); """
+    qt_sql """ SELECT TIMESTAMPADD(HOUR,1,'2003-02-01'); """
+    qt_sql """ SELECT TIMESTAMPADD(MINUTE,1,'2003-02-01'); """
+    qt_sql """ SELECT TIMESTAMPADD(SECOND,1,'2003-02-01'); """
 }

@@ -179,6 +179,9 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     _remaining_vconjunct_root = opts.remaining_vconjunct_root;
 
     _column_predicate_info.reset(new ColumnPredicateInfo());
+    if (_schema.rowid_col_idx() > 0) {
+        _opts.record_rowids = true;
+    }
     return Status::OK();
 }
 
@@ -688,6 +691,11 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_opts.tablet_schema->column(cid).name() == BeConsts::ROWID_COL) {
+            _column_iterators[unique_id] =
+                    new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id());
+            continue;
+        }
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[unique_id]));
@@ -1294,8 +1302,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_nullable_ptr(*column_desc);
+                _current_return_columns[cid] = Schema::get_predicate_column_ptr(*column_desc);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

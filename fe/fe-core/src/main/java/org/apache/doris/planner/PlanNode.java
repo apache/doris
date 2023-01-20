@@ -466,9 +466,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
     }
 
-
-
-
     public String getExplainString() {
         return getExplainString("", "", TExplainLevel.VERBOSE);
     }

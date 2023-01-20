@@ -275,7 +275,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
-     * Only used for Neredis to set rollup or materialized view selection result.
+     * Only used for Nereids to set rollup or materialized view selection result.
      */
     public void setSelectedIndexInfo(
             long selectedIndexId,
@@ -966,6 +966,9 @@ public class OlapScanNode extends ScanNode {
             sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
+            if (sortInfo.useTwoPhaseRead()) {
+                output.append(prefix).append("OPT TWO PHASE\n");
+            }
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");

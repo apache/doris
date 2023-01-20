@@ -129,7 +129,7 @@ public class HyperGraph {
         Preconditions.checkArgument(group.isJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         for (Expression expression : join.getExpressions()) {
-            LogicalJoin singleJoin = new LogicalJoin(join.getJoinType(), ImmutableList.of(expression), join.left(),
+            LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
             Preconditions.checkArgument(expression.children().size() == 2);

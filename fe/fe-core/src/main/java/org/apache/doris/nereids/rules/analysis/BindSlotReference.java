@@ -85,6 +85,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -294,21 +295,30 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
                     boundSlots.addAll(outputSlots);
                     SlotBinder binder = new SlotBinder(toScope(Lists.newArrayList(boundSlots)), ctx.cascadesContext);
+                    SlotBinder childBinder
+                            = new SlotBinder(toScope(new ArrayList<>(agg.child().getOutputSet())), ctx.cascadesContext);
 
                     List<Expression> groupBy = replacedGroupBy.stream()
-                            .map(expression -> binder.bind(expression))
-                            .collect(Collectors.toList());
-
-                    List<Expression> unboundGroupBys = Lists.newArrayList();
-                    boolean hasUnbound = groupBy.stream().anyMatch(
-                            expression -> {
-                                if (expression.anyMatch(UnboundSlot.class::isInstance)) {
-                                    unboundGroupBys.add(expression);
-                                    return true;
+                            .map(expression -> {
+                                Expression e = binder.bind(expression);
+                                if (e instanceof UnboundSlot) {
+                                    return childBinder.bind(e);
                                 }
-                                return false;
-                            });
-                    if (hasUnbound) {
+                                return e;
+                            })
+                            .collect(Collectors.toList());
+                    List<Expression> unboundGroupBys = Lists.newArrayList();
+                    Predicate<List<Expression>> hasUnBound = (exprs) -> {
+                        return exprs.stream().anyMatch(
+                                expression -> {
+                                    if (expression.anyMatch(UnboundSlot.class::isInstance)) {
+                                        unboundGroupBys.add(expression);
+                                        return true;
+                                    }
+                                    return false;
+                                });
+                    };
+                    if (hasUnBound.test(groupBy)) {
                         throw new AnalysisException("cannot bind GROUP BY KEY: " + unboundGroupBys.get(0).toSql());
                     }
                     List<NamedExpression> newOutput = adjustNullableForAgg(agg, output);
@@ -427,8 +437,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_HAVING_SLOT.build(
-                logicalHaving(any()).when(Plan::canBind).thenApply(ctx -> {
-                    LogicalHaving<Plan> having = ctx.root;
+                logicalHaving(aggregate()).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalHaving<Aggregate<GroupPlan>> having = ctx.root;
                     Plan childPlan = having.child();
                     // We should deduplicate the slots, otherwise the binding process will fail due to the
                     // ambiguous slots exist.
@@ -446,6 +456,30 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 expr = childChildBinder.bind(expr);
                                 return childBinder.bind(expr);
                             })
+                            .collect(Collectors.toSet());
+                    return new LogicalHaving<>(boundConjuncts, having.child());
+                })
+            ),
+            RuleType.BINDING_HAVING_SLOT.build(
+                logicalHaving(any()).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalHaving<Plan> having = ctx.root;
+                    Plan childPlan = having.child();
+                    // We should deduplicate the slots, otherwise the binding process will fail due to the
+                    // ambiguous slots exist.
+                    List<Slot> childChildSlots = childPlan.children().stream()
+                            .flatMap(plan -> plan.getOutputSet().stream())
+                            .collect(Collectors.toList());
+                    SlotBinder childChildBinder = new SlotBinder(toScope(childChildSlots),
+                            ctx.cascadesContext);
+                    List<Slot> childSlots = childPlan.getOutputSet().stream()
+                            .collect(Collectors.toList());
+                    SlotBinder childBinder = new SlotBinder(toScope(childSlots),
+                            ctx.cascadesContext);
+                    Set<Expression> boundConjuncts = having.getConjuncts().stream().map(
+                                    expr -> {
+                                        expr = childBinder.bind(expr);
+                                        return childChildBinder.bind(expr);
+                                    })
                             .collect(Collectors.toSet());
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })

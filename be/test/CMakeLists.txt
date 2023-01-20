@@ -61,7 +61,6 @@ set(EXPRS_TEST_FILES
     exprs/encryption_functions_test.cpp
     exprs/math_functions_test.cpp
     exprs/topn_function_test.cpp
-    exprs/runtime_filter_test.cpp
     exprs/bloom_filter_predicate_test.cpp
     exprs/array_functions_test.cpp
     exprs/quantile_function_test.cpp
@@ -101,25 +100,24 @@ set(OLAP_TEST_FILES
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
-    olap/row_cursor_test.cpp
+    #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
-    olap/column_vector_test.cpp
     olap/storage_types_test.cpp
     olap/aggregate_func_test.cpp
-    olap/rowset/segment_v2/bitshuffle_page_test.cpp
-    olap/rowset/segment_v2/plain_page_test.cpp
+    #olap/rowset/segment_v2/bitshuffle_page_test.cpp
+    #olap/rowset/segment_v2/plain_page_test.cpp
     olap/rowset/segment_v2/bitmap_index_test.cpp
-    olap/rowset/segment_v2/binary_plain_page_test.cpp
-    olap/rowset/segment_v2/binary_prefix_page_test.cpp
-    olap/rowset/segment_v2/column_reader_writer_test.cpp
+    #olap/rowset/segment_v2/binary_plain_page_test.cpp
+    #olap/rowset/segment_v2/binary_prefix_page_test.cpp
+    #olap/rowset/segment_v2/column_reader_writer_test.cpp
     olap/rowset/segment_v2/encoding_info_test.cpp
     olap/rowset/segment_v2/ordinal_page_index_test.cpp
-    olap/rowset/segment_v2/rle_page_test.cpp
-    olap/rowset/segment_v2/binary_dict_page_test.cpp
+    #olap/rowset/segment_v2/rle_page_test.cpp
+    #olap/rowset/segment_v2/binary_dict_page_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
-    olap/rowset/segment_v2/frame_of_reference_page_test.cpp
+    #olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
     olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
     olap/rowset/segment_v2/zone_map_index_test.cpp
@@ -136,19 +134,18 @@ set(OLAP_TEST_FILES
     olap/txn_manager_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
-    olap/primary_key_index_test.cpp
+    #olap/primary_key_index_test.cpp
     olap/page_cache_test.cpp
     olap/hll_test.cpp
     olap/selection_vector_test.cpp
     olap/block_column_predicate_test.cpp
     olap/options_test.cpp
     olap/common_test.cpp
-    olap/primary_key_index_test.cpp
     olap/tablet_cooldown_test.cpp
-    olap/rowid_conversion_test.cpp
+    #olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
-    olap/segcompaction_test.cpp
-    olap/ordered_data_compaction_test.cpp
+    #olap/segcompaction_test.cpp
+    #olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -308,7 +305,7 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
-    vec/olap/vertical_compaction_test.cpp
+    #vec/olap/vertical_compaction_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}

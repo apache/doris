@@ -22,7 +22,6 @@
 #include "gutil/integral_types.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
