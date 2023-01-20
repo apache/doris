@@ -238,6 +238,7 @@ public class TypeCoercionUtils {
                 || left instanceof DecimalV2Type && right instanceof DateLikeType) {
             tightestCommonType = DoubleType.INSTANCE;
         } else if (left instanceof DateLikeType && right instanceof DateLikeType) {
+            // if dateType exist, change all to dateType, otherwise change all to dateTimeType
             if (left instanceof DateTimeV2Type && right instanceof DateTimeV2Type) {
                 if (((DateTimeV2Type) left).getScale() > ((DateTimeV2Type) right).getScale()) {
                     tightestCommonType = left;
