@@ -258,7 +258,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return new NullLiteral(cast.getDataType());
         }
         try {
-            Expression castResult = child.castTo(cast.getDataType());
+            Expression castResult = child.checkedCastTo(cast.getDataType());
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
