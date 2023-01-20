@@ -264,7 +264,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -645,8 +644,10 @@ public class Env {
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
-        this.analysisManager = new AnalysisManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
+        if (!isCheckpointCatalog) {
+            this.analysisManager = new AnalysisManager();
+        }
     }
 
     public static void destroyCheckpoint() {

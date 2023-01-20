@@ -1870,7 +1870,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_job_num = 10;
+    public static int statistics_simultaneously_running_task_num = 10;
 
     /**
      * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
