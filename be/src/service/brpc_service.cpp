@@ -17,6 +17,7 @@
 
 #include "service/brpc_service.h"
 
+#include <glog/logging.h>
 #include <string.h>
 
 #include "common/logging.h"
@@ -42,7 +43,9 @@ BRpcService::~BRpcService() {}
 
 Status BRpcService::start(int port, int num_threads) {
     // Add service
-    _server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE);
+    if (_server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE) != 0) {
+        LOG(WARNING) << "fail to add internal service";
+    }
     // start service
     brpc::ServerOptions options;
     if (num_threads != -1) {

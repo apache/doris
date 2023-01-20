@@ -1,0 +1,53 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax="proto2";
+package doris;
+
+option cc_generic_services = true;
+
+message HttpRequest {};
+message HttpResponse {};
+
+service PHttpService {
+    rpc check_rpc_channel(HttpRequest) returns (HttpResponse);
+    rpc reset_rpc_channel(HttpRequest) returns (HttpResponse);
+
+    rpc config(HttpRequest) returns (HttpResponse);
+    rpc health(HttpRequest) returns (HttpResponse);
+    rpc jeprofile(HttpRequest) returns (HttpResponse);
+    rpc meta(HttpRequest) returns (HttpResponse);
+    rpc metrics(HttpRequest) returns (HttpResponse);
+    rpc monitor(HttpRequest) returns (HttpResponse);
+    rpc pad_rowset(HttpRequest) returns (HttpResponse);
+    rpc pprof(HttpRequest) returns (HttpResponse);
+    rpc snapshot(HttpRequest) returns (HttpResponse);
+    rpc version(HttpRequest) returns (HttpResponse);
+
+    rpc check_tablet_segement(HttpRequest) returns (HttpResponse);
+    rpc check_sum(HttpRequest) returns (HttpResponse);
+    rpc compaction(HttpRequest) returns (HttpResponse);
+    rpc reload_tablet(HttpRequest) returns (HttpResponse);
+    rpc restore_tablet(HttpRequest) returns (HttpResponse);
+    rpc tablet_migration(HttpRequest) returns (HttpResponse);
+    rpc distribution(HttpRequest) returns (HttpResponse);
+    rpc tablet_info(HttpRequest) returns (HttpResponse);
+
+    rpc download(HttpRequest) returns (HttpResponse);
+    rpc stream_load(HttpRequest) returns (HttpResponse);
+    rpc stream_load_2pc(HttpRequest) returns (HttpResponse);
+};
