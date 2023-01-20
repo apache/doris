@@ -126,6 +126,9 @@ suite("test_join_nereids") {
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
 
+    qt_agg_sql1 """select count(distinct k1, NULL) from test;"""
+    qt_agg_sql2 """select k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1;"""
+
     order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
     order_sql """select * from (select j.k1 j1, j.k2 j2, j.k3 j3, j.k4 j4, j.k5 j5, j.k6 j6, j.k10 j10, j.k11 j11, 
