@@ -20,7 +20,7 @@ package org.apache.doris.common;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.Role;
 
 import com.google.common.base.Strings;
 
@@ -101,10 +101,10 @@ public class FeNameFormat {
 
         boolean res = false;
         if (CaseSensibility.ROLE.getCaseSensibility()) {
-            res = role.equals(PaloRole.OPERATOR_ROLE) || (!canBeAdmin && role.equals(PaloRole.ADMIN_ROLE));
+            res = role.equals(Role.OPERATOR_ROLE) || (!canBeAdmin && role.equals(Role.ADMIN_ROLE));
         } else {
-            res = role.equalsIgnoreCase(PaloRole.OPERATOR_ROLE)
-                    || (!canBeAdmin && role.equalsIgnoreCase(PaloRole.ADMIN_ROLE));
+            res = role.equalsIgnoreCase(Role.OPERATOR_ROLE)
+                    || (!canBeAdmin && role.equalsIgnoreCase(Role.ADMIN_ROLE));
         }
 
         if (res) {

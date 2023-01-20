@@ -43,10 +43,6 @@ public class DbPrivTable extends PrivTable {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
 
-            if (!dbPrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
             // check catalog
             if (!dbPrivEntry.isAnyCtl() && !dbPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
@@ -70,10 +66,6 @@ public class DbPrivTable extends PrivTable {
     public boolean hasPrivsOfCatalog(UserIdentity currentUser, String ctl) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
-
-            if (!dbPrivEntry.match(currentUser, true)) {
-                continue;
-            }
 
             // check catalog
             Preconditions.checkState(!dbPrivEntry.isAnyCtl());

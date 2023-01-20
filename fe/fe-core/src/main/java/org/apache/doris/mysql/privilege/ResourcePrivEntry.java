@@ -20,7 +20,6 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,9 +35,9 @@ public class ResourcePrivEntry extends PrivEntry {
     protected ResourcePrivEntry() {
     }
 
-    protected ResourcePrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher resourcePattern,
-            String origResource, PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
-        super(hostPattern, origHost, userPattern, user, isDomain, privSet);
+    protected ResourcePrivEntry(PatternMatcher resourcePattern,
+            String origResource, PrivBitSet privSet) {
+        super(privSet);
         this.resourcePattern = resourcePattern;
         this.origResource = origResource;
         if (origResource.equals(ANY_RESOURCE)) {
@@ -46,19 +45,16 @@ public class ResourcePrivEntry extends PrivEntry {
         }
     }
 
-    public static ResourcePrivEntry create(String host, String resourceName,
-            String user, boolean isDomain, PrivBitSet privs)
+    public static ResourcePrivEntry create(String resourceName, PrivBitSet privs)
             throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(
                 resourceName.equals(ANY_RESOURCE) ? "%" : resourceName,
                 CaseSensibility.RESOURCE.getCaseSensibility());
-        PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
         if (privs.containsNodePriv() || privs.containsDbTablePriv()) {
             throw new AnalysisException("Resource privilege can not contains node or db table privileges: " + privs);
         }
-        return new ResourcePrivEntry(hostPattern, host, resourcePattern,
-                resourceName, userPattern, user, isDomain, privs);
+        return new ResourcePrivEntry(resourcePattern,
+                resourceName, privs);
     }
 
     public PatternMatcher getResourcePattern() {
@@ -76,17 +72,8 @@ public class ResourcePrivEntry extends PrivEntry {
         }
 
         ResourcePrivEntry otherEntry = (ResourcePrivEntry) other;
-        int res = origHost.compareTo(otherEntry.origHost);
-        if (res != 0) {
-            return -res;
-        }
 
-        res = origResource.compareTo(otherEntry.origResource);
-        if (res != 0) {
-            return -res;
-        }
-
-        return -origUser.compareTo(otherEntry.origUser);
+        return origResource.compareTo(otherEntry.origResource);
     }
 
     @Override
@@ -96,8 +83,7 @@ public class ResourcePrivEntry extends PrivEntry {
         }
 
         ResourcePrivEntry otherEntry = (ResourcePrivEntry) other;
-        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origResource.equals(otherEntry.origResource) && isDomain == otherEntry.isDomain) {
+        if (origResource.equals(otherEntry.origResource)) {
             return true;
         }
         return false;
@@ -106,33 +92,16 @@ public class ResourcePrivEntry extends PrivEntry {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("resource priv. host: ").append(origHost).append(", resource: ").append(origResource);
-        sb.append(", user: ").append(origUser);
-        sb.append(", priv: ").append(privSet).append(", set by resolver: ").append(isSetByDomainResolver);
         return sb.toString();
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = ResourcePrivEntry.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-        super.write(out);
-        Text.writeString(out, origResource);
-        isClassNameWrote = false;
+
     }
 
     public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        origResource = Text.readString(in);
-        try {
-            resourcePattern = PatternMatcher.createMysqlPattern(origResource,
-                    CaseSensibility.RESOURCE.getCaseSensibility());
-        } catch (AnalysisException e) {
-            throw new IOException(e);
-        }
+
         isAnyResource = origResource.equals(ANY_RESOURCE);
     }
 }

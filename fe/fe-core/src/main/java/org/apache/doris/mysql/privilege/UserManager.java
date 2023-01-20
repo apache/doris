@@ -1,4 +1,4 @@
-package org.apache.doris.mysql.rbac;
+package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 
@@ -29,13 +29,13 @@ public class UserManager {
     }
 
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<org.apache.doris.analysis.UserIdentity> currentUser) {
+            List<UserIdentity> currentUser) {
         List<User> userIdentities = nameToUsers.get(remoteUser);
         //return match best UserIdentity
     }
 
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-            List<org.apache.doris.analysis.UserIdentity> currentUser) {
+            List<UserIdentity> currentUser) {
         //return match best UserIdentity
     }
 

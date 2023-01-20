@@ -25,7 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -41,7 +41,7 @@ import java.util.Arrays;
 public class ShowDataStmtTest {
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private Analyzer analyzer;
     @Mocked
@@ -57,7 +57,7 @@ public class ShowDataStmtTest {
 
     @Before
     public void setUp() throws UserException {
-        auth = new PaloAuth();
+        auth = new Auth();
         new Expectations() {
             {
                 Env.getCurrentInvertedIndex();

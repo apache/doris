@@ -48,7 +48,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -211,7 +211,7 @@ public abstract class DorisHttpTestCase {
     private static Env newDelegateCatalog() {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
-            PaloAuth auth = new PaloAuth();
+            Auth auth = new Auth();
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "default_cluster:testDb");
             OlapTable table = newTable(TABLE_NAME);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 
 import org.apache.logging.log4j.LogManager;
@@ -36,14 +35,10 @@ public class CatalogPrivTable extends PrivTable {
      * Return first priv which match the user@host on ctl.* The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String ctl, PrivBitSet savedPrivs) {
+    public void getPrivs(String ctl, PrivBitSet savedPrivs) {
         CatalogPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             CatalogPrivEntry dsPrivEntry = (CatalogPrivEntry) entry;
-
-            if (!dsPrivEntry.match(currentUser, true)) {
-                continue;
-            }
 
             // check catalog
             if (!dsPrivEntry.isAnyCtl() && !dsPrivEntry.getCtlPattern().match(ctl)) {

@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -33,7 +33,7 @@ public class DropMaterializedViewStmtTest {
     @Mocked
     Analyzer analyzer;
     @Mocked
-    PaloAuth auth;
+    Auth auth;
 
     @Test
     public void testEmptyMVName(@Injectable TableName tableName) {

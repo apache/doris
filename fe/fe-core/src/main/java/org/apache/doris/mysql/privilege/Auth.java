@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.rbac;
+package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterUserStmt.OpType;
@@ -47,11 +47,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.load.DppConfig;
-import org.apache.doris.mysql.privilege.PasswordPolicyManager;
-import org.apache.doris.mysql.privilege.PrivBitSet;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.UserPropertyInfo;
-import org.apache.doris.mysql.privilege.UserPropertyMgr;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -74,8 +69,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class PaloAuth implements Writable {
-    private static final Logger LOG = LogManager.getLogger(PaloAuth.class);
+public class Auth implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Auth.class);
 
     // root user's role is operator.
     // each Palo system has only one root user.
@@ -114,11 +109,14 @@ public class PaloAuth implements Writable {
         lock.writeLock().unlock();
     }
 
+    public void mergeRolesNoCheckName(List<String> rolesNames, Role ldapGroupsPrivs) {
+    }
+
     public enum PrivLevel {
         GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE
     }
 
-    public PaloAuth() {
+    public Auth() {
         initUser();
     }
 
@@ -339,7 +337,7 @@ public class PaloAuth implements Writable {
         writeLock();
         try {
             // 1. check if role exist
-            PaloRole role = null;
+            Role role = null;
             if (roleName != null) {
                 role = roleManager.getRole(roleName);
                 if (role == null) {
@@ -356,7 +354,7 @@ public class PaloAuth implements Writable {
             setPasswordInternal(userIdent, password, null, false /* err on non exist */, false /* set by resolver */,
                     true /* is replay */);
             //4.create defaultRole
-            PaloRole defaultRole = roleManager.createDefaultRole(userIdent);
+            Role defaultRole = roleManager.createDefaultRole(userIdent);
             // 5.create user role
             userRoleManager.addUserRole(userIdent, defaultRole.getRoleName());
             if (role != null) {
@@ -466,8 +464,8 @@ public class PaloAuth implements Writable {
             if (role == null) {
                 role = "default role name";
             }
-            PaloRole newRole = new PaloRole(role, tblPattern, privs);
-            PaloRole existingRole = roleManager.addRole(newRole, false /* err on exist */);
+            Role newRole = new Role(role, tblPattern, privs);
+            Role existingRole = roleManager.addRole(newRole, false /* err on exist */);
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
@@ -488,8 +486,8 @@ public class PaloAuth implements Writable {
             }
 
             // grant privs to role, role must exist
-            PaloRole newRole = new PaloRole(role, resourcePattern, privs);
-            PaloRole existingRole = roleManager.addRole(newRole, false /* err on exist */);
+            Role newRole = new Role(role, resourcePattern, privs);
+            Role existingRole = roleManager.addRole(newRole, false /* err on exist */);
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
@@ -661,7 +659,7 @@ public class PaloAuth implements Writable {
     }
 
     private void createRoleInternal(String role, boolean ignoreIfExists, boolean isReplay) throws DdlException {
-        PaloRole emptyPrivsRole = new PaloRole(role);
+        Role emptyPrivsRole = new Role(role);
         writeLock();
         try {
             if (ignoreIfExists && roleManager.getRole(role) != null) {
@@ -901,11 +899,11 @@ public class PaloAuth implements Writable {
         try {
             UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
             rootUser.setIsAnalyzed();
-            createUserInternal(rootUser, PaloRole.OPERATOR_ROLE, new byte[0],
+            createUserInternal(rootUser, Role.OPERATOR_ROLE, new byte[0],
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
             UserIdentity adminUser = new UserIdentity(ADMIN_USER, "%");
             adminUser.setIsAnalyzed();
-            createUserInternal(adminUser, PaloRole.ADMIN_ROLE, new byte[0],
+            createUserInternal(adminUser, Role.ADMIN_ROLE, new byte[0],
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
@@ -1022,8 +1020,8 @@ public class PaloAuth implements Writable {
     private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
     }
 
-    public static PaloAuth read(DataInput in) throws IOException {
-        PaloAuth auth = new PaloAuth();
+    public static Auth read(DataInput in) throws IOException {
+        Auth auth = new Auth();
         auth.readFields(in);
         return auth;
     }

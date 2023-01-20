@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 
 import org.apache.logging.log4j.LogManager;
@@ -36,15 +35,10 @@ public class ResourcePrivTable extends PrivTable {
      * Return first priv which match the user@host on resourceName The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String resourceName, PrivBitSet savedPrivs) {
+    public void getPrivs(String resourceName, PrivBitSet savedPrivs) {
         ResourcePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) entry;
-
-            if (!resourcePrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
             // check resource
             if (!resourcePrivEntry.getResourcePattern().match(resourceName)) {
                 continue;

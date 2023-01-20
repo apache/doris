@@ -52,7 +52,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -204,8 +204,8 @@ public class CatalogMocker {
         ROLLUP_SCHEMA_HASH = Util.generateSchemaHash();
     }
 
-    private static PaloAuth fetchAdminAccess() {
-        PaloAuth auth = new PaloAuth();
+    private static Auth fetchAdminAccess() {
+        Auth auth = new Auth();
         new Expectations(auth) {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
@@ -399,7 +399,7 @@ public class CatalogMocker {
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
             Database db = new Database();
-            PaloAuth auth = fetchAdminAccess();
+            Auth auth = fetchAdminAccess();
 
             new Expectations(env, catalog) {
                 {
@@ -457,8 +457,8 @@ public class CatalogMocker {
         }
     }
 
-    public static PaloAuth fetchBlockAccess() {
-        PaloAuth auth = new PaloAuth();
+    public static Auth fetchBlockAccess() {
+        Auth auth = new Auth();
         new Expectations(auth) {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);

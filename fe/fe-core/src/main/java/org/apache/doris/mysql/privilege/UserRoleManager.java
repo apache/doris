@@ -1,4 +1,4 @@
-package org.apache.doris.mysql.rbac;
+package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Writable;

@@ -52,8 +52,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -109,7 +109,7 @@ public class PartitionCacheTest {
     private Database db;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private SystemInfoService service;
     @Mocked

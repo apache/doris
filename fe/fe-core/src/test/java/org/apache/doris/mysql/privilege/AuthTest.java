@@ -55,7 +55,7 @@ import java.util.Set;
 
 public class AuthTest {
 
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     public Env env;
     @Mocked
@@ -69,7 +69,7 @@ public class AuthTest {
 
     // Thread is not mockable in Jmockit, so use a subclass instead.
     private static final class MockDomainResolver extends DomainResolver {
-        public MockDomainResolver(PaloAuth auth) {
+        public MockDomainResolver(Auth auth) {
             super(auth);
         }
 
@@ -95,7 +95,7 @@ public class AuthTest {
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
-        auth = new PaloAuth();
+        auth = new Auth();
 
         new Expectations() {
             {
@@ -787,7 +787,7 @@ public class AuthTest {
          */
 
         // 23. create admin role, which is not allowed
-        CreateRoleStmt roleStmt = new CreateRoleStmt(PaloRole.ADMIN_ROLE);
+        CreateRoleStmt roleStmt = new CreateRoleStmt(Role.ADMIN_ROLE);
         hasException = false;
         try {
             roleStmt.analyze(analyzer);
@@ -798,7 +798,7 @@ public class AuthTest {
         Assert.assertTrue(hasException);
 
         // 23. create operator role, which is not allowed
-        roleStmt = new CreateRoleStmt(PaloRole.OPERATOR_ROLE);
+        roleStmt = new CreateRoleStmt(Role.OPERATOR_ROLE);
         hasException = false;
         try {
             roleStmt.analyze(analyzer);

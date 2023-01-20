@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.rbac;
+package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.mysql.privilege.PrivBitSet;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,25 +26,20 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /*
- * ResourcePrivTable saves all resources privs
+ * GlobalPrivTable saves all global privs and also password for users
  */
-public class ResourcePrivTable extends PrivTable {
-    private static final Logger LOG = LogManager.getLogger(ResourcePrivTable.class);
+public class GlobalPrivTable extends PrivTable {
+    private static final Logger LOG = LogManager.getLogger(GlobalPrivTable.class);
 
-    /*
-     * Return first priv which match the user@host on resourceName The returned priv will be
-     * saved in 'savedPrivs'.
-     */
-    public void getPrivs(String resourceName, PrivBitSet savedPrivs) {
-        ResourcePrivEntry matchedEntry = null;
+    public GlobalPrivTable() {
+    }
+
+    public void getPrivs(PrivBitSet savedPrivs) {
+        GlobalPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
-            ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) entry;
-            // check resource
-            if (!resourcePrivEntry.getResourcePattern().match(resourceName)) {
-                continue;
-            }
+            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
-            matchedEntry = resourcePrivEntry;
+            matchedEntry = globalPrivEntry;
             break;
         }
         if (matchedEntry == null) {
@@ -58,11 +52,21 @@ public class ResourcePrivTable extends PrivTable {
     @Override
     public void write(DataOutput out) throws IOException {
         if (!isClassNameWrote) {
-            String className = ResourcePrivTable.class.getCanonicalName();
+            String className = GlobalPrivTable.class.getCanonicalName();
             Text.writeString(out, className);
             isClassNameWrote = true;
         }
 
         super.write(out);
+    }
+
+    /**
+     * When replay GlobalPrivTable from journal whose FeMetaVersion < VERSION_111, the global-level privileges should
+     * degrade to internal-catalog-level privileges.
+     */
+    public CatalogPrivTable degradeToInternalCatalogPriv() throws IOException {
+        CatalogPrivTable catalogPrivTable = new CatalogPrivTable();
+        // TODO: 2023/1/17 implement
+        return catalogPrivTable;
     }
 }

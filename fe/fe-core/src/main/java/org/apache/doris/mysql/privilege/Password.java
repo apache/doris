@@ -1,4 +1,4 @@
-package org.apache.doris.mysql.rbac;
+package org.apache.doris.mysql.privilege;
 
 public class Password {
     private byte[] password;

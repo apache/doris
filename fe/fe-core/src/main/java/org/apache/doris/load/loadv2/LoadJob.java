@@ -44,7 +44,7 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -583,7 +583,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (!Env.getCurrentEnv().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PaloPrivilege.LOAD_PRIV);
+                    Privilege.LOAD_PRIV);
         }
     }
 
@@ -604,7 +604,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                            PaloPrivilege.LOAD_PRIV);
+                            Privilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {

@@ -39,7 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DeleteJob.DeleteState;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
@@ -98,7 +98,7 @@ public class DeleteHandlerTest {
     private SystemInfoService systemInfoService;
 
     private Database db;
-    private PaloAuth auth;
+    private Auth auth;
 
     Analyzer analyzer;
 
