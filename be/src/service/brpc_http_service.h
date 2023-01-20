@@ -24,6 +24,7 @@
 #include <string>
 
 #include "gen_cpp/http_service.pb.h"
+#include "http/brpc/handler_dispatcher.h"
 #include "runtime/exec_env.h"
 #include "util/easy_json.h"
 
@@ -103,13 +104,6 @@ class BrpcHttpService : public PHttpService {
 
 private:
     ExecEnv* _exec_env;
+    std::unique_ptr<HandlerDispatcher> _dispatcher;
 };
-
-const std::string* get_param(brpc::Controller* cntl, const std::string& key);
-
-void reply_err(brpc::Controller* cntl, const std::string& err_msg);
-
-void reply_ok(brpc::Controller* cntl, const std::string& msg);
-
-void reply_ok_json(brpc::Controller* cntl, const EasyJson& ej);
 } // namespace doris

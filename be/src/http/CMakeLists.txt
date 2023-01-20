@@ -56,4 +56,6 @@ add_library(Webserver STATIC
   action/check_tablet_segment_action.cpp
   action/version_action.cpp
   action/jeprofile_actions.cpp
+  brpc/brpc_http_handler.cpp
+  brpc/handler_dispatcher.cpp
 )

@@ -30,130 +30,39 @@
 #include "util/easy_json.h"
 #include "util/md5.h"
 namespace doris {
-BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _exec_env(exec_env) {}
+#define DEFINE_ENDPOINT(__SIGNATURE__)                                                          \
+    void BrpcHttpService::__SIGNATURE__(                                                        \
+            ::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request, \
+            ::doris::HttpResponse* response, ::google::protobuf::Closure* done) {               \
+        _dispatcher->dispatch(#__SIGNATURE__, controller, done);                                \
+    }
 
-void BrpcHttpService::check_rpc_channel(::google::protobuf::RpcController* controller,
-                                        const ::doris::HttpRequest* request,
-                                        ::doris::HttpResponse* response,
-                                        ::google::protobuf::Closure* done) {}
+BrpcHttpService::BrpcHttpService(ExecEnv* exec_env)
+        : _exec_env(exec_env), _dispatcher(new HandlerDispatcher()) {}
 
-void BrpcHttpService::reset_rpc_channel(::google::protobuf::RpcController* controller,
-                                        const ::doris::HttpRequest* request,
-                                        ::doris::HttpResponse* response,
-                                        ::google::protobuf::Closure* done) {}
+DEFINE_ENDPOINT(check_rpc_channel)
+DEFINE_ENDPOINT(reset_rpc_channel)
+DEFINE_ENDPOINT(config)
+DEFINE_ENDPOINT(health)
+DEFINE_ENDPOINT(jeprofile)
+DEFINE_ENDPOINT(meta)
+DEFINE_ENDPOINT(metrics)
+DEFINE_ENDPOINT(monitor)
+DEFINE_ENDPOINT(pad_rowset)
+DEFINE_ENDPOINT(pprof)
+DEFINE_ENDPOINT(snapshot)
+DEFINE_ENDPOINT(version)
+DEFINE_ENDPOINT(check_tablet_segement)
+DEFINE_ENDPOINT(check_sum)
+DEFINE_ENDPOINT(compaction)
+DEFINE_ENDPOINT(reload_tablet)
+DEFINE_ENDPOINT(restore_tablet)
+DEFINE_ENDPOINT(tablet_migration)
+DEFINE_ENDPOINT(distribution)
+DEFINE_ENDPOINT(tablet_info)
+DEFINE_ENDPOINT(download)
+DEFINE_ENDPOINT(stream_load)
+DEFINE_ENDPOINT(stream_load_2pc)
 
-void BrpcHttpService::config(::google::protobuf::RpcController* controller,
-                             const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                             ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::health(::google::protobuf::RpcController* controller,
-                             const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                             ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::jeprofile(::google::protobuf::RpcController* controller,
-                                const ::doris::HttpRequest* request,
-                                ::doris::HttpResponse* response,
-                                ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::meta(::google::protobuf::RpcController* controller,
-                           const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                           ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::metrics(::google::protobuf::RpcController* controller,
-                              const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                              ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::monitor(::google::protobuf::RpcController* controller,
-                              const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                              ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::pad_rowset(::google::protobuf::RpcController* controller,
-                                 const ::doris::HttpRequest* request,
-                                 ::doris::HttpResponse* response,
-                                 ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::pprof(::google::protobuf::RpcController* controller,
-                            const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                            ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::snapshot(::google::protobuf::RpcController* controller,
-                               const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                               ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::version(::google::protobuf::RpcController* controller,
-                              const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                              ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::check_tablet_segement(::google::protobuf::RpcController* controller,
-                                            const ::doris::HttpRequest* request,
-                                            ::doris::HttpResponse* response,
-                                            ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::check_sum(::google::protobuf::RpcController* controller,
-                                const ::doris::HttpRequest* request,
-                                ::doris::HttpResponse* response,
-                                ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::compaction(::google::protobuf::RpcController* controller,
-                                 const ::doris::HttpRequest* request,
-                                 ::doris::HttpResponse* response,
-                                 ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::reload_tablet(::google::protobuf::RpcController* controller,
-                                    const ::doris::HttpRequest* request,
-                                    ::doris::HttpResponse* response,
-                                    ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::restore_tablet(::google::protobuf::RpcController* controller,
-                                     const ::doris::HttpRequest* request,
-                                     ::doris::HttpResponse* response,
-                                     ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::tablet_migration(::google::protobuf::RpcController* controller,
-                                       const ::doris::HttpRequest* request,
-                                       ::doris::HttpResponse* response,
-                                       ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::distribution(::google::protobuf::RpcController* controller,
-                                   const ::doris::HttpRequest* request,
-                                   ::doris::HttpResponse* response,
-                                   ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::tablet_info(::google::protobuf::RpcController* controller,
-                                  const ::doris::HttpRequest* request,
-                                  ::doris::HttpResponse* response,
-                                  ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::download(::google::protobuf::RpcController* controller,
-                               const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
-                               ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::stream_load(::google::protobuf::RpcController* controller,
-                                  const ::doris::HttpRequest* request,
-                                  ::doris::HttpResponse* response,
-                                  ::google::protobuf::Closure* done) {}
-
-void BrpcHttpService::stream_load_2pc(::google::protobuf::RpcController* controller,
-                                      const ::doris::HttpRequest* request,
-                                      ::doris::HttpResponse* response,
-                                      ::google::protobuf::Closure* done) {}
-
-const std::string* get_param(brpc::Controller* cntl, const std::string& key) {
-    return cntl->http_request().uri().GetQuery(key);
-}
-
-void reply_err(brpc::Controller* cntl, const std::string& err_msg) {
-    cntl->http_response().set_status_code(brpc::HTTP_STATUS_INTERNAL_SERVER_ERROR);
-    cntl->response_attachment().append(err_msg);
-}
-
-void reply_ok(brpc::Controller* cntl, const std::string& msg) {
-    cntl->http_response().set_status_code(brpc::HTTP_STATUS_OK);
-    cntl->response_attachment().append(msg);
-}
-
-void reply_ok_json(brpc::Controller* cntl, const EasyJson& ej) {
-    cntl->http_response().set_content_type("application/json");
-    cntl->response_attachment().append(ej.ToString());
-}
+#undef DEFINE_ENDPOINT
 } // namespace doris
