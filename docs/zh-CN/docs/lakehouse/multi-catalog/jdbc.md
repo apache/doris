@@ -33,7 +33,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 使用限制
 
-1. 支持 MySQL、PostgreSQL、Oracle、Clickhouse
+1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse
 
 ## 创建 Catalog
 
@@ -71,7 +71,6 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
     | Database | Schema |
     | Table | Table |
 
-
 3. Oracle
 
     ```sql
@@ -107,6 +106,27 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
     );
     ```
     
+5. SQLServer
+
+	```sql
+	CREATE CATALOG sqlserver_catalog PROPERTIES (
+		"type"="jdbc",
+		"user"="SA",
+		"password"="Doris123456",
+		"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+		"driver_url" = "mssql-jdbc-11.2.3.jre8.jar",
+		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+	);
+	```
+
+	映射 SQLServer 时，Doris 的一个 Database 对应于 SQLServer 中指定 Database（如示例中 `jdbc_url` 参数中的 "doris_test"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 SQLServer 中，Schema 下的 Tables。即映射关系如下：
+	
+	|Doris | SQLServer |
+	|---|---|
+	| Catalog | Database | 
+	| Database | Schema |
+	| Table | Table |
+
 ### 参数说明
 
 参数 | 是否必须 | 默认值 | 说明 
@@ -182,7 +202,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ### Oracle
 
- ORACLE Type | Doris Type | Comment |
+| ORACLE Type | Doris Type | Comment |
 |---|---|---|
 | number(p) / number(p,0) |  | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
 | number(p,s) | DECIMAL | |
@@ -193,6 +213,26 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | VARCHAR2/NVARCHAR2 | STRING | |
 | LONG/ RAW/ LONG RAW/ INTERVAL | STRING | |
 |Other| UNSUPPORTED |
+
+### SQLServer
+
+| SQLServer Type | Doris Type | Comment |
+|---|---|---|
+| bit | BOOLEAN | |
+| tinyint | SMALLINT | SQLServer的tinyint是无符号数，所以映射为Doris的SMALLINT |
+| smallint | SMALLINT | |
+| int | INT | |
+| bigint | BIGINT | |
+| real | FLOAT | |
+| float/money/smallmoney | DOUBLE | |
+| decimal/numeric | DECIMAL | |
+| date | DATE | |
+| datetime/datetime2/smalldatetime | DATETIMEV2 | |
+| char/varchar/text/nchar/nvarchar/ntext | STRING | |
+| binary/varbinary | STRING | |
+| time/datetimeoffset | STRING | |
+|Other| UNSUPPORTED | |
+
 
 ### Clickhouse
 

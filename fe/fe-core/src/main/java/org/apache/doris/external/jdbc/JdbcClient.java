@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
 import com.zaxxer.hikari.HikariConfig;
@@ -57,8 +58,11 @@ public class JdbcClient {
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
         this.jdbcUser = user;
-        this.dbType = parseDbType(jdbcUrl);
-
+        try {
+            this.dbType = JdbcResource.parseDbType(jdbcUrl);
+        } catch (DdlException e) {
+            throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
+        }
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
@@ -158,6 +162,9 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
                     break;
+                case JdbcResource.SQLSERVER:
+                    rs = stmt.executeQuery("SELECT name FROM sys.schemas");
+                    break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
             }
@@ -190,6 +197,7 @@ public class JdbcClient {
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.SQLSERVER:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -219,6 +227,7 @@ public class JdbcClient {
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.SQLSERVER:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -289,6 +298,7 @@ public class JdbcClient {
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
+                case JdbcResource.SQLSERVER:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -325,6 +335,8 @@ public class JdbcClient {
                 return clickhouseTypeToDoris(fieldSchema);
             case JdbcResource.ORACLE:
                 return oracleTypeToDoris(fieldSchema);
+            case JdbcResource.SQLSERVER:
+                return sqlserverTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -609,6 +621,52 @@ public class JdbcClient {
         }
     }
 
+    public Type sqlserverTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String sqlserverType = fieldSchema.getDataTypeName();
+        switch (sqlserverType) {
+            case "bit":
+                return Type.BOOLEAN;
+            case "tinyint":
+            case "smallint":
+                return Type.SMALLINT;
+            case "int":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "real":
+                return Type.FLOAT;
+            case "float":
+            case "money":
+            case "smallmoney":
+                return Type.DOUBLE;
+            case "decimal":
+            case "numeric":
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return ScalarType.createDecimalV3Type(precision, scale);
+            case "date":
+                return ScalarType.getDefaultDateType(Type.DATE);
+            case "datetime":
+            case "datetime2":
+            case "smalldatetime":
+                return ScalarType.createDatetimeV2Type(6);
+            case "char":
+            case "varchar":
+            case "nchar":
+            case "nvarchar":
+            case "text":
+            case "ntext":
+            case "time":
+            case "datetimeoffset":
+                return ScalarType.createStringType();
+            case "image":
+            case "binary":
+            case "varbinary":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
@@ -619,21 +677,5 @@ public class JdbcClient {
                     true, null, -1));
         }
         return dorisTableSchema;
-    }
-
-    private String parseDbType(String url) {
-        if (url.startsWith(JdbcResource.JDBC_MYSQL) || url.startsWith(JdbcResource.JDBC_MARIADB)) {
-            return JdbcResource.MYSQL;
-        } else if (url.startsWith(JdbcResource.JDBC_POSTGRESQL)) {
-            return JdbcResource.POSTGRESQL;
-        } else if (url.startsWith(JdbcResource.JDBC_ORACLE)) {
-            return JdbcResource.ORACLE;
-        } else if (url.startsWith(JdbcResource.JDBC_CLICKHOUSE)) {
-            return JdbcResource.CLICKHOUSE;
-        }
-        // else if (url.startsWith("jdbc:sqlserver")) {
-        //     return SQLSERVER;
-        // }
-        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
 }
