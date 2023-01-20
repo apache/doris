@@ -201,7 +201,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
             List<InputSplit> allFiles) {
         List<InputSplit> files = cache.getFilesByPartitions(partitions);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("get #{} files from #{} partitions: {}: {}", files.size(), partitions.size(),
+            LOG.debug("get #{} files from #{} partitions: {}", files.size(), partitions.size(),
                     Joiner.on(",")
                             .join(files.stream().limit(10).map(f -> ((FileSplit) f).getPath())
                                     .collect(Collectors.toList())));
