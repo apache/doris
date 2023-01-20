@@ -44,6 +44,8 @@ suite("runtime_filter") {
         test {
             sql "SELECT count(1) FROM datetime_table a, date_v2_table b WHERE a.date = b.date;"
             result([[2L]])
+            sql "explain SELECT count(1) FROM datetime_table a, date_v2_table b WHERE a.date = b.date;"
+            contains "RF"
         }
     }
 }
