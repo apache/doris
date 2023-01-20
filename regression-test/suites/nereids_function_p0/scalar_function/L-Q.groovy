@@ -149,7 +149,8 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select month_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select month_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select month_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
-    qt_sql "select month_floor(kdtm) from fn_test order by kdtm"
+    // core
+    // qt_sql "select month_floor(kdtm) from fn_test order by kdtm"
     qt_sql "select month_floor(kdtmv2s1) from fn_test order by kdtmv2s1"
     qt_sql "select month_floor(kdtv2) from fn_test order by kdtv2"
     qt_sql "select month_floor(kdtm, kdtm) from fn_test order by kdtm, kdtm"

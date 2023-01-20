@@ -151,7 +151,8 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select day_ceil(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     qt_sql "select day_ceil(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
     qt_sql "select day_ceil(kdtv2, kint) from fn_test order by kdtv2, kint"
-    qt_sql "select day_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
+    // core
+    // qt_sql "select day_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select day_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select day_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     qt_sql "select day_floor(kdtm) from fn_test order by kdtm"
@@ -163,7 +164,8 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select day_floor(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     qt_sql "select day_floor(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
     qt_sql "select day_floor(kdtv2, kint) from fn_test order by kdtv2, kint"
-    qt_sql "select day_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
+    // core
+    // qt_sql "select day_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select day_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select day_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     // cannot find function

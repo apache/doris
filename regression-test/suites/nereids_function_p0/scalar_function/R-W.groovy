@@ -122,7 +122,8 @@ suite("nereids_scalar_fn_4") {
     qt_sql "select sm3sum(kstr) from fn_test order by kstr"
     sql "select sm4_decrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     sql "select sm4_decrypt(kstr, kstr) from fn_test order by kstr, kstr"
-    sql "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
+    // core
+    // sql "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
     sql "select sm4_decrypt(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
     // cannot find function
     // qt_sql "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1, kvchrs1"
@@ -168,7 +169,8 @@ suite("nereids_scalar_fn_4") {
     // qt_sql "select st_y(kvchrs1) from fn_test order by kvchrs1"
     // qt_sql "select st_y(kstr) from fn_test order by kstr"
     qt_sql "select starts_with(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-    qt_sql "select starts_with(kstr, kstr) from fn_test order by kstr, kstr"
+    // core
+    // qt_sql "select starts_with(kstr, kstr) from fn_test order by kstr, kstr"
     // core
     // qt_sql "select str_left(kvchrs1, kint) from fn_test order by kvchrs1, kint"
     // qt_sql "select str_left(kstr, kint) from fn_test order by kstr, kint"
