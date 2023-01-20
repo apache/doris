@@ -37,7 +37,6 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -217,13 +216,20 @@ public class JdbcExecutor {
                 0, 0, 0, true);
     }
 
-    public long convertDateTimeToLong(Object obj, boolean isDateTimeV2) {
-        LocalDateTime date;
+    public long convertDateTimeToLong(Object obj, boolean isDateTimeV2) throws UdfRuntimeException {
+        LocalDateTime date = null;
         // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
         if (obj instanceof LocalDateTime) {
             date = (LocalDateTime) obj;
-        } else {
-            date = ((Timestamp) obj).toLocalDateTime();
+        } else if (obj instanceof java.sql.Timestamp) {
+            date = ((java.sql.Timestamp) obj).toLocalDateTime();
+        } else if (obj instanceof oracle.sql.TIMESTAMP) {
+            try {
+                date = ((oracle.sql.TIMESTAMP) obj).timestampValue().toLocalDateTime();
+            } catch (SQLException e) {
+                throw new UdfRuntimeException("Convert oracle.sql.TIMESTAMP"
+                        + " to LocalDateTime failed: ", e);
+            }
         }
         if (isDateTimeV2) {
             return UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
