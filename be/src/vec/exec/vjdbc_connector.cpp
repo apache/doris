@@ -299,7 +299,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2: {
         if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
-            type_str != "java.sql.Date" && type_str != "java.time.LocalDate") {
+            type_str != "java.sql.Date" && type_str != "java.time.LocalDate" &&
+            type_str != "oracle.sql.TIMESTAMP") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -525,11 +526,13 @@ Status JdbcConnector::_insert_column_data(JNIEnv* env, jobject jobj, const TypeD
     }
     case TYPE_DATETIME: {
         int64_t num = _jobject_to_datetime(env, jobj, false);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
         break;
     }
     case TYPE_DATETIMEV2: {
         int64_t num = _jobject_to_datetime(env, jobj, true);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         uint64_t num2 = static_cast<uint64_t>(num);
         reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(
                 num2);
