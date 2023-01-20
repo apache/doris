@@ -692,22 +692,26 @@ public class BindSlotReference implements AnalysisRuleFactory {
         @Override
         public Expression visitUnboundStar(UnboundStar unboundStar, PlannerContext context) {
             List<String> qualifier = unboundStar.getQualifier();
+            List<Slot> slots = getScope().getSlots()
+                    .stream()
+                    .filter(slot -> !(slot instanceof SlotReference) || ((SlotReference) slot).isVisible())
+                    .collect(Collectors.toList());
             switch (qualifier.size()) {
                 case 0: // select *
-                    return new BoundStar(getScope().getSlots());
+                    return new BoundStar(slots);
                 case 1: // select table.*
                 case 2: // select db.table.*
-                    return bindQualifiedStar(qualifier);
+                    return bindQualifiedStar(qualifier, slots);
                 default:
                     throw new AnalysisException("Not supported qualifier: "
                             + StringUtils.join(qualifier, "."));
             }
         }
 
-        private BoundStar bindQualifiedStar(List<String> qualifierStar) {
+        private BoundStar bindQualifiedStar(List<String> qualifierStar, List<Slot> boundSlots) {
             // FIXME: compatible with previous behavior:
             // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
-            List<Slot> slots = getScope().getSlots().stream().filter(boundSlot -> {
+            List<Slot> slots = boundSlots.stream().filter(boundSlot -> {
                 switch (qualifierStar.size()) {
                     // table.*
                     case 1:

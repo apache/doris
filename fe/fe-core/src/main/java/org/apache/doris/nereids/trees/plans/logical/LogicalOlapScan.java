@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -34,17 +35,20 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Logical OlapScan.
@@ -260,6 +264,19 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public Optional<String> getSelectedMaterializedIndexName() {
         return indexSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
                 : Optional.empty();
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        List<Column> otherColumns = new ArrayList<>();
+        if (!Util.showHiddenColumns() && getTable().hasDeleteSign()
+                && !ConnectContext.get().getSessionVariable()
+                .skipDeleteSign()) {
+            otherColumns.add(getTable().getDeleteSignColumn());
+        }
+        return Stream.concat(table.getBaseSchema().stream(), otherColumns.stream())
+                .map(col -> SlotReference.fromColumn(col, qualified()))
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
