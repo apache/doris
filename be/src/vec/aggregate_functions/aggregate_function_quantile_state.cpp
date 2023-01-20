@@ -15,23 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "vec/aggregate_functions/aggregate_function_bitmap.h"
-#include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
 #include "vec/aggregate_functions/aggregate_function_quantile_state.h"
-#include "vec/aggregate_functions/aggregate_function_min_max.h"
-#include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/aggregate_function_sum.h"
+#include "vec/aggregate_functions//aggregate_function_simple_factory.h"
 
 namespace doris::vectorized {
 
-static auto constexpr AGG_READER_SUFFIX = "_reader";
-static auto constexpr AGG_LOAD_SUFFIX = "_load";
+AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
+                                                                    const DataTypes& argument_types,
+                                                                    const Array& parameters,
+                                                                    const bool result_is_nullable) {
+    return std::make_shared<AggregateFunctionQuantileStateOp<AggregateFunctionQuantileStateUnionOp, double>>(
+                            argument_types);
+}
 
-void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory);
-
-void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function("quantile_union", create_aggregate_function_quantile_state_union);
+}
 
 } // namespace doris::vectorized

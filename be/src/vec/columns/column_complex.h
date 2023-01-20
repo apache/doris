@@ -24,6 +24,7 @@
 
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
@@ -48,6 +49,7 @@ public:
 
     bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
     bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
+    bool is_quantile_state() const override { return std::is_same_v<T, QuantileState<double>>; }
 
     size_t size() const override { return data.size(); }
 
@@ -74,6 +76,8 @@ public:
         if constexpr (std::is_same_v<T, BitmapValue>) {
             pvalue->deserialize(pos);
         } else if constexpr (std::is_same_v<T, HyperLogLog>) {
+            pvalue->deserialize(Slice(pos, length));
+        } else if constexpr (std::is_same_v<T, QuantileStateDouble>) {
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
@@ -427,6 +431,13 @@ using ColumnBitmap = ColumnComplexType<BitmapValue>;
 using ColumnHLL = ColumnComplexType<HyperLogLog>;
 
 template <typename T>
+using ColumnQuantileState = ColumnComplexType<QuantileState<T>>;
+
+using ColumnQuantileStateDouble = ColumnQuantileState<double>;
+
+//template class ColumnQuantileState<double>;
+
+template <typename T>
 struct is_complex : std::false_type {};
 
 template <>
@@ -436,6 +447,10 @@ struct is_complex<BitmapValue> : std::true_type {};
 template <>
 struct is_complex<HyperLogLog> : std::true_type {};
 //DataTypeHLL::FieldType = HyperLogLog
+
+template <>
+struct is_complex<QuantileState<double>> : std::true_type {};
+//DataTypeQuantileState::FieldType = QuantileState<double>
 
 template <class T>
 constexpr bool is_complex_v = is_complex<T>::value;

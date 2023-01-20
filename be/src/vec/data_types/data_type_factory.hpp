@@ -44,6 +44,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_quantilestate.h"
 
 namespace doris::vectorized {
 
@@ -85,6 +86,7 @@ public:
                     {"Jsonb", std::make_shared<DataTypeJsonb>()},
                     {"BitMap", std::make_shared<DataTypeBitMap>()},
                     {"Hll", std::make_shared<DataTypeHLL>()},
+                    {"QuantileState", std::make_shared<DataTypeQuantileStateDouble>()},
             };
             for (auto const& [key, val] : base_type_map) {
                 instance.register_data_type(key, val);
