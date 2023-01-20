@@ -40,6 +40,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Arrays;
@@ -132,7 +133,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             && aliasTransferMap.containsKey((NamedExpression) expr);
                 })
                 .forEach(alias -> {
-                    NamedExpression child = ((NamedExpression) alias.child());
+                    Expression child = alias.child();
+                    if (child instanceof Cast) {
+                        child = ((Cast) child).child();
+                    }
+                    Preconditions.checkArgument(child instanceof NamedExpression);
                     aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(child));
                 });
         return project;
