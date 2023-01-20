@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2.etl;
+package org.apache.doris.sparkdpp;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;

@@ -23,10 +23,12 @@ import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
+import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -180,6 +182,9 @@ public class PooledHiveMetaStoreClient {
             if (HMSResource.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
+            } else if (HMSResource.GLUE_TYPE.equalsIgnoreCase(type)) {
+                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                        AWSCatalogMetastoreClient.class.getName());
             } else {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         HiveMetaStoreClient.class.getName());

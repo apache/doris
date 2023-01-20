@@ -188,7 +188,6 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.mortbay.log.Log;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -958,7 +957,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
             Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, false);
-            Log.info("Drop related {} mv job.", dropIds.size());
+            LOG.info("Drop related {} mv job.", dropIds.size());
         }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
@@ -2243,7 +2242,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             for (MTMVJob job : jobs) {
                 Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
             }
-            Log.info("Create related {} mv job.", jobs.size());
+            LOG.info("Create related {} mv job.", jobs.size());
         }
     }
 
