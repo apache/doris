@@ -135,6 +135,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return uncheckedCastTo(targetType);
     }
 
+    public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        return castTo(targetType);
+    }
+
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
         throw new RuntimeException("Do not implement uncheckedCastTo");
     }
