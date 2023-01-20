@@ -25,6 +25,8 @@ package org.apache.doris.nereids.rules.exploration.join;
  * - Improving Join Reorderability with Compensation Operators
  */
 public class JoinReorderContext {
+    public static final JoinReorderContext EMPTY = new JoinReorderContext();
+
     // left deep tree
     private boolean hasCommute = false;
     private boolean hasLAsscom = false;
@@ -36,9 +38,6 @@ public class JoinReorderContext {
     private boolean hasExchange = false;
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
-
-    // mark for whether it has applied HyperGraph.
-    private boolean hasHyperReorder = false;
 
     public JoinReorderContext() {
     }
@@ -113,13 +112,5 @@ public class JoinReorderContext {
 
     public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
         this.hasCommuteZigZag = hasCommuteZigZag;
-    }
-
-    public boolean hasHyperReorder() {
-        return hasHyperReorder;
-    }
-
-    public void setHasHyperReorder(boolean hasHyperReorder) {
-        this.hasHyperReorder = hasHyperReorder;
     }
 }

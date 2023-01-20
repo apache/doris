@@ -61,10 +61,10 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     GroupPlan c = topJoin.right();
 
                     // split HashJoinConjuncts.
-                    Map<Boolean, List<Expression>> splitHashConjunts = splitConjuncts(topJoin.getHashJoinConjuncts(),
+                    Map<Boolean, List<Expression>> splitHashConjuncts = splitConjuncts(topJoin.getHashJoinConjuncts(),
                             bottomJoin, bottomJoin.getHashJoinConjuncts());
-                    List<Expression> newTopHashConjuncts = splitHashConjunts.get(true);
-                    List<Expression> newBottomHashConjuncts = splitHashConjunts.get(false);
+                    List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
+                    List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
                     Preconditions.checkState(!newTopHashConjuncts.isEmpty(),
                             "LAsscom newTopHashJoinConjuncts join can't empty");
                     if (newBottomHashConjuncts.size() == 0) {

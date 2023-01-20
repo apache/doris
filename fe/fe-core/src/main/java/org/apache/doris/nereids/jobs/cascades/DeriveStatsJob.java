@@ -58,10 +58,10 @@ public class DeriveStatsJob extends Job {
 
     @Override
     public void execute() {
-        countJobExecutionTimesOfGroupExpressions(groupExpression);
-        if (groupExpression.isStatDerived()) {
+        if (groupExpression.isStatDerived() || groupExpression.isUnused()) {
             return;
         }
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
         if (!deriveChildren && groupExpression.arity() > 0) {
             pushJob(new DeriveStatsJob(groupExpression, true, context));
 

@@ -82,7 +82,7 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.toSql())));
                     });
                     Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
-                    return join.withhashJoinConjunctsAndChildren(
+                    return join.withHashJoinConjunctsAndChildren(
                             join.getHashJoinConjuncts().stream()
                                     .map(equalTo -> equalTo.withChildren(equalTo.children()
                                             .stream().map(expr -> exprMap.get(expr).toSlot())
