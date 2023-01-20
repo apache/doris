@@ -155,7 +155,9 @@ public class ProfileManager {
         ProfileElement element = createElement(profile);
 
         ProfileEventProcessor processor = Env.getCurrentProfileEventProcessor();
-        if (processor.needHandle()) {
+        // we don't need to handle running profile
+        // we don't need to handle it if there isn't any installed ProfilePlugin
+        if (!isRunningProfile(element) && processor.needHandle()) {
             processor.handleEvent(buildProfileEvent(element));
         }
 
@@ -348,6 +350,10 @@ public class ProfileManager {
 
     public boolean isQueryProfile(RuntimeProfile profile) {
         return "Query".equals(profile.getName());
+    }
+
+    public boolean isRunningProfile(ProfileElement element) {
+        return "RUNNING".equals(element.infoStrings.get(QUERY_STATE));
     }
 
     private ProfileEvent buildProfileEvent(ProfileElement element) {
