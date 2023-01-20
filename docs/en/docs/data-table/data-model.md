@@ -88,9 +88,9 @@ PROPERTIES (
 As you can see, this is a typical fact table of user information and access behavior.
 In general star model, user information and access behavior are stored in dimension table and fact table respectively. Here, in order to explain Doris's data model more conveniently, we store the two parts of information in a single table.
 
-The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType`is set or not. No `AggregationType`, such as `user_id`, `date`, `age`, etc., is set as **Key**, while Aggregation Type is set as **Value**.
+The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType` is set or not. No `AggregationType`, such as `user_id`, `date`, `age`, etc., is set as **Key**, while Aggregation Type is set as **Value**.
 
-When we import data, the same rows and aggregates into one row for the Key column, while the Value column aggregates according to the set `AggregationType`. `AggregationType`currently has the following four ways of aggregation:
+When we import data, the same rows and aggregates into one row for the Key column, while the Value column aggregates according to the set `AggregationType`. `AggregationType` currently has the following four ways of aggregation:
 
 1. SUM: Sum, multi-line Value accumulation.
 2. REPLACE: Instead, Values in the next batch of data will replace Values in rows previously imported.
@@ -311,7 +311,7 @@ That is to say, the merge-on-read implementation of the Unique model can be comp
 
 The merge-on-write implementation of the Unique model is completely different from the aggregation model. The query performance is closer to the duplicate model. Compared with the aggregation model, it has a better query performance.
 
-In version 1.2, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
+In version 1.2.0, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
 
 ```
 "enable_unique_key_merge_on_write" = "true"
@@ -334,7 +334,7 @@ CREATE TABLE IF NOT EXISTS example_db.example_tbl
 Unique Key (`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 1",
 "enable_unique_key_merge_on_write" = "true"
 );
 ```
@@ -366,7 +366,7 @@ In some multidimensional analysis scenarios, data has neither primary keys nor a
 
 |ColumnName|Type|SortKey|Comment|
 |---|---|---|---|
-| timstamp | DATETIME | Yes | Logging Time|
+| timestamp | DATETIME | Yes | Logging Time|
 | type | INT | Yes | Log Type|
 | error_code|INT|Yes|error code|
 | Error_msg | VARCHAR (1024) | No | Error Details|
@@ -493,7 +493,7 @@ Therefore, when there are frequent count (*) queries in the business, we recomme
 
 Add a count column and import the data with the column value **equal to 1**. The result of `select count (*) from table;`is equivalent to `select sum (count) from table;` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum (count) from table;`can only express the number of rows originally imported, not the semantics of `select count (*) from table;`
 
-Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
+Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then `select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
 
 ### Merge-on-write implementation of Unique model
 

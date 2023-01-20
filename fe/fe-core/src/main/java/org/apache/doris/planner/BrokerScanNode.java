@@ -66,7 +66,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -326,7 +325,8 @@ public class BrokerScanNode extends LoadScanNode {
                 throw new UserException(e.getMessage());
             }
             brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
-        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.OFS) {
+        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.OFS
+                || brokerDesc.getStorageType() == StorageBackend.StorageType.JFS) {
             FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
             if (broker == null) {
                 throw new UserException("No alive broker.");
@@ -361,10 +361,6 @@ public class BrokerScanNode extends LoadScanNode {
             fileStatusesList = Lists.newArrayList();
             filesAdded = 0;
             this.getFileStatus();
-        }
-        // In hudiScanNode, calculate scan range using its own way which do not need fileStatusesList
-        if (!(this instanceof HudiScanNode)) {
-            Preconditions.checkState(fileStatusesList.size() == fileGroups.size());
         }
 
         if (isLoad() && filesAdded == 0) {

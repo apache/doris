@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -93,7 +94,8 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     aggregateFunctionToSlotContext.pushDownToNamedExpression(normalizedAggregateFunctions);
 
             List<Slot> normalizedGroupBy =
-                    (List) groupByAndArgumentToSlotContext.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
+                    (List) groupByAndArgumentToSlotContext
+                            .normalizeToUseSlotRef(aggregate.getGroupByExpressions());
 
             // we can safely add all groupBy and aggregate functions to output, because we will
             // add a project on it, and the upper project can protect the scope of visible of slot
@@ -122,7 +124,13 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                 aggregate.getOutputExpressions(), AggregateFunction.class::isInstance);
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(function -> function.getArguments().stream())
+                .flatMap(function -> function.getArguments().stream().map(arg -> {
+                    if (arg instanceof OrderExpression) {
+                        return arg.child(0);
+                    } else {
+                        return arg;
+                    }
+                }))
                 .collect(ImmutableSet.toImmutableSet());
 
         ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()

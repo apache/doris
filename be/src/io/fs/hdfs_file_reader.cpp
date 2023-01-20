@@ -23,12 +23,12 @@
 namespace doris {
 namespace io {
 HdfsFileReader::HdfsFileReader(Path path, size_t file_size, const std::string& name_node,
-                               hdfsFile hdfs_file, HdfsFileSystem* fs)
+                               hdfsFile hdfs_file, std::shared_ptr<HdfsFileSystem> fs)
         : _path(std::move(path)),
           _file_size(file_size),
           _name_node(name_node),
           _hdfs_file(hdfs_file),
-          _fs(fs) {
+          _fs(std::move(fs)) {
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
 }

@@ -215,22 +215,6 @@ public class CascadesContext {
         return this;
     }
 
-    public void addToTable(Table table) {
-        tables.add(table);
-    }
-
-    public void lockTableOnRead() {
-        for (Table t : tables) {
-            t.readLock();
-        }
-    }
-
-    public void releaseTableReadLock() {
-        for (Table t : tables) {
-            t.readUnlock();
-        }
-    }
-
     /**
      * Extract tables.
      */

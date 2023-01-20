@@ -206,7 +206,6 @@ public:
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using T0 = typename Types::LeftType;
-            using T1 = typename Types::RightType;
             using result_type = typename Types::LeftType;
 
             // for doris, args type and return type must be sanme beacause of type cast has already done before, so here just need one type;

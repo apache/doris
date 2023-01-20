@@ -44,7 +44,7 @@ ROLLUP 表的基本作用，在于在 Base 表的基础上，获得更粗粒度�
 
 1. 示例1：获得每个用户的总消费
 
-接 **[数据模型Aggregate 模型](../data-model)**小节的**示例2**，Base 表结构如下：
+接 **[数据模型Aggregate 模型](./data-model)**小节的**示例2**，Base 表结构如下：
 
 | ColumnName      | Type        | AggregationType | Comment                |
 | --------------- | ----------- | --------------- | ---------------------- |

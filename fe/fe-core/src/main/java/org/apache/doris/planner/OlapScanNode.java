@@ -21,6 +21,8 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -156,6 +158,8 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    private boolean useTopnOpt = false;
+
     private TPushAggOp pushDownAggNoGroupingOp = null;
 
     // List of tablets will be scanned by current olap_scan_node
@@ -170,6 +174,11 @@ public class OlapScanNode extends ScanNode {
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
+
+    boolean isFromPrepareStmt = false;
+    // For point query
+    private Map<SlotRef, Expr> pointQueryEqualPredicats;
+    private DescriptorTable descTable;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -199,6 +208,10 @@ public class OlapScanNode extends ScanNode {
         return sampleTabletIds;
     }
 
+    public HashSet<Long> getScanBackendIds() {
+        return scanBackendIds;
+    }
+
     public void setSampleTabletIds(List<Long> sampleTablets) {
         if (sampleTablets != null) {
             this.sampleTabletIds.addAll(sampleTablets);
@@ -226,6 +239,10 @@ public class OlapScanNode extends ScanNode {
         return forceOpenPreAgg;
     }
 
+    public ArrayList<Long> getScanTabletIds() {
+        return scanTabletIds;
+    }
+
     public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
         this.forceOpenPreAgg = forceOpenPreAgg;
     }
@@ -250,6 +267,14 @@ public class OlapScanNode extends ScanNode {
         this.sortLimit = sortLimit;
     }
 
+    public boolean getUseTopnOpt() {
+        return useTopnOpt;
+    }
+
+    public void setUseTopnOpt(boolean useTopnOpt) {
+        this.useTopnOpt = useTopnOpt;
+    }
+
     public Collection<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
     }
@@ -264,7 +289,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
-     * Only used for Neredis to set rollup or materialized view selection result.
+     * Only used for Nereids to set rollup or materialized view selection result.
      */
     public void setSelectedIndexInfo(
             long selectedIndexId,
@@ -382,7 +407,7 @@ public class OlapScanNode extends ScanNode {
      * changed to bigint in here.
      * Currently, only `SUM` aggregate type could match this changed.
      */
-    private void updateColumnType() {
+    private void updateColumnType() throws UserException {
         if (selectedIndexId == olapTable.getBaseIndexId()) {
             return;
         }
@@ -394,7 +419,13 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Preconditions.checkNotNull(baseColumn);
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
-            Preconditions.checkNotNull(mvColumn);
+            if (mvColumn == null) {
+                mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
+            }
+            if (mvColumn == null) {
+                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+            }
+
             if (mvColumn.getType() != baseColumn.getType()) {
                 slotDescriptor.setColumn(mvColumn);
             }
@@ -440,8 +471,12 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        computeColumnFilter();
-        computePartitionInfo();
+        // lazy evaluation, since stmt is a prepared statment
+        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
+        if (!isFromPrepareStmt) {
+            computeColumnFilter();
+            computePartitionInfo();
+        }
         computeTupleState(analyzer);
         computeSampleTabletIds();
 
@@ -497,11 +532,16 @@ public class OlapScanNode extends ScanNode {
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
             cardinality = 0;
         }
-        try {
-            getScanRangeLocations();
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
+
+        // prepare stmt evaluate lazily in Coordinator execute
+        if (!isFromPrepareStmt) {
+            try {
+                getScanRangeLocations();
+            } catch (AnalysisException e) {
+                throw new UserException(e.getMessage());
+            }
         }
+
         // Relatively accurate cardinality according to ScanRange in
         // getScanRangeLocations
         computeStats(analyzer);
@@ -565,21 +605,11 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            if (analyzer.partitionPruneV2Enabled()) {
-                partitionPruner = new RangePartitionPrunerV2(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnNameToRange);
-            } else {
-                partitionPruner = new RangePartitionPruner(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnFilters);
-            }
+            partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnNameToRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            if (analyzer.partitionPruneV2Enabled()) {
-                partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
-                        columnNameToRange);
-            } else {
-                partitionPruner = new ListPartitionPruner(keyItemMap,
-                        partitionInfo.getPartitionColumns(), columnFilters);
-            }
+            partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                    columnNameToRange);
         }
         return partitionPruner.prune();
     }
@@ -838,6 +868,22 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    public boolean isFromPrepareStmt() {
+        return this.isFromPrepareStmt;
+    }
+
+    public void setPointQueryEqualPredicates(Map<SlotRef, Expr> predicates) {
+        this.pointQueryEqualPredicats = predicates;
+    }
+
+    public Map<SlotRef, Expr> getPointQueryEqualPredicates() {
+        return this.pointQueryEqualPredicats;
+    }
+
+    public boolean isPointQuery() {
+        return this.pointQueryEqualPredicats != null;
+    }
+
     private void computeTabletInfo() throws UserException {
         /**
          * The tablet info could be computed only once.
@@ -920,6 +966,31 @@ public class OlapScanNode extends ScanNode {
         return result;
     }
 
+    // Only called when Coordinator exec in point query
+    public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
+        // Lazy evaluation
+        selectedIndexId = olapTable.getBaseIndexId();
+        // TODO(lhy) this function is a heavy operation for point query
+        computeColumnFilter();
+        computePartitionInfo();
+        scanBackendIds.clear();
+        scanTabletIds.clear();
+        try {
+            getScanRangeLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+        return result;
+    }
+
+    public void setDescTable(DescriptorTable descTable) {
+        this.descTable = descTable;
+    }
+
+    public DescriptorTable getDescTable() {
+        return this.descTable;
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -959,9 +1030,15 @@ public class OlapScanNode extends ScanNode {
             sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
+            if (sortInfo.useTwoPhaseRead()) {
+                output.append(prefix).append("OPT TWO PHASE\n");
+            }
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
+        }
+        if (useTopnOpt) {
+            output.append(prefix).append("TOPN OPT\n");
         }
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
@@ -1034,6 +1111,7 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
+        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());

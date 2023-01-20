@@ -135,6 +135,8 @@ public class HiveScanNode extends BrokerScanNode {
             this.storageType = StorageBackend.StorageType.HDFS;
         } else if (storagePrefix.equalsIgnoreCase(FeConstants.FS_PREFIX_OFS)) {
             this.storageType = StorageBackend.StorageType.OFS;
+        } else if (storagePrefix.equalsIgnoreCase(FeConstants.FS_PREFIX_JFS)) {
+            this.storageType = StorageBackend.StorageType.JFS;
         } else {
             throw new UserException("Not supported storage type: " + storagePrefix);
         }
@@ -159,8 +161,9 @@ public class HiveScanNode extends BrokerScanNode {
     @Override
     protected void getFileStatus() throws UserException {
         if (partitionKeys.size() > 0) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    conjuncts, partitionKeys, hiveTable.getName());
+            // Hive Table is no longer supported.
+            // So there we just create an empty predicate
+            hivePartitionPredicate = new ExprNodeGenericFuncDesc();
         }
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -99,7 +100,7 @@ public class CreateTableTest {
     }
 
     @Test
-    public void testNormal() throws DdlException {
+    public void testNormal() throws DdlException, ConfigException {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl1\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
@@ -241,7 +242,7 @@ public class CreateTableTest {
     }
 
     @Test
-    public void testAbnormal() throws DdlException {
+    public void testAbnormal() throws DdlException, ConfigException {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Floating point type should not be used in distribution column",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
@@ -644,5 +645,46 @@ public class CreateTableTest {
                     + ") distributed by hash(k1) buckets 1\n"
                     + "properties(\"replication_num\" = \"1\");");
         });
+
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_array( \n"
+                    + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
+                    + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"
+                    + "route_key DATEV2 NOT NULL COMMENT \"range分区键\"\n"
+                    + ") \n"
+                    + "DUPLICATE KEY(`task_insert_time`)  \n"
+                    + " COMMENT \"\"\n"
+                    + "PARTITION BY RANGE(route_key) \n"
+                    + "(PARTITION `p202209` VALUES LESS THAN (\"2022-10-01\"),\n"
+                    + "PARTITION `p202210` VALUES LESS THAN (\"2022-11-01\"),\n"
+                    + "PARTITION `p202211` VALUES LESS THAN (\"2022-12-01\")) \n"
+                    + "DISTRIBUTED BY HASH(`task_insert_time` ) BUCKETS 32 \n"
+                    + "PROPERTIES\n"
+                    + "(\n"
+                    + "    \"replication_num\" = \"1\",    \n"
+                    + "    \"light_schema_change\" = \"true\"    \n"
+                    + ");");
+        });
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Complex type column can't be partition column",
+                () -> {
+                    createTable("create table test.test_array2( \n"
+                            + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
+                            + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"
+                            + "route_key DATEV2 NOT NULL COMMENT \"range分区键\"\n"
+                            + ") \n"
+                            + "DUPLICATE KEY(`task_insert_time`)  \n"
+                            + " COMMENT \"\"\n"
+                            + "PARTITION BY RANGE(task_project) \n"
+                            + "(PARTITION `p202209` VALUES LESS THAN (\"2022-10-01\"),\n"
+                            + "PARTITION `p202210` VALUES LESS THAN (\"2022-11-01\"),\n"
+                            + "PARTITION `p202211` VALUES LESS THAN (\"2022-12-01\")) \n"
+                            + "DISTRIBUTED BY HASH(`task_insert_time` ) BUCKETS 32 \n"
+                            + "PROPERTIES\n"
+                            + "(\n"
+                            + "    \"replication_num\" = \"1\",    \n"
+                            + "    \"light_schema_change\" = \"true\"    \n"
+                            + ");");
+                });
     }
 }

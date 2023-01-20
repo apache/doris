@@ -73,8 +73,8 @@ public class MTMVJobFactory {
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setSchedule(genJobSchedule(materializedView));
-        job.setDbName(dbName);
-        job.setMvName(materializedView.getName());
+        job.setDBName(dbName);
+        job.setMVName(materializedView.getName());
         job.setQuery(materializedView.getQuery());
         job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;
@@ -84,8 +84,8 @@ public class MTMVJobFactory {
         String uid = UUID.randomUUID().toString();
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
         job.setTriggerMode(TriggerMode.ONCE);
-        job.setDbName(dbName);
-        job.setMvName(materializedView.getName());
+        job.setDBName(dbName);
+        job.setMVName(materializedView.getName());
         job.setQuery(materializedView.getQuery());
         job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;

@@ -162,6 +162,6 @@ When the disk capacity is higher than High Watermark or even Flood Stage, many o
 
         ```rm -rf data/0/12345/```
 
-    * Delete tablet metadata (refer to [Tablet metadata management tool](./tablet-meta-tool.md)）
+    * Delete tablet metadata (refer to [Tablet metadata management tool](./tablet-meta-tool)）
 
         ```./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=12345 --schema_hash= 352781111```

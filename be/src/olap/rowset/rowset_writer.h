@@ -27,7 +27,6 @@
 
 namespace doris {
 
-struct ContiguousRow;
 class MemTable;
 
 class RowsetWriter {
@@ -40,7 +39,6 @@ public:
     // Memory note: input `row` is guaranteed to be copied into writer's internal buffer, including all slice data
     // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
     virtual Status add_row(const RowCursor& row) = 0;
-    virtual Status add_row(const ContiguousRow& row) = 0;
 
     virtual Status add_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
@@ -59,13 +57,12 @@ public:
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
-    virtual Status flush_columns() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
-    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
-
-    virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
+    virtual Status flush_columns(bool is_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
-    virtual Status flush_single_memtable(const vectorized::Block* block) {
+    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
+
+    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 

@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.backup.S3Storage;
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
@@ -29,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +53,13 @@ import java.util.Optional;
  * "AWS_REQUEST_TIMEOUT_MS" = "3000",
  * "AWS_CONNECTION_TIMEOUT_MS" = "1000"
  * );
+ * <p>
+ * For AWS S3, BE need following properties:
+ * 1. AWS_ACCESS_KEY: ak
+ * 2. AWS_SECRET_KEY: sk
+ * 3. AWS_ENDPOINT: s3.us-east-1.amazonaws.com
+ * 4. AWS_REGION: us-east-1
+ * And file path: s3://bucket_name/csv/taxi.csv
  */
 public class S3Resource extends Resource {
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
@@ -65,6 +75,8 @@ public class S3Resource extends Resource {
     // required by storage policy
     public static final String S3_ROOT_PATH = "AWS_ROOT_PATH";
     public static final String S3_BUCKET = "AWS_BUCKET";
+
+    private static final String S3_VALIDITY_CHECK = "s3_validity_check";
 
     // optional
     public static final String S3_TOKEN = "AWS_TOKEN";
@@ -102,10 +114,53 @@ public class S3Resource extends Resource {
         checkRequiredProperty(S3_REGION);
         checkRequiredProperty(S3_ACCESS_KEY);
         checkRequiredProperty(S3_SECRET_KEY);
+        checkRequiredProperty(S3_BUCKET);
+
+        // default need check resource conf valid, so need fix ut and regression case
+        boolean needCheck = !properties.containsKey(S3_VALIDITY_CHECK)
+                || Boolean.parseBoolean(properties.get(S3_VALIDITY_CHECK));
+        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (needCheck) {
+            boolean available = pingS3();
+            if (!available) {
+                throw new DdlException("S3 can't use, please check your properties");
+            }
+        }
+
         // optional
         checkOptionalProperty(S3_MAX_CONNECTIONS, DEFAULT_S3_MAX_CONNECTIONS);
         checkOptionalProperty(S3_REQUEST_TIMEOUT_MS, DEFAULT_S3_REQUEST_TIMEOUT_MS);
         checkOptionalProperty(S3_CONNECTION_TIMEOUT_MS, DEFAULT_S3_CONNECTION_TIMEOUT_MS);
+    }
+
+    private boolean pingS3() {
+        String bucket = "s3://" + properties.getOrDefault(S3_BUCKET, "") + "/";
+        Map<String, String> propertiesPing = new HashMap<>();
+        propertiesPing.put("AWS_ACCESS_KEY", properties.getOrDefault(S3_ACCESS_KEY, ""));
+        propertiesPing.put("AWS_SECRET_KEY", properties.getOrDefault(S3_SECRET_KEY, ""));
+        propertiesPing.put("AWS_ENDPOINT", "http://" + properties.getOrDefault(S3_ENDPOINT, ""));
+        propertiesPing.put("AWS_REGION", properties.getOrDefault(S3_REGION, ""));
+        propertiesPing.put(S3Resource.USE_PATH_STYLE, "false");
+        S3Storage storage = new S3Storage(propertiesPing);
+
+        String testFile = bucket + properties.getOrDefault(S3_ROOT_PATH, "") + "/test-object-valid.txt";
+        String content = "doris will be better";
+        try {
+            Status status = storage.directUpload(content, testFile);
+            if (status != Status.OK) {
+                LOG.warn("ping update file status: {}, properties: {}", status, propertiesPing);
+                return false;
+            }
+        } finally {
+            Status delete = storage.delete(testFile);
+            if (delete != Status.OK) {
+                LOG.warn("ping delete file status: {}, properties: {}", delete, propertiesPing);
+                return false;
+            }
+        }
+
+        LOG.info("success to ping s3");
+        return true;
     }
 
     private void checkRequiredProperty(String propertyKey) throws DdlException {
@@ -156,10 +211,6 @@ public class S3Resource extends Resource {
         }
     }
 
-    public Map<String, String> getS3HadoopProperties() {
-        return getS3HadoopProperties(properties);
-    }
-
     public static Map<String, String> getS3HadoopProperties(Map<String, String> properties) {
         Map<String, String> s3Properties = Maps.newHashMap();
         if (properties.containsKey(S3_ACCESS_KEY)) {
@@ -204,6 +255,7 @@ public class S3Resource extends Resource {
                 s3Properties.put(entry.getKey(), entry.getValue());
             }
         }
+
         return s3Properties;
     }
 }

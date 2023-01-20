@@ -41,6 +41,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
+import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.planner.ScanNode.ColumnRanges;
@@ -71,9 +72,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
             PartitionInfo partitionInfo = table.getPartitionInfo();
-            // TODO: 1. support grammar: SELECT * FROM tbl PARTITION(p1,p2)
-            //       2. support list partition
-            if (partitionColumnNameSet.isEmpty() || !partitionInfo.getType().equals(PartitionType.RANGE)) {
+            if (partitionColumnNameSet.isEmpty()) {
                 return ctx.root;
             }
             Set<Expression> expressionList = filter.getConjuncts();
@@ -85,7 +84,9 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             }
 
             Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItem(false);
-            PartitionPruner partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+            PartitionPruner partitionPruner = partitionInfo.getType().equals(PartitionType.RANGE)
+                    ? new RangePartitionPrunerV2(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnNameToRange) : new ListPartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
             Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();

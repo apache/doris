@@ -311,7 +311,6 @@ void test_replace() {
 
 template <FieldType field_type>
 void test_replace_string() {
-    using CppType = typename CppTypeTraits<field_type>::CppType;
     constexpr size_t string_field_size = sizeof(bool) + sizeof(Slice);
 
     char dst[string_field_size];

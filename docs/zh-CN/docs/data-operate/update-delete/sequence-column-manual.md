@@ -158,7 +158,7 @@ PROPERTIES
 
 1. 创建支持sequence column的表
 
-创建unique模型的test_table数据表，并指定指定sequence列映射到表中的modify_date列。
+创建unique模型的test_table数据表，并指定sequence列映射到表中的modify_date列。
 
 ```sql
 CREATE TABLE test.test_table

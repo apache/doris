@@ -39,7 +39,25 @@ class RuntimeState;
 namespace vectorized {
 class VCollectIterator;
 class Block;
+class VExpr;
 } // namespace vectorized
+
+// Used to compare row with input scan key. Scan key only contains key columns,
+// row contains all key columns, which is superset of key columns.
+// So we should compare the common prefix columns of lhs and rhs.
+//
+// NOTE: if you are not sure if you can use it, please don't use this function.
+template <typename LhsRowType, typename RhsRowType>
+int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
+        if (res != 0) {
+            return res;
+        }
+    }
+    return 0;
+}
 
 class TabletReader {
     struct KeysParam {
@@ -75,6 +93,7 @@ public:
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
+        std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
@@ -90,9 +109,12 @@ public:
         std::vector<uint32_t>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
+        vectorized::VExpr* remaining_vconjunct_root = nullptr;
 
         // used for compaction to record row ids
         bool record_rowids = false;
+        // flag for enable topn opt
+        bool use_topn_opt = false;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
         // used for special optimization for query : ORDER BY key DESC LIMIT n
@@ -164,6 +186,8 @@ protected:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
+    void _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
+
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
@@ -198,6 +222,7 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 

@@ -46,7 +46,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_TVF_RELATION,
                 Objects.requireNonNull(function, "table valued function can not be null").getTable(),
-                ImmutableList.of(), groupExpression, logicalProperties, ImmutableList.of());
+                ImmutableList.of(), groupExpression, logicalProperties);
         this.function = function;
     }
 

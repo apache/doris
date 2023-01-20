@@ -21,10 +21,11 @@
 
 namespace doris::vectorized {
 
-VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit)
+VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile)
         : _state(state),
           _parent(parent),
           _limit(limit),
+          _profile(profile),
           _input_tuple_desc(parent->input_tuple_desc()),
           _output_tuple_desc(parent->output_tuple_desc()) {
     _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
@@ -39,6 +40,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _output_tuple_desc->slots()) {
+            if (!slot_desc->need_materialize()) {
+                // should be ignore from reading
+                continue;
+            }
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
@@ -79,8 +84,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
 Status VScanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
-    Status st =
-            VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size());
+    Status st = VExprContext::filter_block(_vconjunct_ctx, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
     return st;
 }

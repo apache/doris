@@ -29,7 +29,9 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.HashMap;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
 /**
@@ -44,18 +46,11 @@ public class CreateCatalogStmt extends DdlStmt {
     /**
      * Statement for create a new catalog.
      */
-    public CreateCatalogStmt(boolean ifNotExists, String catalogName, Map<String, String> properties) {
+    public CreateCatalogStmt(boolean ifNotExists, String catalogName, String resource, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.catalogName = catalogName;
-        this.resource = null;
-        this.properties = properties == null ? new HashMap<>() : properties;
-    }
-
-    public CreateCatalogStmt(boolean ifNotExists, String catalogName, String resource) {
-        this.ifNotExists = ifNotExists;
-        this.catalogName = catalogName;
-        this.resource = resource;
-        this.properties = new HashMap<>();
+        this.resource = resource == null ? "" : resource;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
     public String getCatalogName() {
@@ -99,12 +94,13 @@ public class CreateCatalogStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE CATALOG ").append("`").append(catalogName).append("`");
+        if (!Strings.isNullOrEmpty(resource)) {
+            stringBuilder.append(" WITH RESOURCE `").append(resource).append("`");
+        }
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
             stringBuilder.append("\n)");
-        } else if (resource != null) {
-            stringBuilder.append(" WITH RESOURCE `").append(resource).append("`");
         }
         return stringBuilder.toString();
     }

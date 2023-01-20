@@ -25,7 +25,6 @@
 #include "exprs/expr.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
@@ -104,7 +103,6 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
@@ -238,7 +236,6 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     while (need_more_input_data()) {
         RETURN_IF_ERROR(_fresh_left_block(state));
@@ -514,7 +511,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
 }
 
-template <bool SetBuildSideFlag, bool SetProbeSideFlag>
+template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize) {
     auto column_to_keep = block->columns();
     // If we need to set visited flags for build side,
@@ -543,8 +540,14 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
             auto* __restrict filter_data = filter.data();
 
             const size_t size = filter.size();
-            for (size_t i = 0; i < size; ++i) {
-                filter_data[i] &= !null_map[i];
+            if constexpr (IgnoreNull) {
+                for (size_t i = 0; i < size; ++i) {
+                    filter_data[i] |= null_map[i];
+                }
+            } else {
+                for (size_t i = 0; i < size; ++i) {
+                    filter_data[i] &= !null_map[i];
+                }
             }
             _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                         SetProbeSideFlag>(
@@ -600,7 +603,6 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     // We can close the right child to release its resources because its input has been
     // fully consumed.

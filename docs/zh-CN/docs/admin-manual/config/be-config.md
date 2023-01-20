@@ -55,13 +55,13 @@ BE 的配置项有两种方式进行配置：
 BE 启动后，可以通过以下命令动态设置配置项。
 
   ```
-  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}
   ```
 
 在 0.13 版本及之前，通过该方式修改的配置项将在 BE 进程重启后失效。在 0.14 及之后版本中，可以通过以下命令持久化修改后的配置。修改后的配置项存储在 `be_custom.conf` 文件中。
 
   ```
-  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true
+  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}\&persist=true
   ```
 
 ## 应用举例
@@ -261,7 +261,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：该配置主要用来修改brpc中bthreads的数量. 该配置的默认值被设置为-1, 这意味着bthreads的数量将被设置为机器的cpu核数。
 
   - 用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
-* 默认值：1
+* 默认值：-1
 
 #### `thrift_rpc_timeout_ms`
 
@@ -345,8 +345,8 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `fragment_pool_thread_num_max`
 
-* 描述：后续查询请求动态创建线程，最大创建256个线程。
-* 默认值：256
+* 描述：后续查询请求动态创建线程，最大创建512个线程。
+* 默认值：512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -357,7 +357,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `doris_max_scan_key_num`
 
 * 类型：int
-* 描述：用于限制一个查询请求中，scan node 节点能拆分的最大 scan key 的个数。当一个带有条件的查询请求到达 scan node 节点时，scan node 会尝试将查询条件中 key 列相关的条件拆分成多个 scan key range。之后这些 scan key range 会被分配给多个 scanner 线程进行数据扫描。较大的数值通常意味着可以使用更多的 scanner 线程来提升扫描操作的并行度。但在高并发场景下，过多的线程可能会带来更大的调度开销和系统负载，反而会降低查询响应速度。一个经验数值为 50。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables.md) 中 `max_scan_key_num` 的说明。
+* 描述：用于限制一个查询请求中，scan node 节点能拆分的最大 scan key 的个数。当一个带有条件的查询请求到达 scan node 节点时，scan node 会尝试将查询条件中 key 列相关的条件拆分成多个 scan key range。之后这些 scan key range 会被分配给多个 scanner 线程进行数据扫描。较大的数值通常意味着可以使用更多的 scanner 线程来提升扫描操作的并行度。但在高并发场景下，过多的线程可能会带来更大的调度开销和系统负载，反而会降低查询响应速度。一个经验数值为 50。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables) 中 `max_scan_key_num` 的说明。
   - 当在高并发场景下发下并发度无法提升时，可以尝试降低该数值并观察影响。
 * 默认值：48
 
@@ -417,7 +417,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `max_pushdown_conditions_per_column`
 
 * 类型：int
-* 描述：用于限制一个查询请求中，针对单个列，能够下推到存储引擎的最大条件数量。在查询计划执行的过程中，一些列上的过滤条件可以下推到存储引擎，这样可以利用存储引擎中的索引信息进行数据过滤，减少查询需要扫描的数据量。比如等值条件、IN 谓词中的条件等。这个参数在绝大多数情况下仅影响包含 IN 谓词的查询。如 `WHERE colA IN (1,2,3,4,...)`。较大的数值意味值 IN 谓词中更多的条件可以推送给存储引擎，但过多的条件可能会导致随机读的增加，某些情况下可能会降低查询效率。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables.md) 中 `max_pushdown_conditions_per_column ` 的说明。
+* 描述：用于限制一个查询请求中，针对单个列，能够下推到存储引擎的最大条件数量。在查询计划执行的过程中，一些列上的过滤条件可以下推到存储引擎，这样可以利用存储引擎中的索引信息进行数据过滤，减少查询需要扫描的数据量。比如等值条件、IN 谓词中的条件等。这个参数在绝大多数情况下仅影响包含 IN 谓词的查询。如 `WHERE colA IN (1,2,3,4,...)`。较大的数值意味值 IN 谓词中更多的条件可以推送给存储引擎，但过多的条件可能会导致随机读的增加，某些情况下可能会降低查询效率。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables) 中 `max_pushdown_conditions_per_column ` 的说明。
 * 默认值：1024
 
 * 示例
@@ -459,6 +459,42 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：是否开启向量化compaction
 * 默认值：true
 
+#### `enable_vertical_compaction`
+
+* 类型: bool
+* 描述: 是否开启列式compaction
+* 默认值: true
+
+#### `vertical_compaction_num_columns_per_group`
+
+* 类型: bool
+* 描述: 在列式compaction中, 组成一个合并组的列个数
+* 默认值: true
+
+#### `vertical_compaction_max_row_source_memory_mb`
+
+* 类型: bool
+* 描述: 在列式compaction中, row_source_buffer能使用的最大内存
+* 默认值: true
+
+#### `vertical_compaction_max_segment_size`
+
+* 类型: bool
+* 描述: 在列式compaction中, 输出的segment文件最大值
+* 默认值: true
+
+#### `enable_ordered_data_compaction`
+
+* 类型: bool
+* 描述: 是否开启有序数据的compaction
+* 默认值: true
+
+#### `ordered_data_compaction_min_segment_size`
+
+* 类型: bool
+* 描述: 在有序数据compaction中, 满足要求的最小segment大小
+* 默认值: true
+
 #### `max_base_compaction_threads`
 
 * 类型：int32
@@ -486,12 +522,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：被所有的compaction任务所能持有的 "permits" 上限，用来限制compaction占用的内存。
 * 默认值：10000
 * 可动态修改：是
-
-#### `compaction_tablet_compaction_score_factor`
-
-* 类型：int32
-* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
-* 默认值：1
 
 #### `compaction_promotion_size_mbytes`
 
@@ -1261,6 +1291,16 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
 
+<version since="1.2">
+
+#### `jvm_max_heap_size`
+
+* 类型：string
+* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数 
+* 默认值：1024M
+
+</version>
+
 ### 日志
 
 #### `sys_log_dir`
@@ -1381,7 +1421,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: BlockingPriorityQueue中剩余任务的优先级频率增加
 * 默认值:512
 
-#### `jdbc_drivers_dir
+<version since="1.2">
+
+#### `jdbc_drivers_dir`
 
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
+
+</version>

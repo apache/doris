@@ -290,6 +290,7 @@ void TaskScheduler::_do_work(size_t index) {
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
     // state only should be CANCELED or FINISHED
+    task->try_close();
     if (task->is_pending_finish()) {
         task->set_state(PENDING_FINISH);
         _blocked_task_scheduler->add_blocked_task(task);

@@ -81,7 +81,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 ## Upgrade preparation
 
 1. After data validation, the new version of BE and FE binary files are distributed to their respective directories.
-2. Usually small version upgrade, BE only needs to upgrade doris_be; FE only needs to upgrade palo-fe.jar. If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
+2. Usually small version upgrade, BE only needs to upgrade doris_be; FE only needs to upgrade doris-fe.jar (earlier versions was palo-fe.jar). If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
 
 ## rolling upgrade
 

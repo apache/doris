@@ -37,10 +37,10 @@ set(RUNTIME_FILES
     primitive_type.cpp
     raw_value.cpp
     result_buffer_mgr.cpp
-    result_writer.cpp
-    row_batch.cpp
+    result_writer.cpp    
     runtime_state.cpp
     runtime_filter_mgr.cpp
+    runtime_predicate.cpp
     string_value.cpp
     jsonb_value.cpp
     thread_context.cpp
@@ -56,16 +56,9 @@ set(RUNTIME_FILES
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc
-    disk_io_mgr.cc
-    disk_io_mgr_reader_context.cc
-    disk_io_mgr_scan_range.cc 
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp
-    bufferpool/buffer_allocator.cc
-    bufferpool/buffer_pool.cc
-    bufferpool/suballocator.cc
-    bufferpool/system_allocator.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp
@@ -90,6 +83,7 @@ set(RUNTIME_FILES
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
+    block_spill_manager.cpp
 )
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)

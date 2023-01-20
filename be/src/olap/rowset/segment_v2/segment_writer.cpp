@@ -17,12 +17,12 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "env/env.h"        // Env
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/primary_key_index.h"
-#include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -95,6 +95,30 @@ Status SegmentWriter::init() {
     return init(column_ids, true);
 }
 
+Status SegmentWriter::append_row_column_writer() {
+    ColumnWriterOptions opts;
+    opts.meta = _footer.add_columns();
+
+    init_column_meta(opts.meta, _footer.columns_size(), TabletSchema::row_oriented_column(),
+                     _tablet_schema);
+    opts.need_bloom_filter = false;
+    opts.need_bitmap_index = false;
+    // smaller page size
+    opts.data_page_size = 16 * 1024;
+    opts.need_zone_map = false;
+    opts.need_bloom_filter = false;
+    opts.need_bitmap_index = false;
+
+    std::unique_ptr<ColumnWriter> writer;
+    RETURN_IF_ERROR(ColumnWriter::create(opts, &TabletSchema::row_oriented_column(), _file_writer,
+                                         &writer));
+    RETURN_IF_ERROR(writer->init());
+    _column_ids.push_back(_column_ids.size());
+    _column_writers.push_back(std::move(writer));
+    _olap_data_convertor->add_column_data_convertor(TabletSchema::row_oriented_column());
+    return Status::OK();
+}
+
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
@@ -112,6 +136,14 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         // and not support zone map for array type and jsonb type.
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
+        auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
+        if (tablet_index) {
+            opts.need_bloom_filter = true;
+            opts.is_ngram_bf_index = true;
+            opts.gram_size = tablet_index->get_gram_size();
+            opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        }
+
         opts.need_bitmap_index = column.has_bitmap_index();
         bool skip_inverted_index = false;
         if (_opts.rowset_ctx != nullptr) {
@@ -176,8 +208,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
-           block->columns() == _column_writers.size());
+    assert(block->columns() == _column_writers.size());
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes
@@ -338,7 +369,6 @@ Status SegmentWriter::append_row(const RowType& row) {
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
-template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.
@@ -361,7 +391,7 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
-Status SegmentWriter::finalize_columns(uint64_t* index_size) {
+Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
@@ -373,33 +403,36 @@ Status SegmentWriter::finalize_columns(uint64_t* index_size) {
         RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_data());
-    uint64_t index_offset = _file_writer->bytes_appended();
+
+    return Status::OK();
+}
+
+Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
+    uint64_t index_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
-    *index_size = _file_writer->bytes_appended() - index_offset;
+    *index_size = _file_writer->bytes_appended() - index_start;
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             RETURN_IF_ERROR(_write_primary_key_index());
         } else {
             RETURN_IF_ERROR(_write_short_key_index());
         }
-        *index_size = _file_writer->bytes_appended() - index_offset;
+        *index_size = _file_writer->bytes_appended() - index_start;
     }
+
     // reset all column writers and data_conveter
-    _reset_column_writers();
-    _column_ids.clear();
-    _olap_data_convertor.reset();
+    clear();
+
     return Status::OK();
 }
 
 Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     RETURN_IF_ERROR(_write_footer());
-    RETURN_IF_ERROR(_file_writer->finalize());
-    *segment_file_size = _file_writer->bytes_appended();
     return Status::OK();
 }
 
@@ -408,19 +441,26 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
         return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
     }
-
-    RETURN_IF_ERROR(finalize_columns(index_size));
-
-    // writer footer
+    // write data
+    RETURN_IF_ERROR(finalize_columns_data());
+    // write index
+    RETURN_IF_ERROR(finalize_columns_index(index_size));
+    // write footer
     RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    // finish
+    RETURN_IF_ERROR(_file_writer->finalize());
+    *segment_file_size = _file_writer->bytes_appended();
+
     return Status::OK();
 }
 
-void SegmentWriter::_reset_column_writers() {
+void SegmentWriter::clear() {
     for (auto& column_writer : _column_writers) {
         column_writer.reset();
     }
     _column_writers.clear();
+    _column_ids.clear();
+    _olap_data_convertor.reset();
 }
 
 // write column data to file one by one

@@ -20,8 +20,8 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -54,9 +54,10 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
-                .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
-                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN
-                        || topJoin.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)
+                .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
+                        && (topJoin.left().getJoinType().isInnerJoin()
+                                || topJoin.left().getJoinType().isLeftOuterJoin()
+                                || topJoin.left().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.left().getJoinType().isSemiOrAntiJoin())
                 .when(this::conditionChecker)
                 .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint())
@@ -67,12 +68,12 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                     GroupPlan c = topSemiJoin.right();
 
                     List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
-                    Set<Slot> aOutputSet = a.getOutputSet();
+                    Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
 
                     boolean lasscom = false;
                     for (Expression hashJoinConjunct : hashJoinConjuncts) {
-                        Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-                        lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
+                        Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
+                        lasscom = ExpressionUtils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || lasscom;
                     }
 
                     if (lasscom) {
@@ -83,9 +84,16 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          *  /    \                  /    \
                          * A      B                A      C
                          */
+                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                            // when bottom join is right outer join, we change it to inner join
+                            // if we want to do this trans. However, we do not allow different logical properties
+                            // in one group. So we need to change it to inner join in rewrite step.
+                            return topSemiJoin;
+                        }
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE,
+                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
+                                JoinHint.NONE,
                                 a, c);
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
                                 bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, newBottomSemiJoin, b);
@@ -97,6 +105,12 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          *  /    \                         /      \
                          * A      B                       B        C
                          */
+                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                            // when bottom join is left outer join, we change it to inner join
+                            // if we want to do this trans. However, we do not allow different logical properties
+                            // in one group. So we need to change it to inner join in rewrite step.
+                            return topSemiJoin;
+                        }
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(),
                                 topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
@@ -112,15 +126,15 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
     private boolean conditionChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topSemiJoin) {
         List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
 
-        List<Slot> aOutput = topSemiJoin.left().left().getOutput();
-        List<Slot> bOutput = topSemiJoin.left().right().getOutput();
+        Set<ExprId> aOutputExprIdSet = topSemiJoin.left().left().getOutputExprIdSet();
+        Set<ExprId> bOutputExprIdSet = topSemiJoin.left().right().getOutputExprIdSet();
 
         boolean hashContainsA = false;
         boolean hashContainsB = false;
         for (Expression hashJoinConjunct : hashJoinConjuncts) {
-            Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-            hashContainsA = ExpressionUtils.isIntersecting(usedSlot, aOutput) || hashContainsA;
-            hashContainsB = ExpressionUtils.isIntersecting(usedSlot, bOutput) || hashContainsB;
+            Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
+            hashContainsA = ExpressionUtils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || hashContainsA;
+            hashContainsB = ExpressionUtils.isIntersecting(usedSlotExprIds, bOutputExprIdSet) || hashContainsB;
         }
         if (leftDeep && hashContainsB) {
             return false;

@@ -34,6 +34,7 @@
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/empty_source_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -116,6 +117,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+        if (_pipe != nullptr) {
+            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        }
         _cancel_reason = reason;
         _cancel_msg = msg;
         // To notify wait_for_start()
@@ -162,12 +166,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    // Must be vec exec engine
-    if (!request.query_options.__isset.enable_vectorized_engine ||
-        !request.query_options.enable_vectorized_engine) {
-        return Status::InternalError("should set enable_vectorized_engine to true");
-    }
-
     // 1. init _runtime_state
     _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
                                                     _query_ctx->query_globals, _exec_env);
@@ -177,7 +175,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
 
@@ -270,8 +267,9 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
         RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
-
-    _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    if (_sink) {
+        _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    }
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
@@ -305,13 +303,12 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
 // TODO: use virtual function to do abstruct
 Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur_pipe) {
-    auto* fragment_context = this;
     auto node_type = node->type();
     switch (node_type) {
     // for source
     case TPlanNodeType::BROKER_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<BrokerScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<BrokerScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -320,8 +317,8 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<ScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -332,8 +329,8 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<SchemaScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<SchemaScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -452,10 +449,17 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::HASH_JOIN_NODE: {
         auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
         auto new_pipe = add_pipeline();
-        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        if (join_node->should_build_hash_table()) {
+            RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        } else {
+            OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
+                    next_operator_builder_id(), node->child(1)->row_desc());
+            new_pipe->add_operator(builder);
+        }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+        new_pipe->disable_task_steal();
 
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(

@@ -79,9 +79,14 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .map(slot -> exprIdToName.get(slot.getExprId()))
                 .collect(Collectors.toSet());
 
-        return table.getSchemaByIndexId(index.getId(), true).stream()
-                .map(Column::getName)
-                .collect(Collectors.toSet())
+        Set<String> nameMap = table.getSchemaByIndexId(index.getId(), true).stream()
+                .map(Column::getNameWithoutMvPrefix)
+                .collect(Collectors.toSet());
+
+        table.getSchemaByIndexId(index.getId(), true).stream()
+                .forEach(column -> nameMap.add(column.getName()));
+
+        return nameMap
                 .containsAll(requiredColumnNames);
     }
 

@@ -24,15 +24,17 @@ namespace doris {
 namespace io {
 class BrokerFileSystem final : public RemoteFileSystem {
 public:
-    BrokerFileSystem(const TNetworkAddress& broker_addr,
-                     const std::map<std::string, std::string>& broker_prop);
+    static std::shared_ptr<BrokerFileSystem> create(
+            const TNetworkAddress& broker_addr,
+            const std::map<std::string, std::string>& broker_prop, size_t file_size);
+
     ~BrokerFileSystem() override = default;
 
     Status create_file(const Path& /*path*/, FileWriterPtr* /*writer*/) override {
         return Status::NotSupported("Currently not support to create file through broker.");
     }
 
-    Status open_file(const Path& path, FileReaderSPtr* reader) override;
+    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
 
     Status delete_file(const Path& path) override;
 
@@ -65,8 +67,12 @@ public:
     Status get_client(std::shared_ptr<BrokerServiceConnection>* client) const;
 
 private:
+    BrokerFileSystem(const TNetworkAddress& broker_addr,
+                     const std::map<std::string, std::string>& broker_prop, size_t file_size);
+
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
+    size_t _file_size;
 
     std::shared_ptr<BrokerServiceConnection> _client;
 };

@@ -588,11 +588,13 @@ public:
 
     template <typename T>
     void convert_from_date_v2(doris::vectorized::DateV2Value<T>* dt) {
+        this->_microsecond = 0;
         if constexpr (doris::vectorized::DateV2Value<T>::is_datetime) {
             this->_type = TIME_DATETIME;
             this->_hour = dt->hour();
             this->_minute = dt->minute();
             this->_second = dt->second();
+            this->_microsecond = dt->microsecond();
         } else {
             this->_type = TIME_DATE;
             this->_hour = 0;
@@ -603,7 +605,6 @@ public:
         this->_year = dt->year();
         this->_month = dt->month();
         this->_day = dt->day();
-        this->_microsecond = 0;
     }
 
     template <typename T>
@@ -719,9 +720,7 @@ std::size_t hash_value(DateTimeValue const& value);
 
 } // namespace doris
 
-namespace std {
 template <>
-struct hash<doris::DateTimeValue> {
+struct std::hash<doris::DateTimeValue> {
     size_t operator()(const doris::DateTimeValue& v) const { return doris::hash_value(v); }
 };
-} // namespace std

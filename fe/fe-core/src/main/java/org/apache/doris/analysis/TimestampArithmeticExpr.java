@@ -285,11 +285,8 @@ public class TimestampArithmeticExpr extends Expr {
             for (int i = 0; i < childrenTypes.length; ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(argTypes.length - 1, i);
-                if (!childrenTypes[i].matchesType(argTypes[ix]) && Config.enable_date_conversion
-                        && !childrenTypes[i].isDateType() && (argTypes[ix].isDate() || argTypes[ix].isDatetime())) {
-                    uncheckedCastChild(ScalarType.getDefaultDateType(argTypes[ix]), i);
-                } else if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
-                        childrenTypes[i].isDateType() && argTypes[ix].isDateType())) {
+                if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
+                        childrenTypes[i].isDateOrDateTime() && argTypes[ix].isDateOrDateTime())) {
                     uncheckedCastChild(argTypes[ix], i);
                 }
             }

@@ -62,7 +62,7 @@ Notice:
 - The partition is left closed and right open. If the user only specifies the right boundary, the system will automatically determine the left boundary
 - If the bucketing method is not specified, the bucketing method and bucket number used for creating the table would be automatically used
 - If the bucketing method is specified, only the number of buckets can be modified, not the bucketing method or the bucketing column. If the bucketing method is specified but the number of buckets not be specified, the default value `10` will be used for bucket number instead of the number specified when the table is created. If the number of buckets modified, the bucketing method needs to be specified simultaneously.
-- The ["key"="value"] section can set some attributes of the partition, see [CREATE TABLE](../../Create/CREATE-TABLE)
+- The ["key"="value"] section can set some attributes of the partition, see [CREATE TABLE](../Create/CREATE-TABLE)
 - If the user does not explicitly create a partition when creating a table, adding a partition by ALTER is not supported
 
 2. Delete the partition

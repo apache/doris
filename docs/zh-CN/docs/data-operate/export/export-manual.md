@@ -128,29 +128,26 @@ WITH BROKER "hdfs"
 
 ### 导出到对象存储
 
-创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+通过s3 协议直接将数据导出到指定的存储.
 
 ```sql
-CREATE REPOSITORY `s3_repo`
-WITH S3
-ON LOCATION "s3://s3-repo"
-PROPERTIES
-(
-    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
-    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
-    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
-    "AWS_REGION" = "REGION"
-);
+
+EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
+        "AWS_ENDPOINT" = "http://host",
+        "AWS_ACCESS_KEY" = "AK",
+        "AWS_SECRET_KEY"="SK",
+        "AWS_REGION" = "region"
+    );
 ```
 
-- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问OSS API 的密钥.
-- `AWS_ENDPOINT`：表示OSS的数据中心所在的地域.
-- `AWS_REGION`：Endpoint表示OSS对外服务的访问域名.
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问对象存储的ACCESS_KEY/SECRET_KEY
+- `AWS_ENDPOINT`：表示对象存储数据中心所在的地域.
+- `AWS_REGION`：Endpoint表示对象存储对外服务的访问域名.
 
 
 ### 查看导出状态
 
-提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令查询导入作业状态。结果举例如下：
+提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令查询导出作业状态。结果举例如下：
 
 ```sql
 mysql> show EXPORT\G;
@@ -190,6 +187,20 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout：作业超时时间。单位是秒。该时间从 CreateTime 开始计算。
 * ErrorMsg：如果作业出现错误，这里会显示错误原因。
 
+<version since="dev">
+
+### 取消导出任务
+
+提交作业后，可以通过  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md) 命令取消导出作业。取消命令举例如下：
+
+```sql
+CANCEL EXPORT
+FROM example_db
+WHERE LABEL like "%example%";
+````
+
+</version>
+
 ## 最佳实践
 
 ### 查询计划的拆分
@@ -219,6 +230,7 @@ FinishTime: 2019-06-25 17:08:34
 * `export_running_job_num_limit`：正在运行的 Export 作业数量限制。如果超过，则作业将等待并处于 PENDING 状态。默认为 5，可以运行时调整。
 * `export_task_default_timeout_second`：Export 作业默认超时时间。默认为 2 小时。可以运行时调整。
 * `export_tablet_num_per_task`：一个查询计划负责的最大分片数。默认为 5。
+* `label`：用户手动指定的 EXPORT 任务 label ，如果不指定会自动生成一个 label 。
 
 ## 更多帮助
 

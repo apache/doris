@@ -89,7 +89,7 @@ private:
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
 
-    int _num_running_scanners;
+    std::atomic<int> _num_running_scanners;
 
     std::atomic<bool> _scan_finished;
 

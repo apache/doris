@@ -190,6 +190,7 @@ enum IndexType {
     BITMAP = 0;
     INVERTED = 1;
     BLOOMFILTER = 2;
+    NGRAM_BF = 3;
 }
 
 message TabletIndexPB {
@@ -222,6 +223,7 @@ message TabletSchemaPB {
     optional int32 schema_version = 14;
     optional bool disable_auto_compaction = 15 [default=false];
     repeated TabletIndexPB index = 16;
+    optional bool store_row_column = 17 [default=false]; // store tuplerow oriented column
 }
 
 enum TabletStatePB {

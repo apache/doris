@@ -80,6 +80,12 @@ Status ScannerScheduler::init(ExecEnv* env) {
             new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
                                    config::doris_scanner_thread_pool_queue_size, "remote_scan"));
 
+    ThreadPoolBuilder("LimitedScanThreadPool")
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+            .build(&_limited_scan_thread_pool);
+
     _is_init = true;
     return Status::OK();
 }
@@ -92,6 +98,11 @@ Status ScannerScheduler::submit(ScannerContext* ctx) {
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
     return Status::OK();
+}
+
+std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
+        ThreadPool::ExecutionMode mode, int max_concurrency) {
+    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
 void ScannerScheduler::_schedule_thread(int queue_id) {
@@ -180,7 +191,6 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
-    SCOPED_CONSUME_MEM_TRACKER(scanner->runtime_state()->scanner_mem_tracker());
     Thread::set_self_name("_scanner_scan");
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();

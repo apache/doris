@@ -31,7 +31,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -43,6 +42,7 @@
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -111,11 +111,6 @@ void ExecNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>*
 }
 
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
-#ifdef BE_TEST
-    _is_vec = true;
-#else
-    _is_vec = state->enable_vectorized_exec();
-#endif
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
@@ -123,7 +118,8 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
     }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
         RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
     }
 
@@ -146,18 +142,8 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker_held =
-            std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                         _runtime_profile.get(), nullptr, "PeakMemoryUsage");
-    // Only when the query profile is enabled, the node allocated memory will be track through the mem hook,
-    // otherwise _mem_tracker_growh is nullptr, and SCOPED_CONSUME_MEM_TRACKER will do nothing.
-    if (state->query_options().__isset.is_report_success &&
-        state->query_options().is_report_success) {
-        _mem_tracker_growh = std::make_shared<MemTracker>(
-                "ExecNode:MemoryOnlyTrackAlloc:" + _runtime_profile->name(), _runtime_profile.get(),
-                nullptr, "MemoryOnlyTrackAllocNoConsiderFree", true);
-    }
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
+                                                _runtime_profile.get(), nullptr, "PeakMemoryUsage");
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
@@ -166,7 +152,8 @@ Status ExecNode::prepare(RuntimeState* state) {
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
     // And _conjunct_ctxs is useless.
     // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
@@ -179,12 +166,12 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
         return Expr::open(_conjunct_ctxs, state);
     } else {
         return Status::OK();
@@ -220,14 +207,11 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
         if (_vconjunct_ctx_ptr) {
             (*_vconjunct_ctx_ptr)->close(state);
         }
-        if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+        if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
+            typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
             Expr::close(_conjunct_ctxs, state);
         }
         vectorized::VExpr::close(_projections, state);
-
-        if (_buffer_pool_client.is_registered()) {
-            state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
-        }
 
         runtime_profile()->add_to_span();
         _is_resource_released = true;
@@ -336,250 +320,154 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
                              const DescriptorTbl& descs, ExecNode** node) {
     std::stringstream error_msg;
 
-    if (state->enable_vectorized_exec()) {
-        switch (tnode.node_type) {
-        case TPlanNodeType::OLAP_SCAN_NODE:
-        case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
-        case TPlanNodeType::HASH_JOIN_NODE:
-        case TPlanNodeType::AGGREGATION_NODE:
-        case TPlanNodeType::UNION_NODE:
-        case TPlanNodeType::CROSS_JOIN_NODE:
-        case TPlanNodeType::SORT_NODE:
-        case TPlanNodeType::EXCHANGE_NODE:
-        case TPlanNodeType::ODBC_SCAN_NODE:
-        case TPlanNodeType::MYSQL_SCAN_NODE:
-        case TPlanNodeType::INTERSECT_NODE:
-        case TPlanNodeType::EXCEPT_NODE:
-        case TPlanNodeType::ES_HTTP_SCAN_NODE:
-        case TPlanNodeType::EMPTY_SET_NODE:
-        case TPlanNodeType::SCHEMA_SCAN_NODE:
-        case TPlanNodeType::ANALYTIC_EVAL_NODE:
-        case TPlanNodeType::SELECT_NODE:
-        case TPlanNodeType::REPEAT_NODE:
-        case TPlanNodeType::TABLE_FUNCTION_NODE:
-        case TPlanNodeType::BROKER_SCAN_NODE:
-        case TPlanNodeType::DATA_GEN_SCAN_NODE:
-        case TPlanNodeType::FILE_SCAN_NODE:
-        case TPlanNodeType::JDBC_SCAN_NODE:
-            break;
-        default: {
-            const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
-            const char* str = "unknown node type";
+    switch (tnode.node_type) {
+    case TPlanNodeType::OLAP_SCAN_NODE:
+    case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
+    case TPlanNodeType::HASH_JOIN_NODE:
+    case TPlanNodeType::AGGREGATION_NODE:
+    case TPlanNodeType::UNION_NODE:
+    case TPlanNodeType::CROSS_JOIN_NODE:
+    case TPlanNodeType::SORT_NODE:
+    case TPlanNodeType::EXCHANGE_NODE:
+    case TPlanNodeType::ODBC_SCAN_NODE:
+    case TPlanNodeType::MYSQL_SCAN_NODE:
+    case TPlanNodeType::INTERSECT_NODE:
+    case TPlanNodeType::EXCEPT_NODE:
+    case TPlanNodeType::ES_HTTP_SCAN_NODE:
+    case TPlanNodeType::EMPTY_SET_NODE:
+    case TPlanNodeType::SCHEMA_SCAN_NODE:
+    case TPlanNodeType::ANALYTIC_EVAL_NODE:
+    case TPlanNodeType::SELECT_NODE:
+    case TPlanNodeType::REPEAT_NODE:
+    case TPlanNodeType::TABLE_FUNCTION_NODE:
+    case TPlanNodeType::BROKER_SCAN_NODE:
+    case TPlanNodeType::DATA_GEN_SCAN_NODE:
+    case TPlanNodeType::FILE_SCAN_NODE:
+    case TPlanNodeType::JDBC_SCAN_NODE:
+    case TPlanNodeType::META_SCAN_NODE:
+        break;
+    default: {
+        const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
+        const char* str = "unknown node type";
 
-            if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
-                str = i->second;
-            }
-            error_msg << "V" << str << " not implemented";
-            return Status::InternalError(error_msg.str());
+        if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
+            str = i->second;
         }
-        }
+        error_msg << "V" << str << " not implemented";
+        return Status::InternalError(error_msg.str());
+    }
     }
 
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
     case TPlanNodeType::MYSQL_SCAN_NODE:
 #ifdef DORIS_WITH_MYSQL
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VMysqlScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VMysqlScanNode(pool, tnode, descs));
         return Status::OK();
 #else
         return Status::InternalError(
                 "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
 #endif
     case TPlanNodeType::ODBC_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::JDBC_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            if (config::enable_java_support) {
-                *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
-            } else {
-                return Status::InternalError(
-                        "Jdbc scan node is disabled, you can change be config enable_java_support "
-                        "to true and restart be.");
-            }
+        if (config::enable_java_support) {
+            *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
+            return Status::OK();
         } else {
-            return Status::InternalError("Jdbc scan node only support vectorized engine.");
+            return Status::InternalError(
+                    "Jdbc scan node is disabled, you can change be config enable_java_support "
+                    "to true and restart be.");
         }
-        return Status::OK();
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::SCHEMA_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::META_SCAN_NODE:
+        *node = pool->add(new vectorized::VMetaScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::OLAP_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        if (state->enable_vectorized_exec()) {
-            if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
-                // in progress of upgrading from 1.1-lts to 1.2-lts
-                error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
-                             "join cannot be executed, you can switch to non-vectorized engine by "
-                             "'set global enable_vectorized_engine = false'";
-                return Status::InternalError(error_msg.str());
-            }
-            *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::CROSS_JOIN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::EMPTY_SET_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VEmptySetNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VEmptySetNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::EXCHANGE_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new doris::vectorized::VExchangeNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new doris::vectorized::VExchangeNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::SELECT_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new doris::vectorized::VSelectNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new doris::vectorized::VSelectNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::SORT_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
-
+        *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
         return Status::OK();
+
     case TPlanNodeType::ANALYTIC_EVAL_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VAnalyticEvalNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VAnalyticEvalNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::MERGE_NODE:
         RETURN_ERROR_IF_NON_VEC;
 
     case TPlanNodeType::UNION_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VUnionNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VUnionNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::INTERSECT_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VIntersectNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VIntersectNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::EXCEPT_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VRepeatNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VRepeatNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VAssertNumRowsNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VAssertNumRowsNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::TABLE_FUNCTION_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::DATA_GEN_SCAN_NODE:
-        if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
-            return Status::OK();
-        } else {
-            RETURN_ERROR_IF_NON_VEC;
-        }
+        *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
+        return Status::OK();
 
     default:
         std::map<int, const char*>::const_iterator i =
@@ -645,6 +533,7 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
 }
 
 void ExecNode::try_do_aggregate_serde_improve() {
@@ -668,7 +557,8 @@ void ExecNode::try_do_aggregate_serde_improve() {
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
         typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
         typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
+        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
+        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();
@@ -683,36 +573,6 @@ void ExecNode::init_runtime_profile(const std::string& name) {
     ss << name << " (id=" << _id << ")";
     _runtime_profile.reset(new RuntimeProfile(ss.str()));
     _runtime_profile->set_metadata(_id);
-}
-
-Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
-    DCHECK(!_buffer_pool_client.is_registered());
-    BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
-    // Check the minimum buffer size in case the minimum buffer size used by the planner
-    // doesn't match this backend's.
-    std::stringstream ss;
-    if (_resource_profile.__isset.spillable_buffer_size &&
-        _resource_profile.spillable_buffer_size < buffer_pool->min_buffer_len()) {
-        ss << "Spillable buffer size for node " << _id << " of "
-           << _resource_profile.spillable_buffer_size
-           << "bytes is less than the minimum buffer pool buffer size of "
-           << buffer_pool->min_buffer_len() << "bytes";
-        return Status::InternalError(ss.str());
-    }
-
-    ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
-    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), runtime_profile(), &_buffer_pool_client));
-
-    /*
-    if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
-        (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
-       // We may not have been able to enable the debug action at the start of Prepare() or
-       // Open() because the client is not registered then. Do it now to be sure that it is
-       // effective.
-               RETURN_IF_ERROR(EnableDenyReservationDebugAction());
-    } 
-*/
-    return Status::OK();
 }
 
 void ExecNode::release_block_memory(vectorized::Block& block, uint16_t child_idx) {
@@ -741,7 +601,7 @@ Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* e
 }
 
 std::string ExecNode::get_name() {
-    return (_is_vec ? "V" : "") + print_plan_node_type(_type);
+    return "V" + print_plan_node_type(_type);
 }
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
@@ -762,7 +622,14 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
         }
 
         if (!is_mem_reuse) output_block->swap(mutable_block.to_block());

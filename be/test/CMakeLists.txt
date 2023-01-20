@@ -61,7 +61,6 @@ set(EXPRS_TEST_FILES
     exprs/encryption_functions_test.cpp
     exprs/math_functions_test.cpp
     exprs/topn_function_test.cpp
-    exprs/runtime_filter_test.cpp
     exprs/bloom_filter_predicate_test.cpp
     exprs/array_functions_test.cpp
     exprs/quantile_function_test.cpp
@@ -86,6 +85,7 @@ set(HTTP_TEST_FILES
 )
 set(IO_TEST_FILES
     io/cache/remote_file_cache_test.cpp
+    io/cache/file_block_cache_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -96,31 +96,32 @@ set(OLAP_TEST_FILES
     olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
+    olap/itoken_extractor_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
-    olap/row_cursor_test.cpp
+    #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
-    olap/column_vector_test.cpp
     olap/storage_types_test.cpp
     olap/aggregate_func_test.cpp
-    olap/rowset/segment_v2/bitshuffle_page_test.cpp
-    olap/rowset/segment_v2/plain_page_test.cpp
+    #olap/rowset/segment_v2/bitshuffle_page_test.cpp
+    #olap/rowset/segment_v2/plain_page_test.cpp
     olap/rowset/segment_v2/bitmap_index_test.cpp
-    olap/rowset/segment_v2/binary_plain_page_test.cpp
-    olap/rowset/segment_v2/binary_prefix_page_test.cpp
-    olap/rowset/segment_v2/column_reader_writer_test.cpp
+    #olap/rowset/segment_v2/binary_plain_page_test.cpp
+    #olap/rowset/segment_v2/binary_prefix_page_test.cpp
+    #olap/rowset/segment_v2/column_reader_writer_test.cpp
     olap/rowset/segment_v2/encoding_info_test.cpp
     olap/rowset/segment_v2/ordinal_page_index_test.cpp
-    olap/rowset/segment_v2/rle_page_test.cpp
-    olap/rowset/segment_v2/binary_dict_page_test.cpp
+    #olap/rowset/segment_v2/rle_page_test.cpp
+    #olap/rowset/segment_v2/binary_dict_page_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
-    olap/rowset/segment_v2/frame_of_reference_page_test.cpp
+    #olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
     olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
     olap/rowset/segment_v2/zone_map_index_test.cpp
+    olap/rowset/segment_v2/inverted_index_searcher_cache_test.cpp
     olap/tablet_meta_test.cpp
     olap/tablet_meta_manager_test.cpp
     olap/tablet_mgr_test.cpp
@@ -133,19 +134,18 @@ set(OLAP_TEST_FILES
     olap/txn_manager_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
-    olap/primary_key_index_test.cpp
+    #olap/primary_key_index_test.cpp
     olap/page_cache_test.cpp
     olap/hll_test.cpp
     olap/selection_vector_test.cpp
     olap/block_column_predicate_test.cpp
     olap/options_test.cpp
     olap/common_test.cpp
-    olap/primary_key_index_test.cpp
     olap/tablet_cooldown_test.cpp
-    olap/rowid_conversion_test.cpp
+    #olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
-    olap/segcompaction_test.cpp
-    olap/ordered_data_compaction_test.cpp
+    #olap/segcompaction_test.cpp
+    #olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -157,7 +157,6 @@ set(RUNTIME_TEST_FILES
     # runtime/dpp_sink_test.cpp
     # runtime/data_spliter_test.cpp
     # runtime/tmp_file_mgr_test.cpp
-    # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
     runtime/mem_pool_test.cpp
@@ -168,8 +167,6 @@ set(RUNTIME_TEST_FILES
     runtime/fragment_mgr_test.cpp
     runtime/mem_limit_test.cpp
     runtime/stream_load_pipe_test.cpp
-    # TODO this test will override DeltaWriter, will make other test failed
-    # runtime/load_channel_mgr_test.cpp
     runtime/snapshot_loader_test.cpp
     runtime/user_function_cache_test.cpp
     runtime/kafka_consumer_pipe_test.cpp
@@ -270,6 +267,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp
     vec/core/block_test.cpp
+    vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
@@ -307,7 +305,8 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
-    vec/olap/vertical_compaction_test.cpp
+    #vec/olap/vertical_compaction_test.cpp
+    vec/jsonb/serialize_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}
@@ -328,7 +327,16 @@ add_executable(doris_be_test
 )
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
-set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
+set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+if (OS_MACOSX AND ARCH_ARM)
+    find_program(DSYMUTIL NAMES dsymutil)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
+    add_custom_command(TARGET doris_be_test POST_BUILD
+        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+        COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:doris_be_test>
+    )
+endif()
 
 if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
     add_executable(benchmark_tool

@@ -23,6 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include "io/fs/file_reader.h"
+#include "olap/iterators.h"
 #include "vec/exec/format/generic_reader.h"
 namespace doris {
 
@@ -39,10 +40,12 @@ class NewJsonReader : public GenericReader {
 public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof);
+                  const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
+                  IOContext* io_ctx);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
+                  const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
+                  IOContext* io_ctx);
     ~NewJsonReader() override = default;
 
     Status init_reader();
@@ -105,7 +108,7 @@ private:
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
-    std::unique_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;
@@ -143,6 +146,8 @@ private:
     bool* _scanner_eof;
 
     size_t _current_offset;
+
+    IOContext* _io_ctx;
 
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;

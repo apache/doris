@@ -26,14 +26,12 @@
 namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
-                         int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                         bool is_vec)
+                         int64_t timeout_s, bool is_high_priority, const std::string& sender_ip)
         : _load_id(load_id),
           _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip),
-          _is_vec(is_vec) {
+          _sender_ip(sender_ip) {
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -43,8 +41,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> me
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel removed. mem peak usage=" << _mem_tracker->peak_consumption()
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
-              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
-              << ", is_vec=" << _is_vec;
+              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -58,7 +55,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _is_vec));
+            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority));
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -93,18 +90,6 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
     return Status::OK();
 }
 
-// lock should be held when calling this method
-bool LoadChannel::_find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel) {
-    int64_t max_consume = 0;
-    for (auto& it : _tablets_channels) {
-        if (it.second->mem_consumption() > max_consume) {
-            max_consume = it.second->mem_consumption();
-            *channel = it.second;
-        }
-    }
-    return max_consume > 0;
-}
-
 bool LoadChannel::is_finished() {
     if (!_opened) {
         return false;
@@ -119,25 +104,6 @@ Status LoadChannel::cancel() {
         it.second->cancel();
     }
     return Status::OK();
-}
-
-void LoadChannel::handle_mem_exceed_limit() {
-    bool found = false;
-    std::shared_ptr<TabletsChannel> channel;
-    {
-        // lock so that only one thread can check mem limit
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
-        found = _find_largest_consumption_channel(&channel);
-    }
-    // Release lock so that other threads can still call add_batch concurrently.
-    if (found) {
-        DCHECK(channel != nullptr);
-        channel->reduce_mem_usage();
-    } else {
-        // should not happen, add log to observe
-        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
-                     << "load_id=" << _load_id;
-    }
 }
 
 } // namespace doris

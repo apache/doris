@@ -71,6 +71,8 @@ public:
 
     size_t data_size() const override;
 
+    Field get_top_value() override;
+
     static constexpr size_t HEAP_SORT_THRESHOLD = 1024;
 
 private:

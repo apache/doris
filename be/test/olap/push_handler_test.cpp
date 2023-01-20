@@ -22,7 +22,6 @@
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "olap/row.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
@@ -398,59 +397,4 @@ void PushHandlerTest::init() {
     _t_desc_table = init_desc_table();
 }
 
-TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
-    TBrokerScanRange broker_scan_range;
-    broker_scan_range.params = _params;
-    TBrokerRangeDesc range;
-    range.start_offset = 0;
-    range.size = -1;
-    range.format_type = TFileFormatType::FORMAT_PARQUET;
-    range.splittable = false;
-    range.path = "./be/test/olap/test_data/push_broker_reader.parquet";
-    range.file_type = TFileType::FILE_LOCAL;
-    broker_scan_range.ranges.push_back(range);
-
-    ExecEnv::GetInstance()->_thread_mgr = new ThreadResourceMgr();
-
-    Schema schema = create_schema();
-    // data
-    // k1_int k2_smallint varchar bigint
-    // 0           0       a0      0
-    // 0           2       a1      3
-    // 1           4       a2      6
-    PushBrokerReader reader;
-    reader.init(&schema, broker_scan_range, _t_desc_table);
-    uint8_t* tuple_buf = reader.mem_pool()->allocate(schema.schema_size());
-    ContiguousRow row(&schema, tuple_buf);
-
-    // line 1
-    reader.next(&row);
-    EXPECT_FALSE(reader.eof());
-    EXPECT_EQ(0, *(int32_t*)row.cell(0).cell_ptr());
-    EXPECT_EQ(0, *(int16_t*)row.cell(1).cell_ptr());
-    EXPECT_EQ("a0", ((Slice*)row.cell(2).cell_ptr())->to_string());
-    EXPECT_EQ(0, *(int64_t*)row.cell(3).cell_ptr());
-
-    // line 2
-    reader.next(&row);
-    EXPECT_FALSE(reader.eof());
-    EXPECT_EQ(0, *(int32_t*)row.cell(0).cell_ptr());
-    EXPECT_EQ(2, *(int16_t*)row.cell(1).cell_ptr());
-    EXPECT_EQ("a1", ((Slice*)row.cell(2).cell_ptr())->to_string());
-    EXPECT_EQ(3, *(int64_t*)row.cell(3).cell_ptr());
-
-    // line 3
-    reader.next(&row);
-    EXPECT_FALSE(reader.eof());
-    EXPECT_EQ(1, *(int32_t*)row.cell(0).cell_ptr());
-    EXPECT_EQ(4, *(int16_t*)row.cell(1).cell_ptr());
-    EXPECT_EQ("a2", ((Slice*)row.cell(2).cell_ptr())->to_string());
-    EXPECT_EQ(6, *(int64_t*)row.cell(3).cell_ptr());
-
-    // eof
-    reader.next(&row);
-    EXPECT_TRUE(reader.eof());
-
-    reader.close();
-}
 } // namespace doris

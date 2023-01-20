@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
@@ -38,10 +37,10 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class JdbcExecutor {
@@ -54,6 +53,7 @@ public class JdbcExecutor {
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
     private List<String> resultColumnTypeNames = null;
+    private int baseTypeInt = 0;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -124,6 +124,20 @@ public class JdbcExecutor {
         }
     }
 
+    public List<Object> getArrayColumnData(Object object) throws UdfRuntimeException {
+        try {
+            java.sql.Array obj = (java.sql.Array) object;
+            baseTypeInt = obj.getBaseType();
+            return Arrays.asList((Object[]) obj.getArray());
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getArrayColumnData has error: ", e);
+        }
+    }
+
+    public int getBaseTypeInt() {
+        return baseTypeInt;
+    }
+
     public void openTrans() throws UdfRuntimeException {
         try {
             if (conn != null) {
@@ -188,29 +202,41 @@ public class JdbcExecutor {
         }
     }
 
-    public long convertDateToLong(Object obj) {
+    public long convertDateToLong(Object obj, boolean isDateV2) {
         LocalDate date;
         if (obj instanceof LocalDate) {
             date = (LocalDate) obj;
         } else {
             date = ((Date) obj).toLocalDate();
         }
-        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        if (isDateV2) {
+            return UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
+        }
+        return UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 0, 0, 0, true);
-        return time;
     }
 
-    public long convertDateTimeToLong(Object obj) {
-        LocalDateTime date;
+    public long convertDateTimeToLong(Object obj, boolean isDateTimeV2) throws UdfRuntimeException {
+        LocalDateTime date = null;
         // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
         if (obj instanceof LocalDateTime) {
             date = (LocalDateTime) obj;
-        } else {
-            date = ((Timestamp) obj).toLocalDateTime();
+        } else if (obj instanceof java.sql.Timestamp) {
+            date = ((java.sql.Timestamp) obj).toLocalDateTime();
+        } else if (obj instanceof oracle.sql.TIMESTAMP) {
+            try {
+                date = ((oracle.sql.TIMESTAMP) obj).timestampValue().toLocalDateTime();
+            } catch (SQLException e) {
+                throw new UdfRuntimeException("Convert oracle.sql.TIMESTAMP"
+                        + " to LocalDateTime failed: ", e);
+            }
         }
-        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        if (isDateTimeV2) {
+            return UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                    date.getHour(), date.getMinute(), date.getSecond());
+        }
+        return UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 date.getHour(), date.getMinute(), date.getSecond(), false);
-        return time;
     }
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
@@ -229,8 +255,10 @@ public class JdbcExecutor {
             dataSource = new HikariDataSource(config);
             conn = dataSource.getConnection();
             if (op == TJdbcOperation.READ) {
+                conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
-                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY,
+                        ResultSet.FETCH_FORWARD);
                 stmt.setFetchSize(batchSize);
             } else {
                 stmt = conn.createStatement();
@@ -244,3 +272,4 @@ public class JdbcExecutor {
         }
     }
 }
+

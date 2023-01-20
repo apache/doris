@@ -253,11 +253,14 @@ public class S3Storage extends BlobStorage {
             LOG.info("upload content success: " + response.eTag());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("write content failed:", e);
+            LOG.warn("write content failed:", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "write content failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
+        } catch (Exception e) {
+            LOG.warn("connect to s3 failed: ", e);
+            return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + e.getMessage());
         }
     }
 
@@ -323,13 +326,13 @@ public class S3Storage extends BlobStorage {
             LOG.info("delete file " + remotePath + " success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("delete file failed: ", e);
+            LOG.warn("delete file failed: ", e);
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
                 return Status.OK;
             }
             return new Status(Status.ErrCode.COMMON_ERROR, "delete file failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }

@@ -84,7 +84,7 @@ public class SlotRef extends Expr {
         analysisDone();
     }
 
-    // nerieds use this constructor to build aggFnParam
+    // nereids use this constructor to build aggFnParam
     public SlotRef(Type type, boolean nullable) {
         super();
         // tuple id and slot id is meaningless here, nereids just use type and nullable
@@ -120,6 +120,14 @@ public class SlotRef extends Expr {
         Preconditions.checkState(isAnalyzed);
         Preconditions.checkNotNull(desc);
         return desc.getId();
+    }
+
+    public void setInvalid() {
+        this.desc.setInvalid();
+    }
+
+    public boolean isInvalid() {
+        return this.desc.isInvalid();
     }
 
     public Column getColumn() {
@@ -227,6 +235,8 @@ public class SlotRef extends Expr {
             return tblName.toSql() + "." + label;
         } else if (label != null) {
             if (ConnectContext.get() != null
+                    && ConnectContext.get().getState().isNereids()
+                    && !ConnectContext.get().getState().isQuery()
                     && ConnectContext.get().getSessionVariable() != null
                     && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()
                     && desc != null) {
@@ -287,6 +297,7 @@ public class SlotRef extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
+        msg.slot_ref.setColUniqueId(desc.getUniqueId());
         msg.setOutputColumn(outputColumn);
     }
 
@@ -402,10 +413,10 @@ public class SlotRef extends Expr {
 
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(desc != null);
-        if (!desc.isMaterialized()) {
+        if (desc == null) {
             return;
         }
+
         if (col == null) {
             for (Expr expr : desc.getSourceExprs()) {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);
@@ -433,6 +444,10 @@ public class SlotRef extends Expr {
 
     public void setLabel(String label) {
         this.label = label;
+    }
+
+    public boolean hasCol() {
+        return this.col != null;
     }
 
     public String getColumnName() {
@@ -483,5 +498,17 @@ public class SlotRef extends Expr {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
 
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        if (tblName != null) {
+            builder.append(tblName).append(".");
+        }
+        if (label != null) {
+            builder.append(label);
+        }
+        return builder.toString();
     }
 }

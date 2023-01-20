@@ -94,6 +94,7 @@ public class ResourceMgrTest {
         s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", "test-bucket");
+        s3Properties.put("s3_validity_check", "false");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 

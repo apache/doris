@@ -99,6 +99,7 @@ public:
               _sink(sink),
               _prepared(false),
               _opened(false),
+              _can_steal(pipeline->_can_steal),
               _state(state),
               _cur_state(NOT_READY),
               _data_state(SourceState::DEPEND_ON_SOURCE),
@@ -109,6 +110,9 @@ public:
 
     Status execute(bool* eos);
 
+    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
+    // this task will enter the `PENDING_FINISH` state.
+    Status try_close();
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     Status close();
@@ -136,11 +140,13 @@ public:
 
     bool sink_can_write() { return _sink->can_write(); }
 
+    bool can_steal() const { return _can_steal; }
+
     Status finalize();
 
     void finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p->finish_one_dependency();
+            p->finish_one_dependency(_previous_schedule_id);
         }
     }
 
@@ -148,9 +154,20 @@ public:
 
     QueryFragmentsCtx* query_fragments_context();
 
-    int get_previous_core_id() const { return _previous_schedule_id; }
+    int get_previous_core_id() const {
+        return _previous_schedule_id != -1 ? _previous_schedule_id
+                                           : _pipeline->_previous_schedule_id;
+    }
 
-    void set_previous_core_id(int id) { _previous_schedule_id = id; }
+    void set_previous_core_id(int id) {
+        if (id == _previous_schedule_id) {
+            return;
+        }
+        if (_previous_schedule_id != -1) {
+            COUNTER_UPDATE(_core_change_times, 1);
+        }
+        _previous_schedule_id = id;
+    }
 
     bool has_dependency();
 
@@ -180,6 +197,7 @@ private:
 
     bool _prepared;
     bool _opened;
+    bool _can_steal;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
@@ -190,9 +208,17 @@ private:
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;
-    RuntimeProfile::Counter* _sink_timer;
+    RuntimeProfile::Counter* _task_cpu_timer;
+    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _open_timer;
+    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _get_block_timer;
+    RuntimeProfile::Counter* _sink_timer;
+    RuntimeProfile::Counter* _finalize_timer;
+    RuntimeProfile::Counter* _close_timer;
     RuntimeProfile::Counter* _block_counts;
+    RuntimeProfile::Counter* _block_by_source_counts;
+    RuntimeProfile::Counter* _block_by_sink_counts;
     RuntimeProfile::Counter* _schedule_counts;
     MonotonicStopWatch _wait_source_watcher;
     RuntimeProfile::Counter* _wait_source_timer;
@@ -204,5 +230,6 @@ private:
     MonotonicStopWatch _wait_schedule_watcher;
     RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
+    RuntimeProfile::Counter* _core_change_times;
 };
 } // namespace doris::pipeline

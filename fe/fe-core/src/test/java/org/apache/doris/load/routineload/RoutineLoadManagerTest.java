@@ -35,6 +35,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -494,8 +495,9 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testGetJob(@Injectable RoutineLoadJob routineLoadJob1,
-                           @Injectable RoutineLoadJob routineLoadJob2,
-                           @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException, AnalysisException {
+            @Injectable RoutineLoadJob routineLoadJob2,
+            @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException,
+            PatternMatcherException {
 
         new Expectations() {
             {

@@ -67,7 +67,7 @@ private:
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if constexpr (std::is_integer(Impl::TYPE_INDEX)) {
+        if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
             if (auto* col = check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -102,7 +102,7 @@ private:
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
-        } else if constexpr (std::is_integer(Impl::TYPE_INDEX)) {
+        } else if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
             if (const auto* col =
                         check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();

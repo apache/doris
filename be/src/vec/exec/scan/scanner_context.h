@@ -78,7 +78,7 @@ public:
     // Get next block from blocks queue. Called by ScanNode
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
-    Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
+    virtual Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
@@ -114,11 +114,15 @@ public:
         _ctx_finish_cv.notify_one();
     }
 
+    const int get_num_running_scanners() const { return _num_running_scanners; }
+
+    const int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
+
     void get_next_batch_of_scanners(std::list<VScanner*>* current_run);
 
     void clear_and_join();
 
-    virtual bool can_finish();
+    virtual bool no_schedule();
 
     std::string debug_string();
 

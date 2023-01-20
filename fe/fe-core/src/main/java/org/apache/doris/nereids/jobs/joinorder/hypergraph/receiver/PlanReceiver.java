@@ -140,8 +140,8 @@ public class PlanReceiver implements AbstractReceiver {
             groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
                     Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY),
                     group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY));
-            Group projectGroup = new Group();
-            projectGroup.addGroupExpression(groupExpression);
+            // FIXME: use wrong constructor
+            Group projectGroup = new Group(null, groupExpression, null);
             StatsCalculator.estimate(groupExpression);
             return projectGroup;
         }
@@ -159,13 +159,13 @@ public class PlanReceiver implements AbstractReceiver {
         for (Edge edge : edges) {
             conditions.addAll(edge.getJoin().getExpressions());
         }
-        LogicalJoin newJoin = new LogicalJoin(edges.get(0).getJoin().getJoinType(), conditions,
+        LogicalJoin newJoin = new LogicalJoin<>(edges.get(0).getJoin().getJoinType(), conditions,
                 leftGroup.getLogicalExpression().getPlan(),
                 rightGroup.getLogicalExpression().getPlan());
 
         GroupExpression groupExpression = new GroupExpression(newJoin, Lists.newArrayList(leftGroup, rightGroup));
-        Group group = new Group();
-        group.addGroupExpression(groupExpression);
+        // FIXME: use wrong constructor
+        Group group = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression);
         cost += group.getStatistics().getRowCount();
 

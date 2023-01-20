@@ -113,7 +113,7 @@ suite("test_vertical_compaction_uniq_keys") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write"="true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES

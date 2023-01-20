@@ -32,7 +32,8 @@ using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof)
+                             const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
+                             IOContext* io_ctx)
         : _vhandle_json_callback(nullptr),
           _state(state),
           _profile(profile),
@@ -51,7 +52,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _scanner_eof(scanner_eof),
-          _current_offset(0) {
+          _current_offset(0),
+          _io_ctx(io_ctx) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
@@ -59,7 +61,7 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs)
+                             const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _vhandle_json_callback(nullptr),
           _state(nullptr),
           _profile(profile),
@@ -73,7 +75,8 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _total_rows(0),
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
-          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator) {}
+          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
+          _io_ctx(io_ctx) {}
 
 Status NewJsonReader::init_reader() {
     RETURN_IF_ERROR(_get_range_params());
@@ -291,6 +294,10 @@ Status NewJsonReader::_open_file_reader() {
     system_properties.system_type = _params.file_type;
     system_properties.properties = _params.properties;
     system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                  _params.broker_addresses.end());
+    }
 
     FileDescription file_description;
     file_description.path = _range.path;
@@ -300,8 +307,9 @@ Status NewJsonReader::_open_file_reader() {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, system_properties, file_description, &_file_system, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &_file_reader, _io_ctx));
     }
     return Status::OK();
 }
@@ -887,8 +895,6 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
 }
 
 Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
-    IOContext io_ctx;
-    io_ctx.reader_type = READER_QUERY;
     switch (_params.file_type) {
     case TFileType::FILE_LOCAL:
     case TFileType::FILE_HDFS:
@@ -896,7 +902,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         size_t file_size = _file_reader->size();
         file_buf->reset(new uint8_t[file_size]);
         Slice result(file_buf->get(), file_size);
-        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, io_ctx, read_size));
+        RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, *_io_ctx, read_size));
         break;
     }
     case TFileType::FILE_STREAM: {

@@ -91,7 +91,8 @@ public:
 
     uint32_t get_segment_id() { return _segment_id; }
 
-    Status finalize_columns(uint64_t* index_size);
+    Status finalize_columns_data();
+    Status finalize_columns_index(uint64_t* index_size);
     Status finalize_footer(uint64_t* segment_file_size);
 
     static void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
@@ -101,6 +102,8 @@ public:
 
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
+    // add an extra column writer for writing row column
+    Status append_row_column_writer();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -124,7 +127,7 @@ private:
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
 
-    void _reset_column_writers();
+    void clear();
 
 private:
     uint32_t _segment_id;

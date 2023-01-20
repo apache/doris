@@ -39,14 +39,14 @@ Syntax:
 ```sql
 CREATE CATALOG [IF NOT EXISTS] catalog_name
 	[WITH RESOURCE resource_name]
-	| [PROPERTIES ("key"="value", ...)];
+	[PROPERTIES ("key"="value", ...)];
 ```
 
 `RESOURCE` can be created from [CREATE RESOURCE](../../../sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md), current supports：
 
 * hms：Hive MetaStore
 * es：Elasticsearch
-* jdbc：数据库访问的标准接口(JDBC), 当前只支持`jdbc:mysql`
+* jdbc: Standard interface for database access (JDBC), currently supports MySQL and PostgreSQL
 
 ### Create catalog
 
@@ -58,12 +58,14 @@ CREATE RESOURCE catalog_resource PROPERTIES (
     'type'='hms|es|jdbc',
     ...
 );
-CREATE CATALOG catalog_name WITH RESOURCE catalog_resource;
+CREATE CATALOG catalog_name WITH RESOURCE catalog_resource PROPERTIES (
+    'key' = 'value'
+);
 ```
 
 **Create catalog through properties**
 
-Version `1.2.0` creates a catalog through properties. This method will be deprecated in subsequent versions.
+Version `1.2.0` creates a catalog through properties.
 ```sql
 CREATE CATALOG catalog_name PROPERTIES (
     'type'='hms|es|jdbc',
@@ -118,6 +120,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	```
 
 3. Create catalog jdbc
+	**mysql**
 
 	```sql
 	-- 1.2.0+ Version
@@ -134,12 +137,107 @@ CREATE CATALOG catalog_name PROPERTIES (
 	-- 1.2.0 Version
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"user"="root",
-		"password"="123456",
-		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-		"driver_class" = "com.mysql.cj.jdbc.Driver"
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
+	```
+
+	**postgresql**
+
+	```sql
+	-- The first way
+	CREATE RESOURCE pg_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="postgres",
+		"password"="123456",
+		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"driver_class" = "org.postgresql.Driver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+	-- The second way, note: keys have 'jdbc' prefix in front.
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="postgres",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_class" = "org.postgresql.Driver"
+	);
+	```
+
+	**clickhouse**
+
+	```sql
+	-- 1.2.0+ Version
+	CREATE RESOURCE clickhouse_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="default",
+		"password"="123456",
+		"jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+		"driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+		"driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+	)
+	CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+	
+	-- 1.2.0 Version
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+		...
+	)
+	```
+
+	**oracle**
+	```sql
+	-- The first way
+	CREATE RESOURCE oracle_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="doris",
+		"password"="123456",
+		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"driver_url" = "file:/path/to/ojdbc6.jar",
+		"driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);
+	CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
+
+	-- The second way, note: keys have 'jdbc' prefix in front.
+	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="doris",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+		"jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+	);	
+	```
+
+	**SQLServer**
+	```sql
+	-- The first way
+	CREATE RESOURCE sqlserver_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="SA",
+		"password"="Doris123456",
+		"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+		"driver_url" = "file:/path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+	);
+	CREATE CATALOG sqlserver_catlog WITH RESOURCE sqlserver_resource;
+
+	-- The second way, note: keys have 'jdbc' prefix in front.
+	CREATE CATALOG sqlserver_catlog PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="SA",
+		"jdbc.password"="Doris123456",
+		"jdbc.jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+		"jdbc.driver_url" = "file:/path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"jdbc.driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+	);	
 	```
 
 ### Keywords

@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "olap/delete_handler.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
@@ -43,6 +42,13 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.key_ranges.clear();
 }
 
+bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+    if (_iterator != nullptr) {
+        return _iterator->update_profile(profile);
+    }
+    return false;
+}
+
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIterator*>* out_iters) {
     RETURN_NOT_OK(_rowset->load());
@@ -57,6 +63,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
+    _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
+    _read_options.rowset_id = _rowset->rowset_id();
+    _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
@@ -72,40 +81,23 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), _read_options.delete_condition_predicates.get(),
                 &_read_options.col_id_to_del_predicates);
-        // if del cond is not empty, schema may be different in multiple rowset
-        _can_reuse_schema = _read_options.col_id_to_del_predicates.empty();
-    }
-    // In vertical compaction, every column group need new schema
-    if (read_context->is_vertical_compaction) {
-        _can_reuse_schema = false;
-    }
-    if (!_can_reuse_schema || _context->reuse_input_schema == nullptr) {
-        std::vector<uint32_t> read_columns;
-        std::set<uint32_t> read_columns_set;
-        std::set<uint32_t> delete_columns_set;
-        for (int i = 0; i < _context->return_columns->size(); ++i) {
-            read_columns.push_back(_context->return_columns->at(i));
-            read_columns_set.insert(_context->return_columns->at(i));
-        }
-        _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
-        for (auto cid : delete_columns_set) {
-            if (read_columns_set.find(cid) == read_columns_set.end()) {
-                read_columns.push_back(cid);
-            }
-        }
-        VLOG_NOTICE << "read columns size: " << read_columns.size();
-        _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
-        if (_can_reuse_schema) {
-            _context->reuse_input_schema = _input_schema;
-        }
     }
 
-    // if can reuse schema, context must have reuse_input_schema
-    // if can't reuse schema, context mustn't have reuse_input_schema
-    DCHECK(_can_reuse_schema ^ (_context->reuse_input_schema == nullptr));
-    if (_context->reuse_input_schema != nullptr && _input_schema == nullptr) {
-        _input_schema = _context->reuse_input_schema;
+    std::vector<uint32_t> read_columns;
+    std::set<uint32_t> read_columns_set;
+    std::set<uint32_t> delete_columns_set;
+    for (int i = 0; i < _context->return_columns->size(); ++i) {
+        read_columns.push_back(_context->return_columns->at(i));
+        read_columns_set.insert(_context->return_columns->at(i));
     }
+    _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    for (auto cid : delete_columns_set) {
+        if (read_columns_set.find(cid) == read_columns_set.end()) {
+            read_columns.push_back(cid);
+        }
+    }
+    VLOG_NOTICE << "read columns size: " << read_columns.size();
+    _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
 
     if (read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
@@ -121,6 +113,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     single_column_block_predicate);
         }
     }
+
+    if (read_context->predicates_except_leafnode_of_andnode != nullptr) {
+        _read_options.column_predicates_except_leafnode_of_andnode.insert(
+                _read_options.column_predicates_except_leafnode_of_andnode.end(),
+                read_context->predicates_except_leafnode_of_andnode->begin(),
+                read_context->predicates_except_leafnode_of_andnode->end());
+    }
+
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (read_context->delete_bitmap != nullptr) {
@@ -156,9 +156,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.use_page_cache = read_context->use_page_cache;
     _read_options.tablet_schema = read_context->tablet_schema;
     _read_options.record_rowids = read_context->record_rowids;
+    _read_options.use_topn_opt = read_context->use_topn_opt;
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.runtime_state = read_context->runtime_state;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(

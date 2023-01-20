@@ -111,7 +111,7 @@ Multi-Catalog 多源数据目录功能的目标在于能够帮助用户更方便
 
 注：相应的权限层级也会自动变更，详见“升级注意事项”部分
 
-文档：[https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/multi-catalog](https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/multi-catalog)
+文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog)
 
 ### 4. 轻量表结构变更 Light Schema Change
 

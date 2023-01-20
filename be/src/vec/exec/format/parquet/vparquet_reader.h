@@ -56,21 +56,21 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz);
+                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  IOContext* io_ctx);
 
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  IOContext* io_ctx);
 
     ~ParquetReader() override;
     // for test
     void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
-    Status init_reader(const std::vector<std::string>& column_names, bool filter_groups = true) {
-        // without predicate
-        return init_reader(column_names, nullptr, nullptr, filter_groups);
-    }
+    Status open();
 
     Status init_reader(
-            const std::vector<std::string>& column_names,
+            const std::vector<std::string>& all_column_names,
+            const std::vector<std::string>& missing_column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             VExprContext* vconjunct_ctx, bool filter_groups = true);
 
@@ -94,10 +94,17 @@ public:
 
     Statistics& statistics() { return _statistics; }
 
+    const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
+
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
             const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+
+    std::vector<tparquet::KeyValue> get_metadata_key_values();
+    void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
+        _table_col_to_file_col = map;
+    }
 
 private:
     struct ParquetProfile {
@@ -152,13 +159,17 @@ private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    std::unique_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
-    std::unique_ptr<RowGroupReader> _current_group_reader;
+    std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
+    // read to the end of current reader
+    bool _row_group_eof = true;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
+    // table column name to file column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
@@ -183,5 +194,6 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
+    IOContext* _io_ctx;
 };
 } // namespace doris::vectorized

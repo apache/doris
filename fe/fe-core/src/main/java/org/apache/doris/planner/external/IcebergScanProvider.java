@@ -18,53 +18,41 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.HMSResource;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
-import org.apache.doris.thrift.TIcebergTable;
-import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTableType;
 
-import lombok.Data;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
-import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.types.Conversions;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,10 +64,6 @@ import java.util.OptionalLong;
 public class IcebergScanProvider extends HiveScanProvider {
 
     private static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    public static final String V2_DELETE_TBL = "iceberg#delete#tbl";
-    public static final String V2_DELETE_DB = "iceberg#delete#db";
-    private static final DeleteFileTempTable scanDeleteTable =
-            new DeleteFileTempTable(TableIf.TableType.HMS_EXTERNAL_TABLE);
     private final Analyzer analyzer;
 
     public IcebergScanProvider(HMSExternalTable hmsTable, Analyzer analyzer, TupleDescriptor desc,
@@ -98,7 +82,6 @@ public class IcebergScanProvider extends HiveScanProvider {
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
-            setPathSelectConjunct(fileDesc, icebergSplit);
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 deleteFileDesc.setPath(filter.getDeleteFilePath());
@@ -127,19 +110,6 @@ public class IcebergScanProvider extends HiveScanProvider {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    private static void setPathSelectConjunct(TIcebergFileDesc fileDesc, IcebergSplit icebergSplit)
-                throws UserException {
-        BaseTableRef tableRef = icebergSplit.getDeleteTableRef();
-        fileDesc.setDeleteTableTupleId(tableRef.getDesc().getId().asInt());
-        SlotRef lhs = new SlotRef(tableRef.getName(), DeleteFileTempTable.DATA_FILE_PATH);
-        lhs.analyze(icebergSplit.getAnalyzer());
-        lhs.getDesc().setIsMaterialized(true);
-        StringLiteral rhs = new StringLiteral(icebergSplit.getPath().toUri().toString());
-        BinaryPredicate pathSelectConjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs);
-        pathSelectConjunct.analyze(icebergSplit.getAnalyzer());
-        fileDesc.setFileSelectConjunct(pathSelectConjunct.treeToThrift());
-    }
-
     @Override
     public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type;
@@ -166,21 +136,27 @@ public class IcebergScanProvider extends HiveScanProvider {
             }
         }
 
-        org.apache.iceberg.Table table = getIcebergTable();
+        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
         TableScan scan = table.newScan();
+        TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
+        if (tableSnapshot != null) {
+            TableSnapshot.VersionType type = tableSnapshot.getType();
+            try {
+                if (type == TableSnapshot.VersionType.VERSION) {
+                    scan = scan.useSnapshot(tableSnapshot.getVersion());
+                } else {
+                    long snapshotId = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
+                    scan = scan.useSnapshot(getSnapshotIdAsOfTime(table.history(), snapshotId));
+                }
+            } catch (IllegalArgumentException e) {
+                throw new UserException(e);
+            }
+        }
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
         }
         List<InputSplit> splits = new ArrayList<>();
         int formatVersion = ((BaseTable) table).operations().current().formatVersion();
-        BaseTableRef tableRef = null;
-        if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
-            TableName fullName = analyzer.getFqTableName(scanDeleteTable.getTableName());
-            fullName.analyze(analyzer);
-            TableRef ref = new TableRef(fullName, fullName.toString(), null);
-            tableRef = new BaseTableRef(ref, scanDeleteTable, scanDeleteTable.getTableName());
-            tableRef.analyze(analyzer);
-        }
         for (FileScanTask task : scan.planFiles()) {
             for (FileScanTask spitTask : task.split(128 * 1024 * 1024)) {
                 String dataFilePath = spitTask.file().path().toString();
@@ -189,7 +165,6 @@ public class IcebergScanProvider extends HiveScanProvider {
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(spitTask));
-                    split.setDeleteTableRef(tableRef);
                 }
                 split.setTableFormatType(TableFormatType.ICEBERG);
                 split.setAnalyzer(analyzer);
@@ -197,6 +172,27 @@ public class IcebergScanProvider extends HiveScanProvider {
             }
         }
         return splits;
+    }
+
+    public static long getSnapshotIdAsOfTime(List<HistoryEntry> historyEntries, long asOfTimestamp) {
+        // find history at or before asOfTimestamp
+        HistoryEntry latestHistory = null;
+        for (HistoryEntry entry : historyEntries) {
+            if (entry.timestampMillis() <= asOfTimestamp) {
+                if (latestHistory == null) {
+                    latestHistory = entry;
+                    continue;
+                }
+                if (entry.timestampMillis() > latestHistory.timestampMillis()) {
+                    latestHistory = entry;
+                }
+            }
+        }
+        if (latestHistory == null) {
+            throw new NotFoundException("No version history at or before "
+                + Instant.ofEpochMilli(asOfTimestamp));
+        }
+        return latestHistory.snapshotId();
     }
 
     private List<IcebergDeleteFileFilter> getDeleteFileFilters(FileScanTask spitTask) {
@@ -222,49 +218,8 @@ public class IcebergScanProvider extends HiveScanProvider {
         return filters;
     }
 
-    private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = getConfiguration();
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, getMetaStoreUrl());
-        catalogProperties.put("uri", getMetaStoreUrl());
-        hiveCatalog.initialize("hive", catalogProperties);
-
-        return hiveCatalog.loadTable(TableIdentifier.of(hmsTable.getDbName(), hmsTable.getName()));
-    }
-
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return Collections.emptyList();
-    }
-
-    @Data
-    static class DeleteFileTempTable extends ExternalTable {
-        public static final String DATA_FILE_PATH = "file_path";
-        private final TableName tableName;
-        private final List<Column> fullSchema = new ArrayList<>();
-
-        public DeleteFileTempTable(TableType type) {
-            super(0, V2_DELETE_TBL, null, V2_DELETE_DB, type);
-            this.tableName = new TableName(null, V2_DELETE_DB, V2_DELETE_TBL);
-            Column dataFilePathCol = new Column(DATA_FILE_PATH, PrimitiveType.STRING, true);
-            this.fullSchema.add(dataFilePathCol);
-        }
-
-        @Override
-        public List<Column> getFullSchema() {
-            return fullSchema;
-        }
-
-        @Override
-        public TTableDescriptor toThrift() {
-            TIcebergTable tIcebergTable = new TIcebergTable(V2_DELETE_DB, V2_DELETE_TBL, new HashMap<>());
-            TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ICEBERG_TABLE,
-                    fullSchema.size(), 0, getName(), "");
-            tTableDescriptor.setIcebergTable(tIcebergTable);
-            return tTableDescriptor;
-        }
     }
 }

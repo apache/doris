@@ -54,6 +54,8 @@ public abstract class StatementBase implements ParseNode {
 
     private UserIdentity userInfo;
 
+    private boolean isPrepared = false;
+
     protected StatementBase() { }
 
     /**
@@ -104,6 +106,14 @@ public abstract class StatementBase implements ParseNode {
 
     public ExplainOptions getExplainOptions() {
         return explainOptions;
+    }
+
+    public void setIsPrepared() {
+        this.isPrepared = true;
+    }
+
+    public boolean isPrepared() {
+        return this.isPrepared;
     }
 
     /*

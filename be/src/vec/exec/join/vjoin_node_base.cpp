@@ -52,7 +52,8 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                 ? (tnode.nested_loop_join_node.__isset.is_mark
                                            ? tnode.nested_loop_join_node.is_mark
                                            : false)
-                                : false),
+                        : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
+                                                               : false),
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
     _init_join_op();
     if (_is_mark_join) {
@@ -175,7 +176,6 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VJoinNodeBase::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
@@ -219,7 +219,6 @@ void VJoinNodeBase::_reset_tuple_is_null_column() {
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     status->set_value(child(0)->open(state));
 }
 

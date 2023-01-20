@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -57,6 +58,7 @@ public class Column implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
+    public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
@@ -205,11 +207,15 @@ public class Column implements Writable, GsonPostProcessable {
         return this.name;
     }
 
+    public String getNameWithoutMvPrefix() {
+        return this.getNameWithoutPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+    }
+
     public String getDisplayName() {
         if (defineExpr == null) {
-            return name;
+            return getNameWithoutMvPrefix();
         } else {
-            return defineExpr.toSql();
+            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
     }
 
@@ -437,11 +443,16 @@ public class Column implements Writable, GsonPostProcessable {
         }
 
         if (type.isNumericType() && other.type.isStringType()) {
-            Integer lSize = type.getColumnStringRepSize();
-            Integer rSize = other.type.getColumnStringRepSize();
-            if (rSize < lSize) {
-                throw new DdlException(
-                        "Can not change from wider type " + type.toSql() + " to narrower type " + other.type.toSql());
+            try {
+                Integer lSize = type.getColumnStringRepSize();
+                Integer rSize = other.type.getColumnStringRepSize();
+                if (rSize < lSize) {
+                    throw new DdlException(
+                            "Can not change from wider type " + type.toSql() + " to narrower type "
+                                    + other.type.toSql());
+                }
+            } catch (TypeException e) {
+                throw new DdlException(e.getMessage());
             }
         }
 

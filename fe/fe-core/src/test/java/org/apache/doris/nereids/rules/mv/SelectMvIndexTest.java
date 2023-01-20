@@ -223,9 +223,8 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
     /**
      * Aggregation query with groupSets at coarser level of aggregation than
      * aggregation materialized view.
-     * TODO: enable this when group by rollup is supported.
      */
-    @Disabled
+    @Test
     public void testGroupingSetQueryOnAggMV() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by empid, deptno;";
@@ -271,9 +270,8 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
 
     /**
      * Query with rollup and arithmetic expr
-     * TODO: enable this when group by rollup is supported.
      */
-    @Disabled
+    @Test
     public void testAggQueryOnAggMV10() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno, commission;";

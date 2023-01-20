@@ -27,6 +27,13 @@ VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
     _fn_name = "vexplode_bitmap";
 }
 
+VExplodeBitmapTableFunction::~VExplodeBitmapTableFunction() {
+    if (_cur_iter != nullptr) {
+        delete _cur_iter;
+        _cur_iter = nullptr;
+    }
+}
+
 Status VExplodeBitmapTableFunction::process_init(vectorized::Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << "VExplodeNumbersTableFunction must be have 1 children but have "
@@ -38,6 +45,52 @@ Status VExplodeBitmapTableFunction::process_init(vectorized::Block* block) {
     _value_column = block->get_by_position(value_column_idx).column;
 
     return Status::OK();
+}
+
+Status VExplodeBitmapTableFunction::reset() {
+    _eos = false;
+    if (!_is_current_empty) {
+        _reset_iterator();
+    }
+    return Status::OK();
+}
+
+Status VExplodeBitmapTableFunction::forward(bool* eos) {
+    if (_is_current_empty) {
+        *eos = true;
+        _eos = true;
+    } else {
+        ++(*_cur_iter);
+        ++_cur_offset;
+        if (_cur_offset == _cur_size) {
+            *eos = true;
+            _eos = true;
+        } else {
+            _cur_value = **_cur_iter;
+            *eos = false;
+        }
+    }
+    return Status::OK();
+}
+
+Status VExplodeBitmapTableFunction::get_value(void** output) {
+    if (_is_current_empty) {
+        *output = nullptr;
+    } else {
+        *output = &_cur_value;
+    }
+    return Status::OK();
+}
+
+void VExplodeBitmapTableFunction::_reset_iterator() {
+    DCHECK(_cur_bitmap->cardinality() > 0) << _cur_bitmap->cardinality();
+    if (_cur_iter != nullptr) {
+        delete _cur_iter;
+        _cur_iter = nullptr;
+    }
+    _cur_iter = new BitmapValueIterator(*_cur_bitmap);
+    _cur_value = **_cur_iter;
+    _cur_offset = 0;
 }
 
 Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
@@ -52,7 +105,6 @@ Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
         _is_current_empty = true;
     } else {
         _cur_bitmap = reinterpret_cast<const BitmapValue*>(value.data);
-        _cur_bitmap_owned = false;
 
         _cur_size = _cur_bitmap->cardinality();
         if (_cur_size == 0) {

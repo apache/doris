@@ -20,6 +20,8 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
@@ -49,11 +51,13 @@ public class ResourcePrivEntry extends PrivEntry {
     public static ResourcePrivEntry create(String host, String resourceName,
             String user, boolean isDomain, PrivBitSet privs)
             throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-        PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(
+        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
+                CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcher resourcePattern = PatternMatcherWrapper.createMysqlPattern(
                 resourceName.equals(ANY_RESOURCE) ? "%" : resourceName,
                 CaseSensibility.RESOURCE.getCaseSensibility());
-        PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
+        PatternMatcher userPattern = PatternMatcherWrapper.createMysqlPattern(user,
+                CaseSensibility.USER.getCaseSensibility());
         if (privs.containsNodePriv() || privs.containsDbTablePriv()) {
             throw new AnalysisException("Resource privilege can not contains node or db table privileges: " + privs);
         }
@@ -130,7 +134,7 @@ public class ResourcePrivEntry extends PrivEntry {
         try {
             resourcePattern = PatternMatcher.createMysqlPattern(origResource,
                     CaseSensibility.RESOURCE.getCaseSensibility());
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             throw new IOException(e);
         }
         isAnyResource = origResource.equals(ANY_RESOURCE);

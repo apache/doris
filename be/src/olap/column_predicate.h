@@ -19,9 +19,10 @@
 
 #include <roaring/roaring.hh>
 
-#include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/schema.h"
 #include "olap/selection_vector.h"
 #include "vec/columns/column.h"
 
@@ -30,6 +31,10 @@ using namespace doris::segment_v2;
 namespace doris {
 
 class Schema;
+
+struct PredicateParams {
+    std::string value;
+};
 
 enum class PredicateType {
     UNKNOWN = 0,
@@ -45,6 +50,7 @@ enum class PredicateType {
     IS_NOT_NULL = 10,
     BF = 11,            // BloomFilter
     BITMAP_FILTER = 12, // BitmapFilter
+    MATCH = 13,         // fulltext match
 };
 
 inline std::string type_to_string(PredicateType type) {
@@ -113,7 +119,9 @@ struct PredicateTypeTraits {
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
-            : _column_id(column_id), _opposite(opposite) {}
+            : _column_id(column_id), _opposite(opposite) {
+        _predicate_params = std::make_shared<PredicateParams>();
+    }
 
     virtual ~ColumnPredicate() = default;
 
@@ -122,6 +130,13 @@ public:
     //evaluate predicate on Bitmap
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const = 0;
+
+    //evaluate predicate on inverted
+    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
+                            uint32_t num_rows, roaring::Roaring* bitmap) const {
+        return Status::NotSupported(
+                "Not Implemented evaluate with inverted index, please check the predicate");
+    }
 
     // evaluate predicate on IColumn
     // a short circuit eval way
@@ -156,6 +171,15 @@ public:
                                   bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
+
+    virtual std::string get_search_str() const {
+        DCHECK(false) << "should not reach here";
+        return "";
+    }
+
+    virtual void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter>) {
+        DCHECK(false) << "should not reach here";
+    }
     uint32_t column_id() const { return _column_id; }
 
     virtual std::string debug_string() const {
@@ -163,12 +187,54 @@ public:
                ", opposite=" + (_opposite ? "true" : "false");
     }
 
+    std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
+
+    const std::string pred_type_string(PredicateType type) {
+        switch (type) {
+        case PredicateType::EQ:
+            return "eq";
+        case PredicateType::NE:
+            return "ne";
+        case PredicateType::LT:
+            return "lt";
+        case PredicateType::LE:
+            return "le";
+        case PredicateType::GT:
+            return "gt";
+        case PredicateType::GE:
+            return "ge";
+        case PredicateType::IN_LIST:
+            return "in_list";
+        case PredicateType::NOT_IN_LIST:
+            return "not_in_list";
+        case PredicateType::IS_NULL:
+            return "is_null";
+        case PredicateType::IS_NOT_NULL:
+            return "is_not_null";
+        case PredicateType::BF:
+            return "bf";
+        case PredicateType::MATCH:
+            return "match";
+        default:
+            return "unknown";
+        }
+    }
+
 protected:
+    // Just prevent access not align memory address coredump
+    template <class T>
+    T _get_zone_map_value(void* data_ptr) const {
+        T res;
+        memcpy(&res, data_ptr, sizeof(T));
+        return res;
+    }
+
     virtual std::string _debug_string() const = 0;
 
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
+    std::shared_ptr<PredicateParams> _predicate_params;
 };
 
 } //namespace doris

@@ -32,6 +32,14 @@ Status VExplodeSplitTableFunction::open() {
     return Status::OK();
 }
 
+Status VExplodeSplitTableFunction::reset() {
+    _eos = false;
+    if (!_is_current_empty) {
+        _cur_offset = 0;
+    }
+    return Status::OK();
+}
+
 Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
@@ -45,8 +53,25 @@ Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
     RETURN_IF_ERROR(_vexpr_context->root()->children()[1]->execute(_vexpr_context, block,
                                                                    &delimiter_column_idx));
 
-    _text_column = block->get_by_position(text_column_idx).column;
-    _delimiter_column = block->get_by_position(delimiter_column_idx).column;
+    // dispose test column
+    _text_column =
+            block->get_by_position(text_column_idx).column->convert_to_full_column_if_const();
+    if (_text_column->is_nullable()) {
+        const auto& column_null = assert_cast<const ColumnNullable&>(*_text_column);
+        _test_null_map = column_null.get_null_map_data().data();
+        _real_text_column = &assert_cast<const ColumnString&>(column_null.get_nested_column());
+    } else {
+        _real_text_column = &assert_cast<const ColumnString&>(*_text_column);
+    }
+
+    // dispose delimiter column
+    auto& delimiter_const_column = block->get_by_position(delimiter_column_idx).column;
+    if (is_column_const(*delimiter_const_column)) {
+        _delimiter = delimiter_const_column->get_data_at(0);
+    } else {
+        return Status::NotSupported(
+                "explode_split(test, delimiter) delimiter column must be const");
+    }
 
     return Status::OK();
 }
@@ -55,17 +80,37 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
     _is_current_empty = false;
     _eos = false;
 
-    StringRef text = _text_column->get_data_at(row_idx);
-    StringRef delimiter = _delimiter_column->get_data_at(row_idx);
-
-    if (text.data == nullptr) {
+    if ((_test_null_map and _test_null_map[row_idx]) || _delimiter.data == nullptr) {
         _is_current_empty = true;
         _cur_size = 0;
         _cur_offset = 0;
     } else {
-        //TODO: implement non-copy split string reference
-        _backup = strings::Split(StringPiece((char*)text.data, text.size),
-                                 StringPiece((char*)delimiter.data, delimiter.size));
+        // TODO: use the function to be better string_view/StringRef split
+        auto split = [](std::string_view strv, std::string_view delims = " ") {
+            std::vector<std::string_view> output;
+            auto first = strv.begin();
+            auto last = strv.end();
+
+            do {
+                const auto second =
+                        std::search(first, last, std::cbegin(delims), std::cend(delims));
+                if (first != second) {
+                    output.emplace_back(strv.substr(std::distance(strv.begin(), first),
+                                                    std::distance(first, second)));
+                    first = std::next(second);
+                } else {
+                    output.emplace_back("", 0);
+                    first = std::next(second, delims.size());
+                }
+
+                if (second == last) {
+                    break;
+                }
+            } while (first != last);
+
+            return output;
+        };
+        _backup = split(_real_text_column->get_data_at(row_idx), _delimiter);
 
         _cur_size = _backup.size();
         _cur_offset = 0;
@@ -76,7 +121,9 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
 
 Status VExplodeSplitTableFunction::process_close() {
     _text_column = nullptr;
-    _delimiter_column = nullptr;
+    _real_text_column = nullptr;
+    _test_null_map = nullptr;
+    _delimiter = {};
     return Status::OK();
 }
 
@@ -84,7 +131,7 @@ Status VExplodeSplitTableFunction::get_value(void** output) {
     if (_is_current_empty) {
         *output = nullptr;
     } else {
-        *output = _backup[_cur_offset].data();
+        *output = const_cast<char*>(_backup[_cur_offset].data());
     }
     return Status::OK();
 }

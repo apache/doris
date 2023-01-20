@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -67,7 +68,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
             return expr;
         }
         FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
+        if (!child0FnExpr.getType().equals(Type.HLL)) {
             return expr;
         }
         if (child0FnExpr.getChild(0) instanceof SlotRef) {
@@ -98,7 +99,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         }
 
         // equal expr
-        return rewriteExpr(fnNameString, queryColumnSlotRef, mvColumn, analyzer);
+        return rewriteExpr(fnExpr.getFnName().getFunction(), queryColumnSlotRef, mvColumn, analyzer);
     }
 
     private Expr rewriteExpr(String fnName, SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {

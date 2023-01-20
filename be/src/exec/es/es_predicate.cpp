@@ -36,8 +36,6 @@
 
 namespace doris {
 
-using namespace std;
-
 #define RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(expr)                                          \
     do {                                                                                   \
         const Expr* expr_without_cast = Expr::expr_without_cast(expr);                     \
