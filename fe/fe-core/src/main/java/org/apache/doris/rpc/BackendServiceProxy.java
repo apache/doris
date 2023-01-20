@@ -177,6 +177,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+            TNetworkAddress address, InternalService.PTabletKeyLookupRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchTabletDataAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch tablet data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public InternalService.PFetchDataResult fetchDataSync(
             TNetworkAddress address, InternalService.PFetchDataRequest request) throws RpcException {
         try {

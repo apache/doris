@@ -24,6 +24,7 @@
 #include "olap/iterators.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
+#include "rapidjson/document.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
@@ -167,21 +168,46 @@ Status ParquetReader::_open_file() {
     return Status::OK();
 }
 
+// Get iceberg col id to col name map stored in parquet metadata key values.
+// This is for iceberg schema evolution.
+std::vector<tparquet::KeyValue> ParquetReader::get_metadata_key_values() {
+    return _t_metadata->key_value_metadata;
+}
+
+Status ParquetReader::open() {
+    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
+    RETURN_IF_ERROR(_open_file());
+    _t_metadata = &_file_metadata->to_thrift();
+    return Status::OK();
+}
+
 Status ParquetReader::init_reader(
-        const std::vector<std::string>& column_names,
+        const std::vector<std::string>& all_column_names,
+        const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         VExprContext* vconjunct_ctx, bool filter_groups) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    RETURN_IF_ERROR(_open_file());
-    _column_names = &column_names;
-    _t_metadata = &_file_metadata->to_thrift();
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
         return Status::EndOfFile("Empty Parquet File");
     }
+    // all_column_names are all the columns required by user sql.
+    // missing_column_names are the columns required by user sql but not in the parquet file,
+    // e.g. table added a column after this parquet file was written.
+    _column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < schema_desc.size(); ++i) {
-        _map_column.emplace(schema_desc.get_column(i)->name, i);
+        auto name = schema_desc.get_column(i)->name;
+        // If the column in parquet file is included in all_column_names and not in missing_column_names,
+        // add it to _map_column, which means the reader should read the data of this column.
+        // Here to check against missing_column_names is to for the 'Add a column with back to the table
+        // with the same column name' case. Shouldn't read this column data in this case.
+        if (find(all_column_names.begin(), all_column_names.end(), name) !=
+                    all_column_names.end() &&
+            find(missing_column_names.begin(), missing_column_names.end(), name) ==
+                    missing_column_names.end()) {
+            _map_column.emplace(name, i);
+        }
     }
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
@@ -199,7 +225,12 @@ Status ParquetReader::set_fill_columns(
     std::unordered_map<std::string, uint32_t> predicate_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
-            predicate_columns.emplace(slot_ref->expr_name(), slot_ref->column_id());
+            auto expr_name = slot_ref->expr_name();
+            auto iter = _table_col_to_file_col.find(expr_name);
+            if (iter != _table_col_to_file_col.end()) {
+                expr_name = iter->second;
+            }
+            predicate_columns.emplace(expr_name, slot_ref->column_id());
             if (slot_ref->column_id() == 0) {
                 _lazy_read_ctx.resize_first_column = false;
             }

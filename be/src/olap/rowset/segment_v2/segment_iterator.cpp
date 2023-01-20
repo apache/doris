@@ -584,8 +584,9 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         if (!res.ok()) {
-            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                pred->type() != PredicateType::MATCH) {
+            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                 pred->type() != PredicateType::MATCH) ||
+                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
                 // downgrade without index query
                 continue;
             }
@@ -655,8 +656,9 @@ Status SegmentIterator::_apply_inverted_index() {
             Status res = pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(),
                                         &bitmap);
             if (!res.ok()) {
-                if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                    pred->type() != PredicateType::MATCH) {
+                if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                     pred->type() != PredicateType::MATCH) ||
+                    res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
                     //downgrade without index query
                     remaining_predicates.push_back(pred);
                     continue;
@@ -689,6 +691,7 @@ Status SegmentIterator::_init_return_column_iterators() {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
+
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_opts.tablet_schema->column(cid).name() == BeConsts::ROWID_COL) {
@@ -1278,6 +1281,7 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
     for (size_t i = 0; i < select_size; ++i) {
         rowids[i] = rowid_vector[sel_rowid_idx[i]];
     }
+
     for (auto cid : read_column_ids) {
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_rowids(
                 rowids.data(), select_size, _current_return_columns[cid]));

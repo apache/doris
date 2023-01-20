@@ -53,6 +53,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
@@ -60,13 +61,14 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/tablet_schema.h"
 #include "segment_loader.h"
+#include "util/defer_op.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
 #include "util/trace.h"
 #include "vec/data_types/data_type_factory.hpp"
-
+#include "vec/jsonb/serialize.h"
 namespace doris {
 using namespace ErrorCode;
 
@@ -1918,6 +1920,66 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
 
 TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mutex>&) {
     return _max_version_schema;
+}
+
+Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescriptor* desc,
+                               vectorized::Block* block) {
+    // read row data
+    BetaRowsetSharedPtr rowset =
+            std::static_pointer_cast<BetaRowset>(get_rowset(row_location.rowset_id));
+    if (!rowset) {
+        return Status::NotFound(
+                fmt::format("rowset {} not found", row_location.rowset_id.to_string()));
+    }
+
+    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+    SegmentCacheHandle segment_cache;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+    // find segment
+    auto it = std::find_if(segment_cache.get_segments().begin(), segment_cache.get_segments().end(),
+                           [&row_location](const segment_v2::SegmentSharedPtr& seg) {
+                               return seg->id() == row_location.segment_id;
+                           });
+    if (it == segment_cache.get_segments().end()) {
+        return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
+                                            row_location.rowset_id.to_string(),
+                                            row_location.segment_id));
+    }
+    // read from segment column by column, row by row
+    segment_v2::SegmentSharedPtr segment = *it;
+    size_t row_size = 0;
+    MonotonicStopWatch watch;
+    watch.start();
+    Defer _defer([&]() {
+        LOG_EVERY_N(INFO, 500) << "get a single_row, cost(us):" << watch.elapsed_time() / 1000
+                               << ", row_size:" << row_size;
+    });
+    // TODO(lhy) too long, refacor
+    if (tablet_schema->store_row_column()) {
+        // create _source column
+        segment_v2::ColumnIterator* column_iterator = nullptr;
+        RETURN_IF_ERROR(segment->new_row_column_iterator(&column_iterator));
+        std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
+        segment_v2::ColumnIteratorOptions opt;
+        OlapReaderStatistics stats;
+        opt.file_reader = segment->file_reader().get();
+        opt.stats = &stats;
+        opt.use_page_cache = !config::disable_storage_page_cache;
+        column_iterator->init(opt);
+        // get and parse tuple row
+        vectorized::MutableColumnPtr column_ptr =
+                vectorized::DataTypeFactory::instance()
+                        .create_data_type(TabletSchema::row_oriented_column())
+                        ->create_column();
+        std::vector<segment_v2::rowid_t> rowids {
+                static_cast<segment_v2::rowid_t>(row_location.row_id)};
+        RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
+        assert(column_ptr->size() == 1);
+        auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
+        vectorized::JsonbSerializeUtil::jsonb_to_block(*desc, *string_column, *block);
+        return Status::OK();
+    }
+    __builtin_unreachable();
 }
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,

@@ -64,7 +64,7 @@ public class SimpleScheduler {
                                           Reference<Long> backendIdRef)
             throws UserException {
         if (CollectionUtils.isEmpty(locations) || backends == null || backends.isEmpty()) {
-            throw new UserException("scan range location or candidate backends is empty");
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
         LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
         Backend backend = backends.get(backendId);
@@ -134,8 +134,8 @@ public class SimpleScheduler {
         Map.Entry<Long, Backend> backendEntry = backends.entrySet().stream().skip(id).filter(
                 e -> isAvailable(e.getValue())).findFirst().orElse(null);
         if (backendEntry == null && id > 0) {
-            backendEntry = backends.entrySet().stream().filter(
-                e -> isAvailable(e.getValue())).limit(id).findFirst().orElse(null);
+            backendEntry = backends.entrySet().stream().limit(id).filter(
+                e -> isAvailable(e.getValue())).findFirst().orElse(null);
         }
         if (backendEntry != null) {
             Backend backend = backendEntry.getValue();

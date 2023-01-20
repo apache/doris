@@ -53,19 +53,20 @@ public class InternalSchemaInitializer extends Thread {
     /**
      * If internal table creation failed, will retry after below seconds.
      */
-    public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 1;
+    public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
     public void run() {
         if (FeConstants.disableInternalSchemaDb) {
             return;
         }
         while (!created()) {
-            FrontendNodeType feType = Env.getCurrentEnv().getFeType();
-            if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
-                LOG.warn("FE is not ready");
-                continue;
-            }
             try {
+                FrontendNodeType feType = Env.getCurrentEnv().getFeType();
+                if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
+                    LOG.warn("FE is not ready");
+                    Thread.sleep(5000);
+                    continue;
+                }
                 Thread.currentThread()
                         .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
                 createDB();
@@ -74,7 +75,7 @@ public class InternalSchemaInitializer extends Thread {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
             }
         }
-        LOG.info("Internal schema initiated");
+        LOG.info("Internal schema is initialized");
     }
 
     private void createTbl() throws UserException {
@@ -222,3 +223,4 @@ public class InternalSchemaInitializer extends Thread {
     }
 
 }
+

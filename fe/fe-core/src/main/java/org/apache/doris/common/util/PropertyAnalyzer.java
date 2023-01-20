@@ -119,6 +119,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -484,6 +486,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_DISABLE_AUTO_COMPACTION
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeStoreRowColumn(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_STORE_ROW_COLUMN);
+        // set store_row_column false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_STORE_ROW_COLUMN);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN
                 + " must be `true` or `false`");
     }
 

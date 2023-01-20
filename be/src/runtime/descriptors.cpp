@@ -252,14 +252,15 @@ std::string JdbcTableDescriptor::debug_string() const {
     return fmt::to_string(buf);
 }
 
-TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
+TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
           _table_desc(nullptr),
           _byte_size(tdesc.byteSize),
           _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
           _slots(),
-          _has_varlen_slots(false) {
+          _has_varlen_slots(false),
+          _own_slots(own_slots) {
     if (false == tdesc.__isset.numNullSlots) {
         //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;
@@ -268,14 +269,15 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
     }
 }
 
-TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
+TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
         : _id(pdesc.id()),
           _table_desc(nullptr),
           _byte_size(pdesc.byte_size()),
           _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
           _slots(),
-          _has_varlen_slots(false) {
+          _has_varlen_slots(false),
+          _own_slots(own_slots) {
     if (!pdesc.has_num_null_slots()) {
         //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;

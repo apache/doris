@@ -491,20 +491,24 @@ Status VFileScanner::_get_next_reader() {
             ParquetReader* parquet_reader = new ParquetReader(
                     _profile, _params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get());
+            RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }
-            init_status = parquet_reader->init_reader(_file_col_names, _colname_to_value_range,
-                                                      _push_down_expr);
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
+                iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
+                                            _colname_to_value_range, _push_down_expr);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
+                std::vector<std::string> place_holder;
+                init_status = parquet_reader->init_reader(_file_col_names, place_holder,
+                                                          _colname_to_value_range, _push_down_expr);
                 _cur_reader.reset((GenericReader*)parquet_reader);
             }
             break;
@@ -646,10 +650,10 @@ Status VFileScanner::_init_expr_ctxes() {
         }
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
-            auto iti = full_src_index_map.find(slot_id);
-            _file_slot_index_map.emplace(slot_id, iti->second);
-            _file_slot_name_map.emplace(it->second->col_name(), iti->second);
             _file_col_names.push_back(it->second->col_name());
+            if (it->second->col_unique_id() > 0) {
+                _col_id_name_map.emplace(it->second->col_unique_id(), it->second->col_name());
+            }
         } else {
             _partition_slot_descs.emplace_back(it->second);
             if (_is_load) {

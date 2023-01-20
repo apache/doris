@@ -464,7 +464,7 @@ Status VFileResultWriter::_send_result() {
     // FileNumber, TotalRows, FileSize and URL
     // The type of these field should be consistent with types defined
     // in OutFileClause.java of FE.
-    MysqlRowBuffer row_buffer;
+    MysqlRowBuffer<> row_buffer;
     row_buffer.push_int(_file_idx);                         // file number
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
