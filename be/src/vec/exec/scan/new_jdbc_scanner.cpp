@@ -114,6 +114,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
 
     if (_jdbc_eos == true) {
         *eof = true;
+        _update_profile();
         return Status::OK();
     }
 
@@ -139,6 +140,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
 
         if (_jdbc_eos == true) {
             if (block->rows() == 0) {
+                _update_profile();
                 *eof = true;
             }
             break;
@@ -161,9 +163,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     return Status::OK();
 }
 
-Status NewJdbcScanner::close(RuntimeState* state) {
-    RETURN_IF_ERROR(VScanner::close(state));
-    RETURN_IF_ERROR(_jdbc_connector->close());
+void NewJdbcScanner::_update_profile() {
     JdbcConnector::JdbcStatistic& jdbc_statistic = _jdbc_connector->get_jdbc_statistic();
     COUNTER_UPDATE(_load_jar_timer, jdbc_statistic._load_jar_timer);
     COUNTER_UPDATE(_init_connector_timer, jdbc_statistic._init_connector_timer);
@@ -171,6 +171,11 @@ Status NewJdbcScanner::close(RuntimeState* state) {
     COUNTER_UPDATE(_get_data_timer, jdbc_statistic._get_data_timer);
     COUNTER_UPDATE(_execte_read_timer, jdbc_statistic._execte_read_timer);
     COUNTER_UPDATE(_connector_close_timer, jdbc_statistic._connector_close_timer);
+}
+
+Status NewJdbcScanner::close(RuntimeState* state) {
+    RETURN_IF_ERROR(VScanner::close(state));
+    RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();
 }
 } // namespace doris::vectorized
