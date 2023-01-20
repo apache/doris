@@ -216,6 +216,30 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);	
 	```
 
+	**SQLServer**
+	```sql
+	-- The first way
+	CREATE RESOURCE sqlserver_resource PROPERTIES (
+		"type"="jdbc",
+		"user"="SA",
+		"password"="Doris123456",
+		"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+		"driver_url" = "file:/path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+	);
+	CREATE CATALOG sqlserver_catlog WITH RESOURCE sqlserver_resource;
+
+	-- The second way, note: keys have 'jdbc' prefix in front.
+	CREATE CATALOG sqlserver_catlog PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="SA",
+		"jdbc.password"="Doris123456",
+		"jdbc.jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+		"jdbc.driver_url" = "file:/path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"jdbc.driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+	);	
+	```
+
 ### Keywords
 
 CREATE, CATALOG

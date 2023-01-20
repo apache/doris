@@ -38,7 +38,7 @@ suite("test_pg_jdbc_catalog", "p0") {
             "driver_class" = "org.postgresql.Driver"
         );"""
 
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE jdbc_resource_catalog_pg"""
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
 
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -74,7 +74,7 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test14  """ select * from test12 order by id; """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists jdbc_resource_catalog_pg"""
+        sql """drop resource if exists ${resource_name}"""
 
         // test old create-catalog syntax for compatibility
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -86,9 +86,9 @@ suite("test_pg_jdbc_catalog", "p0") {
             "jdbc.driver_class" = "org.postgresql.Driver");
         """
 
-        sql """switch ${catalog_name}"""
-        sql """use ${ex_schema_name}"""
+        sql """ switch ${catalog_name} """
+        sql """ use ${ex_schema_name} """
         order_qt_test_old  """ select * from test3 order by id; """
-        sql """drop resource if exists jdbc_resource_catalog_pg"""
+        sql """ drop catalog if exists ${catalog_name} """
     }
 }
