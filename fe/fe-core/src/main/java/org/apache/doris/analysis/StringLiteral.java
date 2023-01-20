@@ -41,6 +41,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
@@ -291,5 +292,19 @@ public class StringLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        if (strLen > data.remaining()) {
+            strLen = data.remaining();
+        }
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        value = new String(bytes);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("parsed value '{}'", value);
+        }
     }
 }

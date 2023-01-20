@@ -32,7 +32,10 @@ typedef unsigned char uchar;
         *(T + 1) = (uchar)(((uint32_t)(A) >> 8)); \
         *(T + 2) = (uchar)(((A) >> 16));          \
     } while (0)
+#define int4store(T, A) *((uint32_t*)(T)) = (uint32_t)(A)
 #define int8store(T, A) *((int64_t*)(T)) = (uint64_t)(A)
+#define float4store(T, A) *((float*)(T)) = (float)(A)
+#define float8store(T, A) *((double*)(T)) = (double)(A)
 
 #define MY_ALIGN(A, L) (((A) + (L)-1) & ~((L)-1))
 #define SIZEOF_CHARP 8

@@ -1005,7 +1005,8 @@ public class RestoreJob extends AbstractJob {
                             null,
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
-                            localTbl.disableAutoCompaction());
+                            localTbl.disableAutoCompaction(),
+                            localTbl.storeRowColumn());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);

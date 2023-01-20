@@ -35,6 +35,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -460,6 +461,30 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     return Status::OK();
 }
 
+Status BetaRowsetWriter::_append_row_column(vectorized::Block* block,
+                                            vectorized::Block* dst_block) {
+    MonotonicStopWatch watch;
+    watch.start();
+    *dst_block = block->clone_empty();
+    dst_block->swap(*block);
+    if (!dst_block->has(BeConsts::SOURCE_COL)) {
+        auto string_type = std::make_shared<vectorized::DataTypeString>();
+        auto source_column = string_type->create_column();
+        dst_block->insert({std::move(source_column), string_type, BeConsts::SOURCE_COL});
+    }
+    auto column =
+            static_cast<vectorized::ColumnString*>(dst_block->get_by_name(BeConsts::SOURCE_COL)
+                                                           .column->assume_mutable_ref()
+                                                           .assume_mutable()
+                                                           .get());
+    vectorized::JsonbSerializeUtil::block_to_jsonb(*_context.tablet_schema, *dst_block, *column,
+                                                   _context.tablet_schema->num_columns());
+    VLOG_DEBUG << "serialize , num_rows:" << dst_block->rows()
+               << ", total_byte_size:" << dst_block->allocated_bytes() << ", serialize_cost(us)"
+               << watch.elapsed_time() / 1000;
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
                                                        bool is_last) {
     if (is_last) {
@@ -548,6 +573,12 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
                                     std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+    std::unique_ptr<vectorized::Block> temp;
+    if (_context.tablet_schema->store_row_column()) {
+        temp.reset(new vectorized::Block);
+        RETURN_IF_ERROR(_append_row_column(const_cast<vectorized::Block*>(block), temp.get()));
+        block = temp.get();
+    }
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
@@ -859,6 +890,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
 
     if (is_segcompaction) {
         writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segcompacted,
@@ -883,6 +915,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);
         return s;
+    }
+    if (_context.tablet_schema->store_row_column()) {
+        (*writer)->append_row_column_writer();
     }
     return Status::OK();
 }
