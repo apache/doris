@@ -112,9 +112,7 @@ suite("test_join_nereids") {
     def baseall_count = sql "select count(*) from ${dbName}.baseall"
     assertEquals(16, baseall_count[0][0])
     def test_count = sql "select count(*) from ${dbName}.test"
-    assertEquals(3, test_count[0][0])  
-
-    sql"use test_query_db"
+    assertEquals(3, test_count[0][0])
 
     def tbName1 = "test"
     def tbName2 = "baseall"

@@ -929,7 +929,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (nestedLoopJoin.getStats() != null) {
                 nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
             }
-            boolean needNewRootFragment = leftFragment.getPlanRoot() instanceof ExchangeNode;
+            boolean needNewRootFragment = nestedLoopJoin.child(0) instanceof PhysicalDistribute;
             PlanFragment joinFragment;
             if (needNewRootFragment) {
                 joinFragment = new PlanFragment(context.nextFragmentId(), nestedLoopJoinNode,
