@@ -21,6 +21,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -122,8 +123,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // change key when encounter alias.
         project.getProjects().stream().filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
-                .filter(alias -> alias.child() instanceof NamedExpression
-                        && aliasTransferMap.containsKey((NamedExpression) alias.child()))
+                .filter(alias -> {
+                    Expression expr = alias.child();
+                    if (expr instanceof Cast) {
+                        expr = ((Cast) expr).child();
+                    }
+                    return expr instanceof NamedExpression
+                            && aliasTransferMap.containsKey((NamedExpression) expr);
+                })
                 .forEach(alias -> {
                     NamedExpression child = ((NamedExpression) alias.child());
                     aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(child));
