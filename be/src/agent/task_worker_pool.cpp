@@ -268,6 +268,10 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
+    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY) {
+        // no need to report task of these types
+        return true;
+    }
     std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
     std::set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
@@ -282,9 +286,7 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
         queue_size = signature_set.size();
     }
 
-    std::string type_str;
-    EnumToString(TTaskType, task_type, type_str);
-    VLOG_NOTICE << "remove task info. type=" << type_str << ", signature=" << signature
+    VLOG_NOTICE << "remove task info. type=" << task_type << ", signature=" << signature
                 << ", queue_size=" << queue_size;
     TRACE("remove task info");
 }
@@ -1655,11 +1657,10 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
                 std::shared_ptr<io::S3FileSystem> s3_fs;
                 if (existed_resource.fs == nullptr) {
-                    s3_fs = io::S3FileSystem::create(std::move(s3_conf),
-                                                     std::to_string(resource.id));
+                    s3_fs = io::S3FileSystem::create(s3_conf, std::to_string(resource.id));
                 } else {
                     s3_fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                    s3_fs->set_conf(std::move(s3_conf));
+                    s3_fs->set_conf(s3_conf);
                 }
                 auto st = s3_fs->connect();
                 if (!st.ok()) {
@@ -1690,14 +1691,12 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 storage_policy1->cooldown_datetime = storage_policy.cooldown_datetime;
                 storage_policy1->cooldown_ttl = storage_policy.cooldown_ttl;
                 storage_policy1->resource_id = storage_policy.resource_id;
-                LOG_INFO("successfully update s3 resource")
+                LOG_INFO("successfully update storage policy")
                         .tag("storage_policy_id", storage_policy.id)
                         .tag("storage_policy", storage_policy1->to_string());
                 put_storage_policy(storage_policy.id, std::move(storage_policy1));
             }
         }
-
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }
 

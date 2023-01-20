@@ -30,8 +30,8 @@ struct StoragePolicy {
 
     std::string to_string() const {
         return fmt::format(
-                "name={}, version={}, cooldown_date_time={}, cooldown_ttl={}, resource_id={}", name,
-                version, cooldown_datetime, cooldown_ttl, resource_id);
+                "(name={}, version={}, cooldown_date_time={}, cooldown_ttl={}, resource_id={})",
+                name, version, cooldown_datetime, cooldown_ttl, resource_id);
     }
 };
 

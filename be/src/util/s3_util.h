@@ -58,8 +58,8 @@ struct S3Conf {
 
     std::string to_string() const {
         return fmt::format(
-                "ak={}, sk=*, endpoint={}, region={}, bucket={}, prefix={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}",
+                "(ak={}, sk=*, endpoint={}, region={}, bucket={}, prefix={}, max_connections={}, "
+                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={})",
                 ak, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
                 connect_timeout_ms, use_virtual_addressing);
     }
