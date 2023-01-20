@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -174,6 +175,11 @@ public class OlapScanNode extends ScanNode {
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
+    boolean isFromPrepareStmt = false;
+    // For point query
+    private Map<SlotRef, Expr> pointQueryEqualPredicats;
+    private DescriptorTable descTable;
+
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
@@ -202,6 +208,10 @@ public class OlapScanNode extends ScanNode {
         return sampleTabletIds;
     }
 
+    public HashSet<Long> getScanBackendIds() {
+        return scanBackendIds;
+    }
+
     public void setSampleTabletIds(List<Long> sampleTablets) {
         if (sampleTablets != null) {
             this.sampleTabletIds.addAll(sampleTablets);
@@ -227,6 +237,10 @@ public class OlapScanNode extends ScanNode {
 
     public boolean getForceOpenPreAgg() {
         return forceOpenPreAgg;
+    }
+
+    public ArrayList<Long> getScanTabletIds() {
+        return scanTabletIds;
     }
 
     public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
@@ -457,8 +471,12 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        computeColumnFilter();
-        computePartitionInfo();
+        // lazy evaluation, since stmt is a prepared statment
+        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
+        if (!isFromPrepareStmt) {
+            computeColumnFilter();
+            computePartitionInfo();
+        }
         computeTupleState(analyzer);
         computeSampleTabletIds();
 
@@ -514,11 +532,16 @@ public class OlapScanNode extends ScanNode {
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
             cardinality = 0;
         }
-        try {
-            getScanRangeLocations();
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
+
+        // prepare stmt evaluate lazily in Coordinator execute
+        if (!isFromPrepareStmt) {
+            try {
+                getScanRangeLocations();
+            } catch (AnalysisException e) {
+                throw new UserException(e.getMessage());
+            }
         }
+
         // Relatively accurate cardinality according to ScanRange in
         // getScanRangeLocations
         computeStats(analyzer);
@@ -845,6 +868,22 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    public boolean isFromPrepareStmt() {
+        return this.isFromPrepareStmt;
+    }
+
+    public void setPointQueryEqualPredicates(Map<SlotRef, Expr> predicates) {
+        this.pointQueryEqualPredicats = predicates;
+    }
+
+    public Map<SlotRef, Expr> getPointQueryEqualPredicates() {
+        return this.pointQueryEqualPredicats;
+    }
+
+    public boolean isPointQuery() {
+        return this.pointQueryEqualPredicats != null;
+    }
+
     private void computeTabletInfo() throws UserException {
         /**
          * The tablet info could be computed only once.
@@ -925,6 +964,31 @@ public class OlapScanNode extends ScanNode {
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return result;
+    }
+
+    // Only called when Coordinator exec in point query
+    public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
+        // Lazy evaluation
+        selectedIndexId = olapTable.getBaseIndexId();
+        // TODO(lhy) this function is a heavy operation for point query
+        computeColumnFilter();
+        computePartitionInfo();
+        scanBackendIds.clear();
+        scanTabletIds.clear();
+        try {
+            getScanRangeLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+        return result;
+    }
+
+    public void setDescTable(DescriptorTable descTable) {
+        this.descTable = descTable;
+    }
+
+    public DescriptorTable getDescTable() {
+        return this.descTable;
     }
 
     @Override

@@ -77,6 +77,8 @@ public class TableProperty implements Writable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean storeRowColumn = false;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -163,6 +165,16 @@ public class TableProperty implements Writable {
 
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+    public TableProperty buildStoreRowColumn() {
+        storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        return this;
+    }
+
+    public boolean storeRowColumn() {
+        return storeRowColumn;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -317,7 +329,8 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildEnableLightSchemaChange();
+                .buildEnableLightSchemaChange()
+                .buildStoreRowColumn();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

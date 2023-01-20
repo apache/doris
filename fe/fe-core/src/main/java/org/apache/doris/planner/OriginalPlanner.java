@@ -51,6 +51,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The planner is responsible for turning parse trees into plan fragments that can be shipped off to backends for
@@ -142,11 +143,9 @@ public class OriginalPlanner extends Planner {
         } else {
             queryStmt = (QueryStmt) statement;
         }
-
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
-
         // TODO change to vec should happen after distributed planner
         if (VectorizedUtil.isVectorized()) {
             singleNodePlan.convertToVectorized();
@@ -200,7 +199,7 @@ public class OriginalPlanner extends Planner {
             checkTopnOpt(singleNodePlan);
         }
 
-        if (queryOptions.num_nodes == 1) {
+        if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
@@ -263,7 +262,22 @@ public class OriginalPlanner extends Planner {
                 isBlockQuery = false;
                 LOG.debug("this isn't block query");
             }
-            if (selectStmt.checkEnableTwoPhaseRead(analyzer)) {
+            // Check SelectStatement if optimization condition satisfied
+            if (selectStmt.checkAndSetPointQuery()) {
+                // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
+                // such query will use direct RPC to do point query
+                LOG.debug("it's a point query");
+                Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
+                OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
+                olapScanNode.setDescTable(analyzer.getDescTbl());
+                olapScanNode.setPointQueryEqualPredicates(eqConjuncts);
+                if (analyzer.getPrepareStmt() != null) {
+                    // Cache them for later request better performance
+                    analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
+                    analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
+                }
+            } else if (selectStmt.checkEnableTwoPhaseRead(analyzer)) {
+                // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
                 injectRowIdColumnSlot();
             }
         }

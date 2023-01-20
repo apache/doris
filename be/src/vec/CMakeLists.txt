@@ -234,6 +234,7 @@ set(VEC_FILES
   functions/function_width_bucket.cpp
   functions/match.cpp
   
+  jsonb/serialize.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

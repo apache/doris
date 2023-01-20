@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -245,6 +246,8 @@ public class Coordinator {
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
 
+    private boolean isPointQuery = false;
+    private PointQueryExec pointExec = null;
 
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
@@ -252,7 +255,33 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = planner.getDescTable().toThrift();
+
+        if (this.scanNodes.size() == 1 && this.scanNodes.get(0) instanceof OlapScanNode) {
+            OlapScanNode olapScanNode = (OlapScanNode) (this.scanNodes.get(0));
+            isPointQuery = olapScanNode.isPointQuery();
+            if (isPointQuery) {
+                PlanFragment fragment = fragments.get(0);
+                LOG.debug("execPointGet fragment {}", fragment);
+                OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
+                Preconditions.checkNotNull(planRoot);
+                pointExec = new PointQueryExec(planRoot.getPointQueryEqualPredicates(),
+                                                planRoot.getDescTable(), fragment.getOutputExprs());
+            }
+        }
+        PrepareStmt prepareStmt = analyzer.getPrepareStmt();
+        if (prepareStmt != null) {
+            // Used cached or better performance
+            this.descTable = prepareStmt.getDescTable();
+            if (pointExec != null) {
+                pointExec.setCacheID(prepareStmt.getID());
+                pointExec.setSerializedDescTable(prepareStmt.getSerializedDescTable());
+                pointExec.setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
+                pointExec.setBinaryProtocol(prepareStmt.isBinaryProtocol());
+            }
+        } else {
+            this.descTable = planner.getDescTable().toThrift();
+        }
+
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
@@ -559,8 +588,17 @@ public class Coordinator {
         for (TUniqueId instanceId : instanceIds) {
             profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
         }
-
-        sendFragment();
+        if (!isPointQuery) {
+            sendFragment();
+        } else {
+            OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
+            Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
+            Long backendId = planRoot.getScanBackendIds().iterator().next();
+            Backend backend = this.idToBackend.get(backendId);
+            TNetworkAddress execBeAddr = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            pointExec.setAddressAndBackendID(toBrpcHost(execBeAddr), backendId);
+            pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
+        }
     }
 
     /**
@@ -897,10 +935,15 @@ public class Coordinator {
         RowBatch resultBatch;
         Status status = new Status();
 
-        resultBatch = receiver.getNext(status);
+        if (!isPointQuery) {
+            resultBatch = receiver.getNext(status);
+        } else {
+            resultBatch = pointExec.getNext(status);
+        }
         if (!status.ok()) {
             LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
         }
+
         updateStatus(status, null /* no instance id */);
 
         Status copyStatus = null;
@@ -969,6 +1012,10 @@ public class Coordinator {
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
             receiver.cancel();
+        }
+        if (null != pointExec) {
+            pointExec.cancel();
+            return;
         }
         cancelRemoteFragmentsAsync(cancelReason);
         if (profileDoneSignal != null) {
@@ -1548,11 +1595,19 @@ public class Coordinator {
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
-            // the parameters of getScanRangeLocations may ignore, It doesn't take effect
-            List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(0);
-            if (locations == null) {
-                // only analysis olap scan node
-                continue;
+            List<TScanRangeLocations> locations;
+            if (isPointQuery) {
+                // Fast path for evaluate Backend for point query
+                locations = ((OlapScanNode) scanNode).lazyEvaluateRangeLocations();
+                Preconditions.checkNotNull(locations);
+                return;
+            } else {
+                // the parameters of getScanRangeLocations may ignore, It doesn't take effect
+                locations = scanNode.getScanRangeLocations(0);
+                if (locations == null) {
+                    // only analysis olap scan node
+                    continue;
+                }
             }
 
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),

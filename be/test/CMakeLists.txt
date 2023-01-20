@@ -306,6 +306,7 @@ set(VEC_TEST_FILES
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
     #vec/olap/vertical_compaction_test.cpp
+    vec/jsonb/serialize_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}

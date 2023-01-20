@@ -439,6 +439,8 @@ public class Env {
 
     private FQDNManager fqdnManager;
 
+    private AtomicLong stmtIdCounter;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -554,6 +556,7 @@ public class Env {
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
 
         this.replayedJournalId = new AtomicLong(0L);
+        this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
         this.synchronizedTimeMs = 0;
         this.feType = FrontendNodeType.INIT;
@@ -2918,6 +2921,12 @@ public class Env {
                 }
             }
 
+            // store row column
+            if (olapTable.storeRowColumn()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+                sb.append(olapTable.storeRowColumn()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -3238,6 +3247,11 @@ public class Env {
     // Get the next available, needn't lock because of nextId is atomic.
     public long getNextId() {
         return idGenerator.getNextId();
+    }
+
+    // counter for prepared statement id
+    public long getNextStmtId() {
+        return this.stmtIdCounter.getAndIncrement();
     }
 
     public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
