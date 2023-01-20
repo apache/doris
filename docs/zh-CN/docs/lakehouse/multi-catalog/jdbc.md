@@ -189,6 +189,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | decimal | DECIMAL | |
 | float/real | DOUBLE | |
 | DATE | DATETIME | |
+| TIMESTAMP | DATETIME | |
 | CHAR/NCHAR | STRING | |
 | VARCHAR2/NVARCHAR2 | STRING | |
 | LONG/ RAW/ LONG RAW/ INTERVAL | STRING | |
