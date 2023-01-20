@@ -60,7 +60,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
         column_desc->get_sub_field(0)->from_string(buf, _value);
         s = iterator->read_from_inverted_index(column_desc->name(), buf, inverted_index_query_type,
-                                               num_rows, &roaring);
+                                               num_rows, &roaring, true);
     }
     *bitmap &= roaring;
     return s;
