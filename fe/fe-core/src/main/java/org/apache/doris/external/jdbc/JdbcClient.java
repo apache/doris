@@ -570,6 +570,11 @@ public class JdbcClient {
         String oracleType = fieldSchema.getDataTypeName();
         if (oracleType.startsWith("INTERVAL")) {
             oracleType = oracleType.substring(0, 8);
+        } else if (oracleType.startsWith("TIMESTAMP")) {
+            if (oracleType.equals("TIMESTAMPTZ") || oracleType.equals("TIMESTAMPLTZ")) {
+                return Type.UNSUPPORTED;
+            }
+            return ScalarType.getDefaultDateType(Type.DATETIME);
         }
         switch (oracleType) {
             case "NUMBER":
