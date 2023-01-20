@@ -29,7 +29,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
@@ -172,7 +171,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
 
         // 3. find merge cross the clause
-        if (analyzer.getContext() != null && clauseType == ClauseType.WHERE_CLAUSE
+        if (analyzer.getContext() != null
                 && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
             Expr wideCommonExpr = findWideRangeExpr(clearExprs);
             if (wideCommonExpr != null && !(wideCommonExpr instanceof CompoundPredicate
