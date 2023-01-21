@@ -38,9 +38,7 @@ public:
                   int64_t range_start_offset, int64_t range_size, bool case_sensitive = true);
     ~ORCReaderWrap() override = default;
 
-    Status init_reader(const TupleDescriptor* tuple_desc,
-                       const std::vector<ExprContext*>& conjunct_ctxs,
-                       const std::string& timezone) override;
+    Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) override;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
