@@ -306,12 +306,6 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     auto node_type = node->type();
     switch (node_type) {
     // for source
-    case TPlanNodeType::BROKER_SCAN_NODE: {
-        OperatorBuilderPtr operator_t =
-                std::make_shared<BrokerScanOperatorBuilder>(next_operator_builder_id(), node);
-        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
-        break;
-    }
     case TPlanNodeType::OLAP_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::ODBC_SCAN_NODE:
